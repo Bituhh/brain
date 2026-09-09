@@ -13,6 +13,7 @@
 
 pub mod homeostatic;
 pub mod stdp;
+pub mod structural;
 pub mod three_factor;
 
 /// Local, read-only snapshot of one neuron's plasticity-relevant state --

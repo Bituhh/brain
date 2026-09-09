@@ -13,6 +13,7 @@
 
 pub mod arena;
 pub mod graph;
+pub mod growth;
 pub mod ids;
 pub mod inhibition;
 pub mod metrics;
