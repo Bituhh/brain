@@ -303,7 +303,7 @@ Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (lat
 | RUN-1a | M   | **Tick = 0.1 ms by default.** Sized from STDP resolution, not from spike width: a ±20 ms STDP window quantised to 1 ms gives only 20 bins per side, and timing precision is the entire mechanism. 1 ms remains valid as a speed-over-fidelity setting.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | RUN-1b | M   | Time is a **fixed grid, not a global priority queue.** Continuous real-valued timestamps would need one global ordering point — exactly the synchronisation barrier the brain lacks, and the thing that would break RUN-4/RUN-5. A fixed grid lets each partition advance independently, because nothing can arrive from another partition with a timestamp earlier than `t + min_delay`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | RUN-2 | M | **Structure-of-arrays memory layout** — flat `Vec<f32>` / `Vec<u32>` / `Vec<u8>` arenas indexed by integer id, exposed across the FFI boundary as `Float32Array`/`Uint32Array` views (ENG-8). No struct-per-neuron and no struct-per-synapse in the hot path. This is the single most important performance decision, and it is also what keeps the Rust core free of ownership complexity (ENG-2). |
-| RUN-3 | M | Deterministic and reproducible from a seed: own PRNG (PCG or xorshift128+), no ambient randomness anywhere in the engine, stable iteration order. Determinism must hold across single-threaded and multi-threaded runs. |
+| RUN-3 | M | Deterministic and reproducible from a seed: own PRNG (PCG or xorshift128+), no ambient randomness anywhere in the engine, stable iteration order. Determinism must hold across single-threaded and multi-threaded runs, and across a change in the number of threads or in how the graph is partitioned — which rules out per-thread generators. See §12a(3): this is stricter than NEST provides and constrains the PRNG construction, so it is a Phase 0 decision. |
 | RUN-4 | M | **Partitioned parallelism**: the graph is partitioned into regions, one per native thread (rayon or a hand-rolled pool). Each thread exclusively owns its neurons’ state — no shared mutable neuron data, so no locking on the hot path. |
 | RUN-5 | M | Cross-partition spikes are delivered as messages into per-partition inboxes. **Axonal delay absorbs message latency** — a spike with ≥2 ticks of delay can cross a partition boundary with no synchronisation barrier. This is why the design scales. |
 | RUN-6 | M | The little genuinely shared state there is — the neuromodulator field and aggregate metrics — uses atomics. Neuron state is never shared across threads. |
@@ -397,6 +397,8 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
   a thin TS wrapper proving the zero-copy boundary. **[R]** PRNG, SoA arena, tick scheduler,
   LIF neuron, delayed spike queue. **[T]** a script that builds a network and steps it.
   Test: a single neuron fires correctly under constant current, driven from TypeScript.
+  **Blocking decision:** how randomness is indexed (§12a(3)). A per-thread generator cannot
+  satisfy RUN-3, and every later call site inherits whatever is chosen here.
 - **Phase 1 — network.** **[R]** Graph builder and connectivity policies, Dale's principle,
   local inhibition / k-WTA. Test: VAL-2(a), sparsity holds.
 - **Phase 2 — learning.** **[R]** STDP, eligibility traces, three-factor rule, homeostatic
@@ -469,6 +471,21 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
    each own a fixed partition for the whole run — closer to a pinned actor model. Decide at
    Phase 4 with a benchmark; the single-threaded reference path (RUN-8) is unaffected either
    way.
+3. **How randomness is indexed — decide before Phase 0.** RUN-3 requires determinism across
+   single-threaded and multi-threaded runs, and RUN-9a requires a snapshot round-trip to be
+   bit-identical. Together those are stricter than the state of the art: NEST guarantees
+   reproducibility only for a *fixed* number of virtual processes, because each VP owns its own
+   generator, so changing the thread count changes the results (§13.10). Meeting RUN-3 as written
+   means no stochastic decision may depend on which thread made it or on how the graph was
+   partitioned — randomness has to be indexed by something stable under repartitioning and
+   across a save/load, i.e. a **counter-based stream keyed by (entity id, purpose, tick)** rather
+   than a per-thread generator advanced by use. That is a solved problem in the abstract
+   (counter-based PRNGs exist for exactly this) but it constrains RUN-3's PCG-or-xorshift choice,
+   it changes what "PRNG state" means in RUN-9's snapshot, and it has to be true at every call
+   site that consumes randomness — topology generation, delay draws, sprouting candidates in
+   LRN-7, any stochastic firing. Retrofitting it at Phase 4 means revisiting all of them. The
+   open part is which construction to use and whether the per-draw cost is acceptable on the hot
+   path; the part that is *not* open is that a per-thread generator will not satisfy RUN-3.
 
 ---
 
