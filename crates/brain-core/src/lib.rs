@@ -19,7 +19,10 @@
 //! (Step 10, done), probe/metrics (Step 11, done), test infrastructure
 //! (Step 12, done), exit criterion (Step 13, done). Phase 4 ("columns and
 //! scale", README §11): column (Step 14, done), lateral voting
-//! (Step 15, done).
+//! (Step 15, done), partitioning core: single/multi-partition
+//! `PartitionRuntime` proven bit-identical to the pre-partitioning
+//! `Scheduler` (Step 16, done). Real multi-threading (rayon/pinned pool)
+//! is a later step -- see `partition.rs`'s module docs.
 //!
 //! The test suite is organised in four layers (Requirement 15.1): Rust
 //! unit tests (this crate's own `#[cfg(test)]` modules), Rust whole-network
@@ -39,6 +42,7 @@ pub mod inhibition;
 pub mod metrics;
 pub mod neuromodulator;
 pub mod neuron;
+pub mod partition;
 pub mod plasticity;
 pub mod probe;
 pub mod rng;

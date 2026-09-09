@@ -28,7 +28,7 @@ use crate::inhibition::FixedNeighbourhoods;
 use crate::neuromodulator::NeuromodulatorField;
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
 use crate::plasticity::predictive::{PredictingSegmentTracker, PredictiveLearning, PredictiveLearningParams};
-use crate::plasticity::{LocalContext, NeuronLocal, RuleChain, SynapseMut};
+use crate::plasticity::{LocalContext, Modulators, NeuronLocal, RuleChain, SynapseMut};
 use crate::segment::{BinaryCoincidence, SegmentConfig, SegmentModel, SegmentState, FEEDFORWARD_SEGMENT};
 use crate::synapse::SynapseArena;
 
@@ -122,6 +122,53 @@ pub struct StepReport {
     /// metric) without that meter needing its own copy of the
     /// significance-threshold comparison.
     pub predicted_spikes: u32,
+}
+
+/// A spike-delivery effect owed to a neuron owned by another partition
+/// (Requirement 4/5), produced by [`Scheduler::deliver`] and consumed by
+/// [`Scheduler::apply_remote_deliveries`]. Carries exactly what the
+/// receiving partition needs to redo [`Scheduler::apply_local_effect`] for
+/// itself -- nothing more (no borrowed state, `Copy`).
+#[derive(Clone, Copy, Debug)]
+pub struct DeliveryEffect {
+    /// The delivering synapse's source neuron and own id -- carried purely
+    /// so a partitioned runtime can sort a batch of these into a canonical,
+    /// thread-schedule-independent order before applying them (Requirement
+    /// 8, Acceptance Criterion 3): floating-point addition is not
+    /// associative, so *which order* several cross-partition contributions
+    /// to the same target's `input_accum` are summed in is an actual
+    /// determinism hazard, not merely a style preference.
+    pub source_index: u32,
+    pub synapse_id: u32,
+    pub target_index: u32,
+    pub target_segment: u32,
+    pub signed_current: f32,
+}
+
+/// An `on_post_spike` plasticity event owed to a synapse owned by another
+/// partition (Requirement 4/5's mirror image: `SynapseArena` is
+/// source-major, so the synapse's mutable fields live on the *source*'s
+/// partition, but the spike that triggers this happens on the *target*'s).
+/// Produced by [`Scheduler::evaluate_and_resolve`] and consumed by
+/// [`Scheduler::apply_remote_post_spikes`].
+#[derive(Clone, Copy, Debug)]
+pub struct CrossPartitionPostSpike {
+    pub synapse_id: u32,
+    pub tick: u32,
+    pub post: NeuronLocal,
+    /// A frozen snapshot of the neuromodulator levels *as read by the
+    /// spike's own `evaluate_and_resolve` call*, not re-queried later.
+    /// `NeuromodulatorField::levels_at` assumes callers only ever query at
+    /// non-decreasing ticks (its `catch_up` has no way to correctly answer
+    /// "what was the level at a tick before the one I've already advanced
+    /// to" without corrupting its own decay clock) -- deferring this
+    /// message to the owning partition's *next* tick and re-querying there
+    /// would ask exactly that question, since by then the field has moved
+    /// on (including, in general, a fresh injection for the new tick).
+    /// Carrying the already-computed value sidesteps the question entirely
+    /// and guarantees this message reproduces exactly what an in-partition
+    /// `on_post_spike` call would have used.
+    pub modulators: Modulators,
 }
 
 /// The event-driven scheduler: a fixed-grid tick loop over a delay ring
@@ -335,29 +382,74 @@ impl Scheduler {
         self.ring[bucket].push(synapse_id);
     }
 
-    /// Advances the simulation by exactly one tick:
-    ///
-    /// 1. Drains this tick's ring bucket, accumulating signed input per
-    ///    target neuron and marking them dirty (Requirement 5.3, 5.4).
-    /// 2. Integrates every dirty neuron exactly once via `D` (Requirement
-    ///    4), collecting threshold-crossing candidates.
-    /// 3. Resolves candidates into winners (via `inhibition`, if
-    ///    configured; otherwise every candidate wins -- Requirement 7.5)
-    ///    and commits or vetoes each accordingly.
-    /// 4. For each committed spike, scans its outgoing synapse block and
-    ///    schedules delivery at `tick + delay` for every connected synapse
-    ///    (Requirement 5.3).
-    /// 5. Carries forward whatever `integrate` reported as still active
-    ///    (refractory, unsettled, or a vetoed candidate); drops the rest.
-    pub fn step<D: NeuronDynamics>(
-        &mut self,
-        neurons: &mut NeuronArena,
-        synapses: &mut SynapseArena,
-        params: &D::Params,
-    ) -> StepReport {
-        self.ensure_input_capacity(neurons.capacity_len());
+    /// Applies one delivery's non-plasticity effect (Requirement 10's
+    /// dendritic-vs-feedforward branch), for a neuron this scheduler owns.
+    /// `signed_current` is ignored on the dendritic path (a segment counts
+    /// coincidences, not weighted current), matching the pre-partitioning
+    /// behaviour exactly. Never called directly by [`Self::deliver`] --
+    /// only via [`Self::apply_delivery_effects`], so every effect (whether
+    /// it originated on this scheduler's own ring or another partition's)
+    /// is applied in the same globally-canonical order (see that method's
+    /// doc comment for why this matters).
+    fn apply_local_effect(&mut self, target: u32, target_segment: u32, signed_current: f32) {
+        let is_dendritic = self.segments.is_some() && target_segment != FEEDFORWARD_SEGMENT;
+        if is_dendritic {
+            let segments_per_neuron = self.segments.as_ref().unwrap().segments_per_neuron;
+            let composite = target as usize * segments_per_neuron as usize + target_segment as usize;
+            if self.segment_counts.len() <= composite {
+                self.segment_counts.resize(composite + 1, 0);
+            }
+            if self.segment_counts[composite] == 0 {
+                self.segment_touched.push(composite as u32);
+            }
+            self.segment_counts[composite] = self.segment_counts[composite].saturating_add(1);
+        } else {
+            self.input_accum[target as usize] += signed_current;
+            self.dirty.insert(target);
+        }
+    }
 
-        // 1. Deliver everything scheduled for this exact tick.
+    /// Step 1 of [`Self::step`], extracted so a partitioned runtime
+    /// (`partition.rs`) can interpose between delivery and integration
+    /// (Requirement 4/5's cross-partition messaging needs a merge point
+    /// there that a monolithic `step` has no room for).
+    ///
+    /// Deliberately applies **no** current/segment-count effect itself --
+    /// every delivery, local or cross-partition alike, becomes one
+    /// [`DeliveryEffect`] record in the returned list, to be
+    /// applied later via [`Self::apply_delivery_effects`]. This is not
+    /// incidental: floating-point addition is commutative but not
+    /// associative, so *which order* several contributions to the same
+    /// target's `input_accum` are summed in can change the last bit of the
+    /// result (Requirement 8, Acceptance Criterion 3's determinism claim is
+    /// about exactly this). A partitioned runtime cannot preserve
+    /// `deliver`'s ring-iteration order across partitions, so instead both
+    /// `step` (one scheduler) and `partition::PartitionRuntime` (several)
+    /// route every tick's effects through one shared canonical sort before
+    /// applying any of them -- see [`Self::apply_delivery_effects`].
+    ///
+    /// `on_delivery`'s plasticity call is *not* deferred this way: it only
+    /// mutates the delivering synapse's own fields (never `neurons`), so
+    /// its result cannot depend on what order other synapses' deliveries
+    /// are processed in, and it still runs here, on the synapse's owning
+    /// (source) partition, exactly as before. `remote_post` supplies
+    /// `ctx.post` for a target this scheduler cannot read live: `None`
+    /// means "read `neurons` directly" (always correct when the whole
+    /// arena is reachable, as `step`'s `|_| None` and a single-partition
+    /// `PartitionRuntime` both are); `Some(post)` is a snapshot published
+    /// by the target's own partition at the end of the *previous* tick
+    /// (`partition.rs`'s `BoundaryNeuronLocalTable`) -- which is not an
+    /// approximation: even in this exact code, `ctx.post` here can only
+    /// ever reflect spikes committed through the previous tick, because
+    /// this step always runs before this same tick's own commit step
+    /// (step 3) has decided anything.
+    pub fn deliver<R: Fn(u32) -> Option<NeuronLocal>>(
+        &mut self,
+        neurons: &NeuronArena,
+        synapses: &mut SynapseArena,
+        remote_post: R,
+    ) -> Vec<DeliveryEffect> {
+        let mut effects = Vec::new();
         let ring_len = self.ring.len();
         let bucket_idx = self.tick as usize % ring_len;
         // Swap the bucket's Vec out so we can iterate it while also
@@ -377,38 +469,19 @@ impl Scheduler {
             let source_index = synapses.source_of(synapse_id);
             let target = synapses.target_neuron[synapse_id as usize];
             let target_segment = synapses.target_segment[synapse_id as usize];
-
-            // Requirement 10: a synapse routed to a real dendritic segment
-            // counts toward that segment's coincidence tally instead of
-            // driving the soma directly. Segments are opt-in
-            // (`self.segments`), so with no call to `with_segments` every
-            // synapse is feedforward regardless of `target_segment`,
-            // preserving exact pre-Step-8 behaviour.
-            let is_dendritic = self.segments.is_some() && target_segment != FEEDFORWARD_SEGMENT;
-            if is_dendritic {
-                let segments_per_neuron = self.segments.as_ref().unwrap().segments_per_neuron;
-                let composite = target as usize * segments_per_neuron as usize + target_segment as usize;
-                if self.segment_counts.len() <= composite {
-                    self.segment_counts.resize(composite + 1, 0);
-                }
-                if self.segment_counts[composite] == 0 {
-                    self.segment_touched.push(composite as u32);
-                }
-                self.segment_counts[composite] = self.segment_counts[composite].saturating_add(1);
-            } else {
-                let sign = neurons.polarity[source_index as usize] as f32;
-                self.input_accum[target as usize] += sign * permanence;
-                self.dirty.insert(target);
-            }
+            let sign = neurons.polarity[source_index as usize] as f32;
+            let signed_current = sign * permanence;
+            effects.push(DeliveryEffect { source_index, synapse_id, target_index: target, target_segment, signed_current });
 
             // Plasticity credits this delivery regardless of which path it
             // took: a dendritic synapse still learns via STDP exactly like
             // a feedforward one, it just doesn't itself carry current to
             // the soma (Requirement 10 does not touch Requirement 8).
             if let Some(rules) = &self.plasticity {
+                let post = remote_post(target).unwrap_or_else(|| neuron_local(neurons, target));
                 let ctx = LocalContext {
                     pre: neuron_local(neurons, source_index),
-                    post: neuron_local(neurons, target),
+                    post,
                     modulators: self.modulators.levels_at(self.tick),
                     tick: self.tick,
                 };
@@ -418,7 +491,120 @@ impl Scheduler {
         }
         deliveries.clear();
         self.ring[bucket_idx] = deliveries;
+        effects
+    }
 
+    /// Applies delivery effects (see [`Self::deliver`]) to this scheduler's
+    /// own state, in exactly the order given -- **the caller is
+    /// responsible for the canonical sort** (Requirement 8, Acceptance
+    /// Criterion 3: `effects.sort_unstable_by_key(|e| (e.source_index,
+    /// e.synapse_id))` before calling this, whether `effects` came from
+    /// this same scheduler's own `deliver` call (`step`'s case) or from
+    /// several partitions' combined output (`partition::PartitionRuntime`'s
+    /// merge phase) -- so that a target's `input_accum` is always summed in
+    /// the same order regardless of how many partitions exist or which one
+    /// happened to own which contribution.
+    pub fn apply_delivery_effects(&mut self, neurons: &NeuronArena, effects: &[DeliveryEffect]) {
+        self.ensure_input_capacity(neurons.capacity_len());
+        for e in effects {
+            self.apply_local_effect(e.target_index, e.target_segment, e.signed_current);
+        }
+    }
+
+    /// Applies `on_post_spike` events this partition's synapses are owed
+    /// from another partition's neurons spiking (Requirement 4/5's mirror
+    /// image: `SynapseArena` is source-major, so a cross-partition
+    /// synapse's mutable fields always belong to the *source*'s partition,
+    /// while the spike that triggers `on_post_spike` happens on the
+    /// *target*'s). Each message already carries the tick, the spiking
+    /// neuron's own `NeuronLocal`, and the neuromodulator levels exactly as
+    /// they were read at the moment it spiked (see
+    /// [`CrossPartitionPostSpike::modulators`]'s doc comment for why the
+    /// modulator field specifically must be captured then, not re-queried
+    /// here). `ctx.pre` is read live from this partition's own arena
+    /// (`source_index` always belongs to this partition, since this
+    /// partition owns the synapse), which is correct because
+    /// `ThreeFactorStdp` (the one plasticity rule that exists) never reads
+    /// `ctx.pre` at all; a future rule wanting true same-tick
+    /// cross-partition freshness for `ctx.pre` is the one documented,
+    /// narrow case this deferred-by-one-tick delivery does not cover
+    /// exactly (see `partition.rs`'s module docs).
+    pub fn apply_remote_post_spikes(&mut self, neurons: &NeuronArena, synapses: &mut SynapseArena, messages: &[CrossPartitionPostSpike]) {
+        let Some(rules) = &self.plasticity else { return };
+        for msg in messages {
+            let source_index = synapses.source_of(msg.synapse_id);
+            let ctx = LocalContext {
+                pre: neuron_local(neurons, source_index),
+                post: msg.post,
+                modulators: msg.modulators,
+                tick: msg.tick,
+            };
+            rules.on_post_spike(synapse_mut(synapses, msg.synapse_id), &ctx);
+        }
+    }
+
+    /// Advances the simulation by exactly one tick:
+    ///
+    /// 1. Drains this tick's ring bucket, accumulating signed input per
+    ///    target neuron and marking them dirty (Requirement 5.3, 5.4).
+    /// 2. Integrates every dirty neuron exactly once via `D` (Requirement
+    ///    4), collecting threshold-crossing candidates.
+    /// 3. Resolves candidates into winners (via `inhibition`, if
+    ///    configured; otherwise every candidate wins -- Requirement 7.5)
+    ///    and commits or vetoes each accordingly.
+    /// 4. For each committed spike, scans its outgoing synapse block and
+    ///    schedules delivery at `tick + delay` for every connected synapse
+    ///    (Requirement 5.3).
+    /// 5. Carries forward whatever `integrate` reported as still active
+    ///    (refractory, unsettled, or a vetoed candidate); drops the rest.
+    ///
+    /// Composed from [`Self::deliver`] (step 1, with an always-local
+    /// `remote_post`), a canonical sort plus [`Self::apply_delivery_effects`]
+    /// (Requirement 8, Acceptance Criterion 3 -- see `deliver`'s doc
+    /// comment), and [`Self::evaluate_and_resolve`] (steps 1b-5, with no
+    /// remote sources) -- all extracted for `partition.rs`'s benefit. The
+    /// sort formalises what was previously an incidental (ring-insertion)
+    /// accumulation order into an explicit, canonical one: this module's
+    /// full existing test suite (which exercises `step` exclusively, and
+    /// none of which happens to depend on same-tick multi-delivery
+    /// ordering) still passes unchanged, and this is now a tested
+    /// invariant (`tests/partitioning_reference.rs`) rather than an
+    /// accident of iteration order that partitioning would otherwise have
+    /// been unable to preserve.
+    pub fn step<D: NeuronDynamics>(
+        &mut self,
+        neurons: &mut NeuronArena,
+        synapses: &mut SynapseArena,
+        params: &D::Params,
+    ) -> StepReport {
+        self.ensure_input_capacity(neurons.capacity_len());
+        let mut effects = self.deliver(neurons, synapses, |_| None);
+        // Requirement 8, Acceptance Criterion 3: the same canonical sort a
+        // partitioned runtime's merge phase applies across several
+        // schedulers' combined effects (`partition.rs`) -- a single
+        // scheduler's own effects take the same path so the two cases
+        // share one accumulation order by construction, not coincidence.
+        effects.sort_unstable_by_key(|e| (e.source_index, e.synapse_id));
+        self.apply_delivery_effects(neurons, &effects);
+        let (report, post_spike_outbox) = self.evaluate_and_resolve::<D>(neurons, synapses, params, |_| false);
+        debug_assert!(post_spike_outbox.is_empty(), "an always-local is_remote_source must never produce a cross-partition message");
+        report
+    }
+
+    /// Steps 1b-5 of the tick (see [`Self::step`]'s doc comment) --
+    /// segment evaluation, integration, inhibition resolution, commit/veto,
+    /// and outgoing-delivery scheduling. `is_remote_source` classifies each
+    /// incoming synapse a committing neuron scans for `on_post_spike`
+    /// (Requirement 8): `true` defers that synapse's plasticity update into
+    /// the returned outbox (see [`Self::apply_remote_post_spikes`]) instead
+    /// of mutating it directly, since this partition does not own it.
+    pub fn evaluate_and_resolve<D: NeuronDynamics>(
+        &mut self,
+        neurons: &mut NeuronArena,
+        synapses: &mut SynapseArena,
+        params: &D::Params,
+        is_remote_source: impl Fn(u32) -> bool,
+    ) -> (StepReport, Vec<CrossPartitionPostSpike>) {
         // 1b. Evaluate every segment touched this tick (Requirement 10.2):
         // a segment that reaches its coincidence threshold depolarises its
         // neuron (Requirement 10.3 -- boosts `predictive`, never fires it
@@ -509,6 +695,7 @@ impl Scheduler {
         let mut spiked = Vec::new();
         let mut vetoed = Vec::new();
         let mut predicted_spikes = 0u32;
+        let mut post_spike_outbox = Vec::new();
         for &(idx, _) in &self.candidates_scratch {
             let i = idx as usize;
             let is_winner = !inhibition_active || self.winner_set.contains(idx);
@@ -541,6 +728,19 @@ impl Scheduler {
                     let modulators = self.modulators.levels_at(self.tick);
                     for &synapse_id in &self.incoming_scratch {
                         let source_index = synapses.source_of(synapse_id);
+                        if is_remote_source(source_index) {
+                            // Requirement 4/5's mirror image: this synapse's
+                            // mutable fields belong to another partition
+                            // (`SynapseArena` is source-major), so this
+                            // partition cannot apply on_post_spike itself --
+                            // deferred to the owning partition via
+                            // `apply_remote_post_spikes` (see that method's
+                            // doc comment for why `ctx.pre` sourced live,
+                            // one tick later, is exact for every plasticity
+                            // rule that exists today).
+                            post_spike_outbox.push(CrossPartitionPostSpike { synapse_id, tick: self.tick, post: post_local, modulators });
+                            continue;
+                        }
                         let ctx = LocalContext {
                             pre: neuron_local(neurons, source_index),
                             post: post_local,
@@ -603,7 +803,7 @@ impl Scheduler {
 
         let report = StepReport { tick: self.tick, spiked, vetoed, predicted_spikes };
         self.tick += 1;
-        report
+        (report, post_spike_outbox)
     }
 }
 

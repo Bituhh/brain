@@ -30,6 +30,17 @@ pub struct NeuronLocal {
     pub rate_estimate: f32,
 }
 
+impl NeuronLocal {
+    /// A neuron that has never spiked -- exactly the values
+    /// `NeuronArena::allocate` initialises a fresh neuron to, and therefore
+    /// the correct fallback (not merely a safe default) for a
+    /// partitioned runtime's boundary-neuron table (`partition.rs`) before
+    /// its first publish, or for any neuron that has genuinely never fired.
+    pub const fn never_spiked() -> Self {
+        Self { last_spike: u32::MAX, trace: 0.0, rate_estimate: 0.0 }
+    }
+}
+
 /// The only global signal a plasticity rule ever sees (LRN-5): a small,
 /// named set of scalar neuromodulator levels, broadcast by region and
 /// carrying no per-synapse routing information (Requirement 8.9).
