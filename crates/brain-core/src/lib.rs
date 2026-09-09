@@ -8,15 +8,17 @@
 //!
 //! Modules land incrementally per the implementation plan: ids/rng/arena
 //! (Step 2, done), neuron/scheduler (Step 4, done), graph/inhibition
-//! (Step 5), plasticity (Step 6), snapshot (Step 7), segment (Step 8),
-//! growth (Step 9), probe/metrics (Step 11).
+//! (Step 5, done), plasticity (Step 6, done), snapshot (Step 7), segment
+//! (Step 8), growth (Step 9), probe/metrics (Step 11).
 
 pub mod arena;
 pub mod graph;
 pub mod ids;
 pub mod inhibition;
 pub mod metrics;
+pub mod neuromodulator;
 pub mod neuron;
+pub mod plasticity;
 pub mod rng;
 pub mod scheduler;
 pub mod synapse;

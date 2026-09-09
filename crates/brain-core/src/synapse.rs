@@ -29,9 +29,35 @@ pub struct SynapseArena {
     /// Axonal delay in ticks, always >= 1 (SYN-2).
     pub delay: Vec<u16>,
     pub eligibility: Vec<f32>,
+    /// Tick this synapse last *delivered* (`u32::MAX` sentinel: never).
+    /// Strictly delivery-only: local plasticity's causal direction
+    /// (`on_post_spike`, Requirement 8) reads this to know "when did
+    /// pre's spike last arrive here", and that computation would be
+    /// corrupted if some other kind of touch (e.g. a post-spike event)
+    /// were allowed to overwrite it -- see `eligibility_updated_at` for
+    /// the separate timing reference plasticity's eligibility decay uses,
+    /// which genuinely does need to move on every kind of touch.
     pub last_active: Vec<u32>,
+    /// Tick this synapse's eligibility trace was last decayed
+    /// (`u32::MAX` sentinel: never touched). Updated by *both*
+    /// `on_delivery` and `on_post_spike` (Requirement 8.6) -- deliberately
+    /// a separate field from `last_active` above; collapsing them would
+    /// corrupt `on_post_spike`'s causal-direction timing whenever a
+    /// post-spike-triggered touch happened without an intervening
+    /// delivery.
+    pub eligibility_updated_at: Vec<u32>,
     occupied: Vec<bool>,
     cap_per_neuron: u32,
+    /// `target_neuron -> synapse ids targeting it`, appended to on every
+    /// `insert` and never pruned on `remove` -- a removed synapse's id
+    /// becomes a dead entry that `incoming` filters out via `is_occupied`,
+    /// the same tolerate-stale-entries convention `occupied_in_block`
+    /// already uses for source-major iteration. This is a real memory
+    /// leak under heavy structural churn (Requirement 11's future
+    /// pruning/sprouting), accepted for now and worth revisiting only if
+    /// it is ever measured to matter -- this project's established
+    /// "measure before optimising" pattern (see neuron.rs, graph.rs).
+    target_index: Vec<Vec<u32>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -56,8 +82,10 @@ impl SynapseArena {
             delay: Vec::new(),
             eligibility: Vec::new(),
             last_active: Vec::new(),
+            eligibility_updated_at: Vec::new(),
             occupied: Vec::new(),
             cap_per_neuron,
+            target_index: Vec::new(),
         }
     }
 
@@ -76,8 +104,12 @@ impl SynapseArena {
             self.permanence.resize(needed, 0.0);
             self.delay.resize(needed, 1);
             self.eligibility.resize(needed, 0.0);
-            self.last_active.resize(needed, 0);
+            self.last_active.resize(needed, u32::MAX);
+            self.eligibility_updated_at.resize(needed, u32::MAX);
             self.occupied.resize(needed, false);
+        }
+        if self.target_index.len() < neuron_count {
+            self.target_index.resize(neuron_count, Vec::new());
         }
     }
 
@@ -111,7 +143,13 @@ impl SynapseArena {
                 self.permanence[slot] = permanence;
                 self.delay[slot] = delay;
                 self.eligibility[slot] = 0.0;
-                self.last_active[slot] = 0;
+                self.last_active[slot] = u32::MAX;
+                self.eligibility_updated_at[slot] = u32::MAX;
+                let t = target_neuron as usize;
+                if self.target_index.len() <= t {
+                    self.target_index.resize(t + 1, Vec::new());
+                }
+                self.target_index[t].push(slot as u32);
                 return Ok(slot as u32);
             }
         }
@@ -137,6 +175,20 @@ impl SynapseArena {
     pub fn occupied_in_block(&self, source_index: u32) -> impl Iterator<Item = u32> + '_ {
         let range = self.block_range(source_index);
         range.filter(move |&slot| self.occupied[slot]).map(|slot| slot as u32)
+    }
+
+    /// Iterates the currently-occupied synapse ids targeting `target`,
+    /// via `target_index` -- what a neuron scans, on spiking, to evaluate
+    /// the causal (pre-before-post) direction of local plasticity
+    /// (Requirement 8's `on_post_spike`). Filters out dead entries left
+    /// behind by `remove` (see the `target_index` field doc comment).
+    pub fn incoming(&self, target: u32) -> impl Iterator<Item = u32> + '_ {
+        self.target_index
+            .get(target as usize)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(move |&id| self.occupied[id as usize])
     }
 }
 
@@ -202,5 +254,46 @@ mod tests {
         assert!(arena.is_occupied(a), "growth must not disturb an existing block's contents");
         let b = arena.insert(1, 2, 0, 1, 0.5).unwrap();
         assert_eq!(arena.source_of(b), 1);
+    }
+
+    #[test]
+    fn incoming_finds_synapses_by_target_regardless_of_source() {
+        let mut arena = SynapseArena::new(4);
+        arena.reserve_for_neurons(3);
+        let a_to_c = arena.insert(0, 2, 0, 1, 0.5).unwrap();
+        let b_to_c = arena.insert(1, 2, 0, 1, 0.5).unwrap();
+        arena.insert(0, 1, 0, 1, 0.5).unwrap(); // a -> b, must not appear in incoming(2)
+
+        let mut incoming: Vec<u32> = arena.incoming(2).collect();
+        incoming.sort_unstable();
+        let mut expected = vec![a_to_c, b_to_c];
+        expected.sort_unstable();
+        assert_eq!(incoming, expected);
+    }
+
+    #[test]
+    fn incoming_is_empty_for_a_target_with_no_synapses() {
+        let mut arena = SynapseArena::new(4);
+        arena.reserve_for_neurons(3);
+        arena.insert(0, 1, 0, 1, 0.5).unwrap();
+        assert_eq!(arena.incoming(2).count(), 0);
+    }
+
+    #[test]
+    fn incoming_filters_out_removed_synapses() {
+        let mut arena = SynapseArena::new(4);
+        arena.reserve_for_neurons(2);
+        let syn = arena.insert(0, 1, 0, 1, 0.5).unwrap();
+        assert_eq!(arena.incoming(1).count(), 1);
+        arena.remove(syn);
+        assert_eq!(arena.incoming(1).count(), 0, "a removed synapse must not appear as incoming");
+    }
+
+    #[test]
+    fn newly_inserted_synapse_has_never_active_sentinel() {
+        let mut arena = SynapseArena::new(2);
+        arena.reserve_for_neurons(1);
+        let syn = arena.insert(0, 1, 0, 1, 0.5).unwrap();
+        assert_eq!(arena.last_active[syn as usize], u32::MAX, "must be distinguishable from 'touched at tick 0'");
     }
 }

@@ -19,8 +19,25 @@
 
 use crate::arena::NeuronArena;
 use crate::inhibition::FixedNeighbourhoods;
+use crate::neuromodulator::NeuromodulatorField;
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
+use crate::plasticity::{LocalContext, NeuronLocal, RuleChain, SynapseMut};
 use crate::synapse::SynapseArena;
+
+fn neuron_local(neurons: &NeuronArena, idx: u32) -> NeuronLocal {
+    let i = idx as usize;
+    NeuronLocal { last_spike: neurons.last_spike[i], trace: neurons.trace[i], rate_estimate: neurons.rate_estimate[i] }
+}
+
+fn synapse_mut(synapses: &mut SynapseArena, id: u32) -> SynapseMut<'_> {
+    let i = id as usize;
+    SynapseMut {
+        permanence: &mut synapses.permanence[i],
+        eligibility: &mut synapses.eligibility[i],
+        last_active: &mut synapses.last_active[i],
+        eligibility_updated_at: &mut synapses.eligibility_updated_at[i],
+    }
+}
 
 /// An index set supporting O(1) insert-with-dedupe and O(touched)
 /// iteration/clear -- never O(capacity). This is the concrete mechanism
@@ -114,6 +131,13 @@ pub struct Scheduler {
     candidates_scratch: Vec<(u32, f32)>,
     winners_scratch: Vec<u32>,
     winner_set: DirtySet,
+    /// `None` means no synaptic change happens at all -- useful for tests
+    /// isolating dynamics/inhibition from plasticity, and a valid
+    /// configuration in its own right (a network can run without ever
+    /// learning).
+    plasticity: Option<RuleChain>,
+    modulators: NeuromodulatorField,
+    incoming_scratch: Vec<u32>,
 }
 
 impl Scheduler {
@@ -132,7 +156,26 @@ impl Scheduler {
             candidates_scratch: Vec::new(),
             winners_scratch: Vec::new(),
             winner_set: DirtySet::new(),
+            plasticity: None,
+            modulators: NeuromodulatorField::new([1000.0; crate::plasticity::NUM_MODULATORS]),
+            incoming_scratch: Vec::new(),
         }
+    }
+
+    /// Enables local plasticity (Requirement 8): `rules` runs on every
+    /// delivery and post-spike event, and `modulator_tau_ticks` sets each
+    /// of the four neuromodulator channels' decay time constant.
+    pub fn with_plasticity(mut self, rules: RuleChain, modulator_tau_ticks: crate::plasticity::Modulators) -> Self {
+        self.plasticity = Some(rules);
+        self.modulators = NeuromodulatorField::new(modulator_tau_ticks);
+        self
+    }
+
+    /// Injects a neuromodulator signal (e.g. a phasic dopamine burst on
+    /// reward) at the current tick. A no-op if plasticity is not
+    /// configured, since nothing would ever read the level.
+    pub fn inject_modulator(&mut self, index: usize, amount: f32) {
+        self.modulators.inject(self.tick, index, amount);
     }
 
     /// Enables local inhibition (Requirement 7): threshold crossings are
@@ -223,6 +266,16 @@ impl Scheduler {
             let sign = neurons.polarity[source_index as usize] as f32;
             self.input_accum[target as usize] += sign * permanence;
             self.dirty.insert(target);
+
+            if let Some(rules) = &self.plasticity {
+                let ctx = LocalContext {
+                    pre: neuron_local(neurons, source_index),
+                    post: neuron_local(neurons, target),
+                    modulators: self.modulators.levels_at(self.tick),
+                    tick: self.tick,
+                };
+                rules.on_delivery(synapse_mut(synapses, synapse_id), &ctx);
+            }
             synapses.last_active[synapse_id as usize] = self.tick;
         }
         deliveries.clear();
@@ -286,6 +339,26 @@ impl Scheduler {
                 // this field regardless of its own internals.
                 if neurons.refractory[i] > self.tick + 1 {
                     next_dirty.insert(idx);
+                }
+
+                // Credit the causal (pre-before-post) direction across
+                // every incoming synapse now that this neuron has
+                // officially spiked (Requirement 8's on_post_spike).
+                if let Some(rules) = &self.plasticity {
+                    self.incoming_scratch.clear();
+                    self.incoming_scratch.extend(synapses.incoming(idx));
+                    let post_local = neuron_local(neurons, idx);
+                    let modulators = self.modulators.levels_at(self.tick);
+                    for &synapse_id in &self.incoming_scratch {
+                        let source_index = synapses.source_of(synapse_id);
+                        let ctx = LocalContext {
+                            pre: neuron_local(neurons, source_index),
+                            post: post_local,
+                            modulators,
+                            tick: self.tick,
+                        };
+                        rules.on_post_spike(synapse_mut(synapses, synapse_id), &ctx);
+                    }
                 }
             } else {
                 D::veto_spike(state, params, self.tick);
@@ -550,5 +623,87 @@ mod tests {
             }
         }
         assert!(a_eventually_won, "a vetoed candidate must remain eligible and eventually win");
+    }
+
+    // -- Plasticity wiring (Requirement 8): these prove the scheduler's
+    // real delivery/post-spike code path drives plasticity correctly, not
+    // just the isolated plasticity::three_factor unit tests calling the
+    // rule directly.
+
+    use crate::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
+    use crate::plasticity::{stdp::StdpParams, RuleChain, DOPAMINE, NUM_MODULATORS};
+
+    fn make_plasticity(modulator_index: usize) -> RuleChain {
+        let stdp = StdpParams { a_plus: 0.05, a_minus: 0.05, tau_plus: 20.0, tau_minus: 20.0, window_ticks: 100 };
+        let params = ThreeFactorParams::new(stdp, 1000.0, 1.0, modulator_index);
+        RuleChain::new(vec![Box::new(ThreeFactorStdp::new(params))])
+    }
+
+    #[test]
+    fn causal_pre_then_post_potentiates_through_the_real_scheduler_path() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(1);
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        let b = make_neuron(&mut neurons, 0.5, 1);
+        synapses.reserve_for_neurons(2);
+        let syn = synapses.insert(a, b, 0, 1, 0.5).unwrap();
+
+        // modulator held at 1.0 unconditionally -> Requirement 8.8's
+        // "reduces to plain STDP", exercised end to end.
+        let mut sched = Scheduler::new(4, 0.4).with_plasticity(make_plasticity(DOPAMINE), [1000.0; NUM_MODULATORS]);
+        sched.inject_modulator(DOPAMINE, 1.0);
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+
+        let before = synapses.permanence[syn as usize];
+        sched.stimulate(&neurons, a, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // a spikes, delivers next tick
+        sched.stimulate(&neurons, b, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // delivery lands, then b spikes same tick
+        let after = synapses.permanence[syn as usize];
+
+        assert!(after > before, "a causal pre-then-post pair must potentiate the synapse (permanence {before} -> {after})");
+    }
+
+    #[test]
+    fn zero_modulator_leaves_permanence_unchanged_despite_spiking() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(1);
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        let b = make_neuron(&mut neurons, 0.5, 1);
+        synapses.reserve_for_neurons(2);
+        let syn = synapses.insert(a, b, 0, 1, 0.5).unwrap();
+
+        // No inject_modulator call -> DOPAMINE stays at its baseline (0.0).
+        let mut sched = Scheduler::new(4, 0.4).with_plasticity(make_plasticity(DOPAMINE), [1000.0; NUM_MODULATORS]);
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+
+        let before = synapses.permanence[syn as usize];
+        sched.stimulate(&neurons, a, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        sched.stimulate(&neurons, b, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        let after = synapses.permanence[syn as usize];
+
+        assert_eq!(before, after, "Requirement 8.7: with modulator at 0, no weight change occurs regardless of activity");
+    }
+
+    #[test]
+    fn with_no_plasticity_configured_permanence_never_changes() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(1);
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        let b = make_neuron(&mut neurons, 0.5, 1);
+        synapses.reserve_for_neurons(2);
+        let syn = synapses.insert(a, b, 0, 1, 0.5).unwrap();
+
+        let mut sched = Scheduler::new(4, 0.4); // no with_plasticity() call
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+        let before = synapses.permanence[syn as usize];
+        for _ in 0..20 {
+            sched.stimulate(&neurons, a, 10.0);
+            sched.stimulate(&neurons, b, 10.0);
+            sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        }
+        assert_eq!(synapses.permanence[syn as usize], before);
     }
 }
