@@ -476,7 +476,8 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
 
 Every component of this design has been built and evaluated before. The assembly has not. This
 section records what the record actually shows, because the useful question is not "is this
-novel" but "where did the people who got closest run out of road".
+novel" but "where did the people who got closest run out of road". It is organised by claim:
+each subsection names the requirements it bears on.
 
 ### 13.1 HTM / Numenta — the direct ancestor of §2.3, §2.6 and the SDR requirements
 
@@ -487,16 +488,22 @@ LRN-8 and NET-2 in all but name, and §2.1's SDR argument is Numenta's.
 
 **Results.** Cui, Ahmad & Hawkins (2016) compared HTM sequence memory against LSTM, ARIMA, ESN
 and TDNN on high-order artificial sequences and on streaming scalar data (NYC taxi demand). HTM
-matched or beat them specifically on: continuous online learning with no train/infer split;
-branching sequences requiring several simultaneous predictions, where LSTM degraded badly above
-roughly four concurrent continuations; and recovery speed after a distribution shift. It needed
-no task-specific hyperparameter tuning and tolerated substantial noise. The commercial success
-built on it was **anomaly detection** (the NAB benchmark, the Grok product), not prediction.
+matched or beat them specifically on: continuous online learning with no train/infer split
+(IO-4, invariant 7); branching sequences requiring several simultaneous predictions, where LSTM
+degraded badly above roughly four concurrent continuations; and recovery speed after a
+distribution shift. It needed no task-specific hyperparameter tuning and tolerated substantial
+noise. The commercial success built on it was **anomaly detection** (the NAB benchmark, the Grok
+product), not prediction.
+
+NuPIC is also the closest existing demonstration of invariant 8: the same temporal memory ran
+unchanged behind scalar, categorical, datetime and geospatial encoders. That is real evidence
+that an encoder boundary can carry modality — though all of those encoders produce
+low-dimensional streams, so it is a weaker demonstration than pixels-and-audio would be.
 
 **What did not arrive.** No published HTM result beats a well-tuned n-gram or an LSTM on
 natural-language character prediction. HTM's demonstrated edge was on branching, non-stationary,
 low-dimensional streams — precisely the properties natural text lacks and n-grams exploit. This
-bears directly on VAL-4 and is recorded again in §13.8.
+bears directly on VAL-4 and is recorded again in §13.12.
 
 **The strongest signal.** NuPIC is archived as `nupic-legacy`. Numenta did not abandon the
 theory; it abandoned the neuron-level implementation of it.
@@ -507,14 +514,23 @@ Monty is the current implementation of the theory in §2.6, now under an indepen
 with a 2026 *Neural Computation* paper. Reported results: ~90% object recognition after seeing
 objects in eight orientations, where a vision transformer on identical data sits at 1–2% chance;
 a claimed ~33,000× reduction in training computation against a ViT; robustness to heavy noise
-and to unseen rotations; near-total retention of earlier objects under continual learning. Its
-benchmarks are rerun in CI on every functional change.
+and to unseen rotations; near-total retention of earlier objects under continual learning
+(VAL-2(e)); automatic detection of object symmetry; recognition from several sensors at once
+(NET-5). Its benchmarks are rerun in CI on every functional change — the practice VAL-11
+describes.
+
+Monty is also the strongest existing evidence for §1.1's commitments taken together: it is
+sensorimotor by construction (IO-5), continual by construction (invariant 7), and its learning
+modules are modality-agnostic (invariant 8) with sensor modules doing the translating (IO-1).
+Those are not aspirations there; they are demonstrated.
 
 **The finding that matters most for this project.** Monty does not simulate neurons and does not
 spike. Having built the neuron-level version, Hawkins' team deliberately re-implemented the
 theory at the level of *learning modules* — sensor patch, reference frame, object model, lateral
 voting — discarding spikes, axonal delay, STDP and dendritic segments entirely. They kept §2.6,
-§2.7 and §2.9's reference frames and dropped §2.2, §2.5 and §2.8.
+§2.7 and §2.9's reference frames and dropped §2.2, §2.5 and §2.8. Nor does it grow neurons:
+capacity is added as whole learning modules and object models, not by NET-10's saturation-driven
+neurogenesis.
 
 This project makes the opposite bet: keep the spiking substrate and let columns emerge from it.
 That is defensible — Monty's abstraction buys capability at the cost of any claim to explain how
@@ -530,14 +546,14 @@ substrate was cost rather than capability.
 - **Deep convolutional STDP** (Kheradpisheh and successors). ~98.4% on MNIST with several
   STDP-trained layers, degrading sharply on CIFAR-10. This is the recurring wall: unsupervised
   STDP builds good early features and then stops contributing.
-- **SORN** (Lazar & Triesch, 2009). STDP *plus* intrinsic plasticity *plus* synaptic
+- **SORN** (Lazar, Pipa & Triesch, 2009). STDP *plus* intrinsic plasticity *plus* synaptic
   normalisation *plus* structural plasticity, on sequence prediction — the closest published
   match to §4's full rule set, and the closest thing to a positive result for it. Its finding was
   that the **combination** substantially outperforms any subset and beats static reservoirs. At
   hundreds of neurons, on artificial grammars.
 - **e-prop** (Bellec et al., 2020). Eligibility traces plus a broadcast learning signal,
   approaching BPTT on TIMIT. The caveat is load-bearing for LRN-1: e-prop's broadcast signal is a
-  random-feedback *approximation of a gradient* and carries error information. Invariant #2
+  random-feedback *approximation of a gradient* and carries error information. Invariant 2
   forbids that — the neuromodulator here is a credit-free scalar. Across this literature,
   reported performance tracks how much gradient information the "local" rule smuggles in.
 - **NeuroTrain** (§14). Its contribution is a taxonomy and a common benchmarking harness,
@@ -548,7 +564,107 @@ substrate was cost rather than capability.
 of comparable size on a sequence-prediction task. LRN-1 as written is stricter than most
 published work that describes itself as local.
 
-### 13.4 Large-scale biological simulation — the cautionary cluster
+### 13.4 Growth and critical periods — NET-7, NET-10, NET-11, invariant 10
+
+Growing a network rather than sizing it in advance has a long history and a consistent verdict.
+
+- **Constructive architectures.** Cascade-Correlation (Fahlman & Lebiere, 1990) added hidden
+  units on demand and trained far faster than fixed backprop nets on small problems; it did not
+  scale, and the field went the other way. Modern descendants — Net2Net, Progressive Neural
+  Networks, Dynamically Expandable Networks — do work: **dynamically grown networks outperform
+  static networks in incremental learning even when held to the same memory budget**, and
+  structural plasticity is an effective defence against catastrophic forgetting in non-stationary
+  environments.
+- **The gap NET-10 has to close.** Nearly all of that work grows at *task boundaries* — a new
+  task arrives, capacity is allocated. NET-10's trigger is **saturation**: a population unable to
+  represent new input without unacceptable interference. There is no task boundary in a
+  continuous stream, so the trigger has to be an internal, locally-computable measure. That
+  measure is the unsolved part, and it is not solved in the literature this requirement borrows
+  from.
+- **Neurogenesis specifically.** Adult neurogenesis in the dentate gyrus is real, and
+  computational models (Aimone and colleagues) argue it supports pattern separation and the
+  encoding of new memories without overwriting old ones. "On the role of neurogenesis in
+  overcoming catastrophic forgetting" carries the same result into artificial networks. This is
+  a genuine biological warrant for invariant 10 — but note the biology adds neurons in *one small
+  structure*, not throughout cortex, which is a narrower claim than NET-10 makes.
+- **Critical periods.** NET-11's annealing plasticity rate has an unusually good evidence base on
+  both sides. In biology it is textbook. In artificial networks, Achille, Rovere & Soatto (2019)
+  showed deep networks have critical periods too: a temporary deficit early in training causes
+  *permanent* performance loss that matches the animal data, while a deficit that leaves
+  low-level statistics intact is recovered from completely. The first epochs allocate resources
+  across the network and that allocation does not redistribute afterwards. Later work found the
+  same effect in multisensory integration and even in deep *linear* networks — so it is a
+  property of learning dynamics, not of any particular architecture. NET-11 is therefore likely
+  to matter more than its **C** priority suggests, and the same result is a warning: it means
+  early-run mistakes in this system may be unrecoverable rather than merely slow to fix.
+
+### 13.5 Continual learning, neuromodulation and sleep — LRN-5, LRN-10, VAL-2(e)
+
+This is the area where the biological story has been most directly vindicated in simulation.
+
+- **Replay is what actually works.** Across the continual-learning literature, the methods that
+  hold up on hard benchmarks are replay-based; van de Ven and colleagues showed brain-inspired
+  *generative* replay reaching state-of-the-art without storing raw data. LRN-10 is not an
+  optimisation borrowed from biology for flavour — it is the mechanism with the best track record.
+- **Sleep specifically, in spiking networks.** Bazhenov's group showed that a sleep-like replay
+  phase prevents catastrophic forgetting in SNNs by forming *joint* synaptic weight
+  representations for old and new tasks — i.e. the offline phase does something the online phase
+  provably cannot. This is close to a direct simulation of LRN-10 and it worked.
+- **Diffuse neuromodulation as the mechanism.** Velez & Clune showed diffusion-based
+  neuromodulation eliminating catastrophic forgetting in simple networks — a scalar field
+  gating plasticity, which is LRN-5 plus LRN-4 almost exactly. Allred & Roy's "Controlled
+  Forgetting" used dopaminergic modulation with targeted stimulation for unsupervised lifelong
+  learning in SNNs. Both are small-scale; both are positive.
+- **The theoretical frame** is Complementary Learning Systems (McClelland, McNaughton & O'Reilly,
+  1995): fast hippocampal storage, slow cortical consolidation, interleaved replay bridging them.
+  §2.9 is this theory, and it is thirty years old and still standing.
+
+Net effect on this specification: LRN-5 and LRN-10 are the **best-supported** requirements in §4.
+If the system exhibits catastrophic forgetting, the record says the fault is likelier to be in
+their implementation than in the idea.
+
+### 13.6 The modality-agnostic substrate — invariant 8, IO-1, IO-6, §1.2
+
+§1.1's ferret rewiring argument (Sur and colleagues; von Melchner, Sur & Roe, 2000) is sound and
+is the strongest single piece of evidence in this document. What is worth adding is what has
+happened when engineers tried to exploit it.
+
+- **Sensory substitution** in humans — tactile-visual devices, the vOICe soundscape encoder —
+  works: people learn to use auditory or tactile input for visual tasks, and imaging shows visual
+  cortex recruited. The substrate really is general, and the encoder really is the boundary. This
+  is IO-1's design in living form.
+- **On the artificial side**, the successful demonstrations of modality-agnosticism are
+  *deep-learning* ones: Perceiver and Perceiver IO process images, audio, point clouds and video
+  through one architecture with no modality-specific components, and generalist agents extend
+  that to control. So invariant 8 is achievable — but every existence proof for it runs on
+  backpropagation, which §1.3 rules out. There is no demonstration of a locally-learning spiking
+  substrate absorbing several modalities.
+- **Motor output (IO-6)** is the thinnest ice in §7. Sensorimotor SNNs exist in robotics, mostly
+  small and mostly reward-driven. Producing structured output — speech — from a locally-learning
+  spiking network has no precedent worth citing. §1.2's honest framing of stages 2–5 as "a
+  direction, not a schedule" is the right posture and should stay that way.
+
+### 13.7 Systems that were never switched off — invariant 9, RUN-9, RUN-9a–c
+
+Almost nothing in this field runs continuously for a long time, which makes the two systems that
+did unusually informative.
+
+- **NELL** (Never-Ending Language Learner, CMU, running from 2010) is the canonical never-ending
+  learner. It accumulated millions of beliefs, and its documented failure mode is exactly the one
+  invariant 9 invites: **precision decayed as it ran**. Easy extractions came first; later
+  iterations needed better extractors to sustain the same precision; and mistakes taught it to
+  make further mistakes. Estimated precision of added beliefs was around 71% after six months,
+  with some categories in the 25–60% range. Periodic human correction was needed to hold the line.
+- **Numenta's Grok** ran HTM models continuously against production streams — a real deployment
+  of invariant 7 — but on narrow, low-dimensional data.
+
+The lesson for RUN-9 is not about serialisation. It is that *running forever is a hazard, not
+just a capability*: a system that never stops learning also never stops accumulating the
+consequences of its own errors. Nothing in §4 currently arrests that drift except homeostasis
+(LRN-6, NEU-7) and pruning (LRN-7), and neither is aimed at semantic drift. VAL-3's soak test is
+the place this would first show up, and it is currently an **S**.
+
+### 13.8 Large-scale biological simulation — the cautionary cluster
 
 - **Blue Brain** (EPFL, 2005 – December 2024, closed as "mission accomplished"). A digitally
   reconstructed rat cortical microcircuit — ~31k neurons and ~37M synapses in the 2015 *Cell*
@@ -559,43 +675,67 @@ published work that describes itself as local.
   mid-project after a governance revolt and a review calling it "overly ambitious". It delivered
   infrastructure (EBRAINS), not a brain.
 
-The lesson is the one §1.1 already anticipates: biophysical fidelity does not produce capability.
+The lesson is the one §1.3 already anticipates: biophysical fidelity does not produce capability.
 This project sits on the correct side of that line — but the same failure mode reappears in a
-cheaper form as *the substrate is beautiful and nothing emerges*, which is what VAL-2 exists to
-detect early.
+cheaper form as *the substrate is beautiful and nothing emerges*, which is what VAL-2 and VAL-9
+exist to detect early.
 
-### 13.5 Neuromorphic hardware — corroborates RUN-4, RUN-5 and RUN-11
+### 13.9 Neuromorphic hardware — corroborates RUN-4, RUN-5 and RUN-11
 
 SpiNNaker (~1M ARM cores, message-passing, Manchester), SpiNNaker2 (Dresden), Intel Loihi 2 and
 the Hala Point system (~1.15B neurons, 2024) independently converged on many small cores with
 local memory and asynchronous event messaging. Nobody built a GPU for this workload. RUN-4's
 partitioning is the software shape of the same conclusion, and RUN-11's argument is the same
-argument these teams made in silicon.
+argument these teams made in silicon. Loihi also implements on-chip local plasticity with
+programmable traces — LRN-3 in hardware — which is a useful sanity check that §4's rule shape is
+implementable under real locality constraints rather than only in a simulator.
 
 Note what those machines have and have not delivered: energy-efficiency and latency wins on
 inference and optimisation, not novel capability from local learning. The hardware question is
 settled; the algorithm is the open one.
 
-### 13.6 Simulators and engines — §6 and §8 are well-trodden
+### 13.10 Simulators, determinism and validation — §6, §8, VAL-5 to VAL-11
 
 NEST, Brian2, GeNN, Arbor, BindsNET, Nengo and event-driven engines such as FNS have all built
 what §6 describes: fixed-grid or event-driven schedulers, delay queues, structure-of-arrays
 layouts and partitioned parallelism. RUN-5's key insight — that an axonal delay of ≥2 ticks
 absorbs cross-partition message latency and removes the synchronisation barrier — is precisely
-how NEST scales across nodes. That is corroboration, not a problem: the engineering half of this
-specification is the part most likely to work as written. No maintained Rust equivalent exists,
-so ENG-2's niche is genuinely open.
+how NEST scales across nodes. Brian2 validates dynamics against analytic solutions, which is
+VAL-1; NEST maintains reference-output regression tests, which is VAL-7. That is corroboration,
+not a problem: the engineering half of this specification is the part most likely to work as
+written, and no maintained Rust equivalent exists, so ENG-2's niche is genuinely open.
 
-### 13.7 What is actually new here
+**One place this specification is stricter than the state of the art.** NEST guarantees
+reproducibility for a *given number of virtual processes* — identical results however those VPs
+are distributed over threads and MPI ranks, but **not** across different VP counts, because each
+VP owns its own RNG stream. RUN-3 asks for more: determinism holding across single-threaded and
+multi-threaded runs alike. Combined with RUN-9a's bit-identical snapshot round-trip, that means
+every stochastic decision must be indexed by something stable under repartitioning — per-neuron
+or per-synapse counter-based streams rather than per-thread generators. This is achievable
+(counter-based PRNGs exist precisely for it) and it is a real constraint on RUN-3's PCG choice,
+not a detail. It is worth deciding before Phase 0 rather than discovering at Phase 4, because
+retrofitting it means touching every call site that consumes randomness.
 
-HTM-style dendritic prediction (NEU-5, NEU-6, LRN-8) *inside* a continuous-time spiking substrate
-with real axonal delay (SYN-2), Dale's principle (NEU-4), structural plasticity (LRN-7) and
-credit-free three-factor modulation (LRN-4, LRN-5), as one system, under a strict no-gradient
-invariant. Every piece exists in isolation; the assembly does not. Hawkins' 2015 paper describes
-this biology and was never implemented at this fidelity — Numenta implemented the abstraction,
-not the neurons, and the SNN literature implemented the neurons without the dendrites.
+### 13.11 What is actually new here
 
-### 13.8 Where the record predicts trouble
+Three claims, in decreasing order of confidence that they are unprecedented.
+
+1. **The substrate assembly.** HTM-style dendritic prediction (NEU-5, NEU-6, LRN-8) *inside* a
+   continuous-time spiking network with real axonal delay (SYN-2), Dale's principle (NEU-4),
+   structural plasticity (LRN-7) and credit-free three-factor modulation (LRN-4, LRN-5), under a
+   strict no-gradient invariant. Every piece exists in isolation; the assembly does not. Hawkins'
+   2015 paper describes this biology and was never implemented at this fidelity — Numenta
+   implemented the abstraction, not the neurons, and the SNN literature implemented the neurons
+   without the dendrites.
+2. **Growth driven by saturation rather than by task boundaries** (NET-10, invariant 10). Growing
+   networks are well studied; growing them from a locally-computable saturation signal inside a
+   continuous stream, with no task labels and no external scheduler, is not.
+3. **A persistent, resumable, growing substrate as a first-class engineering requirement**
+   (invariant 9, RUN-9a–c). Simulators checkpoint; none of them treat *restore-then-expand* as a
+   supported operation, because none of them expect the network to outlive the experiment. This
+   is the least glamorous of the three and probably the most defensible.
+
+### 13.12 Where the record predicts trouble
 
 1. **VAL-4 is the riskiest requirement in this document.** Nothing in the local-learning
    literature has beaten an n-gram on natural text, and a character trigram on a few hundred KB
@@ -604,11 +744,22 @@ not the neurons, and the SNN literature implemented the neurons without the dend
    Open: whether VAL-2(b)/(c) should be the architectural acceptance bar with VAL-4 demoted to a
    stretch milestone.
 2. **The interaction of §4's rules is the hard part, not any individual rule.** SORN's positive
-   result was about the combination; it is also where simulator projects historically lose
-   months to instability. Phase 2 is the schedule risk.
-3. **Invariant #2 is stricter than the work reporting the best numbers.** Holding it is the
-   contribution. It is also why the numbers may be worse, and that trade should be made
-   knowingly rather than discovered.
+   result was about the combination; it is also where simulator projects historically lose months
+   to instability. Adding growth (NET-10) to that set makes it worse, not better: neurogenesis,
+   homeostatic scaling and pruning are three feedback loops on the same quantity, and the
+   literature that gets growth to work mostly does so *without* the other two running
+   concurrently. Phase 2 is the schedule risk; Phase 2 plus growth is the design risk.
+3. **Invariant 2 is stricter than the work reporting the best numbers.** Holding it is the
+   contribution. It is also why the numbers may be worse, and that trade should be made knowingly
+   rather than discovered.
+4. **Critical periods cut both ways** (§13.4). If early learning dynamics permanently allocate
+   representational capacity — as they demonstrably do in deep networks — then an early
+   configuration error in a long-running instance is not recoverable by running longer. Cheap
+   snapshots (RUN-9) and multi-seed evidence (VAL-6) are the mitigations, and they are worth more
+   than they look.
+5. **Never-ending learning drifts** (§13.7). NELL's precision decayed with runtime. Nothing in §4
+   currently targets semantic drift as distinct from weight instability, and VAL-3 — the test
+   that would catch it — is an **S**.
 
 ---
 
@@ -645,3 +796,14 @@ Prior art (§13):
 - [Why the Human Brain Project Went Wrong — and How to Fix It](https://www.scientificamerican.com/article/why-the-human-brain-project-went-wrong-and-how-to-fix-it/)
 - [FNS: an event-driven spiking neural network simulator](https://www.nature.com/articles/s41598-021-91513-8)
 - [NEST simulator](https://www.nest-simulator.org/)
+- [Critical Learning Periods in Deep Networks — Achille, Rovere & Soatto 2019](https://arxiv.org/abs/1711.08856)
+- [Critical Learning Periods for Multisensory Integration in Deep Networks](https://arxiv.org/abs/2210.04643)
+- [On the role of neurogenesis in overcoming catastrophic forgetting](https://arxiv.org/abs/1811.02113)
+- [Brain-inspired replay for continual learning with artificial neural networks — van de Ven et al. 2020](https://www.nature.com/articles/s41467-020-17866-2)
+- [Sleep prevents catastrophic forgetting in spiking neural networks by forming joint synaptic weight representations](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1010628)
+- [Diffusion-based neuromodulation can eliminate catastrophic forgetting in simple neural networks — Velez & Clune 2017](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0187736)
+- [Controlled Forgetting: Targeted Stimulation and Dopaminergic Plasticity Modulation for Unsupervised Lifelong Learning in Spiking Neural Networks — Allred & Roy](https://arxiv.org/abs/1902.03187)
+- [Visual behaviour mediated by retinal projections directed to the auditory pathway — von Melchner, Sur & Roe 2000](https://www.nature.com/articles/35008083)
+- [Never-Ending Learning — Mitchell et al., CACM 2018](https://dl.acm.org/doi/10.1145/3191513)
+- [Perceiver IO: A General Architecture for Structured Inputs & Outputs](https://arxiv.org/abs/2107.14795)
+- [Randomness in NEST simulations — reproducibility and virtual processes](https://nest-simulator.readthedocs.io/en/stable/nest_behavior/random_numbers.html)

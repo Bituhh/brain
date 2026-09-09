@@ -1,0 +1,5 @@
+# Pinned per Requirement 3.4: the same seed on the same platform and toolchain
+# must reproduce identical results. An unpinned toolchain is a silent
+# determinism hazard across machines and over time.
+[toolchain]
+channel = "1.96.0"

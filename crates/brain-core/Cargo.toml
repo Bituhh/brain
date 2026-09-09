@@ -1,0 +1,22 @@
+[package]
+name = "brain-core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "brain_core"
+
+# ENG-5/ENG-6: brain-core has ZERO runtime dependencies, by design, not by
+# oversight. Every numeric primitive (PRNG, arena, scheduler) is written in
+# this crate. Verify with `cargo tree -p brain-core` — it must show no edges.
+# This section is intentionally left with no [dependencies] table.
+
+[dev-dependencies]
+# Dev-only tooling is exempt from the zero-dependency rule (ENG-6, Req 1.4).
+proptest = "1.11.0"
+criterion = "0.8.2"
+
+[[bench]]
+name = "core_bench"
+harness = false

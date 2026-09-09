@@ -1,0 +1,17 @@
+# Rust
+/target/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# napi-rs generated bindings (platform-specific build output, not source)
+crates/brain-napi/*.node
+crates/brain-napi/index.js
+crates/brain-napi/index.d.ts
+crates/brain-napi/npm/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,24 @@
+{
+  "name": "brain",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "A graph-structured, spiking, locally-learning artificial nervous system. Rust core, TypeScript shell.",
+  "workspaces": [
+    "packages/*",
+    "crates/brain-napi"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "3.9.0",
+    "typescript": "7.0.2"
+  },
+  "scripts": {
+    "build:native": "npm run build --workspace=@brain/napi",
+    "build": "npm run build:native && npm run build --workspaces --if-present",
+    "typecheck": "tsc --build --pretty",
+    "test": "node --test"
+  }
+}

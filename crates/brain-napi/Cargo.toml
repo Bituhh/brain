@@ -1,0 +1,21 @@
+[package]
+name = "brain-napi"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+# cdylib: loadable Node addon. rlib: so brain-napi's own logic is unit-testable
+# with `cargo test -p brain-napi` without going through Node.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+brain-core = { path = "../brain-core" }
+# napi is the FFI binding mechanism itself, not an "AI/ML dependency" (ENG-5) —
+# it is the boundary described by Requirement 2, and it belongs here only.
+# brain-core must never depend on this crate (design.md dependency rule).
+napi = { version = "3.12.2", default-features = false, features = ["napi9"] }
+napi-derive = "3.6.3"
+
+[build-dependencies]
+napi-build = "2.4.1"

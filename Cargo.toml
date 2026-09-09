@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/brain-core",
+    "crates/brain-napi",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[profile.release]
+# Determinism (Req 3) and hot-path discipline (ENG-9) favour predictable codegen
+# over marginal speed tricks that could vary output ordering.
+panic = "unwind"
+lto = "thin"
+
+[profile.bench]
+inherits = "release"
+debug = true
