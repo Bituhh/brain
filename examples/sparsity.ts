@@ -18,7 +18,7 @@ function buildAndRun(withInhibition: boolean, ticks: number): number {
       maxDelay: 4,
       connectionThreshold: 0.5,
       synapseCapPerNeuron: 1,
-      inhibition: withInhibition ? { neighbourhoodSize: NEIGHBOURHOOD_SIZE, k: K } : undefined,
+      ...(withInhibition ? { inhibition: { neighbourhoodSize: NEIGHBOURHOOD_SIZE, k: K } } : {}),
     },
   );
 

@@ -10,7 +10,9 @@
 use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
+use brain_core::plasticity::predictive::PredictiveLearningParams;
 use brain_core::scheduler::Scheduler;
+use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig};
 use brain_core::synapse::SynapseArena;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -143,6 +145,69 @@ pub struct LifConfig {
     pub v_rest: f64,
     pub v_reset: f64,
     pub refractory_ticks: u32,
+    /// Dendritic predictive-state decay (Requirement 10.3). Omit (or pair
+    /// with an omitted `predictive_threshold_reduction`) to leave
+    /// `predictive` with no effect on thresholding, matching every
+    /// pre-Step-8 caller's behaviour exactly (`LifParams::new`'s default).
+    pub tau_predictive_ticks: Option<f64>,
+    /// How much a fully-depolarised segment lowers the effective threshold
+    /// (Requirement 10.3) -- it lowers threshold, it never fires the cell
+    /// by itself.
+    pub predictive_threshold_reduction: Option<f64>,
+}
+
+impl LifConfig {
+    fn to_lif_params(&self) -> LifParams {
+        let mut params = LifParams::new(self.tau_m_ticks as f32, self.v_rest as f32, self.v_reset as f32, self.refractory_ticks);
+        if let (Some(tau), Some(reduction)) = (self.tau_predictive_ticks, self.predictive_threshold_reduction) {
+            params = params.with_predictive(tau as f32, reduction as f32);
+        }
+        params
+    }
+}
+
+/// Dendritic segment configuration (Requirement 10): omit to leave every
+/// synapse feedforward regardless of its `segment` argument to `connect`,
+/// matching pre-Step-8 behaviour exactly.
+#[napi(object)]
+pub struct SegmentsConfig {
+    pub segments_per_neuron: u32,
+    /// How many simultaneously-active synapses on one segment are needed
+    /// for it to depolarise its neuron (`segment.rs`'s `BinaryCoincidence`).
+    pub coincidence_threshold: u32,
+}
+
+/// Predictive learning configuration (Requirement 12): omit to leave
+/// `predictive` state a *consequence* of segments (Step 8) with no
+/// learning attached to whether a prediction was later confirmed.
+#[napi(object)]
+pub struct PredictiveLearningConfig {
+    pub significance_threshold: f64,
+    pub reinforce_amount: f64,
+    pub punish_amount: f64,
+    pub burst_target_segment: u32,
+    pub burst_sprout_permanence: f64,
+    pub recently_active_window_ticks: u32,
+    /// Neighbourhood `size`/`k` used only by Requirement 12.1's
+    /// unpredicted-spike burst path to find "recently active" neighbours
+    /// to reinforce or sprout onto -- independent of the scheduler's own
+    /// `InhibitionConfig`, since a caller may want a different notion of
+    /// "nearby" for structural discovery than for k-WTA competition.
+    pub neighbourhood_size: u32,
+    pub neighbourhood_k: u32,
+}
+
+impl PredictiveLearningConfig {
+    fn to_params(&self) -> PredictiveLearningParams {
+        PredictiveLearningParams {
+            significance_threshold: self.significance_threshold as f32,
+            reinforce_amount: self.reinforce_amount as f32,
+            punish_amount: self.punish_amount as f32,
+            burst_target_segment: self.burst_target_segment,
+            burst_sprout_permanence: self.burst_sprout_permanence as f32,
+            recently_active_window_ticks: self.recently_active_window_ticks,
+        }
+    }
 }
 
 /// A minimal driveable simulation: neurons + synapses + an event-driven
@@ -176,28 +241,31 @@ pub struct InhibitionConfig {
 #[napi]
 impl NativeSimulation {
     #[napi(constructor)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         lif: LifConfig,
         max_delay: u32,
         connection_threshold: f64,
         synapse_cap_per_neuron: u32,
         inhibition: Option<InhibitionConfig>,
+        segments: Option<SegmentsConfig>,
+        predictive_learning: Option<PredictiveLearningConfig>,
     ) -> Self {
         let mut scheduler = Scheduler::new(max_delay.min(u16::MAX as u32) as u16, connection_threshold as f32);
-        if let Some(cfg) = inhibition {
+        if let Some(cfg) = &inhibition {
             scheduler = scheduler.with_inhibition(FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k));
         }
-        Self {
-            neurons: NeuronArena::new(),
-            synapses: SynapseArena::new(synapse_cap_per_neuron.max(1)),
-            scheduler,
-            lif_params: LifParams::new(
-                lif.tau_m_ticks as f32,
-                lif.v_rest as f32,
-                lif.v_reset as f32,
-                lif.refractory_ticks,
-            ),
+        if let Some(cfg) = &segments {
+            scheduler = scheduler.with_segments(SegmentConfig {
+                segments_per_neuron: cfg.segments_per_neuron,
+                params: BinaryCoincidenceParams { threshold: cfg.coincidence_threshold as u16 },
+            });
         }
+        if let Some(cfg) = &predictive_learning {
+            scheduler = scheduler
+                .with_predictive_learning(cfg.to_params(), FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.neighbourhood_k));
+        }
+        Self { neurons: NeuronArena::new(), synapses: SynapseArena::new(synapse_cap_per_neuron.max(1)), scheduler, lif_params: lif.to_lif_params() }
     }
 
     /// Allocates a neuron and ensures synapse storage exists for it.
@@ -215,9 +283,9 @@ impl NativeSimulation {
     /// (Requirement 11.3) -- not an exception, since a full block is an
     /// ordinary, expected outcome (design.md's Error Handling table).
     #[napi]
-    pub fn connect(&mut self, source: u32, target: u32, delay: u32, permanence: f64) -> Option<u32> {
+    pub fn connect(&mut self, source: u32, target: u32, segment: u32, delay: u32, permanence: f64) -> Option<u32> {
         self.synapses
-            .insert(source, target, 0, delay.clamp(1, u16::MAX as u32) as u16, permanence as f32)
+            .insert(source, target, segment, delay.clamp(1, u16::MAX as u32) as u16, permanence as f32)
             .ok()
     }
 
@@ -238,6 +306,50 @@ impl NativeSimulation {
     #[napi]
     pub fn membrane_at(&self, index: u32) -> f64 {
         self.neurons.membrane[index as usize] as f64
+    }
+
+    /// Sets a membrane value directly. A caller driving discrete,
+    /// one-symbol-per-tick presentations (rather than continuous drive)
+    /// uses this to force a losing k-WTA candidate back to rest
+    /// immediately, since a vetoed (not committed) candidate otherwise
+    /// correctly remains a live, above-threshold competitor for several
+    /// subsequent ticks (Requirement 7.1's intended behaviour for
+    /// *sustained* competing input) -- which would otherwise leak through
+    /// as a spurious extra winner on a later, unrelated presentation.
+    #[napi]
+    pub fn poke_membrane(&mut self, index: u32, value: f64) -> Result<()> {
+        let slot = self
+            .neurons
+            .membrane
+            .get_mut(index as usize)
+            .ok_or_else(|| Error::from_reason(format!("index {index} out of range")))?;
+        *slot = value as f32;
+        Ok(())
+    }
+
+    /// Dendritic predictive state (Requirement 10.3): how strongly this
+    /// neuron is currently predicted to fire, independent of whether it
+    /// actually has yet -- a prediction *is* this depolarised state, not
+    /// only the spike that may later confirm it.
+    #[napi]
+    pub fn predictive_at(&self, index: u32) -> f64 {
+        self.neurons.predictive[index as usize] as f64
+    }
+
+    /// Zeroes every neuron's `predictive` value directly. `predictive`
+    /// only decays inside `integrate()`, which is only called for dirty
+    /// neurons -- a neuron that commits a spike and then receives no
+    /// further input drops out of the dirty set immediately, freezing its
+    /// `predictive` value rather than letting it decay away in the
+    /// background (a consequence of "a silent neuron costs nothing",
+    /// Requirement 5.1, not a bug). A caller measuring predictive state
+    /// after a quiet period should call this first rather than assume the
+    /// quiet period alone cleared stale residue.
+    #[napi]
+    pub fn reset_predictive(&mut self) {
+        for v in self.neurons.predictive.iter_mut() {
+            *v = 0.0;
+        }
     }
 
     #[napi]
@@ -269,6 +381,7 @@ impl NativeSimulation {
     /// docs) -- a mismatch is caught by `config_hash`, not silently
     /// tolerated.
     #[napi(factory)]
+    #[allow(clippy::too_many_arguments)]
     pub fn restore(
         bytes: Uint8Array,
         config_hash: BigInt,
@@ -276,6 +389,8 @@ impl NativeSimulation {
         max_delay: u32,
         connection_threshold: f64,
         inhibition: Option<InhibitionConfig>,
+        segments: Option<SegmentsConfig>,
+        predictive_learning: Option<PredictiveLearningConfig>,
     ) -> Result<Self> {
         // Note: no `synapse_cap_per_neuron` parameter here -- the snapshot
         // payload already carries it (`write_synapses` stores it, and
@@ -288,21 +403,21 @@ impl NativeSimulation {
         })?;
 
         let mut scheduler = Scheduler::new(max_delay.min(u16::MAX as u32) as u16, connection_threshold as f32);
-        if let Some(cfg) = inhibition {
+        if let Some(cfg) = &inhibition {
             scheduler = scheduler.with_inhibition(FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k));
+        }
+        if let Some(cfg) = &segments {
+            scheduler = scheduler.with_segments(SegmentConfig {
+                segments_per_neuron: cfg.segments_per_neuron,
+                params: BinaryCoincidenceParams { threshold: cfg.coincidence_threshold as u16 },
+            });
+        }
+        if let Some(cfg) = &predictive_learning {
+            scheduler = scheduler
+                .with_predictive_learning(cfg.to_params(), FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.neighbourhood_k));
         }
         scheduler.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
 
-        Ok(Self {
-            neurons: restored.neurons,
-            synapses: restored.synapses,
-            scheduler,
-            lif_params: LifParams::new(
-                lif.tau_m_ticks as f32,
-                lif.v_rest as f32,
-                lif.v_reset as f32,
-                lif.refractory_ticks,
-            ),
-        })
+        Ok(Self { neurons: restored.neurons, synapses: restored.synapses, scheduler, lif_params: lif.to_lif_params() })
     }
 }

@@ -5,10 +5,18 @@
 // in for real construction (Step 5) and neuron dynamics (Step 4). The full
 // API -- snapshot(), grow(), probe() -- lands as those land, per design.md.
 
-import { NativeArena, NativeSimulation, coreVersion, type LifConfig, type InhibitionConfig } from "@brain/napi";
+import {
+  NativeArena,
+  NativeSimulation,
+  coreVersion,
+  type LifConfig,
+  type InhibitionConfig,
+  type SegmentsConfig,
+  type PredictiveLearningConfig,
+} from "@brain/napi";
 import { openSync, writeSync, fsyncSync, closeSync, renameSync, readFileSync } from "node:fs";
 
-export type { LifConfig, InhibitionConfig };
+export type { LifConfig, InhibitionConfig, SegmentsConfig, PredictiveLearningConfig };
 
 export interface SimulationOptions {
   maxDelay: number;
@@ -16,6 +24,10 @@ export interface SimulationOptions {
   synapseCapPerNeuron: number;
   /** Local inhibition (Requirement 7). Omit to disable it (Requirement 7.5's ablation path). */
   inhibition?: InhibitionConfig;
+  /** Dendritic segments (Requirement 10). Omit to leave every synapse feedforward. */
+  segments?: SegmentsConfig;
+  /** Predictive learning (Requirement 12). Omit to leave predictive state unlearned. */
+  predictiveLearning?: PredictiveLearningConfig;
 }
 
 /**
@@ -33,6 +45,8 @@ function hashConfig(lif: LifConfig, options: SimulationOptions): bigint {
     connectionThreshold: options.connectionThreshold,
     synapseCapPerNeuron: options.synapseCapPerNeuron,
     inhibition: options.inhibition ?? null,
+    segments: options.segments ?? null,
+    predictiveLearning: options.predictiveLearning ?? null,
   });
   const prime = 0x100000001b3n;
   const mask = 0xffffffffffffffffn;
@@ -221,6 +235,8 @@ export class Simulation {
         options.connectionThreshold,
         options.synapseCapPerNeuron,
         options.inhibition ?? null,
+        options.segments ?? null,
+        options.predictiveLearning ?? null,
       ),
       lif,
       options,
@@ -256,6 +272,8 @@ export class Simulation {
       options.maxDelay,
       options.connectionThreshold,
       options.inhibition ?? null,
+      options.segments ?? null,
+      options.predictiveLearning ?? null,
     );
     return new Simulation(native, lif, options);
   }
@@ -264,9 +282,15 @@ export class Simulation {
     return this.#native.allocate(threshold, polarity);
   }
 
-  /** Returns the synapse id, or `undefined` if the source's budget (Requirement 11.3) is exhausted. */
-  connect(source: number, target: number, delay: number, permanence: number): number | undefined {
-    return this.#native.connect(source, target, delay, permanence) ?? undefined;
+  /**
+   * Returns the synapse id, or `undefined` if the source's budget
+   * (Requirement 11.3) is exhausted. `segment` addresses a dendritic
+   * segment (Requirement 10) when `options.segments` is configured;
+   * otherwise it is ignored and the synapse is feedforward regardless of
+   * its value.
+   */
+  connect(source: number, target: number, segment: number, delay: number, permanence: number): number | undefined {
+    return this.#native.connect(source, target, segment, delay, permanence) ?? undefined;
   }
 
   /** Delivers `current` to a neuron on the next `step()` call (stand-in for IO-1's encoders). */
@@ -281,6 +305,34 @@ export class Simulation {
 
   membraneAt(index: number): number {
     return this.#native.membraneAt(index);
+  }
+
+  /**
+   * Sets a membrane value directly. A caller driving discrete,
+   * one-symbol-per-tick presentations (rather than continuous drive) uses
+   * this to force a losing k-WTA candidate back to rest immediately,
+   * since a vetoed candidate otherwise correctly remains a live,
+   * above-threshold competitor for several subsequent ticks (Requirement
+   * 7.1's intended behaviour for *sustained* competing input).
+   */
+  pokeMembrane(index: number, value: number): void {
+    this.#native.pokeMembrane(index, value);
+  }
+
+  /** Dendritic predictive state (Requirement 10.3) -- a prediction *is* this depolarised state, not only a later confirming spike. */
+  predictiveAt(index: number): number {
+    return this.#native.predictiveAt(index);
+  }
+
+  /**
+   * Zeroes every neuron's predictive state directly. `predictive` only
+   * decays while a neuron is actively integrated (Requirement 5.1's "a
+   * silent neuron costs nothing"), so it does not fade away on its own
+   * during a quiet period -- call this first if measuring predictive
+   * state after one.
+   */
+  resetPredictive(): void {
+    this.#native.resetPredictive();
   }
 
   currentTick(): number {

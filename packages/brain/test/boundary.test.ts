@@ -117,7 +117,7 @@ test("Simulation: a spike is delivered at exactly tick + delay (Requirement 5.4)
   );
   const a = sim.allocateNeuron(0.5, 1);
   const b = sim.allocateNeuron(100.0, 1); // never spikes on its own
-  sim.connect(a, b, 5, 0.9);
+  sim.connect(a, b, 0, 5, 0.9);
 
   sim.stimulate(a, 10.0);
   const spiked0 = sim.step();
@@ -152,8 +152,8 @@ test("Simulation.connect reports budget exhaustion instead of throwing (Requirem
   const a = sim.allocateNeuron(1.0, 1);
   const b = sim.allocateNeuron(1.0, 1);
   const c = sim.allocateNeuron(1.0, 1);
-  assert.notEqual(sim.connect(a, b, 1, 0.9), undefined);
-  assert.equal(sim.connect(a, c, 1, 0.9), undefined, "capacity-1 block must reject a second synapse");
+  assert.notEqual(sim.connect(a, b, 0, 1, 0.9), undefined);
+  assert.equal(sim.connect(a, c, 0, 1, 0.9), undefined, "capacity-1 block must reject a second synapse");
 });
 
 test("Simulation: snapshot and restore round-trip a running simulation (Requirement 16.11)", () => {
@@ -166,7 +166,7 @@ test("Simulation: snapshot and restore round-trip a running simulation (Requirem
     const original = Simulation.create(lif, options);
     const a = original.allocateNeuron(0.5, 1);
     const b = original.allocateNeuron(0.5, 1);
-    original.connect(a, b, 3, 0.9);
+    original.connect(a, b, 0, 3, 0.9);
     for (let tick = 0; tick < 20; tick++) {
       original.stimulate(a, 10.0);
       original.step();
