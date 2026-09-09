@@ -84,6 +84,52 @@ impl Pcg32 {
     }
 }
 
+/// splitmix64's finalizer/mixer (Steele, Lea & Flood, 2014). A fast, public
+/// avalanche mix: every output bit depends on every input bit. Used only to
+/// derive well-distributed seeds for [`derive_stream`] below -- this is not
+/// itself a generator with a period or state, just a fixed bijection.
+fn splitmix64(mut z: u64) -> u64 {
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+    z ^ (z >> 31)
+}
+
+/// Derives a fresh, independent [`Pcg32`] for one draw, keyed by
+/// `(base_seed, entity_id, purpose, tick)` rather than advanced from
+/// persistent per-thread state.
+///
+/// This is the construction settled on for README §12a(3): RUN-3 requires
+/// determinism across single-threaded and multi-threaded runs, and RUN-9a
+/// requires a bit-identical snapshot round-trip. Together, no stochastic
+/// decision may depend on which thread made it, on what order draws happen
+/// in relative to each other, or on how the graph is partitioned -- a
+/// generator advanced by use and pinned to a thread cannot satisfy that,
+/// no matter how carefully seeded, because "which thread, in what order"
+/// is exactly what changes across a repartitioning. A value derived
+/// *purely* as a function of a stable identity tuple cannot depend on
+/// those things by construction.
+///
+/// `purpose` distinguishes independent uses that might otherwise share an
+/// `(entity_id, tick)` pair (e.g. "which target to connect to" versus "what
+/// delay to assign" for the same source neuron on the same tick) --
+/// callers define their own purpose constants; this function does not
+/// interpret the value.
+///
+/// The two `splitmix64` passes below turn the combined, XOR-mixed input
+/// into a well-distributed `(seed, seq)` pair for [`Pcg32::new`]; distinct
+/// multiplicative constants for the two passes (`seed` uses a tick-scaled
+/// term, `seq` does not) keep them from being simple linear functions of
+/// each other. This is a hash-based counter construction, not a
+/// cryptographic one -- adequate for simulation statistics, not adversarial
+/// unpredictability, which nothing here requires.
+pub fn derive_stream(base_seed: u64, entity_id: u32, purpose: u32, tick: u32) -> Pcg32 {
+    let entity_purpose = ((entity_id as u64) << 32) | (purpose as u64);
+    let tick_term = (tick as u64).wrapping_mul(0x9E3779B97F4A7C15); // golden-ratio odd constant
+    let seed = splitmix64(base_seed ^ entity_purpose ^ tick_term);
+    let seq = splitmix64(base_seed.rotate_left(32) ^ entity_purpose.wrapping_add(tick as u64));
+    Pcg32::new(seed, seq)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,5 +220,90 @@ mod tests {
             let v = rng.next_f32();
             assert!((0.0..1.0).contains(&v));
         }
+    }
+
+    // -- derive_stream: README §12a(3)'s counter-based construction --
+    //
+    // The property that actually matters for RUN-3/RUN-9a is not "looks
+    // random" but "depends on nothing except the (seed, entity, purpose,
+    // tick) tuple" -- these tests are written to that property directly:
+    // same tuple always gives the same stream (regardless of call order,
+    // standing in for "regardless of which thread made the call"), and
+    // changing any one component of the tuple, alone, changes the stream.
+
+    #[test]
+    fn derive_stream_is_a_pure_function_of_its_inputs() {
+        let mut a = derive_stream(1, 2, 3, 4);
+        let mut b = derive_stream(1, 2, 3, 4);
+        for _ in 0..100 {
+            assert_eq!(a.next_u32(), b.next_u32());
+        }
+    }
+
+    #[test]
+    fn derive_stream_is_unaffected_by_unrelated_prior_calls() {
+        // Simulates "called from a different thread, in a different order,
+        // with other draws interleaved" -- the whole point of a stateless,
+        // tuple-keyed derivation is that none of that can matter.
+        let mut a = derive_stream(7, 10, 0, 100);
+        let noise: Vec<u32> = (0..50).map(|i| derive_stream(999, i, 5, i).next_u32()).collect();
+        let mut b = derive_stream(7, 10, 0, 100);
+        assert_eq!(a.next_u32(), b.next_u32(), "unrelated derive_stream calls in between must not perturb this one");
+        std::hint::black_box(noise);
+    }
+
+    #[test]
+    fn derive_stream_differs_when_seed_differs() {
+        let a = derive_stream(1, 2, 3, 4).next_u32();
+        let b = derive_stream(2, 2, 3, 4).next_u32();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn derive_stream_differs_when_entity_id_differs() {
+        let a = derive_stream(1, 2, 3, 4).next_u32();
+        let b = derive_stream(1, 20, 3, 4).next_u32();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn derive_stream_differs_when_purpose_differs() {
+        let a = derive_stream(1, 2, 3, 4).next_u32();
+        let b = derive_stream(1, 2, 30, 4).next_u32();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn derive_stream_differs_when_tick_differs() {
+        let a = derive_stream(1, 2, 3, 4).next_u32();
+        let b = derive_stream(1, 2, 3, 40).next_u32();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn derive_stream_over_many_ticks_has_no_short_period_or_gross_correlation() {
+        // Not a rigorous statistical test suite -- just a sanity check that
+        // sweeping the tick axis (the one most likely to be swept in a
+        // tight loop, e.g. per-tick stochastic firing) doesn't produce an
+        // obviously degenerate sequence (repeats, or a mean far from 0.5).
+        let draws: Vec<u32> = (0..10_000u32).map(|tick| derive_stream(42, 7, 1, tick).next_u32()).collect();
+        let unique: std::collections::HashSet<u32> = draws.iter().copied().collect();
+        assert!(unique.len() > 9_990, "expected near-total uniqueness across 10,000 draws, got {}", unique.len());
+
+        let mean = draws.iter().map(|&v| v as f64 / u32::MAX as f64).sum::<f64>() / draws.len() as f64;
+        assert!((mean - 0.5).abs() < 0.02, "mean of normalised draws should be near 0.5, got {mean}");
+    }
+
+    #[test]
+    fn derive_stream_gives_independent_streams_not_just_independent_first_values() {
+        // A construction could plausibly differ on the first u32 yet
+        // collide or correlate on the underlying stream. Check a run of
+        // outputs, not just one, for two entities that share every other
+        // key component.
+        let mut a = derive_stream(1, 1, 0, 0);
+        let mut b = derive_stream(1, 2, 0, 0);
+        let seq_a: Vec<u32> = (0..32).map(|_| a.next_u32()).collect();
+        let seq_b: Vec<u32> = (0..32).map(|_| b.next_u32()).collect();
+        assert_ne!(seq_a, seq_b);
     }
 }
