@@ -22,6 +22,7 @@ use crate::inhibition::FixedNeighbourhoods;
 use crate::neuromodulator::NeuromodulatorField;
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
 use crate::plasticity::{LocalContext, NeuronLocal, RuleChain, SynapseMut};
+use crate::segment::{BinaryCoincidence, SegmentConfig, SegmentModel, SegmentState, FEEDFORWARD_SEGMENT};
 use crate::synapse::SynapseArena;
 
 fn neuron_local(neurons: &NeuronArena, idx: u32) -> NeuronLocal {
@@ -138,6 +139,18 @@ pub struct Scheduler {
     plasticity: Option<RuleChain>,
     modulators: NeuromodulatorField,
     incoming_scratch: Vec<u32>,
+    /// `None` means every synapse is feedforward regardless of its
+    /// `target_segment` value -- the behaviour every synapse had before
+    /// segments existed (Requirement 10's opt-in path).
+    segments: Option<SegmentConfig>,
+    // Per-(neuron, segment) coincidence counts for the current tick, flat
+    // indexed as `neuron * segments_per_neuron + segment`
+    // (`segment_counts`), with `segment_touched` tracking which composite
+    // indices were touched this tick for O(touched) evaluation and clear
+    // -- the same "reused scratch, cleared only where touched" pattern as
+    // `DirtySet` and the inhibition/ring scratch buffers (ENG-9).
+    segment_counts: Vec<u16>,
+    segment_touched: Vec<u32>,
 }
 
 impl Scheduler {
@@ -159,6 +172,9 @@ impl Scheduler {
             plasticity: None,
             modulators: NeuromodulatorField::new([1000.0; crate::plasticity::NUM_MODULATORS]),
             incoming_scratch: Vec::new(),
+            segments: None,
+            segment_counts: Vec::new(),
+            segment_touched: Vec::new(),
         }
     }
 
@@ -168,6 +184,17 @@ impl Scheduler {
     pub fn with_plasticity(mut self, rules: RuleChain, modulator_tau_ticks: crate::plasticity::Modulators) -> Self {
         self.plasticity = Some(rules);
         self.modulators = NeuromodulatorField::new(modulator_tau_ticks);
+        self
+    }
+
+    /// Enables dendritic segments (Requirement 10): a synapse whose
+    /// `target_segment` is not [`FEEDFORWARD_SEGMENT`] no longer drives
+    /// the soma directly -- it counts toward that segment's per-tick
+    /// coincidence tally instead (see `segment.rs`'s module docs on why
+    /// the window is one tick). Without this call, every synapse remains
+    /// feedforward regardless of its `target_segment` value.
+    pub fn with_segments(mut self, config: SegmentConfig) -> Self {
+        self.segments = Some(config);
         self
     }
 
@@ -301,10 +328,35 @@ impl Scheduler {
             }
             let source_index = synapses.source_of(synapse_id);
             let target = synapses.target_neuron[synapse_id as usize];
-            let sign = neurons.polarity[source_index as usize] as f32;
-            self.input_accum[target as usize] += sign * permanence;
-            self.dirty.insert(target);
+            let target_segment = synapses.target_segment[synapse_id as usize];
 
+            // Requirement 10: a synapse routed to a real dendritic segment
+            // counts toward that segment's coincidence tally instead of
+            // driving the soma directly. Segments are opt-in
+            // (`self.segments`), so with no call to `with_segments` every
+            // synapse is feedforward regardless of `target_segment`,
+            // preserving exact pre-Step-8 behaviour.
+            let is_dendritic = self.segments.is_some() && target_segment != FEEDFORWARD_SEGMENT;
+            if is_dendritic {
+                let segments_per_neuron = self.segments.as_ref().unwrap().segments_per_neuron;
+                let composite = target as usize * segments_per_neuron as usize + target_segment as usize;
+                if self.segment_counts.len() <= composite {
+                    self.segment_counts.resize(composite + 1, 0);
+                }
+                if self.segment_counts[composite] == 0 {
+                    self.segment_touched.push(composite as u32);
+                }
+                self.segment_counts[composite] = self.segment_counts[composite].saturating_add(1);
+            } else {
+                let sign = neurons.polarity[source_index as usize] as f32;
+                self.input_accum[target as usize] += sign * permanence;
+                self.dirty.insert(target);
+            }
+
+            // Plasticity credits this delivery regardless of which path it
+            // took: a dendritic synapse still learns via STDP exactly like
+            // a feedforward one, it just doesn't itself carry current to
+            // the soma (Requirement 10 does not touch Requirement 8).
             if let Some(rules) = &self.plasticity {
                 let ctx = LocalContext {
                     pre: neuron_local(neurons, source_index),
@@ -319,6 +371,27 @@ impl Scheduler {
         deliveries.clear();
         self.ring[bucket_idx] = deliveries;
 
+        // 1b. Evaluate every segment touched this tick (Requirement 10.2):
+        // a segment that reaches its coincidence threshold depolarises its
+        // neuron (Requirement 10.3 -- boosts `predictive`, never fires it
+        // directly) and marks it dirty so that boost is actually
+        // integrated this tick even if no feedforward input also arrived.
+        if let Some(config) = &self.segments {
+            let segments_per_neuron = config.segments_per_neuron;
+            for &composite in &self.segment_touched {
+                let active = self.segment_counts[composite as usize];
+                self.segment_counts[composite as usize] = 0;
+                let depolarisation = BinaryCoincidence::evaluate(active, &SegmentState, &config.params);
+                if depolarisation.0 > 0.0 {
+                    let neuron = composite / segments_per_neuron;
+                    let slot = &mut neurons.predictive[neuron as usize];
+                    *slot = slot.max(depolarisation.0);
+                    self.dirty.insert(neuron);
+                }
+            }
+            self.segment_touched.clear();
+        }
+
         // 2. Integrate every dirty neuron exactly once, collecting
         // threshold-crossing candidates and next tick's carry-forward set.
         self.candidates_scratch.clear();
@@ -330,6 +403,7 @@ impl Scheduler {
                 membrane: &mut neurons.membrane[i],
                 refractory_until: &mut neurons.refractory[i],
                 last_spike: &mut neurons.last_spike[i],
+                predictive: &mut neurons.predictive[i],
                 threshold: neurons.threshold[i],
             };
             let outcome = D::integrate(state, params, input, self.tick);
@@ -365,6 +439,7 @@ impl Scheduler {
                 membrane: &mut neurons.membrane[i],
                 refractory_until: &mut neurons.refractory[i],
                 last_spike: &mut neurons.last_spike[i],
+                predictive: &mut neurons.predictive[i],
                 threshold: neurons.threshold[i],
             };
             if is_winner {
@@ -743,5 +818,142 @@ mod tests {
             sched.step::<Lif>(&mut neurons, &mut synapses, &params);
         }
         assert_eq!(synapses.permanence[syn as usize], before);
+    }
+
+    // -- Dendritic segments (Requirement 10): these prove the real
+    // scheduler wiring (routing, coincidence counting, the predictive
+    // boost, and its effect on inhibition), not just segment.rs's
+    // isolated BinaryCoincidence::evaluate unit tests.
+
+    use crate::segment::{BinaryCoincidenceParams, SegmentConfig, FEEDFORWARD_SEGMENT};
+
+    #[test]
+    fn a_dendritic_synapse_does_not_drive_the_soma_directly() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(1);
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        let b = make_neuron(&mut neurons, 100.0, 1); // never spikes itself
+        synapses.reserve_for_neurons(2);
+        synapses.insert(a, b, 0, 1, 0.9).unwrap(); // target_segment = 0, a real segment once configured
+
+        let mut sched = Scheduler::new(4, 0.5)
+            .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 5 } });
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+        sched.stimulate(&neurons, a, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // a spikes
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // delivery lands on b's segment 0
+
+        assert_eq!(neurons.membrane[b as usize], 0.0, "a dendritic synapse must not add to feedforward input");
+    }
+
+    #[test]
+    fn feedforward_segment_still_drives_the_soma_even_with_segments_configured() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(1);
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        let b = make_neuron(&mut neurons, 100.0, 1);
+        synapses.reserve_for_neurons(2);
+        synapses.insert(a, b, FEEDFORWARD_SEGMENT, 1, 0.9).unwrap();
+
+        let mut sched = Scheduler::new(4, 0.5)
+            .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 5 } });
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+        sched.stimulate(&neurons, a, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+
+        assert!(neurons.membrane[b as usize] > 0.0, "FEEDFORWARD_SEGMENT must still drive the soma directly (Requirement 10 is additive)");
+    }
+
+    #[test]
+    fn segment_fires_independently_of_other_segments_on_the_same_neuron() {
+        // Requirement 10.1, 10.2: multiple segments, each with its own
+        // synapse set, each firing independently.
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(1);
+        let target = make_neuron(&mut neurons, 100.0, 1);
+        let mut segment0_sources = Vec::new();
+        for _ in 0..5 {
+            segment0_sources.push(make_neuron(&mut neurons, 0.5, 1));
+        }
+        let mut segment1_sources = Vec::new();
+        for _ in 0..2 {
+            segment1_sources.push(make_neuron(&mut neurons, 0.5, 1));
+        }
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        for &s in &segment0_sources {
+            synapses.insert(s, target, 0, 1, 0.9).unwrap(); // segment 0: 5 sources, threshold 5 -> fires
+        }
+        for &s in &segment1_sources {
+            synapses.insert(s, target, 1, 1, 0.9).unwrap(); // segment 1: only 2 sources -> never reaches 5
+        }
+
+        let mut sched = Scheduler::new(4, 0.5)
+            .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 5 } });
+        let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(50.0, 0.5);
+        for &s in segment0_sources.iter().chain(segment1_sources.iter()) {
+            sched.stimulate(&neurons, s, 10.0);
+        }
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // all sources spike
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // deliveries land, segments evaluated
+
+        // Not exactly 1.0: the boost is set during this same step() call's
+        // delivery phase, and that same call's later integrate() phase
+        // already applies one tick of decay to it before returning (by
+        // design -- see neuron.rs's integrate(), which uses the
+        // *pre-decay* value for the current tick's own threshold decision,
+        // proven by predictive_state_helps_a_neuron_win_inhibition below,
+        // and only decays afterward, in preparation for the next call).
+        assert!(
+            neurons.predictive[target as usize] > 0.9,
+            "segment 0 reached its threshold (5 of 5) and must have fired, leaving predictive only one tick's decay below 1.0, got {}",
+            neurons.predictive[target as usize]
+        );
+        assert_eq!(neurons.membrane[target as usize], 0.0, "dendritic synapses still must not drive the soma directly");
+    }
+
+    #[test]
+    fn predictive_state_helps_a_neuron_win_inhibition_over_an_equally_stimulated_neighbour() {
+        // Requirement 10.4, the integration this whole mechanism exists
+        // for: predictive state lowers the effective threshold enough
+        // that, under identical feedforward stimulation, the predicted
+        // neuron reaches threshold with a larger margin and wins local
+        // inhibition, suppressing its non-predicted neighbour.
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(1);
+        let a = make_neuron(&mut neurons, 1.0, 1); // not predicted
+        let b = make_neuron(&mut neurons, 1.0, 1); // predicted
+        synapses.reserve_for_neurons(2);
+        neurons.predictive[b as usize] = 1.0; // pre-depolarised, bypassing segments to isolate this interaction
+
+        let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(1000.0, 0.5); // slow decay: stays ~1.0 for this one tick
+        let mut sched = Scheduler::new(4, 0.5).with_inhibition(FixedNeighbourhoods::new(10, 1)); // a, b share a neighbourhood
+        sched.stimulate(&neurons, a, 6.0);
+        sched.stimulate(&neurons, b, 6.0); // identical stimulation
+
+        let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        assert_eq!(report.spiked, vec![b], "the predicted neuron must win identical stimulation via its larger margin");
+        assert_eq!(report.vetoed, vec![a], "the non-predicted neighbour must be suppressed, not merely slower");
+    }
+
+    #[test]
+    fn without_segments_configured_target_segment_is_ignored_entirely() {
+        // Backward-compatibility guard: a synapse created with
+        // target_segment=0 (what every pre-Step-8 test already does)
+        // must remain feedforward when segments are never configured.
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(1);
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        let b = make_neuron(&mut neurons, 100.0, 1);
+        synapses.reserve_for_neurons(2);
+        synapses.insert(a, b, 0, 1, 0.9).unwrap();
+
+        let mut sched = Scheduler::new(4, 0.5); // no with_segments() call
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+        sched.stimulate(&neurons, a, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+
+        assert!(neurons.membrane[b as usize] > 0.0, "target_segment=0 must remain feedforward when segments are not configured");
     }
 }

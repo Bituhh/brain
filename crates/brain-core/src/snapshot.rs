@@ -430,6 +430,24 @@ mod tests {
     }
 
     #[test]
+    fn round_trips_dendritic_predictive_state() {
+        // Requirement 16.1 explicitly names "dendritic segment state" as
+        // part of what a snapshot must capture (Step 8, Requirement 10) --
+        // this is `NeuronArena::predictive`, the decaying depolarisation a
+        // fired segment sets. Already covered incidentally by
+        // round_trips_neuron_fields_exactly's full-array comparisons, but
+        // stated directly since Requirement 16.1 calls it out by name.
+        let (mut neurons, synapses, scheduler) = sample_network();
+        neurons.predictive[1] = 0.73;
+
+        let bytes = write(&neurons, &synapses, &scheduler, 2, 1);
+        let restored = read(&bytes, 1).unwrap();
+
+        assert_eq!(restored.neurons.predictive, neurons.predictive);
+        assert_eq!(restored.neurons.predictive[1], 0.73);
+    }
+
+    #[test]
     fn round_trips_occupied_synapses_exactly() {
         let (neurons, mut synapses, scheduler) = sample_network();
         synapses.eligibility[0] = 0.77;

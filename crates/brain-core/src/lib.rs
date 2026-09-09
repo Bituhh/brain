@@ -21,6 +21,7 @@ pub mod neuron;
 pub mod plasticity;
 pub mod rng;
 pub mod scheduler;
+pub mod segment;
 pub mod snapshot;
 pub mod synapse;
 

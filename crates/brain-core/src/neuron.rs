@@ -28,6 +28,14 @@ pub struct NeuronStateMut<'a> {
     pub membrane: &'a mut f32,
     pub refractory_until: &'a mut u32,
     pub last_spike: &'a mut u32,
+    /// Decaying dendritic depolarisation (NEU-6, Requirement 10.3):
+    /// written by a fired segment (`segment.rs`, via the scheduler), read
+    /// and decayed here to lower -- never bypass -- the effective
+    /// threshold. `0.0` when no segment has recently fired; segments are
+    /// an optional feature (`Scheduler::with_segments`), so this field
+    /// simply stays at its resting value for any run that doesn't use
+    /// them.
+    pub predictive: &'a mut f32,
     /// Read-only here: homeostasis (NEU-7, Step 6) adapts this elsewhere,
     /// not as part of ordinary integration.
     pub threshold: f32,
@@ -121,12 +129,44 @@ pub struct LifParams {
     pub v_reset: f32,
     /// Ticks of absolute refractoriness after a spike (NEU-1, Req 4.2/4.3).
     pub refractory_ticks: u32,
+    /// `exp(-1 / tau_predictive_ticks)` -- the dendritic depolarisation's
+    /// own decay, independent of and typically faster than membrane decay
+    /// (a dendritic/NMDA spike is brief). Defaults to `0.0` (instant decay
+    /// -- i.e. no lingering predictive state) via [`LifParams::new`], so
+    /// existing callers that never touch segments are unaffected.
+    pub predictive_decay_per_tick: f32,
+    /// How much a *fully* depolarised segment (`Depolarisation(1.0)`)
+    /// lowers the effective threshold (Requirement 10.3: it lowers
+    /// threshold, it never fires the cell by itself -- so this must stay
+    /// small enough that `threshold - predictive_threshold_reduction`
+    /// remains a real, crossable, positive value on its own). Defaults to
+    /// `0.0`.
+    pub predictive_threshold_reduction: f32,
 }
 
 impl LifParams {
+    /// Segments disabled by default (`predictive_decay_per_tick` and
+    /// `predictive_threshold_reduction` both `0.0`): `predictive` decays
+    /// to nothing instantly and contributes no threshold reduction, so
+    /// existing callers that never configure segments see no behaviour
+    /// change. Use [`LifParams::with_predictive`] to enable it.
     pub fn new(tau_m_ticks: f32, v_rest: f32, v_reset: f32, refractory_ticks: u32) -> Self {
         debug_assert!(tau_m_ticks > 0.0, "tau_m_ticks must be positive");
-        Self { decay_per_tick: (-1.0 / tau_m_ticks).exp(), v_rest, v_reset, refractory_ticks }
+        Self {
+            decay_per_tick: (-1.0 / tau_m_ticks).exp(),
+            v_rest,
+            v_reset,
+            refractory_ticks,
+            predictive_decay_per_tick: 0.0,
+            predictive_threshold_reduction: 0.0,
+        }
+    }
+
+    pub fn with_predictive(mut self, tau_predictive_ticks: f32, threshold_reduction: f32) -> Self {
+        debug_assert!(tau_predictive_ticks > 0.0, "tau_predictive_ticks must be positive");
+        self.predictive_decay_per_tick = (-1.0 / tau_predictive_ticks).exp();
+        self.predictive_threshold_reduction = threshold_reduction;
+        self
     }
 }
 
@@ -138,22 +178,42 @@ impl NeuronDynamics for Lif {
     type Params = LifParams;
 
     fn integrate(state: NeuronStateMut<'_>, p: &LifParams, input: f32, tick: u32) -> IntegrationOutcome {
+        // Predictive state is used at its *current* value for this tick's
+        // decision -- exactly like feedforward `input`, which is also
+        // used undecayed the same tick it arrives -- and only decayed
+        // afterward, in preparation for the next call. Decaying first
+        // would mean a segment that fires this very tick (`scheduler.rs`
+        // evaluates segments before calling `integrate`) gets docked
+        // before it ever has a chance to affect this tick's threshold
+        // check, which defeats the point of it firing on this tick at all.
+        let predictive_now = state.predictive.clamp(0.0, 1.0);
+
         // Requirement 4.3: refractory neurons do not integrate input at all.
         if tick < *state.refractory_until {
             *state.membrane = p.v_reset;
-            let still_active = tick + 1 < *state.refractory_until;
+            *state.predictive *= p.predictive_decay_per_tick;
+            let still_active = tick + 1 < *state.refractory_until || *state.predictive > SETTLE_EPSILON;
             return IntegrationOutcome { crossed_threshold: false, margin: 0.0, still_active };
         }
 
         let target = p.v_rest + input;
         *state.membrane = target + (*state.membrane - target) * p.decay_per_tick;
 
-        if *state.membrane >= state.threshold {
+        // Requirement 10.3: predictive state *lowers* the effective
+        // threshold, it never bypasses it -- crossing is still decided
+        // against a real threshold, just a smaller one.
+        let effective_threshold = state.threshold - p.predictive_threshold_reduction * predictive_now;
+        let crossed = *state.membrane >= effective_threshold;
+
+        *state.predictive *= p.predictive_decay_per_tick;
+
+        if crossed {
             // still_active is ignored by the scheduler whenever
             // crossed_threshold is true -- see that field's doc comment.
-            IntegrationOutcome { crossed_threshold: true, margin: *state.membrane - state.threshold, still_active: false }
+            IntegrationOutcome { crossed_threshold: true, margin: *state.membrane - effective_threshold, still_active: false }
         } else {
-            let unsettled = (*state.membrane - p.v_rest).abs() > SETTLE_EPSILON;
+            let unsettled =
+                (*state.membrane - p.v_rest).abs() > SETTLE_EPSILON || *state.predictive > SETTLE_EPSILON;
             IntegrationOutcome { crossed_threshold: false, margin: 0.0, still_active: unsettled }
         }
     }
@@ -180,9 +240,10 @@ mod tests {
         membrane: &'a mut f32,
         refractory_until: &'a mut u32,
         last_spike: &'a mut u32,
+        predictive: &'a mut f32,
         threshold: f32,
     ) -> NeuronStateMut<'a> {
-        NeuronStateMut { membrane, refractory_until, last_spike, threshold }
+        NeuronStateMut { membrane, refractory_until, last_spike, predictive, threshold }
     }
 
     /// Replicates the old, pre-inhibition `step()`: integrate, and if it
@@ -200,13 +261,14 @@ mod tests {
         membrane: &mut f32,
         refractory_until: &mut u32,
         last_spike: &mut u32,
+        predictive: &mut f32,
         threshold: f32,
         p: &LifParams,
         input: f32,
         tick: u32,
     ) -> (bool, bool) {
         let outcome = Lif::integrate(
-            NeuronStateMut { membrane, refractory_until, last_spike, threshold },
+            NeuronStateMut { membrane, refractory_until, last_spike, predictive, threshold },
             p,
             input,
             tick,
@@ -218,7 +280,7 @@ mod tests {
         // lose here, so this always commits): still_active depends on
         // whether refractory continues past next tick, read back from the
         // arena since commit_spike just set it.
-        Lif::commit_spike(NeuronStateMut { membrane, refractory_until, last_spike, threshold }, p, tick);
+        Lif::commit_spike(NeuronStateMut { membrane, refractory_until, last_spike, predictive, threshold }, p, tick);
         let still_active = *refractory_until > tick + 1;
         (true, still_active)
     }
@@ -229,9 +291,10 @@ mod tests {
         let mut membrane = 5.0f32;
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
+        let mut predictive = 0.0f32;
         for tick in 0..200u32 {
             let (spiked, _) = step_without_competition(
-                &mut membrane, &mut refractory_until, &mut last_spike, 100.0,
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, 100.0,
                 &params,
                 0.0,
                 tick,
@@ -251,10 +314,11 @@ mod tests {
         let mut membrane = 0.0f32;
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
+        let mut predictive = 0.0f32;
         let mut last_still_active = true;
         for tick in 0..300u32 {
             let (spiked, still_active) = step_without_competition(
-                &mut membrane, &mut refractory_until, &mut last_spike, 1000.0,
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, 1000.0,
                 &params,
                 0.0,
                 tick,
@@ -274,9 +338,10 @@ mod tests {
         let mut membrane = 0.0f32;
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
+        let mut predictive = 0.0f32;
         for tick in 0..10_000u32 {
             let (spiked, _) = step_without_competition(
-                &mut membrane, &mut refractory_until, &mut last_spike, threshold,
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold,
                 &params,
                 input,
                 tick,
@@ -293,9 +358,10 @@ mod tests {
         let mut membrane = 0.99f32; // one strong-input tick from threshold
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
+        let mut predictive = 0.0f32;
 
         let (spiked, still_active) = step_without_competition(
-            &mut membrane, &mut refractory_until, &mut last_spike, threshold,
+            &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold,
             &params,
             10.0,
             0,
@@ -309,7 +375,7 @@ mod tests {
         // While refractory, strong input must not produce another spike.
         for tick in 1..=3u32 {
             let (spiked, _) = step_without_competition(
-                &mut membrane, &mut refractory_until, &mut last_spike, threshold,
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold,
                 &params,
                 1000.0,
                 tick,
@@ -321,7 +387,7 @@ mod tests {
         // Refractory ends at tick 4 (refractory_until=4): large input should
         // now be free to drive an immediate spike.
         let (spiked, _) = step_without_competition(
-            &mut membrane, &mut refractory_until, &mut last_spike, threshold,
+            &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold,
             &params,
             1000.0,
             4,
@@ -335,8 +401,9 @@ mod tests {
         let mut membrane = 0.99f32;
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
+        let mut predictive = 0.0f32;
         let (spiked, still_active) = step_without_competition(
-            &mut membrane, &mut refractory_until, &mut last_spike, 1.0,
+            &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, 1.0,
             &params,
             10.0,
             0,
@@ -355,12 +422,13 @@ mod tests {
         let mut membrane = 1.2f32; // already above threshold
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
+        let mut predictive = 0.0f32;
         let threshold = 1.0;
 
         let outcome =
-            Lif::integrate(make_state(&mut membrane, &mut refractory_until, &mut last_spike, threshold), &params, 0.0, 0);
+            Lif::integrate(make_state(&mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold), &params, 0.0, 0);
         assert!(outcome.crossed_threshold);
-        Lif::veto_spike(make_state(&mut membrane, &mut refractory_until, &mut last_spike, threshold), &params, 0);
+        Lif::veto_spike(make_state(&mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold), &params, 0);
 
         assert!(membrane >= threshold, "a vetoed spike must not be reset");
         assert_eq!(last_spike, u32::MAX, "a vetoed spike must not record last_spike");
@@ -388,10 +456,11 @@ mod tests {
         let mut membrane = 0.0f32;
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
+        let mut predictive = 0.0f32;
         let mut spike_ticks = Vec::new();
         for tick in 0..20_000u32 {
             let (spiked, _) = step_without_competition(
-                &mut membrane, &mut refractory_until, &mut last_spike, threshold,
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold,
                 &params,
                 input,
                 tick,
@@ -415,5 +484,110 @@ mod tests {
             relative_error < 0.05,
             "empirical rate {empirical_rate} vs analytic {analytic_rate}, relative error {relative_error}"
         );
+    }
+
+    // -- Predictive state (Requirement 10.3, 10.4): a dendritic segment's
+    // depolarisation lowers the effective threshold without ever letting
+    // the neuron spike from it alone. `segment.rs` decides *whether* a
+    // segment fires; these tests only check what `predictive` then does
+    // to somatic integration, independent of how it got set.
+
+    #[test]
+    fn predictive_state_alone_never_causes_a_spike() {
+        // Requirement 10.3's "shall not spike from the segment alone":
+        // even at maximum predictive depolarisation and zero feedforward
+        // input, a neuron must not cross threshold on that basis alone.
+        let params = LifParams::new(20.0, 0.0, 0.0, 0).with_predictive(50.0, 0.9);
+        let mut membrane = 0.0f32;
+        let mut refractory_until = 0u32;
+        let mut last_spike = u32::MAX;
+        let mut predictive = 1.0f32; // fully depolarised
+        let (spiked, _) =
+            step_without_competition(&mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, 1.0, &params, 0.0, 0);
+        assert!(!spiked, "predictive state with zero feedforward input must not spike by itself");
+    }
+
+    #[test]
+    fn predictive_state_lowers_the_effective_threshold() {
+        // Requirement 10.4: a predicted neuron reaches threshold sooner
+        // than an equivalent non-predicted one under the same feedforward
+        // input.
+        //
+        // tau_predictive (1000) is deliberately much larger than tau_m
+        // (20): predictive must still be close to its initial value while
+        // membrane has time to approach its own steady state, or the
+        // effective threshold's own recovery toward the full threshold
+        // outpaces membrane's rise and the two curves never cross at all
+        // (this was the actual first draft's bug, caught by this test
+        // failing: with tau_predictive=50, comparable to tau_m, the
+        // threshold recovers before membrane can catch up).
+        let params = LifParams::new(20.0, 0.0, 0.0, 0).with_predictive(1000.0, 0.5);
+        let threshold = 1.0;
+        let input = 0.7; // sub-threshold against 1.0, but not against 1.0-0.5=0.5
+
+        let mut predicted_membrane = 0.0f32;
+        let mut predicted_refractory = 0u32;
+        let mut predicted_last_spike = u32::MAX;
+        let mut predicted_predictive = 1.0f32;
+
+        let mut plain_membrane = 0.0f32;
+        let mut plain_refractory = 0u32;
+        let mut plain_last_spike = u32::MAX;
+        let mut plain_predictive = 0.0f32;
+
+        let mut predicted_spiked_tick = None;
+        let mut plain_spiked_tick = None;
+        for tick in 0..500u32 {
+            if predicted_spiked_tick.is_none() {
+                let (spiked, _) = step_without_competition(
+                    &mut predicted_membrane, &mut predicted_refractory, &mut predicted_last_spike, &mut predicted_predictive,
+                    threshold, &params, input, tick,
+                );
+                if spiked {
+                    predicted_spiked_tick = Some(tick);
+                }
+            }
+            if plain_spiked_tick.is_none() {
+                let (spiked, _) = step_without_competition(
+                    &mut plain_membrane, &mut plain_refractory, &mut plain_last_spike, &mut plain_predictive, threshold, &params,
+                    input, tick,
+                );
+                if spiked {
+                    plain_spiked_tick = Some(tick);
+                }
+            }
+        }
+
+        let predicted_tick = predicted_spiked_tick.expect("predicted neuron should spike given enough ticks");
+        assert!(plain_spiked_tick.is_none(), "plain neuron under this sub-threshold-for-1.0 input should not spike at all within the window");
+        assert!(predicted_tick < 500, "predicted neuron should have spiked well within the test window, at tick {predicted_tick}");
+    }
+
+    #[test]
+    fn predictive_state_decays_over_time() {
+        let params = LifParams::new(20.0, 0.0, 0.0, 0).with_predictive(10.0, 0.5);
+        let mut membrane = 0.0f32;
+        let mut refractory_until = 0u32;
+        let mut last_spike = u32::MAX;
+        let mut predictive = 1.0f32;
+        for _ in 0..200 {
+            step_without_competition(&mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, 100.0, &params, 0.0, 0);
+        }
+        assert!(predictive < 0.01, "predictive state should have decayed to near nothing after 20 time constants, got {predictive}");
+    }
+
+    #[test]
+    fn zero_predictive_configuration_is_unaffected_by_predictive_field() {
+        // Regression guard: LifParams::new (without with_predictive) must
+        // leave existing behaviour completely unchanged, since predictive
+        // decay/reduction both default to 0.0.
+        let params = LifParams::new(20.0, 0.0, 0.0, 0);
+        let mut membrane = 0.0f32;
+        let mut refractory_until = 0u32;
+        let mut last_spike = u32::MAX;
+        let mut predictive = 1.0f32; // even if somehow set, must have zero effect
+        let (spiked, _) = step_without_competition(&mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, 1.0, &params, 0.9, 0);
+        assert!(!spiked, "with predictive_threshold_reduction=0.0, predictive must have no effect on thresholding");
+        assert_eq!(predictive, 0.0, "with predictive_decay_per_tick=0.0, predictive decays to zero on the very next tick");
     }
 }
