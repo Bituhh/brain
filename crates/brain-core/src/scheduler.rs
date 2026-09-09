@@ -21,6 +21,7 @@ use crate::arena::NeuronArena;
 use crate::inhibition::FixedNeighbourhoods;
 use crate::neuromodulator::NeuromodulatorField;
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
+use crate::plasticity::predictive::{PredictingSegmentTracker, PredictiveLearning, PredictiveLearningParams};
 use crate::plasticity::{LocalContext, NeuronLocal, RuleChain, SynapseMut};
 use crate::segment::{BinaryCoincidence, SegmentConfig, SegmentModel, SegmentState, FEEDFORWARD_SEGMENT};
 use crate::synapse::SynapseArena;
@@ -151,6 +152,23 @@ pub struct Scheduler {
     // `DirtySet` and the inhibition/ring scratch buffers (ENG-9).
     segment_counts: Vec<u16>,
     segment_touched: Vec<u32>,
+    /// `None` means predictive learning (Requirement 12) is disabled --
+    /// `predictive`'s only effect remains the Step 8 threshold-lowering
+    /// behaviour, with no learning attached to whether a prediction was
+    /// later confirmed or not.
+    predictive_learning: Option<PredictiveLearning>,
+    /// Which segment most recently depolarised each neuron -- the
+    /// scheduler-owned bookkeeping `PredictiveLearning::resolve` needs to
+    /// address the *specific* segment responsible for a prediction,
+    /// updated in lockstep with step 1b's predictive boost.
+    predicting_segment: PredictingSegmentTracker,
+    /// `predictive`'s value as `integrate()` used it this tick (i.e.
+    /// *before* that same call's own end-of-tick decay), captured per dirty
+    /// neuron so classification after commit/veto resolution -- and expiry
+    /// detection for neurons that never became candidates -- both compare
+    /// against the value that actually decided this tick's outcome, not a
+    /// value already decayed by the time resolution happens.
+    predictive_scratch: Vec<f32>,
 }
 
 impl Scheduler {
@@ -175,6 +193,9 @@ impl Scheduler {
             segments: None,
             segment_counts: Vec::new(),
             segment_touched: Vec::new(),
+            predictive_learning: None,
+            predicting_segment: PredictingSegmentTracker::new(),
+            predictive_scratch: Vec::new(),
         }
     }
 
@@ -195,6 +216,20 @@ impl Scheduler {
     /// feedforward regardless of its `target_segment` value.
     pub fn with_segments(mut self, config: SegmentConfig) -> Self {
         self.segments = Some(config);
+        self
+    }
+
+    /// Enables predictive learning (Requirement 12): a neuron's own
+    /// dendritic prediction (`with_segments`, Requirement 10) is checked
+    /// against whether it actually fired, and the responsible segment's
+    /// synapses are reinforced or weakened accordingly -- see
+    /// `plasticity::predictive`'s module docs for the exact classification.
+    /// Meaningless without `with_segments` also configured (there would be
+    /// nothing to ever mark a neuron predictive), but this does not enforce
+    /// that ordering since a caller may reasonably configure both in either
+    /// sequence.
+    pub fn with_predictive_learning(mut self, params: PredictiveLearningParams, neighbourhoods: FixedNeighbourhoods) -> Self {
+        self.predictive_learning = Some(PredictiveLearning::new(params, neighbourhoods));
         self
     }
 
@@ -384,9 +419,13 @@ impl Scheduler {
                 let depolarisation = BinaryCoincidence::evaluate(active, &SegmentState, &config.params);
                 if depolarisation.0 > 0.0 {
                     let neuron = composite / segments_per_neuron;
+                    let segment = composite % segments_per_neuron;
                     let slot = &mut neurons.predictive[neuron as usize];
                     *slot = slot.max(depolarisation.0);
                     self.dirty.insert(neuron);
+                    if self.predictive_learning.is_some() {
+                        self.predicting_segment.record_fired(neuron, segment);
+                    }
                 }
             }
             self.segment_touched.clear();
@@ -395,10 +434,17 @@ impl Scheduler {
         // 2. Integrate every dirty neuron exactly once, collecting
         // threshold-crossing candidates and next tick's carry-forward set.
         self.candidates_scratch.clear();
+        if self.predictive_learning.is_some() && self.predictive_scratch.len() < neurons.capacity_len() {
+            self.predictive_scratch.resize(neurons.capacity_len(), 0.0);
+        }
         let mut next_dirty = DirtySet::new();
         for idx in self.dirty.iter() {
             let i = idx as usize;
             let input = std::mem::replace(&mut self.input_accum[i], 0.0);
+            let predictive_before = neurons.predictive[i];
+            if self.predictive_learning.is_some() {
+                self.predictive_scratch[i] = predictive_before;
+            }
             let state = NeuronStateMut {
                 membrane: &mut neurons.membrane[i],
                 refractory_until: &mut neurons.refractory[i],
@@ -413,8 +459,25 @@ impl Scheduler {
                 // committed or vetoed, decided below. See the doc comment
                 // on `IntegrationOutcome::still_active`.
                 self.candidates_scratch.push((idx, outcome.margin));
-            } else if outcome.still_active {
-                next_dirty.insert(idx);
+            } else {
+                if outcome.still_active {
+                    next_dirty.insert(idx);
+                }
+                // Requirement 12.2: a prediction that never even produced a
+                // threshold crossing before decaying back below
+                // significance has still failed -- caught here as the
+                // pre-integrate/post-integrate transition across the
+                // significance threshold, so it is punished exactly once,
+                // on the tick it expires, rather than on every tick it sat
+                // pending. A candidate that crossed threshold but lost
+                // inhibition is a *different* failure, handled after
+                // resolution below using this same `predictive_before`.
+                if let Some(pl) = &self.predictive_learning {
+                    let predictive_after = neurons.predictive[i];
+                    if pl.prediction_expired(predictive_before, predictive_after) {
+                        pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, false, self.tick, neurons.capacity_len() as u32);
+                    }
+                }
             }
         }
         self.dirty.clear();
@@ -473,6 +536,15 @@ impl Scheduler {
                         rules.on_post_spike(synapse_mut(synapses, synapse_id), &ctx);
                     }
                 }
+
+                // Requirement 12: classify this committed spike against
+                // whatever `predictive` was at the moment `integrate`
+                // decided this tick's outcome -- correct (12.3) if it was
+                // significant, unpredicted/burst (12.1) otherwise.
+                if let Some(pl) = &self.predictive_learning {
+                    let predictive_before = self.predictive_scratch[i];
+                    pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, true, self.tick, neurons.capacity_len() as u32);
+                }
             } else {
                 D::veto_spike(state, params, self.tick);
                 vetoed.push(idx);
@@ -480,6 +552,17 @@ impl Scheduler {
                 // live, above-threshold competitor and must always be
                 // re-evaluated next tick (Requirement 7.1).
                 next_dirty.insert(idx);
+
+                // Requirement 12.2: a prediction that crossed threshold but
+                // lost local inhibition is a failed prediction *this tick*
+                // ("the predicted firing does not occur" is satisfied
+                // literally -- no spike was emitted), not a pending one, so
+                // it is punished immediately rather than waiting for
+                // `predictive` to decay below significance.
+                if let Some(pl) = &self.predictive_learning {
+                    let predictive_before = self.predictive_scratch[i];
+                    pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, false, self.tick, neurons.capacity_len() as u32);
+                }
             }
         }
 
@@ -955,5 +1038,133 @@ mod tests {
         sched.step::<Lif>(&mut neurons, &mut synapses, &params);
 
         assert!(neurons.membrane[b as usize] > 0.0, "target_segment=0 must remain feedforward when segments are not configured");
+    }
+
+    // -- Predictive learning (Requirement 12): these prove the real
+    // scheduler wiring (step 1b's segment-fire tracking, the expiry check
+    // in step 2, and the commit/veto classification in step 3), not just
+    // `plasticity::predictive`'s isolated `resolve()` unit tests.
+
+    use crate::plasticity::predictive::PredictiveLearningParams;
+
+    fn predictive_learning_params() -> PredictiveLearningParams {
+        PredictiveLearningParams {
+            significance_threshold: 0.5,
+            reinforce_amount: 0.2,
+            punish_amount: 0.2,
+            burst_target_segment: 0,
+            burst_sprout_permanence: 0.1,
+            recently_active_window_ticks: 20,
+        }
+    }
+
+    #[test]
+    fn a_correct_prediction_reinforces_the_segment_through_the_real_scheduler_path() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(2);
+        let target = make_neuron(&mut neurons, 1.0, 1);
+        let mut segment_sources = Vec::new();
+        for _ in 0..5 {
+            segment_sources.push(make_neuron(&mut neurons, 0.5, 1));
+        }
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        let mut segment_synapses = Vec::new();
+        for &s in &segment_sources {
+            segment_synapses.push(synapses.insert(s, target, 0, 1, 0.5).unwrap());
+        }
+
+        let mut sched = Scheduler::new(4, 0.4)
+            .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 5 } })
+            .with_predictive_learning(predictive_learning_params(), FixedNeighbourhoods::new(10, 5));
+        let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(1000.0, 0.9);
+
+        for &s in &segment_sources {
+            sched.stimulate(&neurons, s, 10.0);
+        }
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // sources spike
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // deliveries land, segment fires, target predictive but not yet driven
+
+        // Now the actual feedforward input arrives while the prediction is
+        // still significant, and the neuron fires -- a correct prediction.
+        sched.stimulate(&neurons, target, 5.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+
+        for &syn in &segment_synapses {
+            assert!(
+                synapses.permanence[syn as usize] > 0.5,
+                "a correct prediction must reinforce the responsible segment's synapses, got {}",
+                synapses.permanence[syn as usize]
+            );
+        }
+    }
+
+    #[test]
+    fn a_prediction_that_never_materialises_is_punished_once_it_expires() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(2);
+        let target = make_neuron(&mut neurons, 1.0, 1);
+        let mut segment_sources = Vec::new();
+        for _ in 0..5 {
+            segment_sources.push(make_neuron(&mut neurons, 0.5, 1));
+        }
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        let mut segment_synapses = Vec::new();
+        for &s in &segment_sources {
+            segment_synapses.push(synapses.insert(s, target, 0, 1, 0.5).unwrap());
+        }
+
+        let mut sched = Scheduler::new(4, 0.4)
+            .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 5 } })
+            .with_predictive_learning(predictive_learning_params(), FixedNeighbourhoods::new(10, 5));
+        // A fast predictive decay and a reduction that still never lets
+        // membrane at rest (0.0) cross the effective threshold on its own
+        // (min effective threshold is 1.0 - 0.5 = 0.5 > 0.0), so this
+        // prediction is guaranteed to lapse without ever firing.
+        let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(5.0, 0.5);
+
+        for &s in &segment_sources {
+            sched.stimulate(&neurons, s, 10.0);
+        }
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // sources spike
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // segment fires, target becomes predictive
+
+        // No feedforward input to target is ever given -- run long enough
+        // for predictive to decay well below the significance threshold.
+        for _ in 0..100 {
+            sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        }
+
+        assert!(neurons.last_spike[target as usize] == u32::MAX, "target must genuinely never have spiked in this test");
+        for &syn in &segment_synapses {
+            assert!(
+                synapses.permanence[syn as usize] < 0.5,
+                "a prediction that never materialised must weaken the responsible segment's synapses, got {}",
+                synapses.permanence[syn as usize]
+            );
+        }
+    }
+
+    #[test]
+    fn an_unpredicted_spike_sprouts_a_synapse_from_a_recently_active_neighbour() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(2);
+        let a = make_neuron(&mut neurons, 0.5, 1); // will spike first, unrelated to b
+        let b = make_neuron(&mut neurons, 0.5, 1); // will spike unpredicted shortly after
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        // No pre-existing synapse between a and b.
+
+        let mut sched = Scheduler::new(4, 0.4).with_predictive_learning(predictive_learning_params(), FixedNeighbourhoods::new(10, 5));
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+
+        sched.stimulate(&neurons, a, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // a spikes, recently active
+
+        sched.stimulate(&neurons, b, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // b spikes, unpredicted
+
+        assert!(neurons.last_spike[a as usize] != u32::MAX && neurons.last_spike[b as usize] != u32::MAX);
+        let sprouted = synapses.occupied_in_block(a).find(|&id| synapses.target_neuron[id as usize] == b);
+        assert!(sprouted.is_some(), "an unpredicted spike must sprout a synapse from a recently-active neighbour (Requirement 12.1)");
+        assert_eq!(synapses.permanence[sprouted.unwrap() as usize], 0.1);
     }
 }

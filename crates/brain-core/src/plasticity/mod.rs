@@ -12,6 +12,7 @@
 //! `NeuronLocal` copies and the one `SynapseMut` it was handed.
 
 pub mod homeostatic;
+pub mod predictive;
 pub mod stdp;
 pub mod structural;
 pub mod three_factor;
