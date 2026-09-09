@@ -162,6 +162,49 @@ impl SynapseArena {
         self.occupied[synapse_id as usize] = false;
     }
 
+    /// Restores a synapse into an *exact* slot id, for `snapshot.rs`'s
+    /// use only -- unlike `insert`, which scans for the first free slot in
+    /// a source's block, this places a synapse at precisely `id`, which
+    /// is what reproducing an existing snapshot's layout requires
+    /// (Requirement 16.2's "indistinguishable from the one that produced
+    /// it"). Fails if `id` is out of range for the arena's current
+    /// capacity (the caller must `reserve_for_neurons` first) or already
+    /// occupied.
+    #[allow(clippy::too_many_arguments)]
+    pub fn restore_slot(
+        &mut self,
+        id: u32,
+        target_neuron: u32,
+        target_segment: u32,
+        permanence: f32,
+        delay: u16,
+        eligibility: f32,
+        last_active: u32,
+        eligibility_updated_at: u32,
+    ) -> Result<(), SynapseError> {
+        let slot = id as usize;
+        if slot >= self.occupied.len() {
+            return Err(SynapseError::OutOfRange);
+        }
+        if self.occupied[slot] {
+            return Err(SynapseError::BlockFull); // slot collision -- not a capacity issue, but the closest existing variant
+        }
+        self.occupied[slot] = true;
+        self.target_neuron[slot] = target_neuron;
+        self.target_segment[slot] = target_segment;
+        self.permanence[slot] = permanence;
+        self.delay[slot] = delay;
+        self.eligibility[slot] = eligibility;
+        self.last_active[slot] = last_active;
+        self.eligibility_updated_at[slot] = eligibility_updated_at;
+        let t = target_neuron as usize;
+        if self.target_index.len() <= t {
+            self.target_index.resize(t + 1, Vec::new());
+        }
+        self.target_index[t].push(id);
+        Ok(())
+    }
+
     pub fn is_occupied(&self, synapse_id: u32) -> bool {
         self.occupied.get(synapse_id as usize).copied().unwrap_or(false)
     }

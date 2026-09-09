@@ -8,7 +8,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Brain, StaleViewError, Simulation } from "../src/index.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Brain, StaleViewError, Simulation, type LifConfig, type SimulationOptions } from "../src/index.ts";
 
 test("a view reflects Rust-side mutation with no copy (Requirement 2.1)", () => {
   const brain = Brain.create();
@@ -146,6 +149,62 @@ test("Simulation.connect reports budget exhaustion instead of throwing (Requirem
   const c = sim.allocateNeuron(1.0, 1);
   assert.notEqual(sim.connect(a, b, 1, 0.9), undefined);
   assert.equal(sim.connect(a, c, 1, 0.9), undefined, "capacity-1 block must reject a second synapse");
+});
+
+test("Simulation: snapshot and restore round-trip a running simulation (Requirement 16.11)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "brain-snapshot-test-"));
+  const path = join(dir, "snapshot.bin");
+  try {
+    const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 2 };
+    const options: SimulationOptions = { maxDelay: 4, connectionThreshold: 0.5, synapseCapPerNeuron: 2 };
+
+    const original = Simulation.create(lif, options);
+    const a = original.allocateNeuron(0.5, 1);
+    const b = original.allocateNeuron(0.5, 1);
+    original.connect(a, b, 3, 0.9);
+    for (let tick = 0; tick < 20; tick++) {
+      original.stimulate(a, 10.0);
+      original.step();
+    }
+    const tickBeforeSave = original.currentTick();
+    const membraneBeforeSave = original.membraneAt(b);
+
+    original.snapshot(path);
+
+    const restored = Simulation.restore(path, lif, options);
+    assert.equal(restored.currentTick(), tickBeforeSave, "restored simulation must resume at the same tick");
+    assert.equal(restored.membraneAt(b), membraneBeforeSave, "restored simulation's neuron state must match exactly");
+
+    // Continue both in lockstep and confirm they stay identical -- the
+    // TypeScript-level analogue of snapshot.rs's bit-identical round-trip
+    // test (Requirement 16.3), exercised through the real file + FFI path.
+    for (let tick = 0; tick < 30; tick++) {
+      original.stimulate(a, 10.0);
+      restored.stimulate(a, 10.0);
+      const spikedOriginal = original.step();
+      const spikedRestored = restored.step();
+      assert.deepEqual(spikedRestored, spikedOriginal, `tick ${tick}: restored and original must spike identically`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Simulation: restoring with a different config is rejected (Requirement 16's config validation)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "brain-snapshot-test-"));
+  const path = join(dir, "snapshot.bin");
+  try {
+    const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 2 };
+    const options: SimulationOptions = { maxDelay: 4, connectionThreshold: 0.5, synapseCapPerNeuron: 2 };
+    const sim = Simulation.create(lif, options);
+    sim.allocateNeuron(0.5, 1);
+    sim.snapshot(path);
+
+    const differentLif: LifConfig = { ...lif, tauMTicks: 999 };
+    assert.throws(() => Simulation.restore(path, differentLif, options));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("Simulation: inhibition limits spikes to k winners per neighbourhood (Requirement 7.1)", () => {

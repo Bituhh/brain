@@ -244,4 +244,65 @@ impl NativeSimulation {
     pub fn current_tick(&self) -> u32 {
         self.scheduler.tick()
     }
+
+    /// Serialises the complete simulation state to bytes (Requirement
+    /// 16.1, 16.11). File I/O (including the atomic temp-write-then-rename
+    /// design.md's Durability policy calls for) is deliberately not done
+    /// here: writing a file is an infrequent, orchestration-level action,
+    /// not a per-tick one, so it belongs on the TypeScript side (ENG-1's
+    /// boundary) via `packages/brain`'s `Simulation.snapshot`, using
+    /// Node's own `fs` module rather than adding a Rust file-I/O
+    /// dependency for something outside the hot path.
+    #[napi]
+    pub fn snapshot_bytes(&self, config_hash: BigInt) -> Uint8Array {
+        let hash = config_hash.get_u64().1;
+        let bytes = brain_core::snapshot::write(&self.neurons, &self.synapses, &self.scheduler, self.neurons.capacity_len() as u32, hash);
+        Uint8Array::new(bytes)
+    }
+
+    /// Restores a `NativeSimulation` from bytes produced by
+    /// `snapshot_bytes`, checked against `config_hash`. `lif`,
+    /// `max_delay`, `connection_threshold` and `inhibition` must be the
+    /// *same* configuration the snapshot was
+    /// taken with (Requirement 16's configuration is validated by hash,
+    /// not reconstructed from the payload -- see snapshot.rs's module
+    /// docs) -- a mismatch is caught by `config_hash`, not silently
+    /// tolerated.
+    #[napi(factory)]
+    pub fn restore(
+        bytes: Uint8Array,
+        config_hash: BigInt,
+        lif: LifConfig,
+        max_delay: u32,
+        connection_threshold: f64,
+        inhibition: Option<InhibitionConfig>,
+    ) -> Result<Self> {
+        // Note: no `synapse_cap_per_neuron` parameter here -- the snapshot
+        // payload already carries it (`write_synapses` stores it, and
+        // `read_synapses` reconstructs the arena from that stored value),
+        // so a separate caller-supplied one would be redundant at best and
+        // silently ignored at worst.
+        let hash = config_hash.get_u64().1;
+        let restored = brain_core::snapshot::read(bytes.as_ref(), hash).map_err(|e| {
+            Error::from_reason(format!("{e:?}"))
+        })?;
+
+        let mut scheduler = Scheduler::new(max_delay.min(u16::MAX as u32) as u16, connection_threshold as f32);
+        if let Some(cfg) = inhibition {
+            scheduler = scheduler.with_inhibition(FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k));
+        }
+        scheduler.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
+
+        Ok(Self {
+            neurons: restored.neurons,
+            synapses: restored.synapses,
+            scheduler,
+            lif_params: LifParams::new(
+                lif.tau_m_ticks as f32,
+                lif.v_rest as f32,
+                lif.v_reset as f32,
+                lif.refractory_ticks,
+            ),
+        })
+    }
 }

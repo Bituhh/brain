@@ -6,8 +6,61 @@
 // API -- snapshot(), grow(), probe() -- lands as those land, per design.md.
 
 import { NativeArena, NativeSimulation, coreVersion, type LifConfig, type InhibitionConfig } from "@brain/napi";
+import { openSync, writeSync, fsyncSync, closeSync, renameSync, readFileSync } from "node:fs";
 
 export type { LifConfig, InhibitionConfig };
+
+export interface SimulationOptions {
+  maxDelay: number;
+  connectionThreshold: number;
+  synapseCapPerNeuron: number;
+  /** Local inhibition (Requirement 7). Omit to disable it (Requirement 7.5's ablation path). */
+  inhibition?: InhibitionConfig;
+}
+
+/**
+ * A stable (not cryptographic) hash of the configuration a simulation was
+ * built with, used only to catch a `restore()` called with different
+ * config than the snapshot was taken under (Requirement 16.1's
+ * "configuration" -- validated, not round-tripped; see snapshot.rs's
+ * module docs for why). FNV-1a over the JSON form: small, deterministic,
+ * and needs no dependency (ENG-6), which is all this needs to be.
+ */
+function hashConfig(lif: LifConfig, options: SimulationOptions): bigint {
+  const json = JSON.stringify({
+    lif,
+    maxDelay: options.maxDelay,
+    connectionThreshold: options.connectionThreshold,
+    synapseCapPerNeuron: options.synapseCapPerNeuron,
+    inhibition: options.inhibition ?? null,
+  });
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  let hash = 0xcbf29ce484222325n;
+  for (let i = 0; i < json.length; i++) {
+    hash = (hash ^ BigInt(json.charCodeAt(i))) & mask;
+    hash = (hash * prime) & mask;
+  }
+  return hash;
+}
+
+/**
+ * Writes `bytes` to `path` atomically: a partial write from a crash or
+ * power loss mid-save must never destroy the previous good snapshot
+ * (design.md's Durability policy). `<path>.tmp` is written and fsynced
+ * first; only the final rename can be observed as "the save completed".
+ */
+function writeFileAtomically(path: string, bytes: Uint8Array): void {
+  const tmpPath = `${path}.tmp`;
+  const fd = openSync(tmpPath, "w");
+  try {
+    writeSync(fd, bytes);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  renameSync(tmpPath, path);
+}
 
 /**
  * Returns the brain-core version, round-tripped through the native addon.
@@ -149,21 +202,18 @@ export class Brain {
  */
 export class Simulation {
   readonly #native: NativeSimulation;
+  readonly #configHash: bigint;
+  readonly #lif: LifConfig;
+  readonly #options: SimulationOptions;
 
-  private constructor(native: NativeSimulation) {
+  private constructor(native: NativeSimulation, lif: LifConfig, options: SimulationOptions) {
     this.#native = native;
+    this.#lif = lif;
+    this.#options = options;
+    this.#configHash = hashConfig(lif, options);
   }
 
-  static create(
-    lif: LifConfig,
-    options: {
-      maxDelay: number;
-      connectionThreshold: number;
-      synapseCapPerNeuron: number;
-      /** Local inhibition (Requirement 7). Omit to disable it (Requirement 7.5's ablation path). */
-      inhibition?: InhibitionConfig;
-    },
-  ): Simulation {
+  static create(lif: LifConfig, options: SimulationOptions): Simulation {
     return new Simulation(
       new NativeSimulation(
         lif,
@@ -172,7 +222,42 @@ export class Simulation {
         options.synapseCapPerNeuron,
         options.inhibition ?? null,
       ),
+      lif,
+      options,
     );
+  }
+
+  /**
+   * Serialises the complete simulation state and writes it atomically to
+   * `path` (Requirement 16.1, 16.11). On demand only -- there is no
+   * autosave and no shutdown hook; the caller decides when to persist
+   * (design.md's Durability policy).
+   */
+  snapshot(path: string): void {
+    const bytes = this.#native.snapshotBytes(this.#configHash);
+    writeFileAtomically(path, bytes);
+  }
+
+  /**
+   * Restores a simulation from a snapshot written by `snapshot()`. `lif`
+   * and `options` must be the *same* configuration the snapshot was taken
+   * under -- checked via a config-hash mismatch (Requirement 16's
+   * "configuration" is validated, not reconstructed from the file; see
+   * `NativeSimulation.restore`'s doc comment for why) -- not silently
+   * tolerated if they differ.
+   */
+  static restore(path: string, lif: LifConfig, options: SimulationOptions): Simulation {
+    const bytes = readFileSync(path);
+    const configHash = hashConfig(lif, options);
+    const native = NativeSimulation.restore(
+      bytes,
+      configHash,
+      lif,
+      options.maxDelay,
+      options.connectionThreshold,
+      options.inhibition ?? null,
+    );
+    return new Simulation(native, lif, options);
   }
 
   allocateNeuron(threshold: number, polarity: number): number {

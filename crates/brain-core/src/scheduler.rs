@@ -200,6 +200,44 @@ impl Scheduler {
         self.tick
     }
 
+    /// The delay ring's current contents (Requirement 16.1's "topology" is
+    /// arena-level; this is the *in-flight spike* state a snapshot must
+    /// also capture -- a scheduled-but-not-yet-delivered spike is genuine
+    /// state, not derivable from anything else).
+    pub fn ring_contents(&self) -> &[Vec<u32>] {
+        &self.ring
+    }
+
+    /// The dirty set's current members, in a stable (sorted) order so a
+    /// snapshot's bytes are a pure function of state, not of incidental
+    /// insertion history (Requirement 3's determinism extends to what a
+    /// snapshot contains, not just to simulation results).
+    pub fn dirty_members(&self) -> Vec<u32> {
+        let mut members: Vec<u32> = self.dirty.iter().collect();
+        members.sort_unstable();
+        members
+    }
+
+    /// Overlays snapshotted transient state onto a freshly-constructed
+    /// `Scheduler` (built via `new`/`with_inhibition`/`with_plasticity`
+    /// with the *same* configuration the snapshot's config hash was
+    /// checked against -- config is supplied fresh by the caller, not
+    /// reconstructed from the snapshot itself; see snapshot.rs's module
+    /// docs). `ring` must have the same length as this scheduler's
+    /// `max_delay + 1` -- a mismatch means the config truly differs
+    /// despite a matching hash, which should not happen in practice and
+    /// is treated as a caller error (`debug_assert`), not a recoverable
+    /// one.
+    pub fn restore_transient_state(&mut self, tick: u32, ring: Vec<Vec<u32>>, dirty_members: &[u32]) {
+        debug_assert_eq!(ring.len(), self.ring.len(), "ring length must match this scheduler's max_delay");
+        self.tick = tick;
+        self.ring = ring;
+        self.dirty.clear();
+        for &idx in dirty_members {
+            self.dirty.insert(idx);
+        }
+    }
+
     fn ensure_input_capacity(&mut self, len: usize) {
         if self.input_accum.len() < len {
             self.input_accum.resize(len, 0.0);
