@@ -24,7 +24,10 @@
 //! `neuron.rs` and the rayon-vs-hand-rolled note in README §12a).
 
 use crate::arena::{NeuronArena, NeuronSpec};
+use crate::column::ColumnSpec;
+use crate::inhibition::FixedNeighbourhoods;
 use crate::rng::derive_stream;
+use crate::segment::SegmentConfig;
 use crate::synapse::SynapseArena;
 
 /// Purpose tags for `derive_stream` draws made during graph construction --
@@ -139,6 +142,52 @@ impl GraphBuilder {
                 let _ = synapses.insert(source, target, 0, delay.max(1), policy.initial_permanence);
             }
         }
+    }
+
+    /// Builds one column (NET-4): allocates `coords.len()` neurons via the
+    /// existing [`Self::allocate_population`] and wires its internal
+    /// microcircuit via the existing [`Self::connect`], restricted to just
+    /// this column's own indices -- no new allocation/connection code path,
+    /// which is Requirement 1's Acceptance Criteria 1-2 by construction.
+    ///
+    /// Assumes this call is made against an arena with no reclaimed
+    /// (freed-and-not-yet-reused) slots, so `allocate_population` appends a
+    /// fresh, strictly contiguous range -- true at network construction
+    /// time, which is when columns are built. `neighbourhood_size` is the
+    /// number of neurons per local k-WTA competition *within* this column
+    /// (Requirement 1, Acceptance Criterion 3): pass `coords.len() as u32`
+    /// for "the whole column is one neighbourhood" (this experiment's most
+    /// common case, matching `tests/emergent.rs`'s one-neighbourhood-per-
+    /// symbol pattern), or a smaller value for several neighbourhoods
+    /// (e.g. minicolumns) within one column.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_column(
+        &self,
+        neurons: &mut NeuronArena,
+        synapses: &mut SynapseArena,
+        coords: &[[f32; 3]],
+        threshold: f32,
+        excitatory_fraction: f32,
+        internal_policy: &DistancePolicy,
+        neighbourhood_size: u32,
+        k: u32,
+        segments: SegmentConfig,
+    ) -> ColumnSpec {
+        assert!(!coords.is_empty(), "a column must have at least one neuron");
+        let indices = self.allocate_population(neurons, coords, threshold, excitatory_fraction);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        self.connect(neurons, synapses, &indices, internal_policy);
+
+        let start = *indices.iter().min().unwrap();
+        let end = *indices.iter().max().unwrap() + 1;
+        debug_assert_eq!(
+            end - start,
+            indices.len() as u32,
+            "build_column requires allocate_population to hand back a contiguous range -- true at construction time, before anything is ever freed"
+        );
+        let neuron_range = start..end;
+        let inhibition = FixedNeighbourhoods::with_base(start, neighbourhood_size, k);
+        ColumnSpec { neuron_range, inhibition, segments }
     }
 }
 
@@ -284,5 +333,87 @@ mod tests {
             relative_error < 0.25,
             "mid-line out-degree {actual} vs analytic expectation {expected:.1}, relative error {relative_error:.3}"
         );
+    }
+
+    // -- Column primitive (NET-4, Requirement 1): `build_column` must be
+    // indistinguishable from calling `allocate_population` + `connect`
+    // directly (Requirement 1, Acceptance Criteria 1-2) and must produce a
+    // correctly-scoped `ColumnSpec`.
+
+    use crate::segment::BinaryCoincidenceParams;
+
+    fn segments() -> SegmentConfig {
+        SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 5 } }
+    }
+
+    #[test]
+    fn build_column_reports_a_contiguous_range_matching_its_population() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(4);
+        let builder = GraphBuilder::new(1);
+        let coords = line_coords(20, 1.0);
+        let policy = DistancePolicy { p0: 0.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.6 };
+
+        let column = builder.build_column(&mut neurons, &mut synapses, &coords, 1.0, 0.8, &policy, 20, 2, segments());
+
+        assert_eq!(column.len(), 20);
+        assert_eq!(column.neuron_range, 0..20);
+        assert!(column.contains(0) && column.contains(19));
+        assert!(!column.contains(20));
+    }
+
+    #[test]
+    fn two_columns_built_back_to_back_occupy_disjoint_contiguous_ranges() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(4);
+        let builder = GraphBuilder::new(1);
+        let policy = DistancePolicy { p0: 0.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.6 };
+
+        let first = builder.build_column(&mut neurons, &mut synapses, &line_coords(10, 1.0), 1.0, 0.8, &policy, 10, 1, segments());
+        let second = builder.build_column(&mut neurons, &mut synapses, &line_coords(15, 1.0), 1.0, 0.8, &policy, 15, 1, segments());
+
+        assert_eq!(first.neuron_range, 0..10);
+        assert_eq!(second.neuron_range, 10..25);
+        assert!(!first.contains(10), "the second column's first neuron must not belong to the first column");
+    }
+
+    #[test]
+    fn build_column_wiring_matches_a_direct_allocate_and_connect_call() {
+        // Requirement 1, Acceptance Criteria 1-2: a column must run through
+        // exactly the same allocation/connection code as a flat population
+        // -- proven here by reproducing build_column's own steps manually
+        // with the same seed and asserting identical connectivity.
+        let coords = line_coords(30, 1.0);
+        let policy = DistancePolicy { p0: 0.6, length_scale: 5.0, delay_min: 1, delay_max: 3, initial_permanence: 0.5 };
+
+        let mut via_column_neurons = NeuronArena::new();
+        let mut via_column_synapses = SynapseArena::new(64);
+        let builder = GraphBuilder::new(42);
+        let column = builder.build_column(&mut via_column_neurons, &mut via_column_synapses, &coords, 1.0, 0.8, &policy, 30, 3, segments());
+
+        let mut direct_neurons = NeuronArena::new();
+        let mut direct_synapses = SynapseArena::new(64);
+        let indices = builder.allocate_population(&mut direct_neurons, &coords, 1.0, 0.8);
+        direct_synapses.reserve_for_neurons(direct_neurons.capacity_len());
+        builder.connect(&direct_neurons, &mut direct_synapses, &indices, &policy);
+
+        assert_eq!(via_column_neurons.polarity, direct_neurons.polarity);
+        assert_eq!(via_column_neurons.coords, direct_neurons.coords);
+        for &source in &indices {
+            let via_column: Vec<u32> = via_column_synapses.occupied_in_block(source).map(|s| via_column_synapses.target_neuron[s as usize]).collect();
+            let direct: Vec<u32> = direct_synapses.occupied_in_block(source).map(|s| direct_synapses.target_neuron[s as usize]).collect();
+            assert_eq!(via_column, direct, "neuron {source}'s connectivity must match a direct allocate_population+connect call");
+        }
+        assert_eq!(column.neuron_range, 0..30);
+    }
+
+    #[test]
+    #[should_panic(expected = "at least one neuron")]
+    fn build_column_rejects_an_empty_column() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(4);
+        let builder = GraphBuilder::new(1);
+        let policy = DistancePolicy { p0: 0.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.6 };
+        builder.build_column(&mut neurons, &mut synapses, &[], 1.0, 0.8, &policy, 1, 1, segments());
     }
 }

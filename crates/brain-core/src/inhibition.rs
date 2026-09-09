@@ -19,6 +19,11 @@
 
 /// Fixed-size k-winners-take-all neighbourhoods.
 pub struct FixedNeighbourhoods {
+    /// Neighbourhood 0 starts at this global neuron index (0 for `new`).
+    /// Lets a neighbourhood scheme be scoped to a column that does not
+    /// start at index 0 (`column.rs`, NET-4) without changing the
+    /// size/k-per-neighbourhood contract at all.
+    base: u32,
     size: u32,
     k: u32,
     /// Reused across calls to `resolve_into` so steady-state resolution
@@ -30,10 +35,20 @@ pub struct FixedNeighbourhoods {
 impl FixedNeighbourhoods {
     /// `size` neurons per neighbourhood, `k` winners per neighbourhood per
     /// tick. `k` must be at most `size`, and both must be positive.
+    /// Neighbourhood 0 starts at global index 0 -- see [`Self::with_base`]
+    /// for a scheme starting elsewhere.
     pub fn new(size: u32, k: u32) -> Self {
+        Self::with_base(0, size, k)
+    }
+
+    /// As [`Self::new`], but neighbourhood 0 starts at global neuron index
+    /// `base` instead of `0`. Every neuron index this instance is ever
+    /// asked about (via [`Self::neighbourhood_of`] or
+    /// [`Self::resolve_into`]'s candidates) must be `>= base`.
+    pub fn with_base(base: u32, size: u32, k: u32) -> Self {
         assert!(size > 0, "neighbourhood size must be positive");
         assert!(k > 0 && k <= size, "k must be positive and at most the neighbourhood size");
-        Self { size, k, scratch: Vec::new() }
+        Self { base, size, k, scratch: Vec::new() }
     }
 
     pub fn size(&self) -> u32 {
@@ -44,8 +59,13 @@ impl FixedNeighbourhoods {
         self.k
     }
 
+    pub fn base(&self) -> u32 {
+        self.base
+    }
+
     pub fn neighbourhood_of(&self, neuron_index: u32) -> u32 {
-        neuron_index / self.size
+        debug_assert!(neuron_index >= self.base, "neuron_index must be within this scheme's base offset");
+        (neuron_index - self.base) / self.size
     }
 
     /// Resolves which candidates win their local competition this tick
@@ -58,12 +78,13 @@ impl FixedNeighbourhoods {
     /// (Requirement 3.1) actually requires; it need not be biologically
     /// meaningful, only reproducible.
     pub fn resolve_into(&mut self, candidates: &[(u32, f32)], winners: &mut Vec<u32>) {
+        let base = self.base;
         let size = self.size;
         self.scratch.clear();
         self.scratch.extend_from_slice(candidates);
         self.scratch.sort_unstable_by(|a, b| {
-            let na = a.0 / size;
-            let nb = b.0 / size;
+            let na = (a.0 - base) / size;
+            let nb = (b.0 - base) / size;
             na.cmp(&nb)
                 .then_with(|| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal))
                 .then_with(|| a.0.cmp(&b.0))
@@ -72,7 +93,7 @@ impl FixedNeighbourhoods {
         let mut current_neighbourhood: Option<u32> = None;
         let mut count_in_neighbourhood = 0u32;
         for &(idx, _) in &self.scratch {
-            let n = idx / size;
+            let n = (idx - base) / size;
             if Some(n) != current_neighbourhood {
                 current_neighbourhood = Some(n);
                 count_in_neighbourhood = 0;
@@ -151,5 +172,37 @@ mod tests {
     #[should_panic(expected = "k must be positive")]
     fn k_greater_than_size_is_rejected() {
         FixedNeighbourhoods::new(4, 5);
+    }
+
+    /// NET-4: a neighbourhood scheme scoped to a column that does not start
+    /// at global index 0.
+    #[test]
+    fn with_base_offsets_neighbourhood_computation() {
+        let inhib = FixedNeighbourhoods::with_base(1000, 10, 1);
+        assert_eq!(inhib.neighbourhood_of(1000), 0);
+        assert_eq!(inhib.neighbourhood_of(1009), 0);
+        assert_eq!(inhib.neighbourhood_of(1010), 1);
+    }
+
+    #[test]
+    fn with_base_resolves_winners_relative_to_the_base() {
+        let mut inhib = FixedNeighbourhoods::with_base(1000, 10, 1);
+        let mut winners = Vec::new();
+        // All in the same (base-relative) neighbourhood 0: indices 1000-1009.
+        inhib.resolve_into(&[(1002, 0.9), (1005, 0.1)], &mut winners);
+        assert_eq!(winners, vec![1002], "highest-margin candidate within the base-offset neighbourhood must win");
+    }
+
+    #[test]
+    fn new_is_equivalent_to_with_base_zero() {
+        let candidates = [(7, 0.3), (1, 0.8), (4, 0.8), (9, 0.1), (2, 0.6)];
+        let mut a = FixedNeighbourhoods::new(10, 2);
+        let mut b = FixedNeighbourhoods::with_base(0, 10, 2);
+        let mut winners_a = Vec::new();
+        let mut winners_b = Vec::new();
+        a.resolve_into(&candidates, &mut winners_a);
+        b.resolve_into(&candidates, &mut winners_b);
+        assert_eq!(winners_a, winners_b);
+        assert_eq!(a.base(), 0);
     }
 }

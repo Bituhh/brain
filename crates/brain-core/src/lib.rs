@@ -17,7 +17,8 @@
 //! (Step 5, done), plasticity (Step 6, done), snapshot (Step 7, done),
 //! segment (Step 8, done), growth (Step 9, done), plasticity::predictive
 //! (Step 10, done), probe/metrics (Step 11, done), test infrastructure
-//! (Step 12, done).
+//! (Step 12, done), exit criterion (Step 13, done). Phase 4 ("columns and
+//! scale", README §11): column (Step 14, done).
 //!
 //! The test suite is organised in four layers (Requirement 15.1): Rust
 //! unit tests (this crate's own `#[cfg(test)]` modules), Rust whole-network
@@ -29,6 +30,7 @@
 //! 15.2) -- no test runner adds a runtime dependency anywhere.
 
 pub mod arena;
+pub mod column;
 pub mod graph;
 pub mod growth;
 pub mod ids;
