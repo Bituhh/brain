@@ -109,6 +109,13 @@ pub struct StepReport {
     /// not configured. Exposed for tests and metrics (OBS-2) that need to
     /// distinguish "no activity" from "activity, but inhibited".
     pub vetoed: Vec<u32>,
+    /// How many of `spiked` were correctly predicted (Requirement 12.3),
+    /// i.e. `predictive` was significant at the moment they fired. Always
+    /// `0` when predictive learning is not configured -- feeds
+    /// `metrics::PredictionAccuracyMeter` (OBS-2's prediction-accuracy
+    /// metric) without that meter needing its own copy of the
+    /// significance-threshold comparison.
+    pub predicted_spikes: u32,
 }
 
 /// The event-driven scheduler: a fixed-grid tick loop over a delay ring
@@ -495,6 +502,7 @@ impl Scheduler {
 
         let mut spiked = Vec::new();
         let mut vetoed = Vec::new();
+        let mut predicted_spikes = 0u32;
         for &(idx, _) in &self.candidates_scratch {
             let i = idx as usize;
             let is_winner = !inhibition_active || self.winner_set.contains(idx);
@@ -543,7 +551,11 @@ impl Scheduler {
                 // significant, unpredicted/burst (12.1) otherwise.
                 if let Some(pl) = &self.predictive_learning {
                     let predictive_before = self.predictive_scratch[i];
-                    pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, true, self.tick, neurons.capacity_len() as u32);
+                    let outcome =
+                        pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, true, self.tick, neurons.capacity_len() as u32);
+                    if outcome == crate::plasticity::predictive::PredictionOutcome::CorrectPrediction {
+                        predicted_spikes += 1;
+                    }
                 }
             } else {
                 D::veto_spike(state, params, self.tick);
@@ -583,7 +595,7 @@ impl Scheduler {
         // still_active was true) and committed spikes still in refractory.
         self.dirty = next_dirty;
 
-        let report = StepReport { tick: self.tick, spiked, vetoed };
+        let report = StepReport { tick: self.tick, spiked, vetoed, predicted_spikes };
         self.tick += 1;
         report
     }

@@ -102,6 +102,19 @@ impl Default for PredictingSegmentTracker {
     }
 }
 
+/// Which of Requirement 12's four cases `resolve` applied.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PredictionOutcome {
+    /// 12.3: predicted and fired.
+    CorrectPrediction,
+    /// 12.2: predicted but did not fire (vetoed, or the prediction expired).
+    FalsePositive,
+    /// 12.1: fired with no significant prediction.
+    UnpredictedSpike,
+    /// Neither predicted nor fired -- nothing to learn from.
+    NoPrediction,
+}
+
 pub struct PredictiveLearning {
     params: PredictiveLearningParams,
     neighbourhoods: FixedNeighbourhoods,
@@ -172,6 +185,11 @@ impl PredictiveLearning {
     /// value that actually decided this tick's effective threshold);
     /// `committed` is whether this neuron's spike (if any) was committed
     /// (as opposed to never crossing, or crossing but being vetoed).
+    ///
+    /// Returns which of the four cases applied, so a caller (`scheduler.rs`,
+    /// for OBS-2's prediction-accuracy metric) can tally outcomes without
+    /// re-deriving the same `predictive_now` vs `significance_threshold`
+    /// comparison itself.
     #[allow(clippy::too_many_arguments)]
     pub fn resolve(
         &self,
@@ -183,7 +201,7 @@ impl PredictiveLearning {
         committed: bool,
         tick: u32,
         neuron_count: u32,
-    ) {
+    ) -> PredictionOutcome {
         let was_predicted = predictive_now >= self.params.significance_threshold;
         match (was_predicted, committed) {
             (true, true) => {
@@ -191,20 +209,24 @@ impl PredictiveLearning {
                 if let Some(segment) = tracker.get(neuron) {
                     self.adjust_segment_permanence(synapses, neuron, segment, self.params.reinforce_amount);
                 }
+                PredictionOutcome::CorrectPrediction
             }
             (true, false) => {
                 // 12.2: false positive -- punish.
                 if let Some(segment) = tracker.get(neuron) {
                     self.adjust_segment_permanence(synapses, neuron, segment, -self.params.punish_amount);
                 }
+                PredictionOutcome::FalsePositive
             }
             (false, true) => {
                 // 12.1: unpredicted spike / burst -- reinforce or sprout
                 // from other recently-active neighbours.
                 self.reinforce_or_sprout_burst(neurons, synapses, neuron, tick, neuron_count);
+                PredictionOutcome::UnpredictedSpike
             }
             (false, false) => {
                 // Neither predicted nor spiked: nothing to learn from.
+                PredictionOutcome::NoPrediction
             }
         }
     }

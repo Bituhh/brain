@@ -10,7 +10,7 @@
 //! (Step 2, done), neuron/scheduler (Step 4, done), graph/inhibition
 //! (Step 5, done), plasticity (Step 6, done), snapshot (Step 7, done),
 //! segment (Step 8, done), growth (Step 9, done), plasticity::predictive
-//! (Step 10, done), probe/metrics (Step 11).
+//! (Step 10, done), probe/metrics (Step 11, done).
 
 pub mod arena;
 pub mod graph;
@@ -21,6 +21,7 @@ pub mod metrics;
 pub mod neuromodulator;
 pub mod neuron;
 pub mod plasticity;
+pub mod probe;
 pub mod rng;
 pub mod scheduler;
 pub mod segment;
