@@ -12,7 +12,9 @@
 //! growth (Step 9), probe/metrics (Step 11).
 
 pub mod arena;
+pub mod graph;
 pub mod ids;
+pub mod inhibition;
 pub mod metrics;
 pub mod neuron;
 pub mod rng;

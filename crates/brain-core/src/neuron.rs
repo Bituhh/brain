@@ -10,9 +10,14 @@
 //! duration for the whole simulation, computing a transcendental decay
 //! factor from `dt` on every call would repeat the same `exp()` call for
 //! every dirty neuron every tick. Instead `LifParams` precomputes
-//! `decay_per_tick` once at construction (ENG-9's hot-path discipline), and
-//! `step()` takes no `dt` -- it is implicitly "one tick," baked into
-//! `Params` when it was built.
+//! `decay_per_tick` once at construction (ENG-9's hot-path discipline).
+//!
+//! Integration is split from spike commitment (`integrate` versus
+//! `commit_spike`/`veto_spike`) rather than one atomic `step`, so that
+//! local inhibition (`inhibition.rs`, Requirement 7.1) can intervene
+//! between "this neuron crossed threshold" and "this neuron's spike is
+//! official" -- matching how real feedforward inhibition works: it acts on
+//! a candidate spike, not before integration has even happened.
 
 /// Mutable access to one neuron's dynamics-relevant state, borrowed from
 /// disjoint fields of a `NeuronArena`. A dynamics implementation sees only
@@ -28,8 +33,8 @@ pub struct NeuronStateMut<'a> {
     pub threshold: f32,
 }
 
-/// What happened to a neuron this tick, and whether the scheduler needs to
-/// visit it again next tick even with no new input.
+/// What integrating one tick of input produced, before any inhibition has
+/// had a chance to veto a candidate spike (Requirement 7.1).
 ///
 /// `still_active` is deliberately decided by the dynamics model itself
 /// (not by the generic scheduler comparing membrane to some assumed rest
@@ -37,11 +42,30 @@ pub struct NeuronStateMut<'a> {
 /// e.g. `v_rest` need not be `0.0`, and a different model might have
 /// entirely different settlement criteria (adaptation currents, etc.).
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct StepOutcome {
-    pub spiked: bool,
+pub struct IntegrationOutcome {
+    /// True if membrane crossed threshold this tick -- a *candidate*
+    /// spike, not yet official. The scheduler resolves competing
+    /// candidates (via `inhibition.rs`, if configured) and calls
+    /// `commit_spike` for winners, `veto_spike` for the rest.
+    pub crossed_threshold: bool,
+    /// `membrane - threshold` at the moment of crossing (meaningless if
+    /// `crossed_threshold` is false). Ranks competitors within a
+    /// neighbourhood when more than one crosses in the same tick --
+    /// higher margin stands in for "would have crossed earlier" in the
+    /// continuous time this discrete tick approximates.
+    pub margin: f32,
     /// If true, the scheduler keeps this neuron dirty for next tick even
     /// though no new input has arrived (Requirement 5.1's "silent neuron
     /// costs nothing" applies once this goes false).
+    ///
+    /// Meaningful only when `crossed_threshold` is false. When true, this
+    /// field is ignored: whether the candidate needs revisiting depends on
+    /// whether it is committed or vetoed, which is not decided until
+    /// *after* local inhibition resolves (`scheduler.rs` computes the
+    /// correct value itself in both cases -- unconditionally true for a
+    /// vetoed candidate, and read back from `refractory_until` for a
+    /// committed one, since `NeuronStateMut` already guarantees every
+    /// dynamics model exposes that field).
     pub still_active: bool,
 }
 
@@ -49,9 +73,24 @@ pub struct StepOutcome {
 pub trait NeuronDynamics {
     type Params: Copy;
 
-    /// Advances one neuron by exactly one tick given the input current
-    /// accumulated for that tick (zero if none arrived).
-    fn step(state: NeuronStateMut<'_>, params: &Self::Params, input: f32, tick: u32) -> StepOutcome;
+    /// Integrates one tick of accumulated input current (zero if none
+    /// arrived). Does not decide whether a threshold crossing becomes an
+    /// official spike -- see `commit_spike`/`veto_spike`.
+    fn integrate(state: NeuronStateMut<'_>, params: &Self::Params, input: f32, tick: u32) -> IntegrationOutcome;
+
+    /// Finalises a spike that won its local competition (or had no
+    /// competition to win, when inhibition is not configured): records
+    /// `last_spike`, resets membrane, enters refractory.
+    fn commit_spike(state: NeuronStateMut<'_>, params: &Self::Params, tick: u32);
+
+    /// Finalises a threshold crossing that lost its local competition to a
+    /// faster-margin neighbour (Requirement 7.1's "suppress the
+    /// remainder"). This suppresses, it does not erase: membrane is left
+    /// at its post-integration (above-threshold) value, so this neuron
+    /// remains a strong candidate and will very likely win on a
+    /// subsequent tick once the winner(s) have moved into refractory and
+    /// dropped out of the competition.
+    fn veto_spike(state: NeuronStateMut<'_>, params: &Self::Params, tick: u32);
 }
 
 /// How far a neuron's membrane may sit from `v_rest` before [`Lif`]
@@ -98,30 +137,38 @@ pub struct Lif;
 impl NeuronDynamics for Lif {
     type Params = LifParams;
 
-    fn step(state: NeuronStateMut<'_>, p: &LifParams, input: f32, tick: u32) -> StepOutcome {
+    fn integrate(state: NeuronStateMut<'_>, p: &LifParams, input: f32, tick: u32) -> IntegrationOutcome {
         // Requirement 4.3: refractory neurons do not integrate input at all.
         if tick < *state.refractory_until {
             *state.membrane = p.v_reset;
             let still_active = tick + 1 < *state.refractory_until;
-            return StepOutcome { spiked: false, still_active };
+            return IntegrationOutcome { crossed_threshold: false, margin: 0.0, still_active };
         }
 
         let target = p.v_rest + input;
         *state.membrane = target + (*state.membrane - target) * p.decay_per_tick;
 
         if *state.membrane >= state.threshold {
-            *state.last_spike = tick;
-            *state.membrane = p.v_reset;
-            *state.refractory_until = tick + 1 + p.refractory_ticks;
-            // Even a spike with zero configured refractory ticks needs no
-            // further visit (tick+1 < refractory_until is false when
-            // refractory_ticks == 0), which falls out of this correctly.
-            let still_active = tick + 1 < *state.refractory_until;
-            return StepOutcome { spiked: true, still_active };
+            // still_active is ignored by the scheduler whenever
+            // crossed_threshold is true -- see that field's doc comment.
+            IntegrationOutcome { crossed_threshold: true, margin: *state.membrane - state.threshold, still_active: false }
+        } else {
+            let unsettled = (*state.membrane - p.v_rest).abs() > SETTLE_EPSILON;
+            IntegrationOutcome { crossed_threshold: false, margin: 0.0, still_active: unsettled }
         }
+    }
 
-        let unsettled = (*state.membrane - p.v_rest).abs() > SETTLE_EPSILON;
-        StepOutcome { spiked: false, still_active: unsettled }
+    fn commit_spike(state: NeuronStateMut<'_>, p: &LifParams, tick: u32) {
+        *state.last_spike = tick;
+        *state.membrane = p.v_reset;
+        *state.refractory_until = tick + 1 + p.refractory_ticks;
+    }
+
+    fn veto_spike(_state: NeuronStateMut<'_>, _p: &LifParams, _tick: u32) {
+        // Deliberately empty: membrane is already left at its
+        // post-integration, above-threshold value by `integrate`, and
+        // that is exactly the "remains a strong candidate" behaviour this
+        // is meant to have. See the trait doc comment.
     }
 }
 
@@ -138,6 +185,44 @@ mod tests {
         NeuronStateMut { membrane, refractory_until, last_spike, threshold }
     }
 
+    /// Replicates the old, pre-inhibition `step()`: integrate, and if it
+    /// crossed threshold, commit immediately (there is no competition).
+    /// This is exactly what the scheduler does when inhibition is not
+    /// configured (Requirement 7.5's ablation path), so it is a faithful
+    /// stand-in for that scenario in these unit tests.
+    ///
+    /// Takes the underlying fields rather than a pre-built
+    /// `NeuronStateMut` so it can construct two, non-overlapping in time,
+    /// borrows from them -- one for `integrate`, one for `commit_spike` --
+    /// with no unsafe code: each borrow ends when the value that holds it
+    /// is consumed, before the next one is created.
+    fn step_without_competition(
+        membrane: &mut f32,
+        refractory_until: &mut u32,
+        last_spike: &mut u32,
+        threshold: f32,
+        p: &LifParams,
+        input: f32,
+        tick: u32,
+    ) -> (bool, bool) {
+        let outcome = Lif::integrate(
+            NeuronStateMut { membrane, refractory_until, last_spike, threshold },
+            p,
+            input,
+            tick,
+        );
+        if !outcome.crossed_threshold {
+            return (false, outcome.still_active);
+        }
+        // Mirrors scheduler.rs's real post-commit logic (no competition to
+        // lose here, so this always commits): still_active depends on
+        // whether refractory continues past next tick, read back from the
+        // arena since commit_spike just set it.
+        Lif::commit_spike(NeuronStateMut { membrane, refractory_until, last_spike, threshold }, p, tick);
+        let still_active = *refractory_until > tick + 1;
+        (true, still_active)
+    }
+
     #[test]
     fn decays_toward_rest_with_no_input() {
         let params = LifParams::new(10.0, 0.0, 0.0, 0);
@@ -145,13 +230,13 @@ mod tests {
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
         for tick in 0..200u32 {
-            let outcome = Lif::step(
-                make_state(&mut membrane, &mut refractory_until, &mut last_spike, 100.0),
+            let (spiked, _) = step_without_competition(
+                &mut membrane, &mut refractory_until, &mut last_spike, 100.0,
                 &params,
                 0.0,
                 tick,
             );
-            assert!(!outcome.spiked);
+            assert!(!spiked);
         }
         assert!(membrane.abs() < 1e-3, "membrane should have decayed near rest (0.0), got {membrane}");
     }
@@ -166,19 +251,19 @@ mod tests {
         let mut membrane = 0.0f32;
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
-        let mut last_outcome = None;
+        let mut last_still_active = true;
         for tick in 0..300u32 {
-            let outcome = Lif::step(
-                make_state(&mut membrane, &mut refractory_until, &mut last_spike, 1000.0),
+            let (spiked, still_active) = step_without_competition(
+                &mut membrane, &mut refractory_until, &mut last_spike, 1000.0,
                 &params,
                 0.0,
                 tick,
             );
-            assert!(!outcome.spiked);
-            last_outcome = Some(outcome);
+            assert!(!spiked);
+            last_still_active = still_active;
         }
         assert!((membrane - v_rest).abs() < 1e-3, "membrane should settle at v_rest={v_rest}, got {membrane}");
-        assert!(!last_outcome.unwrap().still_active, "must report settled once within tolerance of its own v_rest");
+        assert!(!last_still_active, "must report settled once within tolerance of its own v_rest");
     }
 
     #[test]
@@ -190,13 +275,13 @@ mod tests {
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
         for tick in 0..10_000u32 {
-            let outcome = Lif::step(
-                make_state(&mut membrane, &mut refractory_until, &mut last_spike, threshold),
+            let (spiked, _) = step_without_competition(
+                &mut membrane, &mut refractory_until, &mut last_spike, threshold,
                 &params,
                 input,
                 tick,
             );
-            assert!(!outcome.spiked, "sub-threshold steady-state input must never spike");
+            assert!(!spiked, "sub-threshold steady-state input must never spike");
         }
         assert!((membrane - input).abs() < 1e-3, "membrane should converge to steady state = input");
     }
@@ -209,39 +294,39 @@ mod tests {
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
 
-        let outcome = Lif::step(
-            make_state(&mut membrane, &mut refractory_until, &mut last_spike, threshold),
+        let (spiked, still_active) = step_without_competition(
+            &mut membrane, &mut refractory_until, &mut last_spike, threshold,
             &params,
             10.0,
             0,
         );
-        assert!(outcome.spiked);
-        assert!(outcome.still_active, "must be revisited during its own refractory period");
+        assert!(spiked);
+        assert!(still_active, "must be revisited during its own refractory period");
         assert_eq!(membrane, 0.0, "reset to v_reset on spike");
         assert_eq!(last_spike, 0);
         assert_eq!(refractory_until, 0 + 1 + 3);
 
         // While refractory, strong input must not produce another spike.
         for tick in 1..=3u32 {
-            let outcome = Lif::step(
-                make_state(&mut membrane, &mut refractory_until, &mut last_spike, threshold),
+            let (spiked, _) = step_without_competition(
+                &mut membrane, &mut refractory_until, &mut last_spike, threshold,
                 &params,
                 1000.0,
                 tick,
             );
-            assert!(!outcome.spiked, "refractory neuron must not spike regardless of input (Req 4.3)");
+            assert!(!spiked, "refractory neuron must not spike regardless of input (Req 4.3)");
             assert_eq!(membrane, 0.0, "refractory neuron stays clamped at v_reset");
         }
 
         // Refractory ends at tick 4 (refractory_until=4): large input should
         // now be free to drive an immediate spike.
-        let outcome = Lif::step(
-            make_state(&mut membrane, &mut refractory_until, &mut last_spike, threshold),
+        let (spiked, _) = step_without_competition(
+            &mut membrane, &mut refractory_until, &mut last_spike, threshold,
             &params,
             1000.0,
             4,
         );
-        assert!(outcome.spiked, "large input after refractory ends should spike immediately");
+        assert!(spiked, "large input after refractory ends should spike immediately");
     }
 
     #[test]
@@ -250,14 +335,36 @@ mod tests {
         let mut membrane = 0.99f32;
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
-        let outcome = Lif::step(
-            make_state(&mut membrane, &mut refractory_until, &mut last_spike, 1.0),
+        let (spiked, still_active) = step_without_competition(
+            &mut membrane, &mut refractory_until, &mut last_spike, 1.0,
             &params,
             10.0,
             0,
         );
-        assert!(outcome.spiked);
-        assert!(!outcome.still_active, "with zero refractory ticks there is nothing left to wait out");
+        assert!(spiked);
+        assert!(!still_active, "with zero refractory ticks there is nothing left to wait out");
+    }
+
+    #[test]
+    fn vetoed_spike_remains_a_candidate_next_tick() {
+        // The mechanism Requirement 7.1 relies on: a vetoed neuron is not
+        // reset -- it stays at its above-threshold value and is still
+        // reported as active, so the scheduler keeps offering it as a
+        // candidate until it eventually wins.
+        let params = LifParams::new(50.0, 0.0, 0.0, 0);
+        let mut membrane = 1.2f32; // already above threshold
+        let mut refractory_until = 0u32;
+        let mut last_spike = u32::MAX;
+        let threshold = 1.0;
+
+        let outcome =
+            Lif::integrate(make_state(&mut membrane, &mut refractory_until, &mut last_spike, threshold), &params, 0.0, 0);
+        assert!(outcome.crossed_threshold);
+        Lif::veto_spike(make_state(&mut membrane, &mut refractory_until, &mut last_spike, threshold), &params, 0);
+
+        assert!(membrane >= threshold, "a vetoed spike must not be reset");
+        assert_eq!(last_spike, u32::MAX, "a vetoed spike must not record last_spike");
+        assert_eq!(refractory_until, 0, "a vetoed spike must not enter refractory");
     }
 
     /// Requirement 4.4: firing rate under constant supra-threshold current
@@ -283,13 +390,13 @@ mod tests {
         let mut last_spike = u32::MAX;
         let mut spike_ticks = Vec::new();
         for tick in 0..20_000u32 {
-            let outcome = Lif::step(
-                make_state(&mut membrane, &mut refractory_until, &mut last_spike, threshold),
+            let (spiked, _) = step_without_competition(
+                &mut membrane, &mut refractory_until, &mut last_spike, threshold,
                 &params,
                 input,
                 tick,
             );
-            if outcome.spiked {
+            if spiked {
                 spike_ticks.push(tick);
             }
             if spike_ticks.len() >= 20 {

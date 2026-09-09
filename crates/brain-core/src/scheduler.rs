@@ -3,17 +3,29 @@
 //! Work is proportional to in-flight spikes, not to neuron count
 //! (Requirement 5.1): a "dirty set" tracks only neurons that have
 //! accumulated input this tick or are still active from a recent one (see
-//! `NeuronDynamics::step`'s `still_active` outcome), and a delay ring of
-//! pre-allocated buckets means scheduling and delivering a spike never
+//! `NeuronDynamics::integrate`'s `still_active` outcome), and a delay ring
+//! of pre-allocated buckets means scheduling and delivering a spike never
 //! allocates in steady state (Requirement 5.6, ENG-9).
+//!
+//! Local inhibition (`inhibition.rs`, Requirement 7) is optional and
+//! intervenes between integration and spike commitment: every dirty
+//! neuron is integrated first (candidates that crossed threshold are
+//! *not yet* official spikes), then if inhibition is configured, it picks
+//! the winners within each neighbourhood and the rest are vetoed
+//! (suppressed, not erased -- `neuron.rs`'s `veto_spike`). With no
+//! inhibition configured, every candidate simply wins -- this is
+//! Requirement 7.5's ablation path, not a special case the scheduler
+//! treats differently.
 
 use crate::arena::NeuronArena;
+use crate::inhibition::FixedNeighbourhoods;
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
 use crate::synapse::SynapseArena;
 
 /// An index set supporting O(1) insert-with-dedupe and O(touched)
 /// iteration/clear -- never O(capacity). This is the concrete mechanism
-/// behind "a silent neuron costs nothing".
+/// behind "a silent neuron costs nothing", and is reused for winner-set
+/// membership when resolving local inhibition.
 #[derive(Default)]
 pub struct DirtySet {
     members: Vec<u32>,
@@ -70,7 +82,14 @@ impl DirtySet {
 /// happened without re-deriving it.
 pub struct StepReport {
     pub tick: u32,
+    /// Neurons whose spike was committed this tick -- i.e. won their local
+    /// competition, if any was configured (Requirement 7.1).
     pub spiked: Vec<u32>,
+    /// Neurons that crossed threshold but were suppressed by a
+    /// faster-margin competitor this tick. Empty whenever inhibition is
+    /// not configured. Exposed for tests and metrics (OBS-2) that need to
+    /// distinguish "no activity" from "activity, but inhibited".
+    pub vetoed: Vec<u32>,
 }
 
 /// The event-driven scheduler: a fixed-grid tick loop over a delay ring
@@ -87,11 +106,20 @@ pub struct Scheduler {
     /// it, a synapse is a potential connection and does not transmit
     /// (Requirement 6.6).
     connection_threshold: f32,
+    /// `None` means every candidate wins unconditionally -- the ablation
+    /// path for Requirement 7.5, not a special-cased branch.
+    inhibition: Option<FixedNeighbourhoods>,
+    // Scratch buffers, reused every tick so steady-state resolution
+    // allocates nothing (ENG-9) once they reach their working size.
+    candidates_scratch: Vec<(u32, f32)>,
+    winners_scratch: Vec<u32>,
+    winner_set: DirtySet,
 }
 
 impl Scheduler {
     /// `max_delay` must be at least the largest axonal delay any synapse
     /// will ever carry; delays beyond it cannot be scheduled correctly.
+    /// Inhibition is disabled by default -- see [`Scheduler::with_inhibition`].
     pub fn new(max_delay: u16, connection_threshold: f32) -> Self {
         let ring_len = max_delay as usize + 1;
         Self {
@@ -100,7 +128,29 @@ impl Scheduler {
             dirty: DirtySet::new(),
             input_accum: Vec::new(),
             connection_threshold,
+            inhibition: None,
+            candidates_scratch: Vec::new(),
+            winners_scratch: Vec::new(),
+            winner_set: DirtySet::new(),
         }
+    }
+
+    /// Enables local inhibition (Requirement 7): threshold crossings are
+    /// candidates, resolved into winners/losers by `neighbourhoods` each
+    /// tick, rather than every crossing spiking unconditionally.
+    pub fn with_inhibition(mut self, neighbourhoods: FixedNeighbourhoods) -> Self {
+        self.inhibition = Some(neighbourhoods);
+        self
+    }
+
+    /// Disables inhibition (Requirement 7.5's ablation path): every
+    /// threshold crossing becomes an official spike unconditionally.
+    pub fn disable_inhibition(&mut self) {
+        self.inhibition = None;
+    }
+
+    pub fn inhibition_enabled(&self) -> bool {
+        self.inhibition.is_some()
     }
 
     pub fn tick(&self) -> u32 {
@@ -133,12 +183,16 @@ impl Scheduler {
     ///
     /// 1. Drains this tick's ring bucket, accumulating signed input per
     ///    target neuron and marking them dirty (Requirement 5.3, 5.4).
-    /// 2. Integrates every dirty neuron exactly once via `D` (Requirement 4).
-    /// 3. For each that spikes, scans its outgoing synapse block and
+    /// 2. Integrates every dirty neuron exactly once via `D` (Requirement
+    ///    4), collecting threshold-crossing candidates.
+    /// 3. Resolves candidates into winners (via `inhibition`, if
+    ///    configured; otherwise every candidate wins -- Requirement 7.5)
+    ///    and commits or vetoes each accordingly.
+    /// 4. For each committed spike, scans its outgoing synapse block and
     ///    schedules delivery at `tick + delay` for every connected synapse
     ///    (Requirement 5.3).
-    /// 4. Carries forward whatever `D::step` reports as still active
-    ///    (refractory or unsettled); drops the rest.
+    /// 5. Carries forward whatever `integrate` reported as still active
+    ///    (refractory, unsettled, or a vetoed candidate); drops the rest.
     pub fn step<D: NeuronDynamics>(
         &mut self,
         neurons: &mut NeuronArena,
@@ -174,8 +228,9 @@ impl Scheduler {
         deliveries.clear();
         self.ring[bucket_idx] = deliveries;
 
-        // 2. Integrate every dirty neuron exactly once.
-        let mut spiked = Vec::new();
+        // 2. Integrate every dirty neuron exactly once, collecting
+        // threshold-crossing candidates and next tick's carry-forward set.
+        self.candidates_scratch.clear();
         let mut next_dirty = DirtySet::new();
         for idx in self.dirty.iter() {
             let i = idx as usize;
@@ -186,17 +241,63 @@ impl Scheduler {
                 last_spike: &mut neurons.last_spike[i],
                 threshold: neurons.threshold[i],
             };
-            let outcome = D::step(state, params, input, self.tick);
-            if outcome.spiked {
-                spiked.push(idx);
-            }
-            if outcome.still_active {
+            let outcome = D::integrate(state, params, input, self.tick);
+            if outcome.crossed_threshold {
+                // `still_active` is not meaningful yet for a candidate --
+                // whether it needs revisiting depends on whether it is
+                // committed or vetoed, decided below. See the doc comment
+                // on `IntegrationOutcome::still_active`.
+                self.candidates_scratch.push((idx, outcome.margin));
+            } else if outcome.still_active {
                 next_dirty.insert(idx);
             }
         }
         self.dirty.clear();
 
-        // 3. Schedule outgoing deliveries for everything that spiked.
+        // 3. Resolve candidates into winners and commit/veto accordingly.
+        self.winners_scratch.clear();
+        self.winner_set.clear();
+        if let Some(inhibition) = &mut self.inhibition {
+            inhibition.resolve_into(&self.candidates_scratch, &mut self.winners_scratch);
+            for &idx in &self.winners_scratch {
+                self.winner_set.insert(idx);
+            }
+        }
+        let inhibition_active = self.inhibition.is_some();
+
+        let mut spiked = Vec::new();
+        let mut vetoed = Vec::new();
+        for &(idx, _) in &self.candidates_scratch {
+            let i = idx as usize;
+            let is_winner = !inhibition_active || self.winner_set.contains(idx);
+            let state = NeuronStateMut {
+                membrane: &mut neurons.membrane[i],
+                refractory_until: &mut neurons.refractory[i],
+                last_spike: &mut neurons.last_spike[i],
+                threshold: neurons.threshold[i],
+            };
+            if is_winner {
+                D::commit_spike(state, params, self.tick);
+                spiked.push(idx);
+                // Whether a *committed* spike needs revisiting depends on
+                // whether it is still refractory next tick -- read back
+                // from the arena, since `commit_spike` just set it, and
+                // `NeuronStateMut` guarantees every dynamics model exposes
+                // this field regardless of its own internals.
+                if neurons.refractory[i] > self.tick + 1 {
+                    next_dirty.insert(idx);
+                }
+            } else {
+                D::veto_spike(state, params, self.tick);
+                vetoed.push(idx);
+                // A vetoed candidate is never "settled" -- it remains a
+                // live, above-threshold competitor and must always be
+                // re-evaluated next tick (Requirement 7.1).
+                next_dirty.insert(idx);
+            }
+        }
+
+        // 4. Schedule outgoing deliveries for committed spikes only.
         for &idx in &spiked {
             let occupied: Vec<u32> = synapses.occupied_in_block(idx).collect();
             for synapse_id in occupied {
@@ -208,10 +309,12 @@ impl Scheduler {
             }
         }
 
-        // 4. Whatever step() reported as still active carries into next tick.
+        // 5. Whatever integrate() reported as still active carries into
+        // next tick -- this already covers vetoed candidates (their
+        // still_active was true) and committed spikes still in refractory.
         self.dirty = next_dirty;
 
-        let report = StepReport { tick: self.tick, spiked };
+        let report = StepReport { tick: self.tick, spiked, vetoed };
         self.tick += 1;
         report
     }
@@ -366,5 +469,86 @@ mod tests {
             neurons.membrane[c as usize]
         }
         assert_eq!(run(), run());
+    }
+
+    #[test]
+    fn without_inhibition_every_candidate_spikes_unconditionally() {
+        // Requirement 7.5's ablation path: with no FixedNeighbourhoods
+        // configured, a tick where multiple neurons cross threshold at
+        // once must let all of them spike, not just k of them.
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(1);
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        let b = make_neuron(&mut neurons, 0.5, 1);
+        let c = make_neuron(&mut neurons, 0.5, 1);
+        synapses.reserve_for_neurons(3);
+
+        let mut sched = Scheduler::new(4, 0.5); // no with_inhibition() call
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+        sched.stimulate(&neurons, a, 10.0);
+        sched.stimulate(&neurons, b, 10.0);
+        sched.stimulate(&neurons, c, 10.0);
+        let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        let mut spiked = report.spiked;
+        spiked.sort_unstable();
+        assert_eq!(spiked, vec![a, b, c], "with inhibition disabled, every crossing must spike");
+        assert!(report.vetoed.is_empty());
+    }
+
+    #[test]
+    fn with_inhibition_only_k_winners_spike_this_tick() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(1);
+        // All three share a neighbourhood (size 10, so indices 0,1,2 are together).
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        let b = make_neuron(&mut neurons, 0.5, 1);
+        let c = make_neuron(&mut neurons, 0.5, 1);
+        synapses.reserve_for_neurons(3);
+
+        let mut sched = Scheduler::new(4, 0.5).with_inhibition(FixedNeighbourhoods::new(10, 1));
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+        // Give `b` the strongest drive so it has the largest margin and
+        // wins deterministically.
+        sched.stimulate(&neurons, a, 10.0);
+        sched.stimulate(&neurons, b, 50.0);
+        sched.stimulate(&neurons, c, 10.0);
+        let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        assert_eq!(report.spiked, vec![b], "only the k=1 highest-margin candidate should win");
+        let mut vetoed = report.vetoed;
+        vetoed.sort_unstable();
+        assert_eq!(vetoed, vec![a, c]);
+    }
+
+    #[test]
+    fn a_vetoed_candidate_wins_on_a_later_tick_once_the_winner_is_refractory() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(1);
+        let a = make_neuron(&mut neurons, 0.5, 1); // will lose tick 0
+        let b = make_neuron(&mut neurons, 0.5, 1); // will win tick 0
+        synapses.reserve_for_neurons(2);
+
+        let mut sched = Scheduler::new(4, 0.5).with_inhibition(FixedNeighbourhoods::new(10, 1));
+        // tau_m=5 -> first-tick membrane = input * (1 - exp(-1/5)) ~= input * 0.181,
+        // so both inputs below need to comfortably cross threshold 0.5 in one tick.
+        let params = LifParams::new(5.0, 0.0, 0.0, 2); // refractory so b steps aside
+
+        sched.stimulate(&neurons, a, 5.0); // -> ~0.906, crosses by a modest margin
+        sched.stimulate(&neurons, b, 50.0); // -> ~9.06, crosses by a huge margin, wins tick 0
+        let report0 = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        assert_eq!(report0.spiked, vec![b]);
+        assert_eq!(report0.vetoed, vec![a]);
+
+        // `a` remains a candidate on subsequent ticks even with no new
+        // stimulation, and eventually wins once `b` is refractory and out
+        // of the running.
+        let mut a_eventually_won = false;
+        for _ in 0..5 {
+            let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+            if report.spiked.contains(&a) {
+                a_eventually_won = true;
+                break;
+            }
+        }
+        assert!(a_eventually_won, "a vetoed candidate must remain eligible and eventually win");
     }
 }

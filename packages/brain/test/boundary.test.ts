@@ -148,6 +148,19 @@ test("Simulation.connect reports budget exhaustion instead of throwing (Requirem
   assert.equal(sim.connect(a, c, 1, 0.9), undefined, "capacity-1 block must reject a second synapse");
 });
 
+test("Simulation: inhibition limits spikes to k winners per neighbourhood (Requirement 7.1)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 2 },
+    { maxDelay: 4, connectionThreshold: 0.5, synapseCapPerNeuron: 1, inhibition: { neighbourhoodSize: 10, k: 1 } },
+  );
+  const indices = Array.from({ length: 3 }, () => sim.allocateNeuron(0.5, 1)); // all share neighbourhood 0
+  sim.stimulate(indices[0]!, 5.0);
+  sim.stimulate(indices[1]!, 50.0); // strongest margin, should win
+  sim.stimulate(indices[2]!, 5.0);
+  const spiked = sim.step();
+  assert.deepEqual(spiked, [indices[1]], "only the highest-margin candidate should win a k=1 neighbourhood");
+});
+
 test("coreEngineVersion round-trips through the addon (Step 1 regression)", async () => {
   const { coreEngineVersion } = await import("../src/index.ts");
   const version = coreEngineVersion();

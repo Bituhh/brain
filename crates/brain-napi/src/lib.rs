@@ -8,6 +8,7 @@
 #![deny(clippy::all)]
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
+use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::scheduler::Scheduler;
 use brain_core::synapse::SynapseArena;
@@ -162,14 +163,34 @@ pub struct NativeSimulation {
     lif_params: LifParams,
 }
 
+/// Local inhibition config (Requirement 7): fixed-size k-winners-take-all
+/// neighbourhoods. Omit to run with inhibition disabled (Requirement
+/// 7.5's ablation path) -- not a special-cased mode, just what the
+/// scheduler does by default.
+#[napi(object)]
+pub struct InhibitionConfig {
+    pub neighbourhood_size: u32,
+    pub k: u32,
+}
+
 #[napi]
 impl NativeSimulation {
     #[napi(constructor)]
-    pub fn new(lif: LifConfig, max_delay: u32, connection_threshold: f64, synapse_cap_per_neuron: u32) -> Self {
+    pub fn new(
+        lif: LifConfig,
+        max_delay: u32,
+        connection_threshold: f64,
+        synapse_cap_per_neuron: u32,
+        inhibition: Option<InhibitionConfig>,
+    ) -> Self {
+        let mut scheduler = Scheduler::new(max_delay.min(u16::MAX as u32) as u16, connection_threshold as f32);
+        if let Some(cfg) = inhibition {
+            scheduler = scheduler.with_inhibition(FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k));
+        }
         Self {
             neurons: NeuronArena::new(),
             synapses: SynapseArena::new(synapse_cap_per_neuron.max(1)),
-            scheduler: Scheduler::new(max_delay.min(u16::MAX as u32) as u16, connection_threshold as f32),
+            scheduler,
             lif_params: LifParams::new(
                 lif.tau_m_ticks as f32,
                 lif.v_rest as f32,

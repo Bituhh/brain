@@ -5,9 +5,9 @@
 // in for real construction (Step 5) and neuron dynamics (Step 4). The full
 // API -- snapshot(), grow(), probe() -- lands as those land, per design.md.
 
-import { NativeArena, NativeSimulation, coreVersion, type LifConfig } from "@brain/napi";
+import { NativeArena, NativeSimulation, coreVersion, type LifConfig, type InhibitionConfig } from "@brain/napi";
 
-export type { LifConfig };
+export type { LifConfig, InhibitionConfig };
 
 /**
  * Returns the brain-core version, round-tripped through the native addon.
@@ -156,10 +156,22 @@ export class Simulation {
 
   static create(
     lif: LifConfig,
-    options: { maxDelay: number; connectionThreshold: number; synapseCapPerNeuron: number },
+    options: {
+      maxDelay: number;
+      connectionThreshold: number;
+      synapseCapPerNeuron: number;
+      /** Local inhibition (Requirement 7). Omit to disable it (Requirement 7.5's ablation path). */
+      inhibition?: InhibitionConfig;
+    },
   ): Simulation {
     return new Simulation(
-      new NativeSimulation(lif, options.maxDelay, options.connectionThreshold, options.synapseCapPerNeuron),
+      new NativeSimulation(
+        lif,
+        options.maxDelay,
+        options.connectionThreshold,
+        options.synapseCapPerNeuron,
+        options.inhibition ?? null,
+      ),
     );
   }
 
