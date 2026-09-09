@@ -24,7 +24,7 @@
 //! `neuron.rs` and the rayon-vs-hand-rolled note in README §12a).
 
 use crate::arena::{NeuronArena, NeuronSpec};
-use crate::column::ColumnSpec;
+use crate::column::{ColumnRegistry, ColumnSpec};
 use crate::inhibition::FixedNeighbourhoods;
 use crate::rng::derive_stream;
 use crate::segment::SegmentConfig;
@@ -41,6 +41,15 @@ mod purpose {
     pub const POLARITY: u32 = 0;
     pub const CONNECT_DECISION: u32 = 1;
     pub const DELAY_DRAW: u32 = 2;
+    /// Lateral-voting connection decisions (NET-5) are drawn from their own
+    /// tags even though the domain of `(source, target)` pairs they touch
+    /// (always cross-column) can never overlap with `CONNECT_DECISION`/
+    /// `DELAY_DRAW`'s domain (always within one column) -- kept separate
+    /// anyway so the two kinds of decision read as distinct in any future
+    /// trace/debug output, matching this module's own stated rationale for
+    /// tagging by purpose at all.
+    pub const VOTE_CONNECT_DECISION: u32 = 3;
+    pub const VOTE_DELAY_DRAW: u32 = 4;
 }
 
 /// A distance-based connectivity policy (Requirement 6.2): connection
@@ -188,6 +197,61 @@ impl GraphBuilder {
         let neuron_range = start..end;
         let inhibition = FixedNeighbourhoods::with_base(start, neighbourhood_size, k);
         ColumnSpec { neuron_range, inhibition, segments }
+    }
+
+    /// Wires lateral voting (NET-5) between every ordered pair of distinct
+    /// columns in `voting_group`: for each pair, a `DistancePolicy`-sampled
+    /// set of synapses from one column's neurons lands on the other
+    /// column's `vote_segment`. No new mechanism -- `vote_segment` is an
+    /// ordinary dendritic segment (`segment.rs`, Requirement 10), and the
+    /// scheduler's existing coincidence-then-depolarise handling is exactly
+    /// what turns "another column already has support for an answer" into
+    /// "this column's matching neurons reach threshold with a larger
+    /// margin" (NEU-6). A column with no lateral-voting call is therefore
+    /// unaffected by this method's existence at all (Requirement 2,
+    /// Acceptance Criterion 4) -- this wires ordinary synapses onto an
+    /// ordinary segment index the caller chooses, not a reserved sentinel
+    /// the way [`crate::segment::FEEDFORWARD_SEGMENT`] is: an unused
+    /// segment index has no special meaning of its own until something
+    /// wires synapses onto it, exactly like a predictive segment.
+    ///
+    /// `voting_group` names column ids already registered in `columns`
+    /// (panics if any id is unregistered -- a caller error, not a data
+    /// condition to recover from).
+    #[allow(clippy::too_many_arguments)]
+    pub fn connect_lateral_voting(
+        &self,
+        neurons: &NeuronArena,
+        synapses: &mut SynapseArena,
+        columns: &ColumnRegistry,
+        voting_group: &[usize],
+        vote_segment: u32,
+        policy: &DistancePolicy,
+    ) {
+        for &from_id in voting_group {
+            let from_range = columns.range_of(from_id).expect("voting_group must name a registered column id");
+            for &to_id in voting_group {
+                if from_id == to_id {
+                    continue;
+                }
+                let to_range = columns.range_of(to_id).expect("voting_group must name a registered column id");
+                for source in from_range.clone() {
+                    let source_coords = neurons.coords[source as usize];
+                    for target in to_range.clone() {
+                        let d = distance(source_coords, neurons.coords[target as usize]);
+                        let p = policy.probability_at(d);
+                        let mut decision_rng = derive_stream(self.seed, source, purpose::VOTE_CONNECT_DECISION, target);
+                        if decision_rng.next_f32() >= p {
+                            continue;
+                        }
+                        let mut delay_rng = derive_stream(self.seed, source, purpose::VOTE_DELAY_DRAW, target);
+                        let delay_span = (policy.delay_max - policy.delay_min + 1) as u32;
+                        let delay = policy.delay_min + delay_rng.next_below(delay_span) as u16;
+                        let _ = synapses.insert(source, target, vote_segment, delay.max(1), policy.initial_permanence);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -415,5 +479,51 @@ mod tests {
         let builder = GraphBuilder::new(1);
         let policy = DistancePolicy { p0: 0.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.6 };
         builder.build_column(&mut neurons, &mut synapses, &[], 1.0, 0.8, &policy, 1, 1, segments());
+    }
+
+    // -- Lateral voting (NET-5).
+
+    #[test]
+    fn connect_lateral_voting_only_creates_cross_column_synapses() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(20);
+        let builder = GraphBuilder::new(7);
+        let no_internal_wiring = DistancePolicy { p0: 0.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.5 };
+        let mut columns = ColumnRegistry::new();
+        let a = builder.build_column(&mut neurons, &mut synapses, &line_coords(5, 1.0), 1.0, 1.0, &no_internal_wiring, 5, 1, segments());
+        let b = builder.build_column(&mut neurons, &mut synapses, &line_coords(5, 1.0), 1.0, 1.0, &no_internal_wiring, 5, 1, segments());
+        let a_id = columns.register(a);
+        let b_id = columns.register(b);
+
+        let voting_policy = DistancePolicy { p0: 1.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.5 };
+        builder.connect_lateral_voting(&neurons, &mut synapses, &columns, &[a_id, b_id], 0, &voting_policy);
+
+        let a_range = columns.range_of(a_id).unwrap();
+        let b_range = columns.range_of(b_id).unwrap();
+        for source in a_range.clone() {
+            for id in synapses.occupied_in_block(source) {
+                let target = synapses.target_neuron[id as usize];
+                assert!(!a_range.contains(&target), "lateral voting must never wire within the same column ({source} -> {target})");
+                assert!(b_range.contains(&target), "lateral voting from column a must land in column b");
+                assert_eq!(synapses.target_segment[id as usize], 0, "must target the requested vote segment");
+            }
+        }
+    }
+
+    #[test]
+    fn connect_lateral_voting_is_a_noop_for_a_single_column_group() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(20);
+        let builder = GraphBuilder::new(7);
+        let no_internal_wiring = DistancePolicy { p0: 0.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.5 };
+        let mut columns = ColumnRegistry::new();
+        let a = builder.build_column(&mut neurons, &mut synapses, &line_coords(5, 1.0), 1.0, 1.0, &no_internal_wiring, 5, 1, segments());
+        let a_id = columns.register(a);
+
+        let voting_policy = DistancePolicy { p0: 1.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.5 };
+        builder.connect_lateral_voting(&neurons, &mut synapses, &columns, &[a_id], 0, &voting_policy);
+
+        let total: usize = columns.range_of(a_id).unwrap().map(|i| synapses.occupied_in_block(i).count()).sum();
+        assert_eq!(total, 0, "Requirement 2 AC4: a lone column in its own voting group must remain unaffected");
     }
 }

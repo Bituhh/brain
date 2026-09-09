@@ -18,7 +18,8 @@
 //! segment (Step 8, done), growth (Step 9, done), plasticity::predictive
 //! (Step 10, done), probe/metrics (Step 11, done), test infrastructure
 //! (Step 12, done), exit criterion (Step 13, done). Phase 4 ("columns and
-//! scale", README §11): column (Step 14, done).
+//! scale", README §11): column (Step 14, done), lateral voting
+//! (Step 15, done).
 //!
 //! The test suite is organised in four layers (Requirement 15.1): Rust
 //! unit tests (this crate's own `#[cfg(test)]` modules), Rust whole-network
