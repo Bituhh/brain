@@ -8,6 +8,9 @@
 #![deny(clippy::all)]
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
+use brain_core::neuron::{Lif, LifParams};
+use brain_core::scheduler::Scheduler;
+use brain_core::synapse::SynapseArena;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -127,5 +130,97 @@ impl NativeArena {
 impl Default for NativeArena {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// LIF parameters as a plain JS object, converted once into brain-core's
+/// precomputed `LifParams` at construction (see neuron.rs's module docs on
+/// why the decay factor is computed once rather than per tick).
+#[napi(object)]
+pub struct LifConfig {
+    pub tau_m_ticks: f64,
+    pub v_rest: f64,
+    pub v_reset: f64,
+    pub refractory_ticks: u32,
+}
+
+/// A minimal driveable simulation: neurons + synapses + an event-driven
+/// scheduler running `Lif` dynamics (Requirements 4, 5). This is the
+/// concrete FFI surface `examples/single-neuron.ts` and later `graph.rs`
+/// (Step 5) build on -- deliberately separate from `NativeArena`, which
+/// exists to exercise the raw zero-copy contract in isolation (Step 3),
+/// not to run a simulation.
+///
+/// The neuron model is fixed to `Lif` at this boundary: `NeuronDynamics`'s
+/// genericity (NEU-3) is a Rust-internal pluggability property, not
+/// something that needs to be a runtime choice over FFI yet.
+#[napi]
+pub struct NativeSimulation {
+    neurons: NeuronArena,
+    synapses: SynapseArena,
+    scheduler: Scheduler,
+    lif_params: LifParams,
+}
+
+#[napi]
+impl NativeSimulation {
+    #[napi(constructor)]
+    pub fn new(lif: LifConfig, max_delay: u32, connection_threshold: f64, synapse_cap_per_neuron: u32) -> Self {
+        Self {
+            neurons: NeuronArena::new(),
+            synapses: SynapseArena::new(synapse_cap_per_neuron.max(1)),
+            scheduler: Scheduler::new(max_delay.min(u16::MAX as u32) as u16, connection_threshold as f32),
+            lif_params: LifParams::new(
+                lif.tau_m_ticks as f32,
+                lif.v_rest as f32,
+                lif.v_reset as f32,
+                lif.refractory_ticks,
+            ),
+        }
+    }
+
+    /// Allocates a neuron and ensures synapse storage exists for it.
+    #[napi]
+    pub fn allocate(&mut self, threshold: f64, polarity: i32) -> u32 {
+        let id = self
+            .neurons
+            .allocate(NeuronSpec { threshold: threshold as f32, polarity: polarity as i8, coords: [0.0, 0.0, 0.0] });
+        self.synapses.reserve_for_neurons(self.neurons.capacity_len());
+        id.index
+    }
+
+    /// Creates a synapse from `source` to `target`. Returns the synapse id,
+    /// or `null` if the source's synapse budget is exhausted
+    /// (Requirement 11.3) -- not an exception, since a full block is an
+    /// ordinary, expected outcome (design.md's Error Handling table).
+    #[napi]
+    pub fn connect(&mut self, source: u32, target: u32, delay: u32, permanence: f64) -> Option<u32> {
+        self.synapses
+            .insert(source, target, 0, delay.clamp(1, u16::MAX as u32) as u16, permanence as f32)
+            .ok()
+    }
+
+    /// Delivers `current` to a neuron on the next `step()` call, standing
+    /// in for a real encoder (IO-1) until one exists.
+    #[napi]
+    pub fn stimulate(&mut self, index: u32, current: f64) {
+        self.scheduler.stimulate(&self.neurons, index, current as f32);
+    }
+
+    /// Advances the simulation by exactly one tick, returning the indices
+    /// of neurons that spiked (Requirement 5).
+    #[napi]
+    pub fn step(&mut self) -> Vec<u32> {
+        self.scheduler.step::<Lif>(&mut self.neurons, &mut self.synapses, &self.lif_params).spiked
+    }
+
+    #[napi]
+    pub fn membrane_at(&self, index: u32) -> f64 {
+        self.neurons.membrane[index as usize] as f64
+    }
+
+    #[napi]
+    pub fn current_tick(&self) -> u32 {
+        self.scheduler.tick()
     }
 }

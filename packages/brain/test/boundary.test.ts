@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Brain, StaleViewError } from "../src/index.ts";
+import { Brain, StaleViewError, Simulation } from "../src/index.ts";
 
 test("a view reflects Rust-side mutation with no copy (Requirement 2.1)", () => {
   const brain = Brain.create();
@@ -100,6 +100,52 @@ test("an empty arena's view does not throw and has length zero", () => {
   const brain = Brain.create();
   const view = brain.views();
   assert.equal(view.membrane.length, 0);
+});
+
+test("Simulation: a spike is delivered at exactly tick + delay (Requirement 5.4)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 10, connectionThreshold: 0.5, synapseCapPerNeuron: 4 },
+  );
+  const a = sim.allocateNeuron(0.5, 1);
+  const b = sim.allocateNeuron(100.0, 1); // never spikes on its own
+  sim.connect(a, b, 5, 0.9);
+
+  sim.stimulate(a, 10.0);
+  const spiked0 = sim.step();
+  assert.deepEqual(spiked0, [a]);
+
+  for (let tick = 1; tick < 5; tick++) {
+    sim.step();
+    assert.equal(sim.membraneAt(b), 0, `b must be untouched before tick 5, currently at tick ${tick}`);
+  }
+  sim.step(); // tick 5
+  assert.ok(sim.membraneAt(b) > 0, "b must receive input at exactly tick 5");
+});
+
+test("Simulation: sub-threshold current never spikes (Requirement 4.5)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 10, vRest: 0, vReset: 0, refractoryTicks: 5 },
+    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
+  );
+  const a = sim.allocateNeuron(1.0, 1);
+  for (let tick = 0; tick < 5000; tick++) {
+    sim.stimulate(a, 0.5); // steady-state target 0.5 < threshold 1.0
+    const spiked = sim.step();
+    assert.deepEqual(spiked, []);
+  }
+});
+
+test("Simulation.connect reports budget exhaustion instead of throwing (Requirement 11.3)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
+  );
+  const a = sim.allocateNeuron(1.0, 1);
+  const b = sim.allocateNeuron(1.0, 1);
+  const c = sim.allocateNeuron(1.0, 1);
+  assert.notEqual(sim.connect(a, b, 1, 0.9), undefined);
+  assert.equal(sim.connect(a, c, 1, 0.9), undefined, "capacity-1 block must reject a second synapse");
 });
 
 test("coreEngineVersion round-trips through the addon (Step 1 regression)", async () => {

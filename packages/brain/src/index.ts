@@ -5,7 +5,9 @@
 // in for real construction (Step 5) and neuron dynamics (Step 4). The full
 // API -- snapshot(), grow(), probe() -- lands as those land, per design.md.
 
-import { NativeArena, coreVersion } from "@brain/napi";
+import { NativeArena, NativeSimulation, coreVersion, type LifConfig } from "@brain/napi";
+
+export type { LifConfig };
 
 /**
  * Returns the brain-core version, round-tripped through the native addon.
@@ -134,5 +136,57 @@ export class Brain {
       this.#membraneCache = { epoch, array: this.#native.membraneView() };
     }
     return this.#membraneCache.array;
+  }
+}
+
+/**
+ * A driveable LIF simulation: neurons, synapses, and an event-driven
+ * scheduler (Requirements 4, 5). Deliberately a separate class from
+ * `Brain`, mirroring the Rust-side separation between `NativeArena`
+ * (proving the zero-copy contract in isolation) and `NativeSimulation`
+ * (actually running something) -- `graph.rs` (Step 5) will extend this
+ * with real topology; for now neurons and synapses are added by hand.
+ */
+export class Simulation {
+  readonly #native: NativeSimulation;
+
+  private constructor(native: NativeSimulation) {
+    this.#native = native;
+  }
+
+  static create(
+    lif: LifConfig,
+    options: { maxDelay: number; connectionThreshold: number; synapseCapPerNeuron: number },
+  ): Simulation {
+    return new Simulation(
+      new NativeSimulation(lif, options.maxDelay, options.connectionThreshold, options.synapseCapPerNeuron),
+    );
+  }
+
+  allocateNeuron(threshold: number, polarity: number): number {
+    return this.#native.allocate(threshold, polarity);
+  }
+
+  /** Returns the synapse id, or `undefined` if the source's budget (Requirement 11.3) is exhausted. */
+  connect(source: number, target: number, delay: number, permanence: number): number | undefined {
+    return this.#native.connect(source, target, delay, permanence) ?? undefined;
+  }
+
+  /** Delivers `current` to a neuron on the next `step()` call (stand-in for IO-1's encoders). */
+  stimulate(index: number, current: number): void {
+    this.#native.stimulate(index, current);
+  }
+
+  /** Advances by one tick, returning the indices that spiked. */
+  step(): number[] {
+    return this.#native.step();
+  }
+
+  membraneAt(index: number): number {
+    return this.#native.membraneAt(index);
+  }
+
+  currentTick(): number {
+    return this.#native.currentTick();
   }
 }

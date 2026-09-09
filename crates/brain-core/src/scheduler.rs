@@ -1,0 +1,370 @@
+//! Event-driven scheduler on a fixed time grid (RUN-1, RUN-1a, RUN-1b).
+//!
+//! Work is proportional to in-flight spikes, not to neuron count
+//! (Requirement 5.1): a "dirty set" tracks only neurons that have
+//! accumulated input this tick or are still active from a recent one (see
+//! `NeuronDynamics::step`'s `still_active` outcome), and a delay ring of
+//! pre-allocated buckets means scheduling and delivering a spike never
+//! allocates in steady state (Requirement 5.6, ENG-9).
+
+use crate::arena::NeuronArena;
+use crate::neuron::{NeuronDynamics, NeuronStateMut};
+use crate::synapse::SynapseArena;
+
+/// An index set supporting O(1) insert-with-dedupe and O(touched)
+/// iteration/clear -- never O(capacity). This is the concrete mechanism
+/// behind "a silent neuron costs nothing".
+#[derive(Default)]
+pub struct DirtySet {
+    members: Vec<u32>,
+    is_member: Vec<bool>,
+}
+
+impl DirtySet {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn ensure_capacity(&mut self, index: usize) {
+        if self.is_member.len() <= index {
+            self.is_member.resize(index + 1, false);
+        }
+    }
+
+    pub fn insert(&mut self, idx: u32) {
+        let i = idx as usize;
+        self.ensure_capacity(i);
+        if !self.is_member[i] {
+            self.is_member[i] = true;
+            self.members.push(idx);
+        }
+    }
+
+    pub fn contains(&self, idx: u32) -> bool {
+        (idx as usize) < self.is_member.len() && self.is_member[idx as usize]
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = u32> + '_ {
+        self.members.iter().copied()
+    }
+
+    pub fn len(&self) -> usize {
+        self.members.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.members.is_empty()
+    }
+
+    /// O(touched), not O(capacity): only currently-tracked members are
+    /// unmarked, then the member list is truncated.
+    pub fn clear(&mut self) {
+        for &idx in &self.members {
+            self.is_member[idx as usize] = false;
+        }
+        self.members.clear();
+    }
+}
+
+/// One tick's outcome, for callers (metrics, tests) that need to know what
+/// happened without re-deriving it.
+pub struct StepReport {
+    pub tick: u32,
+    pub spiked: Vec<u32>,
+}
+
+/// The event-driven scheduler: a fixed-grid tick loop over a delay ring
+/// (RUN-1b) and a dirty set of neurons needing integration this tick.
+pub struct Scheduler {
+    tick: u32,
+    /// `max_delay + 1` pre-allocated, never-freed buckets of synapse ids
+    /// (Requirement 5.6). Bucket `b` holds synapses whose delivery tick is
+    /// congruent to `b` modulo `ring.len()`.
+    ring: Vec<Vec<u32>>,
+    dirty: DirtySet,
+    input_accum: Vec<f32>,
+    /// Permanence at or above this is functionally connected (SYN-3); below
+    /// it, a synapse is a potential connection and does not transmit
+    /// (Requirement 6.6).
+    connection_threshold: f32,
+}
+
+impl Scheduler {
+    /// `max_delay` must be at least the largest axonal delay any synapse
+    /// will ever carry; delays beyond it cannot be scheduled correctly.
+    pub fn new(max_delay: u16, connection_threshold: f32) -> Self {
+        let ring_len = max_delay as usize + 1;
+        Self {
+            tick: 0,
+            ring: (0..ring_len).map(|_| Vec::new()).collect(),
+            dirty: DirtySet::new(),
+            input_accum: Vec::new(),
+            connection_threshold,
+        }
+    }
+
+    pub fn tick(&self) -> u32 {
+        self.tick
+    }
+
+    fn ensure_input_capacity(&mut self, len: usize) {
+        if self.input_accum.len() < len {
+            self.input_accum.resize(len, 0.0);
+        }
+    }
+
+    /// Delivers `current` directly to a neuron on the *next* call to
+    /// [`Scheduler::step`], as if it had arrived via a synapse, without
+    /// needing one. Used by tests and by direct-stimulation callers before
+    /// encoders (IO-1) exist to drive input through real synapses instead.
+    pub fn stimulate(&mut self, neurons: &NeuronArena, neuron_index: u32, current: f32) {
+        self.ensure_input_capacity(neurons.capacity_len());
+        self.input_accum[neuron_index as usize] += current;
+        self.dirty.insert(neuron_index);
+    }
+
+    fn schedule_delivery(&mut self, delay: u16, synapse_id: u32) {
+        let ring_len = self.ring.len();
+        let bucket = (self.tick as usize + delay as usize) % ring_len;
+        self.ring[bucket].push(synapse_id);
+    }
+
+    /// Advances the simulation by exactly one tick:
+    ///
+    /// 1. Drains this tick's ring bucket, accumulating signed input per
+    ///    target neuron and marking them dirty (Requirement 5.3, 5.4).
+    /// 2. Integrates every dirty neuron exactly once via `D` (Requirement 4).
+    /// 3. For each that spikes, scans its outgoing synapse block and
+    ///    schedules delivery at `tick + delay` for every connected synapse
+    ///    (Requirement 5.3).
+    /// 4. Carries forward whatever `D::step` reports as still active
+    ///    (refractory or unsettled); drops the rest.
+    pub fn step<D: NeuronDynamics>(
+        &mut self,
+        neurons: &mut NeuronArena,
+        synapses: &mut SynapseArena,
+        params: &D::Params,
+    ) -> StepReport {
+        self.ensure_input_capacity(neurons.capacity_len());
+
+        // 1. Deliver everything scheduled for this exact tick.
+        let ring_len = self.ring.len();
+        let bucket_idx = self.tick as usize % ring_len;
+        // Swap the bucket's Vec out so we can iterate it while also
+        // scheduling *new* deliveries into (potentially) the same ring
+        // without a borrow conflict; its capacity is preserved and it's
+        // swapped back once drained, so this is not an allocation
+        // (Requirement 5.6).
+        let mut deliveries = std::mem::take(&mut self.ring[bucket_idx]);
+        for &synapse_id in deliveries.iter() {
+            if !synapses.is_occupied(synapse_id) {
+                continue; // pruned since it was scheduled (Requirement 11.1)
+            }
+            let permanence = synapses.permanence[synapse_id as usize];
+            if permanence < self.connection_threshold {
+                continue; // Requirement 6.6: sub-threshold does not transmit
+            }
+            let source_index = synapses.source_of(synapse_id);
+            let target = synapses.target_neuron[synapse_id as usize];
+            let sign = neurons.polarity[source_index as usize] as f32;
+            self.input_accum[target as usize] += sign * permanence;
+            self.dirty.insert(target);
+            synapses.last_active[synapse_id as usize] = self.tick;
+        }
+        deliveries.clear();
+        self.ring[bucket_idx] = deliveries;
+
+        // 2. Integrate every dirty neuron exactly once.
+        let mut spiked = Vec::new();
+        let mut next_dirty = DirtySet::new();
+        for idx in self.dirty.iter() {
+            let i = idx as usize;
+            let input = std::mem::replace(&mut self.input_accum[i], 0.0);
+            let state = NeuronStateMut {
+                membrane: &mut neurons.membrane[i],
+                refractory_until: &mut neurons.refractory[i],
+                last_spike: &mut neurons.last_spike[i],
+                threshold: neurons.threshold[i],
+            };
+            let outcome = D::step(state, params, input, self.tick);
+            if outcome.spiked {
+                spiked.push(idx);
+            }
+            if outcome.still_active {
+                next_dirty.insert(idx);
+            }
+        }
+        self.dirty.clear();
+
+        // 3. Schedule outgoing deliveries for everything that spiked.
+        for &idx in &spiked {
+            let occupied: Vec<u32> = synapses.occupied_in_block(idx).collect();
+            for synapse_id in occupied {
+                if synapses.permanence[synapse_id as usize] < self.connection_threshold {
+                    continue;
+                }
+                let delay = synapses.delay[synapse_id as usize];
+                self.schedule_delivery(delay, synapse_id);
+            }
+        }
+
+        // 4. Whatever step() reported as still active carries into next tick.
+        self.dirty = next_dirty;
+
+        let report = StepReport { tick: self.tick, spiked };
+        self.tick += 1;
+        report
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::arena::{NeuronArena, NeuronSpec};
+    use crate::neuron::{Lif, LifParams};
+
+    fn make_neuron(arena: &mut NeuronArena, threshold: f32, polarity: i8) -> u32 {
+        arena.allocate(NeuronSpec { threshold, polarity, coords: [0.0, 0.0, 0.0] }).index
+    }
+
+    #[test]
+    fn a_spike_is_delivered_at_exactly_tick_plus_delay() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(4);
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        let b = make_neuron(&mut neurons, 100.0, 1); // never spikes itself
+        synapses.reserve_for_neurons(2);
+        synapses.insert(a, b, 0, 5, 0.9).unwrap(); // delay = 5 ticks
+
+        let mut sched = Scheduler::new(10, 0.5);
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+
+        // Drive `a` over threshold on tick 0.
+        sched.stimulate(&neurons, a, 10.0);
+        let report0 = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        assert_eq!(report0.spiked, vec![a]);
+
+        // `b` must receive input at exactly tick 0+5=5, not before or after.
+        for tick in 1..5 {
+            let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+            assert_eq!(report.tick, tick);
+            assert_eq!(*neurons.membrane.get(b as usize).unwrap(), 0.0, "b must be untouched before tick 5");
+        }
+        let report5 = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        assert_eq!(report5.tick, 5);
+        assert!(neurons.membrane[b as usize] > 0.0, "b must receive input at exactly tick 5");
+    }
+
+    #[test]
+    fn sub_threshold_permanence_does_not_transmit() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(4);
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        let b = make_neuron(&mut neurons, 100.0, 1);
+        synapses.reserve_for_neurons(2);
+        synapses.insert(a, b, 0, 1, 0.1).unwrap(); // below the 0.5 threshold
+
+        let mut sched = Scheduler::new(4, 0.5);
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+        sched.stimulate(&neurons, a, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // a spikes
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // would-be delivery tick
+        assert_eq!(neurons.membrane[b as usize], 0.0, "sub-threshold permanence must not transmit (Req 6.6)");
+    }
+
+    #[test]
+    fn inhibitory_source_delivers_negative_current() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(4);
+        let a = make_neuron(&mut neurons, 0.5, -1); // inhibitory
+        let b = make_neuron(&mut neurons, 100.0, 1);
+        synapses.reserve_for_neurons(2);
+        synapses.insert(a, b, 0, 1, 0.8).unwrap();
+
+        let mut sched = Scheduler::new(4, 0.5);
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+        sched.stimulate(&neurons, a, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // a spikes
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // delivery
+        assert!(neurons.membrane[b as usize] < 0.0, "inhibitory source must deliver negative current (Dale, NEU-4)");
+    }
+
+    #[test]
+    fn a_silent_neuron_never_enters_the_dirty_set() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(4);
+        let _a = make_neuron(&mut neurons, 1.0, 1);
+        let untouched = make_neuron(&mut neurons, 1.0, 1);
+        synapses.reserve_for_neurons(2);
+
+        let mut sched = Scheduler::new(4, 0.5);
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+        for _ in 0..100 {
+            sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        }
+        assert!(!sched.dirty.contains(untouched), "a neuron that never received input must never be dirty");
+    }
+
+    #[test]
+    fn pruned_synapse_scheduled_before_removal_is_skipped_on_delivery() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(4);
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        let b = make_neuron(&mut neurons, 100.0, 1);
+        synapses.reserve_for_neurons(2);
+        let syn = synapses.insert(a, b, 0, 3, 0.9).unwrap();
+
+        let mut sched = Scheduler::new(10, 0.5);
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+        sched.stimulate(&neurons, a, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // a spikes, schedules delivery at tick+3
+
+        synapses.remove(syn); // pruned before delivery (Requirement 11.1)
+
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // would-be delivery tick
+        assert_eq!(neurons.membrane[b as usize], 0.0, "a pruned synapse must not deliver, even if already scheduled");
+    }
+
+    #[test]
+    fn refractory_neuron_is_carried_forward_without_new_input() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(1);
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        synapses.reserve_for_neurons(1);
+
+        let mut sched = Scheduler::new(4, 0.5);
+        let params = LifParams::new(5.0, 0.0, 0.0, 3); // 3 refractory ticks
+        sched.stimulate(&neurons, a, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // spikes, enters refractory
+        assert!(sched.dirty.contains(a), "a refractory neuron must be carried forward with no new input");
+    }
+
+    #[test]
+    fn ring_delivery_is_deterministic_in_order() {
+        // Two synapses landing in the same bucket must be processed in a
+        // fixed (insertion) order, the basis of Requirement 3.1's
+        // determinism -- run twice and confirm identical resulting state.
+        fn run() -> f32 {
+            let mut neurons = NeuronArena::new();
+            let mut synapses = SynapseArena::new(4);
+            let a = make_neuron(&mut neurons, 0.5, 1);
+            let b = make_neuron(&mut neurons, 0.5, 1);
+            let c = make_neuron(&mut neurons, 100.0, 1);
+            synapses.reserve_for_neurons(3);
+            synapses.insert(a, c, 0, 2, 0.6).unwrap();
+            synapses.insert(b, c, 0, 2, 0.6).unwrap();
+
+            let mut sched = Scheduler::new(6, 0.5);
+            let params = LifParams::new(5.0, 0.0, 0.0, 0);
+            sched.stimulate(&neurons, a, 10.0);
+            sched.stimulate(&neurons, b, 10.0);
+            for _ in 0..5 {
+                sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+            }
+            neurons.membrane[c as usize]
+        }
+        assert_eq!(run(), run());
+    }
+}

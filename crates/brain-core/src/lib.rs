@@ -7,13 +7,17 @@
 //! See README.md ENG-7 and design.md's dependency rule.
 //!
 //! Modules land incrementally per the implementation plan: ids/rng/arena
-//! (Step 2, done), neuron/scheduler (Step 4), graph/inhibition (Step 5),
-//! plasticity (Step 6), snapshot (Step 7), segment (Step 8), growth
-//! (Step 9), probe/metrics (Step 11).
+//! (Step 2, done), neuron/scheduler (Step 4, done), graph/inhibition
+//! (Step 5), plasticity (Step 6), snapshot (Step 7), segment (Step 8),
+//! growth (Step 9), probe/metrics (Step 11).
 
 pub mod arena;
 pub mod ids;
+pub mod metrics;
+pub mod neuron;
 pub mod rng;
+pub mod scheduler;
+pub mod synapse;
 
 /// Crate version, exposed so the FFI boundary and example scripts have a
 /// trivial end-to-end path to exercise before any real simulation logic
