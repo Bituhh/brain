@@ -187,6 +187,7 @@ mod tests {
         assert!(fx.eligibility != 0.0, "eligibility itself must still be tracked regardless of modulator");
     }
 
+    /// Requirement 8.4.
     #[test]
     fn on_delivery_depresses_when_post_recently_fired() {
         let rule = ThreeFactorStdp::new(ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0));

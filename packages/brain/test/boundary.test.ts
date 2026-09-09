@@ -8,12 +8,17 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Brain, StaleViewError, Simulation, type LifConfig, type SimulationOptions } from "../src/index.ts";
 
-test("a view reflects Rust-side mutation with no copy (Requirement 2.1)", () => {
+test("a view reflects Rust-side mutation with no copy (Requirement 2.1, 2.3)", () => {
+  // Requirement 2.3: `pokeMembrane` below is a scalar control call, and
+  // `views()` returns a bulk typed-array view -- there is no per-tick or
+  // per-synapse structured value crossing the boundary anywhere in this
+  // test, which is the whole reason the mutation below is observable with
+  // no re-fetch.
   const brain = Brain.create();
   brain.allocateNeuron(1.0, 1);
   brain.allocateNeuron(1.0, 1);
@@ -225,4 +230,22 @@ test("coreEngineVersion round-trips through the addon (Step 1 regression)", asyn
   const version = coreEngineVersion();
   assert.equal(typeof version, "string");
   assert.notEqual(version, "");
+});
+
+test("TypeScript strict mode is enabled and the FFI surface names no `any` (Requirement 1.5)", () => {
+  const tsconfigPath = new URL("../../../tsconfig.base.json", import.meta.url);
+  const tsconfig = JSON.parse(readFileSync(tsconfigPath, "utf8"));
+  assert.equal(tsconfig.compilerOptions.strict, true, "strict must be enabled for the whole workspace");
+
+  // The FFI surface itself: this package's own shell plus the native
+  // addon's generated type declarations. `tsc --strict` (already run via
+  // `npm run typecheck`) is what actually enforces "no any *reachable*
+  // from inferred types" everywhere; this test is the narrower, explicit
+  // check that neither boundary file *names* `any` in its own source.
+  const boundaryFiles = ["../src/index.ts", "../../../crates/brain-napi/index.d.ts"];
+  for (const relative of boundaryFiles) {
+    const fileUrl = new URL(relative, import.meta.url);
+    const source = readFileSync(fileUrl, "utf8");
+    assert.doesNotMatch(source, /:\s*any\b|<any>|\bas any\b/, `${relative} must not name \`any\` at the FFI boundary`);
+  }
 });

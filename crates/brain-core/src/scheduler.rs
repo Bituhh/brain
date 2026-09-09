@@ -7,6 +7,12 @@
 //! of pre-allocated buckets means scheduling and delivering a spike never
 //! allocates in steady state (Requirement 5.6, ENG-9).
 //!
+//! Time is represented purely as this fixed grid of ring buckets -- there
+//! is no global priority queue over continuous timestamps anywhere in this
+//! module (Requirement 5.5): a synapse's delivery tick is a bucket index,
+//! computed once at spike time, never a value competing in a sorted
+//! structure.
+//!
 //! Local inhibition (`inhibition.rs`, Requirement 7) is optional and
 //! intervenes between integration and spike commitment: every dirty
 //! neuron is integrated first (candidates that crossed threshold are
@@ -656,6 +662,7 @@ mod tests {
         assert_eq!(neurons.membrane[b as usize], 0.0, "sub-threshold permanence must not transmit (Req 6.6)");
     }
 
+    /// Requirement 6.4.
     #[test]
     fn inhibitory_source_delivers_negative_current() {
         let mut neurons = NeuronArena::new();

@@ -220,6 +220,7 @@ mod tests {
         assert_eq!(policy.should_grow(&PopulationStats { live_count: 0, tick: 1000 }, 1), 0, "must not trigger before the window fills");
     }
 
+    /// Requirement 11.6.
     #[test]
     fn overlap_saturation_triggers_once_collision_rate_exceeds_threshold() {
         let mut policy = OverlapSaturation::new(0.5, 10, 5, 10);

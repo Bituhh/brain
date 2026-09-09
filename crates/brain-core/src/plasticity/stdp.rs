@@ -61,6 +61,7 @@ mod tests {
         assert!(p.kernel(5.0) > 0.0);
     }
 
+    /// Requirement 8.4: post-before-pre weakens.
     #[test]
     fn negative_dt_depresses() {
         let p = params();
@@ -95,6 +96,7 @@ mod tests {
     /// STDP curve exactly (it *is* the curve -- this test exists to catch
     /// an accidental change to the formula, e.g. swapped tau/amplitude
     /// terms, that unit tests on individual points might miss).
+    /// Requirement 14.1's STDP half.
     #[test]
     fn curve_matches_the_configured_asymmetric_exponential_exactly() {
         let p = StdpParams { a_plus: 0.05, a_minus: 0.08, tau_plus: 15.0, tau_minus: 25.0, window_ticks: 200 };

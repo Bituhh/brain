@@ -150,6 +150,7 @@ mod tests {
         (0..n).map(|i| [i as f32 * spacing, 0.0, 0.0]).collect()
     }
 
+    /// Requirement 6.3.
     #[test]
     fn population_ratio_is_approximately_80_20() {
         let mut neurons = NeuronArena::new();

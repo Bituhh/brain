@@ -1,6 +1,12 @@
 //! `brain-core`: the simulation core.
 //!
-//! Zero runtime dependencies (ENG-5, ENG-6). Every numeric primitive used
+//! Zero runtime dependencies (ENG-5, ENG-6, Requirement 1.2): this
+//! `Cargo.toml` carries no `[dependencies]` table at all -- `proptest` and
+//! `criterion` below are dev-only, exempt from the rule (Requirement 1.4),
+//! and neither they nor anything else in this crate names a
+//! neural-network/tensor/autodiff/ONNX/embedding/LLM dependency
+//! (Requirement 1.3; see `tests/workspace_policy.rs` for the check that
+//! actually inspects the manifest text). Every numeric primitive used
 //! here — PRNG, arena, scheduler, plasticity — is implemented in this crate.
 //!
 //! Nothing in this crate may depend on a binding crate (napi, wasm-bindgen).
@@ -10,7 +16,17 @@
 //! (Step 2, done), neuron/scheduler (Step 4, done), graph/inhibition
 //! (Step 5, done), plasticity (Step 6, done), snapshot (Step 7, done),
 //! segment (Step 8, done), growth (Step 9, done), plasticity::predictive
-//! (Step 10, done), probe/metrics (Step 11, done).
+//! (Step 10, done), probe/metrics (Step 11, done), test infrastructure
+//! (Step 12, done).
+//!
+//! The test suite is organised in four layers (Requirement 15.1): Rust
+//! unit tests (this crate's own `#[cfg(test)]` modules), Rust whole-network
+//! integration tests (`tests/`), TypeScript boundary tests
+//! (`packages/brain/test/`), and a separate emergent-behaviour suite
+//! (Phase 3's exit criterion, `tests/emergent/`, Step 13). Tooling is
+//! `cargo test` with `proptest` and `criterion` as dev-dependencies here,
+//! and Node's built-in `node:test` on the TypeScript side (Requirement
+//! 15.2) -- no test runner adds a runtime dependency anywhere.
 
 pub mod arena;
 pub mod graph;

@@ -189,3 +189,50 @@ fn snapshot_survives_a_real_structural_sweep_and_growth() {
         );
     }
 }
+
+#[test]
+fn a_restored_network_can_grow_and_keep_learning_without_discarding_prior_learning() {
+    // Requirement 16.9: after restore, neurons and synapses must be
+    // addable to the network and learning must continue, without
+    // discarding what was already learned before the snapshot.
+    let (neurons, synapses, sched, a, b, syn) = train(150);
+    let permanence_before_snapshot = synapses.permanence[syn as usize];
+    assert!(permanence_before_snapshot > 0.5, "a->b should have potentiated before the snapshot, got {permanence_before_snapshot}");
+
+    let neuron_count = neurons.capacity_len() as u32;
+    let bytes = snapshot::write(&neurons, &synapses, &sched, neuron_count, 42);
+    let restored = snapshot::read(&bytes, 42).unwrap();
+
+    let mut neurons = restored.neurons;
+    let mut synapses = restored.synapses;
+    assert_eq!(synapses.permanence[syn as usize], permanence_before_snapshot, "restore itself must not change what was already learned");
+
+    let mut sched = Scheduler::new(2, 0.2).with_plasticity(make_plasticity(), [500.0; NUM_MODULATORS]);
+    sched.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
+    sched.inject_modulator(DOPAMINE, 1.0);
+
+    // Add a brand-new neuron and a brand-new synapse post-restore.
+    let c = apply_growth(&mut neurons, &mut synapses, 1, |_| NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] })[0].index;
+    let new_syn = synapses.insert(b, c, 0, 1, 0.5).unwrap();
+
+    let params = LifParams::new(5.0, 0.0, 0.0, 0);
+    for _ in 0..150 {
+        sched.stimulate(&neurons, a, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        sched.stimulate(&neurons, b, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        sched.stimulate(&neurons, c, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+    }
+
+    assert!(
+        synapses.permanence[syn as usize] >= permanence_before_snapshot - 1e-6,
+        "previously learned a->b behaviour must not degrade after restore and growth: before={permanence_before_snapshot}, after={}",
+        synapses.permanence[syn as usize]
+    );
+    assert!(
+        synapses.permanence[new_syn as usize] > 0.5,
+        "the newly added neuron's synapse must be able to learn post-restore too, got {}",
+        synapses.permanence[new_syn as usize]
+    );
+}

@@ -77,7 +77,7 @@ fn run_and_measure_sparsity(with_inhibition: bool, drive_fraction: f32, ticks: u
 
 #[test]
 fn sparsity_holds_near_target_under_moderate_drive() {
-    // VAL-2(a): population sparsity stays near the configured target.
+    // VAL-2(a), Requirement 7.2: population sparsity stays near the configured target.
     let sparsity = run_and_measure_sparsity(true, 0.3, 2000, 1);
     assert!(
         (sparsity - TARGET_SPARSITY).abs() / TARGET_SPARSITY < 0.3,
@@ -139,8 +139,10 @@ fn activity_neither_saturates_nor_dies_out_over_an_extended_run() {
 
 #[test]
 fn disabling_inhibition_breaks_the_sparsity_bound() {
-    // Requirement 7.5's ablation: this is not a smoke test that
-    // everything still runs -- it is a positive assertion that sparsity
+    // Requirement 7.5's ablation (also Requirement 15.8: a load-bearing
+    // mechanism disabled must observably break the property it supports):
+    // this is not a smoke test that everything still runs -- it is a
+    // positive assertion that sparsity
     // *fails* to hold near target once inhibition is removed, which is
     // what demonstrates inhibition is the mechanism actually responsible
     // for it (README invariant 4), not an incidental side effect of the

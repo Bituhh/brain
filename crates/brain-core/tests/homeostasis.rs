@@ -99,7 +99,7 @@ fn with_homeostasis_incoming_weights_stay_bounded_near_target() {
 
 #[test]
 fn disabling_homeostasis_lets_weights_diverge_from_the_with_homeostasis_case() {
-    // Requirement 9.4's ablation, stated as a direct comparison rather
+    // Requirement 9.4's ablation (also Requirement 15.8), stated as a direct comparison rather
     // than two independent thresholds: this is the assertion that
     // homeostasis is the mechanism responsible for the difference, not an
     // accident of the two tests above using different tolerances.

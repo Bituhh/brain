@@ -257,6 +257,7 @@ mod tests {
     /// borrows from them -- one for `integrate`, one for `commit_spike` --
     /// with no unsafe code: each borrow ends when the value that holds it
     /// is consumed, before the next one is created.
+    #[allow(clippy::too_many_arguments)]
     fn step_without_competition(
         membrane: &mut f32,
         refractory_until: &mut u32,
@@ -285,6 +286,7 @@ mod tests {
         (true, still_active)
     }
 
+    /// Requirement 4.1.
     #[test]
     fn decays_toward_rest_with_no_input() {
         let params = LifParams::new(10.0, 0.0, 0.0, 0);
@@ -370,7 +372,7 @@ mod tests {
         assert!(still_active, "must be revisited during its own refractory period");
         assert_eq!(membrane, 0.0, "reset to v_reset on spike");
         assert_eq!(last_spike, 0);
-        assert_eq!(refractory_until, 0 + 1 + 3);
+        assert_eq!(refractory_until, 1 + 3); // spike tick (0) + 1 + refractory_ticks (3)
 
         // While refractory, strong input must not produce another spike.
         for tick in 1..=3u32 {
@@ -437,6 +439,7 @@ mod tests {
 
     /// Requirement 4.4: firing rate under constant supra-threshold current
     /// must match the closed-form LIF solution within tolerance.
+    /// Requirement 14.1's LIF half.
     #[test]
     fn firing_rate_matches_closed_form_solution() {
         let tau_m = 50.0f32;

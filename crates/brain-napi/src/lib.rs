@@ -99,7 +99,7 @@ impl NativeArena {
     pub fn membrane_view(&mut self) -> Float32Array {
         let len = self.inner.membrane.len();
         let ptr = self.inner.membrane.as_mut_ptr();
-        // SAFETY: `ptr` addresses `self.inner.membrane`'s current
+        // SAFETY (Requirement 1.6): `ptr` addresses `self.inner.membrane`'s current
         // allocation, valid for `len` elements. That allocation's true
         // owner is `self.inner`, kept alive by the JS object wrapping this
         // `NativeArena` -- NOT by this array's finalizer, which is
