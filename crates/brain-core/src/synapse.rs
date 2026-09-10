@@ -95,6 +95,27 @@ impl SynapseArena {
         self.cap_per_neuron
     }
 
+    /// Approximate resident memory this arena's backing storage occupies
+    /// (Requirement 10 AC2) -- see [`crate::arena::NeuronArena::approx_memory_bytes`]'s
+    /// doc comment for the rationale. Includes `target_index`'s per-neuron
+    /// `Vec<u32>` allocations (the field named in this struct's own doc
+    /// comment as a real, currently-unbounded memory cost under structural
+    /// churn) since those are a genuine part of what this arena has
+    /// reserved, not just the fixed-width columns.
+    pub fn approx_memory_bytes(&self) -> usize {
+        let fixed_columns = self.target_neuron.capacity() * size_of::<u32>()
+            + self.target_segment.capacity() * size_of::<u32>()
+            + self.permanence.capacity() * size_of::<f32>()
+            + self.delay.capacity() * size_of::<u16>()
+            + self.eligibility.capacity() * size_of::<f32>()
+            + self.last_active.capacity() * size_of::<u32>()
+            + self.eligibility_updated_at.capacity() * size_of::<u32>()
+            + self.occupied.capacity() * size_of::<bool>();
+        let target_index_bytes = self.target_index.capacity() * size_of::<Vec<u32>>()
+            + self.target_index.iter().map(|v| v.capacity() * size_of::<u32>()).sum::<usize>();
+        fixed_columns + target_index_bytes
+    }
+
     /// Ensures storage exists for `neuron_count` neurons' worth of blocks.
     /// Existing synapse ids remain valid: growing only appends new blocks
     /// after the existing ones, it never moves an already-allocated block.

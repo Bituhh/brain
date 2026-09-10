@@ -476,11 +476,71 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
 
 ## 12a. Open questions
 
-1. **Scale ceiling.** Find the wall empirically at Phase 4 against the ENG-11 budget. A WASM32
-   core caps out at a 4 GB address space, which at roughly 16–24 bytes per synapse is around
-   1 GB for the 50M-synapse target — comfortable now, but not with a 10× ambition. The native
-   `napi-rs` build has no such cap, which is why it is the primary target and WASM is reserved
-   for visualisation and demos.
+1. **Scale ceiling — partially resolved 2026-09-10 (Phase 4 Step 23), against ENG-11's two
+   separate targets.**
+
+   **Memory (target: 100k neurons / 50M synapses resident on a workstation).** Met, with wide
+   headroom. `crates/brain-core/tests/scale.rs` (`#[ignore]`d, `npm run test:slow`) builds exactly
+   100,000 neurons and 50,000,000 synapses (500 synapses/neuron, deterministic ring wiring rather
+   than `DistancePolicy`'s O(population²) connectivity, which is computationally infeasible at
+   this size and beside this test's point) and reports `NeuronArena`/`SynapseArena`'s own
+   `approx_memory_bytes()` (summed `Vec::capacity()`, no OS-specific `/proc` parsing, no new
+   dependency — ENG-6). Measured: **5.8 MB** for the neurons, **1,485.1 MB** for the synapses,
+   **≈1.46 GB total** — comfortably within any modern workstation's RAM, let alone the WASM32
+   build's 4 GB address-space ceiling this section used to worry about first.
+
+   **Throughput (target: ≥1M synaptic events/second/core).** Not met at the network size this
+   benchmark tests, and *why not* is now a specific, measured answer rather than an open question.
+   `crates/brain-core/benches/core_bench.rs`'s `bench_synaptic_events_per_second` group drives two
+   16-column/200-neuron-column (3,200-neuron) networks — one column-free/flat, one built from the
+   Step 14 column primitive with inhibition and segments attached — at saturating input (every
+   neuron re-stimulated every tick) across thread counts 1/2/4/8/20 (this machine's
+   `std::thread::available_parallelism()`), and reports total events/second via
+   `Throughput::Elements`. Results (thread count → events/second):
+
+   | threads | flat network      | column network (inhibition + segments) |
+   |---------|--------------------|------------------------------------------|
+   | 1       | **1.04 Melem/s**   | 169 Kelem/s                               |
+   | 2       | 1.38 Melem/s       | 232 Kelem/s                               |
+   | 4       | 1.61 Melem/s       | 295 Kelem/s                               |
+   | 8       | 2.03 Melem/s       | 261 Kelem/s                               |
+   | 20      | 1.50 Melem/s       | 164 Kelem/s                               |
+
+   The flat network hits ENG-11's ≥1M/second bar on a *single* core, but per-core throughput falls
+   as threads increase (8 threads: ~2.03 Melem/s total ÷ 8 ≈ 254 Kelem/s/core, a quarter of the
+   single-core figure; 20 threads regresses in absolute terms too). The column network's inhibition
+   (k-WTA suppresses most candidates every tick) and segment evaluation overhead pull it well below
+   1M/second even single-threaded. Neither result should be read as "partitioning doesn't scale" —
+   3,200 neurons split across 8+ partitions gives each partition only a few hundred neurons, so
+   `PartitionRuntime::step`'s fixed per-tick, per-partition bookkeeping (the stage 0/1/2/3
+   pipeline, the merge phase, the boundary-neuron table) stops being amortised against enough real
+   per-neuron work and starts dominating the measurement — a small-network artifact of *this*
+   benchmark's size, not necessarily evidence about behaviour at ENG-11's actual 100k-neuron
+   target, which `bench_cross_partition_fraction` (below) and `tests/scale.rs` together suggest is
+   reachable in memory but has **not yet been throughput-benchmarked directly** (running the full
+   1M-events/second/core check at 100k neurons / 50M synapses, with real thread scaling, is the
+   concrete follow-up this leaves open — not attempted here because building that network via
+   `DistancePolicy` is O(population²) and the ring-wiring shortcut `tests/scale.rs` uses to reach
+   50M synapses cheaply produces a topology with no meaningful locality, which would make any
+   partitioning-quality throughput number measured on it misleading rather than informative).
+
+   **Cross-partition overhead (Requirement 10 AC4, Requirement 6 AC2).**
+   `bench_cross_partition_fraction` holds the column network and total thread count (4) fixed and
+   varies only the partition count (2/4/8/16, always a divisor of the 16-column count so no column
+   is ever split), reporting `PartitionPlan::cross_partition_edge_fraction` alongside timing:
+
+   | partitions | cross-partition edge fraction | time/iteration |
+   |------------|-------------------------------|-----------------|
+   | 2          | 1.18%                         | ~10.3 ms        |
+   | 4          | 2.36%                         | ~7.7 ms         |
+   | 8          | 4.71%                         | ~7.55 ms        |
+   | 16         | 9.42%                         | ~8.0 ms         |
+
+   Time improves from 2→4 partitions (more of the fixed 4-thread pool actually used), then is
+   roughly flat 4→8 (partition count exceeding thread count stops buying parallelism, but
+   cross-partition messaging overhead is still small enough not to show up), then rises slightly
+   8→16 as the cross-partition edge fraction approaches 10% — a small but real, directionally
+   expected cost, not a cliff.
 2. **Threading library — resolved 2026-09-10 (Phase 4 Step 18), in rayon's favour, decisively.**
    `crates/brain-core/benches/core_bench.rs`'s `rayon_vs_pinned_pool` group compared
    `PartitionRuntime::with_thread_count` (a dedicated rayon pool) against

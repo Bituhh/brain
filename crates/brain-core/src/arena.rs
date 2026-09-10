@@ -124,6 +124,28 @@ impl NeuronArena {
         self.epoch
     }
 
+    /// Approximate resident memory this arena's backing storage occupies,
+    /// summed from every field's own `Vec::capacity()` (Requirement 10
+    /// AC2) -- exact enough to answer "does a 100k-neuron network fit on a
+    /// workstation" without a new dependency (ENG-6) or OS-specific
+    /// `/proc` parsing: every byte here is one this struct's fields
+    /// genuinely reserved, not a process-wide RSS estimate that would also
+    /// include unrelated allocations.
+    pub fn approx_memory_bytes(&self) -> usize {
+        self.membrane.capacity() * size_of::<f32>()
+            + self.threshold.capacity() * size_of::<f32>()
+            + self.predictive.capacity() * size_of::<f32>()
+            + self.refractory.capacity() * size_of::<u32>()
+            + self.last_spike.capacity() * size_of::<u32>()
+            + self.rate_estimate.capacity() * size_of::<f32>()
+            + self.trace.capacity() * size_of::<f32>()
+            + self.polarity.capacity() * size_of::<i8>()
+            + self.coords.capacity() * size_of::<[f32; 3]>()
+            + self.generation.capacity() * size_of::<u32>()
+            + self.alive.capacity() * size_of::<bool>()
+            + self.free.capacity() * size_of::<u32>()
+    }
+
     /// Resolves a `NeuronId` to a raw index, validating that the slot is
     /// live and the generation matches. This is the boundary check
     /// (Requirement 2.2's "fail loudly rather than reading freed or reused

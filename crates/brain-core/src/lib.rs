@@ -50,6 +50,16 @@
 //! `PartitionRuntime` -- proven bit-identical to `threadCount: 1` through
 //! the real napi boundary (`packages/brain/test/boundary.test.ts`).
 //! `snapshotBytes`/`restore` stay `Single`-mode only (Step 22, done).
+//! Criterion benchmarks against ENG-11's budget (`benches/core_bench.rs`'s
+//! `bench_synaptic_events_per_second`/`bench_cross_partition_fraction`) and
+//! a memory-footprint-only 100k-neuron/50M-synapse build
+//! (`tests/scale.rs`, `#[ignore]`d) found the actual numbers behind §12a
+//! open question 1: the 50M-synapse memory target is met with wide
+//! headroom (~1.46 GB), the >=1M-events/second/core throughput target is
+//! met single-threaded on a small flat network but not sustained per-core
+//! as threads increase at that network's size, and a full throughput
+//! benchmark at the real 100k-neuron scale remains a documented follow-up
+//! (Step 23, done; numbers and reasoning in README §12a).
 //!
 //! The test suite is organised in four layers (Requirement 15.1): Rust
 //! unit tests (this crate's own `#[cfg(test)]` modules), Rust whole-network
