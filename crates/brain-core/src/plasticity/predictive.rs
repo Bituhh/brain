@@ -125,9 +125,23 @@ impl PredictiveLearning {
         Self { params, neighbourhoods }
     }
 
+    /// Requirement 12.2/12.3's reinforce/punish. `synapses.incoming(neuron)`
+    /// can return a cross-partition synapse id (see
+    /// `SynapseArenaViewMut::incoming`'s doc comment) -- this view cannot
+    /// safely index, let alone mutate, one (its data belongs to another
+    /// partition's slice entirely), so such an id is skipped here via
+    /// `owns_synapse`. This is the same, already-documented scope boundary
+    /// [`Self::reinforce_or_sprout_burst`] applies to 12.1's burst path:
+    /// reinforcing/punishing a segment's *cross-partition* contributing
+    /// synapses from here is a real, not-yet-closed gap (nothing in this
+    /// crate's test suite drives a scenario where it would change the
+    /// outcome), not a silent correctness violation -- the alternative
+    /// (indexing an out-of-range id) would have been the latter.
     fn adjust_segment_permanence(&self, synapses: &mut SynapseArenaViewMut, neuron: u32, segment: u32, delta: f32) {
-        let ids: Vec<u32> =
-            synapses.incoming(neuron).filter(|&id| synapses.target_segment[id as usize] == segment).collect();
+        let ids: Vec<u32> = synapses
+            .incoming(neuron)
+            .filter(|&id| synapses.owns_synapse(id) && synapses.target_segment[id as usize] == segment)
+            .collect();
         for id in ids {
             let p = &mut synapses.permanence[id as usize];
             *p = (*p + delta).clamp(0.0, 1.0);

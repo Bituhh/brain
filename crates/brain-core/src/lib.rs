@@ -34,7 +34,11 @@
 //! respects partition boundaries (`StructuralPlasticity::maybe_sweep_partitioned`),
 //! and `PartitionPlan`/`ColumnRegistry` both gained `extend_last` for
 //! developmental growth's arena-always-appends-at-the-end constraint
-//! (Step 19, done).
+//! (Step 19, done). The exit criterion (Requirement 14.4) re-expressed via
+//! real columns and proven to survive real partitioning and real
+//! multi-threading, bit-identically (`tests/emergent_columns.rs`) -- caught
+//! and fixed a real out-of-bounds bug in predictive learning's
+//! reinforce/punish path along the way (Step 20, done).
 //!
 //! The test suite is organised in four layers (Requirement 15.1): Rust
 //! unit tests (this crate's own `#[cfg(test)]` modules), Rust whole-network

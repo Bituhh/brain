@@ -352,6 +352,18 @@ impl<'a> SynapseArenaViewMut<'a> {
         self.occupied.range().contains(&i) && self.occupied[i]
     }
 
+    /// Whether `synapse_id`'s data (permanence, eligibility, ...) falls
+    /// within this view's own range -- `false` for a synapse owned by
+    /// another partition. Any caller about to index this view's fields by
+    /// a synapse id obtained from [`Self::incoming`] (which, unlike
+    /// [`SynapseArena::incoming`], can return cross-partition ids -- see
+    /// that method's doc comment) must check this first; indexing an
+    /// out-of-range id directly underflows/overflows the `OffsetSlice`
+    /// subtraction rather than panicking with a useful message.
+    pub fn owns_synapse(&self, synapse_id: u32) -> bool {
+        self.permanence.range().contains(&(synapse_id as usize))
+    }
+
     pub fn source_of(&self, synapse_id: u32) -> u32 {
         synapse_id / self.cap_per_neuron
     }
