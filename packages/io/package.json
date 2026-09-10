@@ -1,0 +1,15 @@
+{
+  "name": "@brain/io",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Encoders, decoders, the shared SDR type, and the streaming/sensorimotor experiment harness (IO-1 to IO-5, Phase 5).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@brain/core": "0.0.0"
+  },
+  "scripts": {
+    "build": "tsc --build"
+  }
+}

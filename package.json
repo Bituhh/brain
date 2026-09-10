@@ -19,10 +19,11 @@
   "scripts": {
     "build:native": "npm run build --workspace=@brain/napi",
     "build": "npm run build:native && npm run build --workspaces --if-present",
-    "typecheck": "tsc --build --pretty && tsc --noEmit -p packages/brain/tsconfig.test.json",
-    "test": "node --test",
-    "test:fast": "cargo test --workspace && cargo clippy --workspace -- -D warnings && npm run build && npm run typecheck && npm run test",
-    "test:slow": "cargo test --workspace --release -- --ignored --skip regenerate_golden_rasters && npm run test:golden && npm run check:traceability",
+    "typecheck": "tsc --build --pretty && tsc --noEmit -p packages/brain/tsconfig.test.json && tsc --noEmit -p packages/io/tsconfig.test.json",
+    "test": "node scripts/run-ts-tests.mjs fast",
+    "test:ts:slow": "node scripts/run-ts-tests.mjs slow",
+    "test:fast": "cargo test --workspace && cargo clippy --workspace --tests -- -D warnings && npm run build && npm run typecheck && npm run test",
+    "test:slow": "cargo test --workspace --release -- --ignored --skip regenerate_golden_rasters && npm run test:golden && npm run test:ts:slow && npm run check:traceability",
     "test:golden": "cargo test -p brain-core --release --test golden matches_golden -- --ignored --nocapture",
     "test:golden:regen": "cargo test -p brain-core --release --test golden regenerate_golden_rasters -- --ignored --nocapture",
     "check:traceability": "node scripts/check-traceability.mjs"

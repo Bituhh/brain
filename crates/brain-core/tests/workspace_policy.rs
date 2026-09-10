@@ -10,6 +10,10 @@ const BRAIN_NAPI_CARGO_TOML: &str = include_str!("../../brain-napi/Cargo.toml");
 const ROOT_CARGO_TOML: &str = include_str!("../../../Cargo.toml");
 const ROOT_PACKAGE_JSON: &str = include_str!("../../../package.json");
 const RUST_TOOLCHAIN_TOML: &str = include_str!("../../../rust-toolchain.toml");
+/// Phase 5 Requirement 1.2: `packages/io` is new this phase and was never
+/// covered by this check before -- without this, a tokenizer or embedding
+/// dependency could land in its `package.json` with nothing to catch it.
+const PACKAGES_IO_PACKAGE_JSON: &str = include_str!("../../../packages/io/package.json");
 
 /// Requirement 1.2 (`brain-core` has no dependency on any binding crate,
 /// on `napi`, or on `wasm-bindgen`) and half of Requirement 1.4 (dev-only
@@ -67,12 +71,13 @@ fn brain_core_manifest_carries_no_runtime_dependency_beyond_rayon() {
 /// allowed a real dependency on `napi` itself).
 #[test]
 fn no_manifest_names_a_forbidden_ai_ml_dependency() {
-    let forbidden = ["tensorflow", "pytorch", "onnx", "autodiff", "embedding-model", "llm", "gguf", "candle", "ndarray", "burn"];
+    let forbidden = ["tensorflow", "pytorch", "onnx", "autodiff", "embedding-model", "llm", "gguf", "candle", "ndarray", "burn", "tokenizer"];
     let manifests = [
         ("brain-core/Cargo.toml", BRAIN_CORE_CARGO_TOML),
         ("brain-napi/Cargo.toml", BRAIN_NAPI_CARGO_TOML),
         ("Cargo.toml (workspace root)", ROOT_CARGO_TOML),
         ("package.json (workspace root)", ROOT_PACKAGE_JSON),
+        ("packages/io/package.json", PACKAGES_IO_PACKAGE_JSON),
     ];
     for (name, contents) in manifests {
         let lower = contents.to_lowercase();
@@ -95,6 +100,98 @@ fn rust_toolchain_is_pinned_to_an_exact_version() {
         RUST_TOOLCHAIN_TOML.contains("channel"),
         "rust-toolchain.toml must pin an exact channel/version (Requirement 1.1, 3.4), not float on stable"
     );
+}
+
+/// Splits Rust source into lowercase, word-boundary-delimited identifier
+/// tokens -- underscore/non-alphanumeric boundaries *and* camelCase
+/// boundaries (lowercase-to-uppercase transitions), so `TextEncoder` and
+/// `text_width` both tokenize to include a standalone `"text"` token,
+/// while `context`/`LocalContext` do **not** (their token is `"context"`
+/// whole, never `"text"` alone). A plain substring scan would falsely flag
+/// every occurrence of `context`/`LocalContext` -- both used throughout
+/// this crate's plasticity machinery -- the moment `"text"` is a forbidden
+/// word, which is exactly why this function exists instead of reusing the
+/// simpler substring check `no_manifest_names_a_forbidden_ai_ml_dependency`
+/// already uses for manifests (where that risk does not arise).
+fn identifier_tokens(line: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut prev_lower = false;
+    for ch in line.chars() {
+        if ch.is_alphanumeric() {
+            if ch.is_uppercase() && prev_lower && !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+            current.push(ch.to_ascii_lowercase());
+            prev_lower = ch.is_lowercase() || ch.is_numeric();
+        } else {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+            prev_lower = false;
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+/// Strips comment lines (this project's own doc comments legitimately
+/// discuss modality/action/effector/environment concepts in prose --
+/// including this very file's -- without violating invariant 8, so only
+/// *code* is scanned).
+fn non_comment_lines(source: &str) -> impl Iterator<Item = &str> {
+    source.lines().filter(|line| {
+        let trimmed = line.trim_start();
+        !(trimmed.starts_with("//") || trimmed.starts_with('*') || trimmed.is_empty())
+    })
+}
+
+fn walk_rs_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_rs_files(&path, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
+        }
+    }
+}
+
+/// Requirement 1.5/16.6 (invariant 8): "any type, field or branch in the
+/// core that names a modality... is a design defect" (README invariant
+/// 8), extended by Requirement 16.6 to action/effector/environment names
+/// once the sensorimotor loop exists. Scans every `.rs` file under
+/// `brain-core/src` and `brain-napi/src` (walked at test-run time via
+/// `std::fs`, not `include_str!`, so a newly added file is covered
+/// automatically) for forbidden words as *whole identifier tokens*, not
+/// substrings -- see `identifier_tokens`'s doc comment for why that
+/// distinction matters here specifically.
+#[test]
+fn neither_core_crate_names_a_modality_action_effector_or_environment() {
+    let forbidden = ["text", "pixel", "image", "audio", "sound", "video", "action", "effector", "motor", "environment"];
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    walk_rs_files(&manifest_dir.join("src"), &mut files);
+    walk_rs_files(&manifest_dir.join("../brain-napi/src"), &mut files);
+    assert!(!files.is_empty(), "the source walk must actually find files, or this test would pass vacuously");
+
+    for path in &files {
+        let Ok(source) = std::fs::read_to_string(path) else { continue };
+        for line in non_comment_lines(&source) {
+            for token in identifier_tokens(line) {
+                assert!(
+                    !forbidden.contains(&token.as_str()),
+                    "{}: code (outside comments) must not name a modality/action/effector/environment (Requirement 1.5/16.6), found identifier token '{}' in line: {}",
+                    path.display(),
+                    token,
+                    line.trim()
+                );
+            }
+        }
+    }
 }
 
 /// Requirement 15.10: a fast tier (units, boundary, properties) and a slow
