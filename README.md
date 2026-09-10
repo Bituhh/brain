@@ -37,6 +37,7 @@ topology, or not at all.
 | 10 | [Architectural invariants](#10-architectural-invariants) | The ten rules that keep this from becoming a neural network library |
 | 11 | [Phasing](#11-suggested-phasing) | Build order, Phase 0 → 6 |
 | 12 | [Decisions taken](#12-decisions-taken) | Resolved questions and why |
+| 12a | [Open questions](#12a-open-questions) | The seven investigated questions, each with a verdict |
 | 13 | [Prior art](#13-prior-art--what-has-already-been-tried-and-what-came-of-it) | What has been tried before, and how it went |
 | 14 | [Sources](#14-sources) | Papers and references |
 
@@ -94,6 +95,16 @@ the system is working. The engine does not change between them — only what is 
 | 3 | Microphone | — | Continuous, noisy, genuinely temporal; tests the substrate rather than the encoder |
 | 4 | — | Speaker | Closes the sensorimotor loop with a real motor output (IO-6) |
 | 5 | Combined | Combined | Cross-modal association, which is where columns voting across senses (NET-5) earns its place |
+
+**Amended 2026-09-10 (§12a item 7): stage 1 is no longer purely passive.** Ordering by encoding
+cost puts the least-grounded modality first — isolated text has no shared reference to a world and
+no corrective feedback from another agent, both of which developmental research treats as central
+to how word meaning and number sense are actually acquired. Rather than reorder the table (the
+encoding-cost argument for text-first still holds), IO-5's sensorimotor loop moves *up* to sit
+alongside stage 1 instead of after it: stage 1's acceptance is VAL-4 **and** a closed loop, however
+synthetic the effector. The reason is not biological fidelity for its own sake — it is that what
+"beats a trigram baseline" is evidence *of* changes depending on whether anything grounds the
+symbols being predicted.
 
 **Honest framing.** Reaching stage 1 is what this document plans in detail. Stages 2 to 5 are
 a direction, not a schedule, and the distance from "high-order sequence memory works" to
@@ -247,21 +258,21 @@ This section is the evidence base. Each finding maps to requirements in §3–§
 
 Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (later).
 
-| ID     | Pri | Requirement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| --------| -----| -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| NEU-1  | M   | Neuron state is a small fixed struct: membrane potential, threshold, last-spike time, refractory-until, adaptation variable. No references to other neurons or to the network.                                                                                                                                                                                                                                                                                                                                                                                  |
-| NEU-2  | M   | Default dynamics = Leaky Integrate-and-Fire: exponential leak toward rest, hard threshold, reset, absolute refractory period.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| NEU-3  | M   | Neuron dynamics are pluggable behind an interface, so LIF can be swapped for Izhikevich/AdEx without touching the graph or the runtime.                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| NEU-4  | M   | Every neuron has a fixed polarity, excitatory or inhibitory — **Dale's principle**. Sign lives on the neuron, never on the synapse. Default population ratio 80:20, configurable.                                                                                                                                                                                                                                                                                                                                                                               |
-| NEU-5  | M   | Neurons have **multiple independent dendritic segments**. A segment sums only its own synapses within a coincidence window and fires a dendritic spike at ≥ θ_d active synapses.                                                                                                                                                                                                                                                                                                                                                                                |
-| NEU-6  | M   | A dendritic spike sets a decaying **predictive/depolarised** state that lowers the somatic threshold, rather than directly firing the cell.                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| NEU-6a | M   | The segment interface is `(activeSynapseCount, segmentState) → depolarisationLevel` — a **graded** return, not a boolean. v1 implements the cheap binary form (fires at ≥ θ_d, roughly 13 of 20–40 synapses on the segment); the graded signature lets multi-compartment dynamics (per-branch membrane potential, NMDA conductance, attenuation toward the soma) be added later without touching callers. Binary resolution is sufficient to produce high-order sequence memory; graded prediction confidence is real in biology but not shown to be necessary. |
-| NEU-7  | S   | Per-neuron **intrinsic homeostasis**: threshold drifts to hold a long-run target firing rate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| NEU-8  | C   | Spike-frequency adaptation (after-hyperpolarisation current) for burst and adaptation behaviour.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| SYN-1  | M   | A synapse holds: source, target neuron, target dendritic segment, weight/permanence, axonal delay, eligibility trace, last-active time.                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| SYN-2  | M   | Every synapse has an **axonal delay** in ticks (≥1), drawn from a distribution. Delay is a first-class part of computation, not a nuisance.                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| SYN-3  | M   | **Permanence model**: a scalar in [0,1] per synapse; functionally connected only above a connection threshold. Sub-threshold synapses are *potential* connections.                                                                                                                                                                                                                                                                                                                                                                                              |
-| SYN-4  | M   | Weights are bounded. No unbounded growth.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ID     | Pri | Requirement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --------| -----| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| NEU-1  | M   | Neuron state is a small fixed struct: membrane potential, threshold, last-spike time, refractory-until, adaptation variable. No references to other neurons or to the network.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| NEU-2  | M   | Default dynamics = Leaky Integrate-and-Fire: exponential leak toward rest, hard threshold, reset, absolute refractory period.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| NEU-3  | M   | Neuron dynamics are pluggable behind an interface, so LIF can be swapped for Izhikevich/AdEx without touching the graph or the runtime.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| NEU-4  | M   | Every neuron has a fixed polarity, excitatory or inhibitory — **Dale's principle**. Sign lives on the neuron, never on the synapse. Default population ratio 80:20, configurable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| NEU-5  | M   | Neurons have **multiple independent dendritic segments**. A segment sums only its own synapses within a coincidence window and fires a dendritic spike at ≥ θ_d active synapses.                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| NEU-6  | M   | A dendritic spike sets a decaying **predictive/depolarised** state that lowers the somatic threshold, rather than directly firing the cell.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| NEU-6a | M   | The segment interface is `(activeSynapseCount, segmentState) → depolarisationLevel` — a **graded** return, not a boolean. v1 implements the cheap binary form (fires at ≥ θ_d, roughly 13 of 20–40 synapses on the segment); the graded signature lets multi-compartment dynamics (per-branch membrane potential, NMDA conductance, attenuation toward the soma) be added later without touching callers. Binary resolution is sufficient to produce high-order sequence memory; graded prediction confidence is real in biology but not shown to be necessary.                                                                                               |
+| NEU-7  | S   | Per-neuron **intrinsic homeostasis**: threshold drifts to hold a long-run target firing rate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| NEU-8  | S   | **Spike-frequency adaptation** (after-hyperpolarisation current) for burst and adaptation behaviour. Raised from *could* (2026-09-10, §12a item 3): this is the one fast, per-neuron brake the substrate does not currently have. `LifParams` and `NeuronArena` carry no adaptation variable at all, despite NEU-1 naming one, so a self-sustaining recurrent population's only defences against runaway are k-WTA (per-tick) and NEU-7's intrinsic homeostasis (per-sweep) — nothing on a per-spike timescale. Not a prerequisite for NET-12's first attractor experiment, but the first thing to reach for if that experiment blows up rather than settles. |
+| SYN-1  | M   | A synapse holds: source, target neuron, target dendritic segment, weight/permanence, axonal delay, eligibility trace, last-active time.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| SYN-2  | M   | Every synapse has an **axonal delay** in ticks (≥1), drawn from a distribution. Delay is a first-class part of computation, not a nuisance.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| SYN-3  | M   | **Permanence model**: a scalar in [0,1] per synapse; functionally connected only above a connection threshold. Sub-threshold synapses are *potential* connections.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| SYN-4  | M   | Weights are bounded. No unbounded growth.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ## 4. Learning requirements
 
@@ -276,8 +287,9 @@ Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (lat
 | LRN-7 | M | **Structural plasticity**: prune synapses whose permanence falls below a floor; sprout new candidates from a co-active neuron toward targets in its neighbourhood, subject to a per-neuron synapse budget. |
 | LRN-8 | M | **Predictive learning**: when a neuron fires *unpredicted*, reinforce its active segments' synapses onto recently-active cells; when a segment predicts a firing that does not occur, punish it. This is the primary unsupervised signal — no labels required. |
 | LRN-9 | S | Plasticity rules are composable — a neuron or region carries an ordered list of rules applied in sequence. |
-| LRN-10 | S | **Consolidation / sleep mode**: an offline phase that replays recorded activity sequences, applies global downscaling, and runs an aggressive pruning pass. |
-| LRN-11 | C | Reward API: an external caller injects a scalar reward that drives the dopamine field, enabling reinforcement-style learning with no change to neuron code. |
+| LRN-10 | S | **Consolidation / sleep mode**: an offline phase that replays recorded activity sequences, applies global downscaling, and runs an aggressive pruning pass. **The replay *source* SHALL be an abstraction, not a concrete recording type** (§12a item 5): a spike raster (OBS-3, `probe::SpikeRaster`) is a valid first implementation, but it is a tape recorder, not the fast store §2.9 describes, and pinning `&SpikeRaster` into the consolidation signature and its FFI object would make LRN-12 a breaking change rather than an added variant. |
+| LRN-11 | S | **Reward API**: an external caller injects a scalar reward that drives the dopamine field, enabling reinforcement-style learning with no change to neuron code. Raised from *could* (2026-09-10, §12a item 4): action selection is blocked on this and nothing else. The substrate is already built and tested — `NeuromodulatorField::inject`, `Scheduler::inject_modulator`, and `ThreeFactorStdp`'s eligibility × modulator product — so what LRN-11 actually owes is three specific pieces of plumbing: (a) a named `reward(scalar)` wrapper over "pick the `DOPAMINE` channel, pick an amount"; (b) exposure across the FFI, which today carries *no* modulator call at all, making any TypeScript-driven reinforcement experiment impossible rather than merely awkward; and (c) a decision on RUN-6's still-unwired shared field — see `PartitionRuntime::inject_modulator`, which reaches one partition only. |
+| LRN-12 | S | **Fast one-shot binding.** A mechanism that binds a co-active pattern into retrievable storage on a *single* coincidence, with sparse pattern separation so similar inputs do not overwrite each other — the "fast storage" §2.9 and LRN-10 both assume exists and neither defines (§12a item 5). It is explicitly **not** a `PlasticityRule`: that interface (two `NeuronLocal` copies, one `SynapseMut`, no synapse id and no arena handle) structurally cannot express pattern separation, and is not meant to. It is a scheduler-invoked module following `plasticity/predictive.rs`'s existing precedent of writing permanence directly, which is why it does not violate invariant 1. Two design constraints are already fixed by the current core and must be settled before it is built: a synapse below the connection threshold can never be potentiated by activity (so binding means *writing* permanence, not growing it), and `SynapseArena`'s `cap_per_neuron` is one global constant, so fan-out for pattern separation is currently paid for by every neuron in the network. |
 
 ## 5. Network and topology requirements
 
@@ -290,10 +302,12 @@ Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (lat
 | NET-5 | S   | **Lateral voting** between columns receiving different inputs, so a consensus representation emerges from independent models.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | NET-6 | S   | Feedback (top-down) connectivity is supported and carries predictions; feedforward carries what was not predicted.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | NET-7 | M | **The graph is mutable at runtime.** Neurons and synapses can be created and destroyed mid-simulation without a rebuild and without invalidating the identity of anything that survives. Promoted to must: growth is a core goal (invariant 10), not an optimisation. |
-| NET-8 | C   | Emergent oscillations: verify that E/I loop dynamics produce gamma/theta-band rhythms; optionally provide an explicit theta pacemaker population to structure sequences.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| NET-8 | C   | Emergent oscillations: verify that E/I loop dynamics produce gamma/theta-band rhythms; optionally provide an explicit theta pacemaker population to structure sequences. Note (§12a item 6): the substrate is currently phase-*hyper*sensitive rather than phase-blind — `segment.rs`'s dendritic coincidence window is exactly one tick (0.1 ms at RUN-1a's default) against a biological window of several ms, so two synapses whose delays differ by a single tick never coincide at all. Whether that window widens is a separate decision from whether rhythms emerge, and it is the one carrying a migration cost.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | NET-9 | S   | **Reference frames.** Each column maintains a grid-cell-like location signal, paired with the sensorimotor loop (IO-5), so features are learned *at locations* rather than as a bare sequence. Grid cells (entorhinal cortex) and place cells (hippocampus) are established fact; the extension to every cortical column for arbitrary objects and concepts is Hawkins' hypothesis — supported (grid-like signals appear during abstract conceptual navigation) but not settled. This is what takes the system from predicting sequences to modelling objects, and it is why IO-5 is a prerequisite: a location signal is only meaningful if something moves. |
 | NET-10 | S | **Developmental growth.** Capacity is added in response to demand rather than fixed at construction: when a population is saturated — unable to represent new input without unacceptable interference with what it already holds — new neurons are allocated to it. Unused neurons are reclaimed. This mirrors the blooming-and-pruning trajectory of a developing cortex, where synaptic density peaks in early childhood and roughly halves by adolescence. |
 | NET-11 | C | **Critical periods.** A global plasticity-rate signal that starts high and anneals with maturity, carried by the neuromodulator field (LRN-5) rather than by a special mechanism. Newly grown neurons re-enter a high-plasticity state locally, so growth and stability can coexist. |
+| NET-12 | S | **Working memory / sustained attractor states.** A population that holds a stable pattern of activity *after* its driving input stops, rather than only decaying toward rest — the precondition for any multi-step procedure (carrying a digit, holding a clause's subject). Added 2026-09-10 (§12a item 3). No new neuron or synapse type: recurrence and self-connection are already legal by construction (NET-1, and `graph.rs`'s `connect` never special-cases `source == target`), a recurrent loop keeps itself in the scheduler's dirty set through ordinary delivery, and NET-2 plus NEU-7 supply the brakes. This is therefore a **topology-and-parameters** requirement validated as an emergent property (VAL-2's style), not an engine feature — but it is load-bearing enough that "can this substrate sustain activity with no input at all" should be answered yes/no before NET-13 or anything else assumes it. |
+| NET-13 | S | **Action selection / gating.** A "pick one population, suppress the rest, and hold that choice for as long as the step lasts" competition — the sequencing primitive a procedure needs, and distinct from NET-2's k-WTA, which resets every tick and has no notion of commitment. Added 2026-09-10 (§12a item 4). Two halves with different answers: the *suppress* half is additive at the topology layer via real inhibitory neurons (NEU-4's Dale-signed synapses), and specifically **not** via `FixedNeighbourhoods`, whose membership is `index / size` over disjoint contiguous blocks and so cannot express one population suppressing a different one; the *hold* half has no mechanism at all today and comes from NET-12. Depends on NET-12 and LRN-11 — without a reward signal there is nothing to shape which action gets selected. |
 
 ## 6. Runtime and concurrency requirements
 
@@ -305,8 +319,8 @@ Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (lat
 | RUN-2 | M | **Structure-of-arrays memory layout** — flat `Vec<f32>` / `Vec<u32>` / `Vec<u8>` arenas indexed by integer id, exposed across the FFI boundary as `Float32Array`/`Uint32Array` views (ENG-8). No struct-per-neuron and no struct-per-synapse in the hot path. This is the single most important performance decision, and it is also what keeps the Rust core free of ownership complexity (ENG-2). |
 | RUN-3 | M | Deterministic and reproducible from a seed: own PRNG (PCG or xorshift128+), no ambient randomness anywhere in the engine, stable iteration order. Determinism must hold across single-threaded and multi-threaded runs, and across a change in the number of threads or in how the graph is partitioned — which rules out per-thread generators. See §12 decision 7: this is stricter than NEST provides, and is met by a stateless, tuple-keyed stream derivation rather than a persistent generator. |
 | RUN-4 | M | **Partitioned parallelism**: the graph is partitioned into regions, one per native thread (rayon or a hand-rolled pool). Each thread exclusively owns its neurons’ state — no shared mutable neuron data, so no locking on the hot path. |
-| RUN-5 | M | Cross-partition spikes are delivered as messages into per-partition inboxes. **Axonal delay absorbs message latency** — a spike with ≥2 ticks of delay can cross a partition boundary with no synchronisation barrier. This is why the design scales. |
-| RUN-6 | M | The little genuinely shared state there is — the neuromodulator field and aggregate metrics — uses atomics. Neuron state is never shared across threads. |
+| RUN-5 | M | Cross-partition spikes are delivered as messages into per-partition inboxes. **Axonal delay absorbs message latency** — a spike with ≥2 ticks of delay can cross a partition boundary with no synchronisation barrier. This is why the design scales. **As built, this is stronger than what shipped, and deliberately so** (recorded 2026-09-10, §12a item 6): `PartitionRuntime::step` has a hard sequential merge barrier every tick (stage 2), because deterministic floating-point summation order across partitions is a stricter requirement than RUN-5 describes and the barrier is what buys it. A consequence worth stating before anyone optimises the barrier away in pursuit of §12a item 1's throughput numbers: **that barrier is load-bearing for spike *phase*, not only for determinism.** Removing it is what would make cross-partition phase drift, which is the risk §12a item 6 anticipated and which does not exist while the barrier stands. |
+| RUN-6 | M | The little genuinely shared state there is — the neuromodulator field and aggregate metrics — uses atomics. Neuron state is never shared across threads. **Not yet met for the neuromodulator field** (recorded 2026-09-10, §12a item 4): each partition owns a private `NeuromodulatorField` inside its own `Scheduler`, and `PartitionRuntime::inject_modulator(partition_id, ...)` reaches exactly one of them — a caller wanting a genuinely global signal must loop over every partition, and nothing checks that it did. Harmless while every test injects uniformly; a correctness trap for LRN-11 and NET-13, which are the first things that would inject non-uniformly. |
 | RUN-7  | S   | Partition assignment minimises cross-partition edges — tractable because connectivity is already distance-biased.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | RUN-8 | S | The engine must also run **single-threaded**. The threading layer is an optimisation, not a correctness requirement; results match modulo timing-tolerant assertions. Single-threaded is the reference implementation for tests. |
 | RUN-9 | M | **Snapshot and restore.** The complete simulation state — topology, permanences, neuron state, eligibility traces, neuromodulator levels, tick counter, configuration, and PRNG state — serialises to a compact binary format and reloads. The machine will be switched off; a brain that cannot survive that is a training run, not a brain (invariant 9). |
@@ -324,7 +338,7 @@ Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (lat
 | IO-2 | M | Encoders are pure and library-free — no tokenizer package, no embedding model. A character or word-level encoder built by hashing into an SDR is acceptable and biologically defensible. |
 | IO-3 | M | **Decoders/readouts** map population activity back to symbols by SDR overlap against stored SDRs (nearest-overlap), not via a trained output layer. |
 | IO-4 | S | Streaming interface: the network runs continuously, consuming input as it arrives. There is no train/inference split — **learning is always on**, though its rate can be modulated. |
-| IO-5 | S | **Sensorimotor loop**: the network emits actions that change what it senses next. Required for reference-frame learning (NET-9), and the precondition for any motor output. |
+| IO-5 | S | **Sensorimotor loop**: the network emits actions that change what it senses next. Required for reference-frame learning (NET-9), and the precondition for any motor output. **Moved earlier in the trajectory** (2026-09-10, §12a item 7): built alongside VAL-4 rather than after it. Nothing in the core resists this — invariant 8 genuinely holds (no modality is named anywhere below the encoder), and the FFI already closes a loop in principle, since `step()` returns the indices that spiked and `stimulate()` takes them back in. |
 | IO-6 | C | **Motor output.** The network drives an effector — initially synthetic, later a speaker — through the same spike-based interface used for sensing, with no special-cased output path. Decoding to a device is the mirror of encoding from one, and lives on the same side of invariant 8. |
 
 ## 8. Engineering constraints
@@ -351,7 +365,7 @@ Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (lat
 | OBS-2 | M | Per-tick metrics: population firing rate, sparsity, mean weight, E/I ratio, prediction accuracy, synapse count. Cheap enough to leave always on. |
 | OBS-3 | M | **Spike raster** export in a compact format the visualiser can replay offline. |
 | VAL-1 | M | Unit tests validating neuron dynamics against closed-form LIF solutions and known STDP curves. |
-| VAL-2 | M | Emergent-behaviour tests — the real acceptance criteria: (a) sparsity stays near target under varied input; (b) the network learns a repeating sequence and prediction error falls; (c) high-order sequences (ABCD vs XBCY) are disambiguated by context; (d) recall survives ~30% bit-flip noise in the input SDR; (e) learning a second task does not erase the first; (f) activity neither blows up nor dies out over long runs. |
+| VAL-2 | M | Emergent-behaviour tests — the real acceptance criteria: (a) sparsity stays near target under varied input; (b) the network learns a repeating sequence and prediction error falls; (c) high-order sequences (ABCD vs XBCY) are disambiguated by context; (d) recall survives ~30% bit-flip noise in the input SDR; (e) learning a second task does not erase the first; (f) activity neither blows up nor dies out over long runs; (g) a deliberately-wired recurrent population sustains a stable, *identifiable* pattern of activity after its driving input stops, and the ablation (recurrent synapses held below the connection threshold so they do not transmit) lets it die — NET-12, added 2026-09-10 (§12a item 3). |
 | VAL-3 | S | Long-run stability soak test (hours of simulated time) with homeostasis engaged. |
 | VAL-4 | M | **First real task: character-level next-character prediction.** Stream a few hundred KB of plain text one character at a time; measure per-character prediction accuracy over a sliding window; baseline against a trigram model. Beating the trigram baseline is the acceptance bar. Chosen because it has inherent temporal structure, free and unambiguous ground truth, no dataset infrastructure, naturally contains the high-order dependencies of VAL-2(c) (the `e` in "the" vs. the `e` in "he"), and exercises the full encoder → columns → decoder path. Synthetic planted-dependency sequences (ABCD vs XBCY) remain the *diagnostic* — real text is the *milestone*. |
 | VAL-5 | M | **Layered test suite.** Rust unit tests (dynamics, plasticity curves, data structures), Rust integration tests (whole-network behaviour), TypeScript boundary tests (FFI lifetimes, view invalidation, API surface), and a separate emergent-behaviour suite carrying VAL-2. Tooling stays within ENG-5/ENG-6: `cargo test` plus `proptest` and `criterion` as dev-dependencies, and node’s built-in `node:test` on the TypeScript side so the shell keeps zero runtime dependencies. |
@@ -420,12 +434,73 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
   in §12a). Deferred out of this phase: per-column FFI accessors (no column-building FFI exists
   in `NativeSimulation` yet) and a full throughput benchmark at the real 100k-neuron/50M-synapse
   scale (§12a).
-- **Phase 5 — I/O and consolidation.** **[T]** Encoders/decoders, streaming input, experiment
-  harness. **[R]** sleep/replay and consolidation. Milestone: VAL-4, character-level
-  prediction beating a trigram baseline.
-- **Phase 5.5 — reference frames.** **[R]** NET-9 plus the sensorimotor loop (IO-5). Takes the
-  system from predicting sequences to modelling objects. Deliberately after Phase 5, because a
-  location signal only means something once the system can move and sense.
+- **(No longer a gating phase.) §12a item 6's phase-preservation check — resolved 2026-09-10,
+  as housekeeping ahead of Phase 5, not as its own phase.** On review, nothing in Phase 5 actually
+  depends on it or on NET-12: VAL-4 is driven by continuous input and never needs the network to
+  hold state with input absent, so gating Phase 5 behind a feasibility phase overstated the
+  dependency. What was genuinely cheap and worth doing immediately has been done: RUN-5's barrier
+  note is now in `partition.rs`'s own module docs (where an optimiser chasing §12a item 1's
+  throughput numbers would actually read it before touching the stage-2 merge), and
+  `tests/partitioning_reference.rs` gained
+  `cross_column_spike_phase_is_identical_across_partitioning_and_threading`, which reuses OBS-3's
+  `SpikeRaster` to compare inter-column spike-phase lag directly rather than relying on the
+  existing per-tick spike-set equality to imply it. Both pass. §12a item 6 is fully resolved as a
+  result — see its entry there. NET-12 (the attractor itself, still open-ended, tuning-dependent
+  work in the way Requirement 14.4 was) moves to Phase 5.5, where it is actually load-bearing for
+  NET-13; it does not block Phase 5.
+- **Phase 5 — I/O, grounding and consolidation.** **[T]** `packages/io` (encoders, decoders, the
+  shared SDR type, the streaming harness), the experiment harness, and VAL-4's corpus plus trigram
+  baseline. **[R]** the column-building FFI deferred out of Phase 4 (nothing can build a column
+  from TypeScript today), LRN-11's reward API and modulator injection across the boundary,
+  always-on homeostatic and structural sweeps (`NativeSimulation` has never called either — see
+  §12a item 4), IO-5's sensorimotor loop, and LRN-10 consolidation over an *abstracted* replay
+  source. LRN-12's fast binding is **decided and designed in this phase, not built** — §12a item 5
+  explains why the decision is urgent and the build is not. Milestone: VAL-4 (character-level
+  prediction beating a trigram baseline) **and** a closed sensorimotor loop — the two together per
+  §12a item 7, because what "beats trigram" is evidence *of* depends on whether anything is
+  grounding the symbols.
+  **Status (2026-09-10): shipped, with VAL-4 honestly unmet.** `packages/io` (`sdr.ts`, `hash.ts`,
+  `encoders/`, `decoders/overlap.ts`, `columns.ts`, `harness/stream.ts`) implements IO-1/2/3/4;
+  `crates/brain-napi`'s `buildColumns`/bulk views close the column-building FFI gap Phase 4 left
+  open; `reward`/`injectModulator`/`modulatorLevels` close LRN-11, including a real fix to
+  `PartitionRuntime::inject_modulator`, which previously reached one partition only (§12a item 4);
+  `HomeostaticScaling`/`StructuralPlasticity` are now driven automatically inside `step()` when
+  configured, closing the always-on-sweep gap Requirement 9.2 found; `consolidation.rs`'s
+  `ReplaySource`/`run_consolidation` implement LRN-10 over the abstracted replay source Requirement
+  10.6 specified; `environments/grid.ts` and `loop.ts` implement IO-5's sensorimotor loop; LRN-12's
+  design decision is recorded as §12 decision 8, with no fast-store code written, per Requirement
+  17.5. Per Requirement 13.7, the milestone's two halves are reported separately, not merged into
+  one pass/fail:
+  - **Sensorimotor loop: closes.** `packages/io/test/sensorimotor.slow.test.ts`'s ablation passes —
+    a network whose decoded action drives `GridWorld` reliably reaches a distinguishing cell four
+    moves away; the same network with actions sampled independently of its output does not
+    (Requirement 16.5).
+  - **VAL-4: not met.** `examples/char-prediction.ts`/`packages/io/test/char-prediction.slow.test.ts`
+    stream real corpus text (`packages/io/test/fixtures/corpus.txt`, Pride and Prejudice, ~400KB)
+    through the full encoder → column network → SDR-overlap decoder path against a trigram
+    baseline on the identical character sequence. Measured across 5 seeds, 15,000 characters each:
+    **mean network accuracy 0.67%, mean trigram accuracy 28.4%** — chance level (1/97 symbols ≈
+    1.03%) versus a well-trained baseline, no contest. This is after several genuine tuning rounds
+    that fixed real bugs along the way (a permanence-bootstrapping deadlock where every synapse
+    started below `connectionThreshold` so tick 2 never had a single spike to learn from; a missing
+    scheduler-level k-WTA that let tick 2 degenerate into near-total-column firing; a runaway
+    synapse-growth bug in the unpredicted-spike burst path that made later `step()` calls >400x
+    slower) — see `packages/io/src/milestone/charPrediction.ts`'s module doc for the full history.
+    The remaining gap looks architectural, not a matter of more knob-turning: nothing in this
+    design ties the network's own emergent tick-2 representation to a specific candidate's
+    identity pattern, so reinforcement has no gradient pulling it toward the *correct* symbol,
+    only toward whatever the k-WTA competition already happened to settle on. Recorded honestly
+    per Requirement 13.6 — VAL-4 was flagged as this project's riskiest requirement (§13.12) before
+    Phase 5 started, and this is that risk landing, not a result to quietly redefine away.
+- **Phase 5.5 — working memory, action selection and reference frames.** **[R]** NET-12 (§12a item
+  3, moved here from the abandoned Phase 4.5 plan — see above), built first since NET-13 needs its
+  multi-tick hold; then NET-13 (§12a item 4), which also needs Phase 5's LRN-11 for the reward
+  signal that shapes which action wins; then NET-9's grid-cell-like location signal, which no
+  longer has to wait on anything, since IO-5 landed in Phase 5. LRN-12 is built here if Phase 5's
+  design work concluded it is needed. This is the phase most likely to need real empirical
+  tuning time, in the way Requirement 14.4's exit criterion did — NET-12 is an emergent-behaviour
+  result, not a mechanical build, and nothing here should be scheduled assuming it lands on the
+  first attempt.
 - **Phase 6 — visualisation.** **[T]** plus the `brain-wasm` build target, so the visualiser
   can run a live network in the browser rather than only replaying rasters.
 
@@ -442,7 +517,9 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
    for high-order sequence memory at a fraction of the cost; the graded return signature keeps
    multi-compartment dynamics addable later (NEU-6a).
 3. **Reference frames are in, scheduled after the sensorimotor loop.** Promoted from an open
-   question to NET-9 / Phase 5.5.
+   question to NET-9 / Phase 5.5. Still true after the 2026-09-10 reordering, and now *unblocked*
+   rather than merely sequenced: IO-5 moved forward into Phase 5 (§12a item 7), so NET-9 no longer
+   waits on a prerequisite in the same phase as itself.
 4. **First real task: character-level next-character prediction**, baselined against a trigram
    model (VAL-4).
 5. **WebGPU stays optional and narrow.** It is a poor fit for sparse, irregular, mutable-topology
@@ -484,8 +561,47 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
    persistent generator — real but small (a handful of multiply-xor operations), and it is a
    hash-based construction, not a cryptographic one, which is adequate for simulation statistics
    and is all RUN-3 asks for.
+8. **A fast-binding store (LRN-12), when it is built, gets a second `SynapseArena` rather than a
+   variable-block one** — decided 2026-09-10, before Phase 5's consolidation and FFI work ships,
+   for the same reason decision 7 was taken before Phase 1's first real call site. `SynapseArena`
+   addresses a synapse as `source * cap_per_neuron + slot`, with `source_of(id) = id /
+   cap_per_neuron` relied on by cross-partition `on_post_spike` routing, and `cap_per_neuron` is a
+   **single constant for the whole network** — so the high fan-out a pattern-separating store wants
+   is currently paid for by every neuron in it (500/neuron × 100k neurons is the measured 1.46 GB).
+   Of the two escape routes, a second arena costs a known list of call sites —
+   `split_views_mut`'s neuron-range→synapse-range derivation, `boundary_neurons`,
+   `PartitionRuntime::step`'s `synapses` parameter, `snapshot.rs`'s `FORMAT_VERSION`, and every
+   `Scheduler` method taking a `SynapseArenaViewMut` — while a variable-block arena breaks the
+   `id / cap_per_neuron` derivation outright. The second-arena route is *additive*: every existing
+   addressing expression keeps working unchanged, the same property that made Phase 4's
+   `OffsetSlice` the right call over raw pointers. Two corollaries recorded with it: LRN-12 is
+   **not** a `PlasticityRule` — that interface structurally cannot express pattern separation and
+   is not meant to, so it follows `plasticity/predictive.rs`'s existing precedent of a
+   scheduler-invoked module writing permanence directly, which does not violate invariant 1 — and
+   one-shot binding **writes** permanence rather than growing it, since a sub-threshold synapse can
+   never be potentiated by activity, so SYN-3's `[0,1]` scalar needs no change. Cost of having
+   deferred this past Phase 4: the second-arena route's call-site list is short today and would
+   have been shorter still before partitioning and snapshots existed.
 
 ## 12a. Open questions
+
+As of 2026-09-10 every item below has been investigated against the actual implementation rather
+than against this document's own prose, and each now carries a verdict. Item 2 was resolved
+outright and item 1 partially — both by Phase 4's benchmarks, with item 1's remaining half (a real
+100k-neuron throughput run) still genuinely open. Items 3–7 were settled by a scoping pass that
+reordered §11's phasing and
+added NEU-8's promotion, NET-12, NET-13, LRN-11's promotion, LRN-12 and VAL-2(g). Three findings
+were things this document had wrong rather than merely unknown, and they are called out where they
+appear: **item 4** depends on item 3 in a way this section originally missed, **item 5**'s blocking
+constraint is `SynapseArena`'s global `cap_per_neuron` rather than SYN-3's permanence model, and
+**item 6**'s stated risk is falsified by tests that have shipped since Step 17 — replaced by a
+narrower one that is now itself closed by a named test (see item 6). A same-day sequencing
+mistake is also worth recording here rather than silently fixing: an earlier revision scheduled
+items 3 and 6 as a gating "Phase 4.5" before Phase 5, which overstated the actual dependency —
+nothing in Phase 5 needs item 3's attractor result, so that phase was dropped, item 6's check was
+done immediately instead of scheduled, and item 3's NET-12 moved to Phase 5.5 where it is
+genuinely load-bearing (for NET-13). Items are kept here, with their verdicts, rather than deleted
+on resolution: what was uncertain and how it was settled is the part worth keeping.
 
 1. **Scale ceiling — partially resolved 2026-09-10 (Phase 4 Step 23), against ENG-11's two
    separate targets.**
@@ -577,6 +693,223 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
    stays in the tree (both are held to the same bit-identical standard by
    `tests/partitioning_reference.rs`) as a reference comparison point, not as a candidate for
    further investment absent new evidence it would matter.
+3. **Working-memory / attractor states — resolved 2026-09-10 as *additive*. Now NET-12, scheduled
+   Phase 5.5, VAL-2(g).** (A same-day revision briefly scheduled this as its own gating "Phase
+   4.5" before Phase 5; that overstated the dependency — nothing in Phase 5 needs an attractor
+   result, since VAL-4 is driven by continuous input — and was reverted. NET-12 moved to Phase 5.5
+   instead, where NET-13 actually needs it.)
+
+   Multi-step procedures (carrying a digit, holding a sentence's subject across a long clause)
+   need a population that keeps a stable pattern of activity going after the driving input stops,
+   not just a decaying response to what is happening right now. Reading the core against this
+   confirms the original guess and strengthens it: **no new primitive, no invariant touched.**
+
+   Recurrence is not merely legal but covered by a test — `graph.rs`'s
+   `self_connections_and_cycles_are_permitted`, and `GraphBuilder::connect` never special-cases
+   `source == target`. More importantly, sustained activity keeps *itself* scheduled: the dirty
+   set is repopulated by delivery (`apply_local_effect`'s `self.dirty.insert(target)`), so a
+   recurrent loop that keeps spiking never falls out of it. `IntegrationOutcome::still_active`
+   governs only the settling tail of a neuron receiving *nothing*, which is not the attractor case
+   — the "a silent neuron costs nothing" design does not stand in the way here.
+
+   Two real gaps to size the experiment against, neither a blocker:
+
+   - **There is no adaptation variable.** NEU-1 names one and NEU-8 asks for it, but `LifParams`
+     has no such field and `NeuronArena` no such column, so the only brakes are k-WTA (per-tick)
+     and NEU-7's intrinsic homeostasis (per-sweep) — nothing per-spike. Expect to lean on real
+     inhibitory neurons for the fast brake. This is why NEU-8 is raised to *should*.
+   - **One `FixedNeighbourhoods` per `Scheduler`.** `inhibition: Option<FixedNeighbourhoods>` is a
+     single scheme with one global `size`/`k`, so an attractor module wanting different sparsity
+     from the rest of the network cannot express that in one scheduler. The available lever, worth
+     knowing before designing the topology: **each partition owns its own `Scheduler`**, so giving
+     the attractor its own partition gives it its own inhibition scheme for free.
+
+   Minimal experiment: a new `crates/brain-core/tests/working_memory.rs`, slow tier, shaped like
+   `tests/columns_and_voting.rs` — an ablation, not a demo. Compose `GraphBuilder::build_column`
+   (one recurrent excitatory column plus an inhibitory pool), `Scheduler::with_inhibition`,
+   `LifParams::new`; drive for N ticks, stop, then use `probe::SpikeRaster` and
+   `metrics::FiringRateMeter` to check both that activity persists and that *which* subset persists
+   is the one that was driven. Ablation half: identical network with the recurrent synapses held
+   below `connection_threshold` so they do not transmit — activity must die.
+
+   One carried-forward gotcha that applies directly: `predictive` does not decay outside the dirty
+   set, so any measurement taken after a quiet gap must call `reset_predictive_state()` first or it
+   reads frozen residue.
+4. **Action-selection / gating (basal-ganglia-like) — resolved 2026-09-10: *additive in the core,
+   blocked on LRN-11 from TypeScript*, and dependent on item 3 in a way this entry originally
+   missed. Now NET-13, scheduled Phase 5.5.**
+
+   Sequencing the steps of a procedure needs a "pick one population, suppress the rest, for as long
+   as that step lasts" competition — distinct from NET-2's per-tick k-WTA, which resets every tick
+   and has no notion of a multi-tick commitment. The two halves have different answers:
+
+   - **"Suppress the rest" is additive, but not via k-WTA.** `FixedNeighbourhoods` computes
+     membership as `(index - base) / size` over disjoint, contiguous, equal-size blocks, so
+     cross-population competition — one population's winner suppressing a *different* population —
+     is structurally not expressible in that scheme. It *is* expressible with real inhibitory
+     neurons (NEU-4 polarity, delivered as negative current by `deliver`'s `sign * permanence`)
+     wired into a specific topology. Additive at the topology layer exactly as originally claimed,
+     just not by the mechanism a reader would assume.
+   - **"Hold it for several ticks" has no mechanism at all today.** The winner set is cleared every
+     tick (`winner_set.clear()`), and nothing else in the engine carries a multi-tick commitment.
+     The hold has to come from a recurrent attractor — so **NET-13 is downstream of NET-12**, and
+     sequencing them the other way round wastes work. That dependency was not in this entry's
+     original text and is the main thing the code review added.
+
+   **LRN-11's absence, stated precisely.** The substrate exists; the requirement does not.
+   `NeuromodulatorField::inject`, `Scheduler::inject_modulator` and `ThreeFactorStdp`'s
+   eligibility × modulator product are all built and tested — the actual credit-assignment
+   machinery is done. What is missing is three separable things, and only the first is what LRN-11
+   sounds like: (a) no named `reward()` wrapper, so a caller must know to pick the `DOPAMINE`
+   channel and pick an amount; (b) **no modulator call crosses the FFI at all** — the
+   `NativeSimulation` surface is allocate/connect/stimulate/step/membraneAt/predictiveAt/
+   resetPredictive/currentTick/snapshot/restore and nothing else, which makes a TypeScript-driven
+   reinforcement experiment *impossible*, not merely awkward; (c) `PartitionRuntime::inject_modulator`
+   is per-partition by construction and RUN-6's shared field was never wired, so a gating circuit
+   spanning partitions sees divergent dopamine unless the caller loops over every partition, with
+   no test guarding that it did. Both existing callers — `tests/partitioning_reference.rs` and
+   `tests/emergent_columns.rs` — already hand-roll exactly that loop, which is about as clear as
+   evidence gets that the per-partition signature is not the one callers want.
+
+   A related finding surfaced while checking (b), recorded here because it affects Phase 5 more
+   broadly than it affects this item: **`NativeSimulation` has never driven `HomeostaticScaling` or
+   `StructuralPlasticity` either.** Both are caller-driven periodic sweeps that `Scheduler::step`
+   never calls, and only Rust integration tests have ever called them. "Learning is always on"
+   (IO-4, invariant 7) is therefore not currently true for any TypeScript caller.
+
+   Where the first experiment lives: Rust-side, as `crates/brain-core/tests/action_selection.rs`,
+   driving `Scheduler::inject_modulator` directly — that path works today and sidesteps all three
+   gaps. Promote to TypeScript only once LRN-11 lands.
+5. **Fast one-shot binding (hippocampus-like) — confirmed 2026-09-10 as *needs an early decision*,
+   and the window is open right now. Now LRN-12; decided and designed in Phase 5, built in
+   Phase 5.5 if that design concludes it is needed.**
+
+   §2.9 and LRN-10 assume a "fast storage" that gets replayed into slow cortical storage during
+   consolidation, but nothing in §3–§9 specifies what performs that fast, one-shot binding — sparse
+   pattern separation plus near-instant potentiation on a single coincidence, unlike SYN-3's
+   gradually-accumulating permanence. Reading the core sharpens this into four findings, two of
+   which change what the decision actually is.
+
+   **(a) LRN-10 now *does* have a defined replay source, and it is the wrong shape.** This entry
+   used to say it had none; that is no longer true, because Phase 5's design pins
+   `run_consolidation(..., raster: &SpikeRaster, ...)` and replays recorded events through
+   `commit_spike`. That is a tape recorder, not a fast store: no pattern separation, no one-shot
+   binding, no consolidation *from a separate representation*. It satisfies LRN-10 literally while
+   bypassing the mechanism this item is about — and it is exactly the interface commitment this
+   item warned against. It is also still free to avoid, because nothing is implemented yet.
+   The minimum decision is **not** "build the fast store": it is "make the replay source an
+   abstraction rather than a concrete `&SpikeRaster`, and shape `ConsolidationParams` to match."
+   That costs an afternoon now; after `runConsolidation` ships it means changing a core signature,
+   a `#[napi(object)]` shape, and every test citing the requirement.
+
+   **(b) `PlasticityRule` structurally cannot host this — and there is already a precedent for
+   where it goes instead.** A rule sees only `LocalContext` (two `NeuronLocal` copies, modulators,
+   tick) and `SynapseMut` (four borrowed scalars): no synapse id, no arena, no population view.
+   Pattern separation is unreachable from there *by construction*, and deliberately so (invariant
+   1). But `plasticity/predictive.rs` already establishes the escape hatch — `adjust_segment_permanence`
+   and `reinforce_or_sprout_burst` write `synapses.permanence[id]` directly, outside the rule
+   interface, as a scheduler-invoked module. A fast store following that precedent does **not**
+   violate invariant 1, which is worth settling explicitly because it is the obvious first
+   objection.
+
+   **(c) A sub-threshold "potential" synapse is currently a dead end.** `deliver` skips synapses
+   below `connection_threshold` with `continue` *before* calling `on_delivery`, and
+   `on_post_spike`'s STDP contribution is gated on `last_active != u32::MAX`, which only delivery
+   ever writes. So a synapse below threshold can never be potentiated by activity — structural
+   plasticity's own sprouts (deliberately sub-threshold) are inert unless something writes their
+   permanence directly, and `tests/emergent.rs` already works around this by drawing initial
+   permanences mostly above threshold. For LRN-12 this is *good* news: one-shot binding means
+   writing permanence to 1.0 via `SynapseArena::insert`, so **SYN-3's [0,1] scalar is not the
+   blocker this item implied.**
+
+   **(d) The invariant that actually bites is `cap_per_neuron`, and Phase 4 is what made it
+   expensive.** `SynapseArena::new(cap_per_neuron)` takes a **single constant for the whole
+   network**; a synapse id is `source * cap_per_neuron + slot` and `source_of(id) = id /
+   cap_per_neuron`. A fast store wants high fan-out for pattern separation, and raising the cap
+   raises it for *every* neuron: 500/neuron × 100k neurons is already the measured 1.46 GB, so a
+   store wanting 4,000/neuron on even a small dedicated population multiplies synapse memory
+   roughly eightfold, paid by the 98% of neurons that do not need it. Fixing that later means
+   either a second `SynapseArena` — which drags in `split_views_mut`'s neuron-range→synapse-range
+   derivation, `boundary_neurons`, `PartitionRuntime::step`'s single `synapses` parameter,
+   `snapshot.rs`'s `FORMAT_VERSION`, and every `Scheduler` method taking a
+   `SynapseArenaViewMut` — or a variable-block arena, which breaks the `id / cap_per_neuron`
+   derivation that cross-partition `on_post_spike` routing depends on. **Neither was expensive
+   before Phase 4 shipped; both are now.** This, rather than the interface-shape argument, is the
+   concrete reason waiting costs more, and it is the thing to settle in Phase 5's design even if no
+   fast store is built for another two phases.
+6. **Binding by synchrony / phase-based composition — resolved 2026-09-10. The risk this item
+   named is *falsified* by code that already shipped; the narrower real risk that replaced it is
+   now closed too, by a named test rather than an implication.**
+
+   The original concern was that "partitioning that preserves correct spike *order* may not
+   preserve relative *phase* across partitions." **It does preserve phase, exactly, at full tick
+   resolution.** `PartitionRuntime::step` runs deliver → sequential merge → evaluate all inside one
+   tick; segment coincidence counts are accumulated in stage 2 and evaluated in stage 3 of the
+   *same* tick; all partitions advance in lockstep. And `tests/partitioning_reference.rs` already
+   asserts that spiked and vetoed sets match **every tick** at every thread count for both
+   executors. That is a phase-preservation proof at tick granularity, sitting in the tree since
+   Step 17. The only thing deferred by a tick is cross-partition *plasticity* bookkeeping
+   (`CrossPartitionPostSpike`, the boundary `NeuronLocal` table), and `partition.rs` argues
+   correctly that both are exact rather than approximate for the rules that exist.
+
+   **What replaces it.** Phase safety today is a side effect of a barrier the design says should
+   not be needed: RUN-5 claims delay absorbs latency with no synchronisation barrier, but as built
+   there *is* a hard sequential merge every tick, because deterministic floating-point summation
+   order across partitions is a stricter requirement than RUN-5 describes. So the risk is real but
+   deferred — it materialises the moment someone removes that barrier chasing item 1's throughput
+   numbers, which is a live possibility given that per-core throughput measurably degrades with
+   thread count. The mitigation is documentation, done immediately rather than scheduled: RUN-5
+   records that **the stage-2 barrier is load-bearing for phase, not only for determinism**, and
+   `partition.rs`'s own module docs now carry the same note (its "A gotcha found the hard way"
+   section), so someone optimising the merge phase reads it before touching the barrier, not after.
+
+   **The genuine early decision underneath, which remains open — this item resolves the
+   partitioning risk, not the coincidence-window one.** The substrate is not phase-blind, it is
+   phase-*hyper*sensitive — the opposite failure mode. `segment_counts` is cleared every tick, so
+   the dendritic coincidence window is exactly one tick (0.1 ms at RUN-1a's default) against a
+   biological window of several ms; two synapses whose delays differ by one tick never coincide.
+   `segment.rs` documents this as deliberate and sketches the fix (a short decaying per-segment
+   count). Cost of deferring it, concretely: `segment_counts` is within-tick scratch and therefore
+   **not snapshotted**, so making it decay turns it into genuine cross-tick state — `FORMAT_VERSION`
+   2 → 3, a migration path, and regenerating VAL-7's golden rasters, which is a deliberate reviewed
+   act. That cost grows with every golden file and snapshot fixture added between now and then, so
+   this decision should still be taken before Phase 5 adds more of either — it is a paragraph of
+   design work, not a phase, and has no test dependency on anything above.
+
+   **The feasibility check itself is done, not merely cheap.**
+   `tests/partitioning_reference.rs`'s
+   `cross_column_spike_phase_is_identical_across_partitioning_and_threading` builds a `SpikeRaster`
+   restricted to two columns, reads off each column-B spike's tick-lag since column A's most
+   recent spike as a named series, and asserts that series is identical across the sequential,
+   2-partition, rayon, and pinned-executor paths. It passes. This converts the risk from an open
+   question into a recorded, re-runnable finding, and it is the test `partition.rs`'s own new
+   module-doc note points back to.
+7. **Embodied/social grounding, not just a longer text stream — decided 2026-09-10: IO-5 moves
+   earlier, into Phase 5, built alongside VAL-4 rather than after it.**
+
+   §1.2's trajectory orders modalities by encoding cost, cheapest first — but the cheapest modality
+   (isolated text) is also the one with the least grounding: no shared reference to a physical
+   world, no corrective feedback from another agent, both of which developmental research treats as
+   central to how word meaning and number sense actually get acquired. This was never an engine
+   question, and checking the code confirms the engine does not constrain the answer in either
+   direction:
+
+   - **Nothing has been built against a text-shaped I/O API yet.** `packages/io` does not exist
+     (nor `packages/viz`, nor `crates/brain-wasm`), so there is no encoder-facing surface that
+     embodiment would have to unpick. The root workspace glob is `packages/*`, so adding one is
+     zero-config.
+   - **Invariant 8 genuinely holds.** No modality is named anywhere below the encoder — the core
+     has no text, pixel or audio concept in it. And the FFI already closes a loop in principle:
+     `step()` returns the indices that spiked, `stimulate()` takes them back in. IO-5 needs no core
+     change; it is an orchestration-layer package plus an effector.
+
+   What makes the reorder *messier* is the spec, not the code: Phase 5 bundles `packages/io`,
+   four encoders, the decoder, the streaming harness, consolidation and the VAL-4 milestone into
+   one phase, so "move IO-5 earlier" means editing that spec rather than reordering phase
+   headings. Phase 5's requirements and design have been updated accordingly. One prerequisite is
+   shared either way and should be built regardless of how this lands: **the column-building FFI**,
+   which Phase 4 deferred explicitly and which neither a text nor an embodied path can proceed
+   without.
 
 ---
 

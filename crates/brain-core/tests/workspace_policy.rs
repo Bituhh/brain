@@ -237,7 +237,7 @@ fn the_traceability_checker_itself_runs_and_reports_a_result() {
         .expect("node must be available to run the traceability checker (it is already a hard requirement of this workspace)");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("acceptance criteria found in requirements.md"),
+        stdout.contains("acceptance criteria found across") && stdout.contains("requirements docs"),
         "the checker must report how many criteria it parsed, got stdout: {stdout}"
     );
     assert!(output.status.code().is_some(), "the checker must exit cleanly, not crash or panic");

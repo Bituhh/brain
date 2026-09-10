@@ -25,13 +25,53 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const requirementsPath = path.join(repoRoot, '.claude', 'scratch', 'brain-engine', 'requirements.md');
+// Two requirements docs, Phase 0-3 and Phase 5 (Phase 4 never got its own --
+// it extended Phase 0-3's numbering by amendment instead). Both are parsed
+// into the *same* flat id space below ("N.M", no phase prefix), which is a
+// known, deliberate limitation, not an oversight: Phase 0-3 has its own
+// Requirements 1-16, and Phase 5 also numbers its requirements 1-17 from
+// scratch, so e.g. "Requirement 9.2" is Phase 0-3's homeostatic-stabilisation
+// AC2 *and* Phase 5's streaming-harness AC2 -- two unrelated criteria that
+// collide under one citation string. A citing test only ever means "I cite
+// Phase X's N.M" in its own context, but this checker cannot tell which
+// phase a bare "Requirement 9.2" in some test file was written against, so
+// it can only ask "does *some* test, somewhere, cite N.M" -- which means a
+// citation intended for one phase's criterion can silently paper over the
+// other phase's identically-numbered, uncited one. A real fix means
+// namespacing every citation retroactively across three phases' already-
+// committed tests (Phase 0-4 alone is dozens of files); flagged here rather
+// than done as a side effect of Phase 5's own traceability extension.
+const REQUIREMENTS_PATHS = [
+  path.join(repoRoot, '.claude', 'scratch', 'brain-engine', 'requirements.md'),
+  path.join(repoRoot, '.claude', 'scratch', 'brain-engine-phase5', 'requirements.md'),
+];
 
 // Deliberate, reviewed gaps -- add to this list only with a comment
 // explaining why, exactly like this one.
 const DEFERRED = new Set([
   '15.11', // No CI in this slice, by explicit user decision (see Step 1/12's plan notes). Both test tiers remain locally invocable.
-  '5.2', // Ticks are deliberately unit-agnostic in brain-core (see neuron.rs's LifParams docs): dt_ms is a caller-side interpretation with no BrainConfig type yet to hold it. Revisit once a real config object exists (Phase 4+ per design.md's Out of Scope), rather than inventing one prematurely just to satisfy this criterion.
+  // Ticks are deliberately unit-agnostic in brain-core (see neuron.rs's LifParams docs): dt_ms
+  // is a caller-side interpretation with no BrainConfig type yet to hold it. Revisit once a real
+  // config object exists (Phase 4+ per design.md's Out of Scope), rather than inventing one
+  // prematurely just to satisfy this criterion. NOTE (the id-collision limitation documented at
+  // REQUIREMENTS_PATHS above, caught concretely here): once Phase 5's doc joined the scan, this
+  // id started showing as "now covered" -- but that citation is Phase 5's own unrelated
+  // Requirement 5.2 (the text encoder's tokenizeWords criterion, genuinely covered in
+  // text.test.ts), not Phase 0-3's dt_ms gap, which is still real and still uncited. Left
+  // deferred on purpose; do not remove just because the checker says otherwise.
+  '5.2',
+  // Phase 5 Requirement 17 (LRN-12 fast-binding): a design-only requirement
+  // (requirements.md's own text: "satisfied by a written, reviewed decision
+  // -- not by code"). Satisfied by README §12 decision 8, not by a citing
+  // test -- there is deliberately no fast-binding code in this phase to
+  // cite it (17.5 requires exactly that). See requirements.md's Requirement
+  // 17 for the full acceptance criteria this decision discharges.
+  '17.1',
+  '17.2',
+  '17.3',
+  '17.4',
+  '17.5',
+  '17.6',
 ]);
 
 const TEST_DIRS = [
@@ -39,6 +79,7 @@ const TEST_DIRS = [
   path.join(repoRoot, 'crates', 'brain-core', 'tests'),
   path.join(repoRoot, 'crates', 'brain-napi', 'src'),
   path.join(repoRoot, 'packages', 'brain', 'test'),
+  path.join(repoRoot, 'packages', 'io', 'test'),
   path.join(repoRoot, 'scripts'), // this checker itself cites 15.9/15.10 in its own header
 ];
 const TEST_FILE_EXTENSIONS = new Set(['.rs', '.ts', '.mjs']);
@@ -108,8 +149,14 @@ function findCitedCriteria(files) {
 }
 
 function main() {
-  const markdown = readFileSync(requirementsPath, 'utf8');
-  const allIds = parseRequiredCriteria(markdown);
+  // Each doc's own ids are parsed independently, then unioned into one flat
+  // id space (deduped: "9.2" parsed from both docs collapses to a single
+  // entry, since this checker cannot distinguish which phase a citation was
+  // written against -- see REQUIREMENTS_PATHS's comment above for why that
+  // is a documented limitation rather than a bug).
+  const idsPerDoc = REQUIREMENTS_PATHS.map((p) => parseRequiredCriteria(readFileSync(p, 'utf8')));
+  const totalCriteriaAcrossDocs = idsPerDoc.reduce((sum, ids) => sum + ids.length, 0);
+  const allIds = [...new Set(idsPerDoc.flat())];
   const testFiles = TEST_DIRS.flatMap((dir) => walk(dir));
   const cited = findCitedCriteria(testFiles);
 
@@ -117,7 +164,7 @@ function main() {
   const staleDeferrals = [...DEFERRED].filter((id) => !allIds.includes(id));
   const nowCovered = [...DEFERRED].filter((id) => cited.has(id));
 
-  console.log(`Traceability: ${allIds.length} acceptance criteria found in requirements.md`);
+  console.log(`Traceability: ${totalCriteriaAcrossDocs} acceptance criteria found across ${REQUIREMENTS_PATHS.length} requirements docs (${allIds.length} distinct ids -- see the id-collision note above).`);
   console.log(`Scanned ${testFiles.length} test files across ${TEST_DIRS.length} directories.`);
   console.log(`${cited.size} distinct criterion ids cited in tests. ${DEFERRED.size} deliberately deferred.`);
 
