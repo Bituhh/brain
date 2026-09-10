@@ -161,6 +161,32 @@ impl PartitionPlan {
         Self { ranges: vec![0..neuron_count] }
     }
 
+    /// Divides `0..neuron_count` into `partition_count` contiguous,
+    /// roughly-equal ranges with no column boundaries to respect -- for a
+    /// caller with a flat, column-less network (Step 22: `brain-napi`'s
+    /// `NativeSimulation`, which builds networks through individual
+    /// `allocate`/`connect` FFI calls, not `GraphBuilder::build_column`).
+    /// Remainder distribution matches [`Self::contiguous`]: the first
+    /// `neuron_count % partition_count` partitions get one extra neuron.
+    /// `partition_count` is clamped down to `neuron_count` if larger (an
+    /// empty partition is not meaningful), matching `contiguous` again.
+    pub fn even_split(neuron_count: u32, partition_count: usize) -> Self {
+        assert!(partition_count > 0, "partition_count must be positive");
+        assert!(neuron_count > 0, "cannot partition an empty (zero-neuron) network");
+        let partition_count = partition_count.min(neuron_count as usize);
+        let base = neuron_count / partition_count as u32;
+        let extra = neuron_count % partition_count as u32;
+
+        let mut ranges = Vec::with_capacity(partition_count);
+        let mut next = 0u32;
+        for p in 0..partition_count as u32 {
+            let take = base + if p < extra { 1 } else { 0 };
+            ranges.push(next..next + take);
+            next += take;
+        }
+        Self { ranges }
+    }
+
     pub fn partition_count(&self) -> usize {
         self.ranges.len()
     }
@@ -726,6 +752,21 @@ mod tests {
         assert_eq!(plan.partition_count(), 1);
         assert_eq!(plan.partition_of(0), 0);
         assert_eq!(plan.partition_of(99), 0);
+    }
+
+    #[test]
+    fn even_split_divides_a_flat_network_with_no_columns() {
+        let plan = PartitionPlan::even_split(10, 3); // 10/3 = 3 remainder 1 -> 4,3,3
+        assert_eq!(plan.partition_count(), 3);
+        assert_eq!(plan.range_of(0), 0..4, "first partition gets the extra neuron");
+        assert_eq!(plan.range_of(1), 4..7);
+        assert_eq!(plan.range_of(2), 7..10);
+    }
+
+    #[test]
+    fn even_split_clamps_partition_count_to_neuron_count() {
+        let plan = PartitionPlan::even_split(2, 10);
+        assert_eq!(plan.partition_count(), 2, "cannot create more partitions than neurons");
     }
 
     #[test]

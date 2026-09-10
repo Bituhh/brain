@@ -28,6 +28,24 @@ export interface SimulationOptions {
   segments?: SegmentsConfig;
   /** Predictive learning (Requirement 12). Omit to leave predictive state unlearned. */
   predictiveLearning?: PredictiveLearningConfig;
+  /**
+   * Number of native threads `PartitionRuntime` should use (Requirement 7
+   * AC1, Phase 4 RUN-4). Omit or pass 1 for today's exact single-threaded
+   * behaviour -- the default, and the only mode `snapshot()`/`restore()`
+   * support so far (`NativeSimulation.snapshotBytes`'s doc comment).
+   */
+  threadCount?: number;
+  /**
+   * Required when `threadCount > 1`: the network's final neuron count,
+   * needed upfront to build a `PartitionPlan` before any neuron is
+   * allocated (`NativeSimulation`'s constructor doc comment). Must equal
+   * the exact number of `allocateNeuron` calls made before the first
+   * `stimulate`/`step` call -- `PartitionRuntime` is built lazily on that
+   * first call, from whatever topology exists at that moment, so a
+   * mismatch here is a caller contract violation (not validated at the
+   * boundary) that will surface as a Rust panic rather than a clean error.
+   */
+  totalNeurons?: number;
 }
 
 /**
@@ -237,6 +255,8 @@ export class Simulation {
         options.inhibition ?? null,
         options.segments ?? null,
         options.predictiveLearning ?? null,
+        options.threadCount ?? null,
+        options.totalNeurons ?? null,
       ),
       lif,
       options,

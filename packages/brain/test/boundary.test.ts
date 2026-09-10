@@ -225,6 +225,66 @@ test("Simulation: inhibition limits spikes to k winners per neighbourhood (Requi
   assert.deepEqual(spiked, [indices[1]], "only the highest-margin candidate should win a k=1 neighbourhood");
 });
 
+test("Simulation: threadCount > 1 reproduces threadCount 1's spike sequence exactly, through the real FFI boundary (Phase 4, Requirement 8)", () => {
+  // The Rust-side determinism guarantee (`tests/partitioning_reference.rs`)
+  // is proven inside brain-core; this is the TypeScript-level analogue
+  // through the actual napi boundary -- per project memory, this is where
+  // Phase 0-3's real regressions were caught, not in Rust-only tests.
+  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 2 };
+  const baseOptions = { maxDelay: 4, connectionThreshold: 0.5, synapseCapPerNeuron: 4 };
+  const neuronCount = 8;
+
+  function buildAndRun(threadCount?: number, totalNeurons?: number): number[][] {
+    const options: SimulationOptions = {
+      ...baseOptions,
+      ...(threadCount !== undefined ? { threadCount } : {}),
+      ...(totalNeurons !== undefined ? { totalNeurons } : {}),
+    };
+    const sim = Simulation.create(lif, options);
+    const neurons = Array.from({ length: neuronCount }, () => sim.allocateNeuron(0.5, 1));
+    for (let i = 0; i < neurons.length - 1; i++) {
+      sim.connect(neurons[i]!, neurons[i + 1]!, 0, 2, 0.9);
+    }
+    const history: number[][] = [];
+    for (let tick = 0; tick < 40; tick++) {
+      sim.stimulate(neurons[0]!, 10.0);
+      history.push(sim.step());
+    }
+    return history;
+  }
+
+  const single = buildAndRun();
+  const partitioned = buildAndRun(4, neuronCount);
+
+  assert.deepEqual(partitioned, single, "threadCount 4 must reproduce threadCount 1's spike sequence exactly, tick by tick");
+});
+
+test("Simulation: threadCount > 1 without totalNeurons is rejected (constructor validation)", () => {
+  assert.throws(() =>
+    Simulation.create(
+      { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+      { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1, threadCount: 4 },
+    ),
+  );
+});
+
+test("Simulation: snapshot throws in partitioned mode (no snapshot format for PartitionRuntime state yet)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1, threadCount: 2, totalNeurons: 1 },
+  );
+  sim.allocateNeuron(0.5, 1); // must match totalNeurons exactly before the first stimulate/step
+  sim.stimulate(0, 1.0);
+  sim.step();
+
+  const dir = mkdtempSync(join(tmpdir(), "brain-snapshot-test-"));
+  try {
+    assert.throws(() => sim.snapshot(join(dir, "snapshot.bin")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("coreEngineVersion round-trips through the addon (Step 1 regression)", async () => {
   const { coreEngineVersion } = await import("../src/index.ts");
   const version = coreEngineVersion();

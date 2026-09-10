@@ -10,6 +10,7 @@
 use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
+use brain_core::partition::{PartitionPlan, PartitionRuntime};
 use brain_core::plasticity::predictive::PredictiveLearningParams;
 use brain_core::scheduler::Scheduler;
 use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig};
@@ -224,8 +225,72 @@ impl PredictiveLearningConfig {
 pub struct NativeSimulation {
     neurons: NeuronArena,
     synapses: SynapseArena,
-    scheduler: Scheduler,
+    runtime: Runtime,
     lif_params: LifParams,
+}
+
+/// Everything needed to build one partition's `Scheduler` identically to
+/// every other partition's (Phase 4 Step 22) -- kept around (rather than
+/// consumed once) because [`Runtime::Partitioned`] builds its
+/// `PartitionRuntime` lazily, on the first call that needs it, once the
+/// caller's `allocate`/`connect` calls have finished shaping the topology
+/// (see `Runtime`'s doc comment for why eager construction at `new()` time
+/// would be wrong).
+struct SchedulerConfig {
+    max_delay: u32,
+    connection_threshold: f64,
+    inhibition: Option<InhibitionConfig>,
+    segments: Option<SegmentsConfig>,
+    predictive_learning: Option<PredictiveLearningConfig>,
+}
+
+fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
+    let mut scheduler = Scheduler::new(config.max_delay.min(u16::MAX as u32) as u16, config.connection_threshold as f32);
+    if let Some(cfg) = &config.inhibition {
+        scheduler = scheduler.with_inhibition(FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k));
+    }
+    if let Some(cfg) = &config.segments {
+        scheduler = scheduler.with_segments(SegmentConfig {
+            segments_per_neuron: cfg.segments_per_neuron,
+            params: BinaryCoincidenceParams { threshold: cfg.coincidence_threshold as u16 },
+        });
+    }
+    if let Some(cfg) = &config.predictive_learning {
+        scheduler = scheduler.with_predictive_learning(cfg.to_params(), FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.neighbourhood_k));
+    }
+    scheduler
+}
+
+/// `NativeSimulation`'s execution mode (Requirement 7 AC1: `threadCount`
+/// defaults to 1, i.e. `Single`, with zero behaviour change for every
+/// caller that never mentions it).
+///
+/// `Partitioned`'s `PartitionRuntime` is built lazily (`runtime: None`
+/// until the first `stimulate`/`step` call) rather than eagerly in `new()`,
+/// because `PartitionRuntime::new` computes its cross-partition boundary
+/// bookkeeping once, from whatever `SynapseArena` state exists at that
+/// moment -- and `NativeSimulation`'s FFI shape builds a network
+/// incrementally, via `allocate`/`connect` calls made *after* the
+/// constructor returns. Building eagerly at `new()` time would freeze the
+/// boundary table against an empty, pre-topology arena. This does mean a
+/// `connect` call issued after simulation has already started stepping in
+/// partitioned mode is not reflected in the boundary table -- acceptable
+/// for the same reason `columnFiringRate`-style column accessors are out
+/// of scope for this step: no caller builds topology and steps
+/// interleaved today.
+// Boxed per clippy::large_enum_variant: without this, `Runtime` itself would
+// be as large as its largest variant, so every `Single` instance would pay
+// for a `Partitioned`-sized enum it never uses.
+struct PartitionedState {
+    thread_count: usize,
+    total_neurons: u32,
+    config: SchedulerConfig,
+    runtime: Option<PartitionRuntime>,
+}
+
+enum Runtime {
+    Single(Box<Scheduler>),
+    Partitioned(Box<PartitionedState>),
 }
 
 /// Local inhibition config (Requirement 7): fixed-size k-winners-take-all
@@ -240,6 +305,20 @@ pub struct InhibitionConfig {
 
 #[napi]
 impl NativeSimulation {
+    // `thread_count`: number of native threads `PartitionRuntime` should use
+    // (Requirement 7 AC1). Omit or pass 1 for today's exact single-threaded
+    // behaviour.
+    //
+    // `total_neurons`: required when `thread_count > 1` -- the network's
+    // final neuron count, needed upfront to build a `PartitionPlan`
+    // (`PartitionRuntime`/`PartitionPlan::even_split` have no way to
+    // discover this from `NativeSimulation`'s incremental `allocate` calls
+    // alone). Must equal the exact number of `allocate` calls made before
+    // the first `stimulate`/`step` call (`ensure_partition_runtime_built`
+    // builds `PartitionRuntime` lazily, from whatever topology exists at
+    // that moment) -- a mismatch is a caller contract violation, not
+    // validated here, and will surface as a panic inside `SynapseArena`
+    // rather than a clean `Result` error.
     #[napi(constructor)]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -250,22 +329,38 @@ impl NativeSimulation {
         inhibition: Option<InhibitionConfig>,
         segments: Option<SegmentsConfig>,
         predictive_learning: Option<PredictiveLearningConfig>,
-    ) -> Self {
-        let mut scheduler = Scheduler::new(max_delay.min(u16::MAX as u32) as u16, connection_threshold as f32);
-        if let Some(cfg) = &inhibition {
-            scheduler = scheduler.with_inhibition(FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k));
+        thread_count: Option<u32>,
+        total_neurons: Option<u32>,
+    ) -> Result<Self> {
+        let thread_count = thread_count.unwrap_or(1).max(1) as usize;
+        let config = SchedulerConfig { max_delay, connection_threshold, inhibition, segments, predictive_learning };
+        let runtime = if thread_count > 1 {
+            let total_neurons = total_neurons.ok_or_else(|| {
+                Error::from_reason("totalNeurons is required when threadCount > 1: PartitionRuntime must know the network's final neuron count upfront")
+            })?;
+            Runtime::Partitioned(Box::new(PartitionedState { thread_count, total_neurons, config, runtime: None }))
+        } else {
+            Runtime::Single(Box::new(build_scheduler(&config)))
+        };
+        Ok(Self { neurons: NeuronArena::new(), synapses: SynapseArena::new(synapse_cap_per_neuron.max(1)), runtime, lif_params: lif.to_lif_params() })
+    }
+
+    /// Builds this instance's `PartitionRuntime` on first use, once
+    /// (`Runtime`'s doc comment explains why this can't happen eagerly in
+    /// `new()`). A no-op once built, and a no-op entirely in `Single` mode.
+    fn ensure_partition_runtime_built(&mut self) {
+        if let Runtime::Partitioned(state) = &mut self.runtime {
+            if state.runtime.is_none() {
+                let plan = PartitionPlan::even_split(state.total_neurons, state.thread_count);
+                let schedulers: Vec<Scheduler> = (0..plan.partition_count()).map(|_| build_scheduler(&state.config)).collect();
+                state.runtime =
+                    Some(PartitionRuntime::new(plan, schedulers, &self.synapses, state.total_neurons).with_thread_count(state.thread_count));
+            }
         }
-        if let Some(cfg) = &segments {
-            scheduler = scheduler.with_segments(SegmentConfig {
-                segments_per_neuron: cfg.segments_per_neuron,
-                params: BinaryCoincidenceParams { threshold: cfg.coincidence_threshold as u16 },
-            });
-        }
-        if let Some(cfg) = &predictive_learning {
-            scheduler = scheduler
-                .with_predictive_learning(cfg.to_params(), FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.neighbourhood_k));
-        }
-        Self { neurons: NeuronArena::new(), synapses: SynapseArena::new(synapse_cap_per_neuron.max(1)), scheduler, lif_params: lif.to_lif_params() }
+    }
+
+    fn is_partitioned(&self) -> bool {
+        matches!(self.runtime, Runtime::Partitioned(_))
     }
 
     /// Allocates a neuron and ensures synapse storage exists for it.
@@ -293,14 +388,35 @@ impl NativeSimulation {
     /// in for a real encoder (IO-1) until one exists.
     #[napi]
     pub fn stimulate(&mut self, index: u32, current: f64) {
-        self.scheduler.stimulate(&self.neurons, index, current as f32);
+        if self.is_partitioned() {
+            self.ensure_partition_runtime_built();
+            let Runtime::Partitioned(state) = &mut self.runtime else { unreachable!() };
+            let pr = state.runtime.as_mut().expect("ensure_partition_runtime_built just built this");
+            pr.stimulate(&self.neurons, index, current as f32);
+        } else {
+            let Runtime::Single(scheduler) = &mut self.runtime else { unreachable!() };
+            scheduler.stimulate(&self.neurons, index, current as f32);
+        }
     }
 
     /// Advances the simulation by exactly one tick, returning the indices
-    /// of neurons that spiked (Requirement 5).
+    /// of neurons that spiked (Requirement 5). In partitioned mode
+    /// (`threadCount > 1`), this is every partition's `StepReport.spiked`
+    /// concatenated in partition-id order -- `PartitionRuntime::step`'s own
+    /// determinism guarantee (Requirement 8) makes that concatenation
+    /// order well-defined, not an arbitrary merge.
     #[napi]
     pub fn step(&mut self) -> Vec<u32> {
-        self.scheduler.step::<Lif>(&mut self.neurons, &mut self.synapses, &self.lif_params).spiked
+        if self.is_partitioned() {
+            self.ensure_partition_runtime_built();
+            let Runtime::Partitioned(state) = &mut self.runtime else { unreachable!() };
+            let pr = state.runtime.as_mut().expect("ensure_partition_runtime_built just built this");
+            let reports = pr.step::<Lif>(&mut self.neurons, &mut self.synapses, &self.lif_params);
+            reports.into_iter().flat_map(|r| r.spiked).collect()
+        } else {
+            let Runtime::Single(scheduler) = &mut self.runtime else { unreachable!() };
+            scheduler.step::<Lif>(&mut self.neurons, &mut self.synapses, &self.lif_params).spiked
+        }
     }
 
     #[napi]
@@ -354,7 +470,10 @@ impl NativeSimulation {
 
     #[napi]
     pub fn current_tick(&self) -> u32 {
-        self.scheduler.tick()
+        match &self.runtime {
+            Runtime::Single(scheduler) => scheduler.tick(),
+            Runtime::Partitioned(state) => state.runtime.as_ref().map_or(0, |pr| pr.tick()),
+        }
     }
 
     /// Serialises the complete simulation state to bytes (Requirement
@@ -365,8 +484,20 @@ impl NativeSimulation {
     /// boundary) via `packages/brain`'s `Simulation.snapshot`, using
     /// Node's own `fs` module rather than adding a Rust file-I/O
     /// dependency for something outside the hot path.
+    /// Errors in partitioned mode (`threadCount > 1`): Step 21's snapshot
+    /// format has no section for `PartitionRuntime`'s own state (per-
+    /// partition tick/ring/dirty-set, boundary table, pending cross-
+    /// partition messages) -- serialising only the shared arenas would
+    /// silently drop that state rather than round-trip it. Restricting to
+    /// `Single` mode here keeps the existing guarantee (Requirement 16)
+    /// exact rather than quietly weakening it.
     #[napi]
-    pub fn snapshot_bytes(&self, config_hash: BigInt) -> Uint8Array {
+    pub fn snapshot_bytes(&self, config_hash: BigInt) -> Result<Uint8Array> {
+        let Runtime::Single(scheduler) = &self.runtime else {
+            return Err(Error::from_reason(
+                "snapshot_bytes is not supported in partitioned mode (threadCount > 1): the snapshot format has no section for PartitionRuntime state yet",
+            ));
+        };
         let hash = config_hash.get_u64().1;
         // Phase 4 Step 21 added a column-registry section to the snapshot
         // format (FORMAT_VERSION 2); NativeSimulation does not track
@@ -376,12 +507,12 @@ impl NativeSimulation {
         let bytes = brain_core::snapshot::write(
             &self.neurons,
             &self.synapses,
-            &self.scheduler,
+            scheduler,
             &brain_core::column::ColumnRegistry::new(),
             self.neurons.capacity_len() as u32,
             hash,
         );
-        Uint8Array::new(bytes)
+        Ok(Uint8Array::new(bytes))
     }
 
     /// Restores a `NativeSimulation` from bytes produced by
@@ -391,7 +522,10 @@ impl NativeSimulation {
     /// taken with (Requirement 16's configuration is validated by hash,
     /// not reconstructed from the payload -- see snapshot.rs's module
     /// docs) -- a mismatch is caught by `config_hash`, not silently
-    /// tolerated.
+    /// tolerated. Always restores into `Runtime::Single` -- there is no
+    /// `threadCount` parameter here, matching `snapshot_bytes`'s
+    /// partitioned-mode restriction above (nothing to restore a
+    /// `PartitionRuntime` from yet).
     #[napi(factory)]
     #[allow(clippy::too_many_arguments)]
     pub fn restore(
@@ -430,6 +564,11 @@ impl NativeSimulation {
         }
         scheduler.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
 
-        Ok(Self { neurons: restored.neurons, synapses: restored.synapses, scheduler, lif_params: lif.to_lif_params() })
+        Ok(Self {
+            neurons: restored.neurons,
+            synapses: restored.synapses,
+            runtime: Runtime::Single(Box::new(scheduler)),
+            lif_params: lif.to_lif_params(),
+        })
     }
 }

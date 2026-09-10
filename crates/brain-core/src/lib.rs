@@ -43,6 +43,13 @@
 //! registry section, plus `read_header` for partial loading -- a
 //! version-1 golden fixture (`tests/fixtures/snapshot_v1.bin`) still
 //! restores correctly, with an empty `ColumnRegistry` (Step 21, done).
+//! `PartitionPlan::even_split` (a column-free, flat-network partitioning
+//! constructor) and `crates/brain-napi`'s `NativeSimulation` gained a
+//! `threadCount`/`totalNeurons` FFI surface, dispatching `stimulate`/`step`/
+//! `currentTick` between a plain `Scheduler` and a lazily-built
+//! `PartitionRuntime` -- proven bit-identical to `threadCount: 1` through
+//! the real napi boundary (`packages/brain/test/boundary.test.ts`).
+//! `snapshotBytes`/`restore` stay `Single`-mode only (Step 22, done).
 //!
 //! The test suite is organised in four layers (Requirement 15.1): Rust
 //! unit tests (this crate's own `#[cfg(test)]` modules), Rust whole-network
