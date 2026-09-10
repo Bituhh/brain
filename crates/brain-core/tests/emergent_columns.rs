@@ -309,9 +309,9 @@ fn run_partitioned_trial(seed: u64, prefix: &[usize], thread_count: usize) -> (f
         .collect();
     let total_neurons = columns.range_of(Y).unwrap().end;
     let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, total_neurons).with_thread_count(thread_count);
-    for p in 0..runtime.partition_count() {
-        runtime.inject_modulator(p, DOPAMINE, 1.0);
-    }
+    // Phase 5 Requirement 15.3: the broadcasting form replaces this file's
+    // own hand-rolled per-partition loop.
+    runtime.inject_modulator(DOPAMINE, 1.0);
 
     let params = lif_params();
     let present = |runtime: &mut PartitionRuntime, neurons: &mut NeuronArena, synapses: &mut SynapseArena, symbol: usize| {

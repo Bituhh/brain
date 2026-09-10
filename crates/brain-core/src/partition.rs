@@ -73,6 +73,27 @@
 //! true same-tick cross-partition freshness for `ctx.pre` would see
 //! something other than what an unpartitioned run produces.
 //!
+//! ## The stage-2 merge barrier is load-bearing for spike *phase*, not only
+//! ## for determinism -- do not remove it chasing throughput
+//!
+//! README RUN-5 describes cross-partition delivery as needing "no
+//! synchronisation barrier" once axonal delay is at least the minimum
+//! cross-partition value. As built, that is aspirational relative to this
+//! file: stage 2 below is a hard *sequential* barrier, every tick, and it
+//! exists because deterministic floating-point summation order across
+//! partitions (Requirement 8, Acceptance Criterion 3) is a stricter
+//! requirement than RUN-5's prose states. A side effect of that barrier,
+//! not an independent design choice, is that relative spike *phase*
+//! between populations in different partitions is preserved exactly at
+//! full tick resolution -- proven directly by
+//! `tests/partitioning_reference.rs`'s
+//! `cross_column_spike_phase_is_identical_across_partitioning_and_threading`
+//! (README §12a item 6, resolved 2026-09-10). If this barrier is ever
+//! relaxed or removed in pursuit of §12a item 1's per-core throughput
+//! question, that test is the one to re-run first: phase drift across
+//! partitions is the risk item 6 originally anticipated, and it does not
+//! exist today only because this barrier stands.
+//!
 //! `on_delivery`'s plasticity call (stage 1) needs no such deferral: it
 //! only ever mutates the delivering synapse's own fields, never `neurons`,
 //! so it always runs immediately on the synapse's owning (source)
@@ -110,7 +131,9 @@
 use crate::arena::{NeuronArena, NeuronArenaViewMut};
 use crate::column::ColumnRegistry;
 use crate::neuron::NeuronDynamics;
-use crate::plasticity::NeuronLocal;
+use crate::plasticity::homeostatic::HomeostaticScaling;
+use crate::plasticity::structural::StructuralPlasticity;
+use crate::plasticity::{Modulators, NeuronLocal};
 use crate::scheduler::{CrossPartitionPostSpike, DeliveryEffect, Scheduler, StepReport};
 use crate::synapse::{SynapseArena, SynapseArenaViewMut};
 use std::collections::HashMap;
@@ -370,6 +393,25 @@ pub struct PartitionRuntime {
     /// of this tick, before stage 1.
     pending_post_spike: Vec<Vec<CrossPartitionPostSpike>>,
     executor: Executor,
+    /// `None` means homeostatic synaptic scaling (LRN-6) never runs (Phase 5
+    /// Requirement 9.2/9.6) -- pre-Phase-5 behaviour, still the default.
+    /// Deliberately **one** instance shared across every partition, not one
+    /// per `Scheduler`: unlike stage 1/3's per-tick pipeline, this mechanism
+    /// needs the *whole* arena (`HomeostaticScaling::maybe_apply` iterates
+    /// `0..neurons.capacity_len()`), which `step`'s `split_views_mut`
+    /// partition-scoped views cannot provide -- it runs after stage 3, once
+    /// those views' borrows of `neurons`/`synapses` have ended and the
+    /// caller-supplied whole arenas are addressable directly again, exactly
+    /// how `StructuralPlasticity::maybe_sweep_partitioned`'s own doc comment
+    /// already describes running "between `PartitionRuntime::step` calls".
+    homeostatic_scaling: Option<HomeostaticScaling>,
+    /// `None` means structural plasticity (LRN-7) never runs -- same
+    /// rationale, same one-shared-instance shape, as `homeostatic_scaling`
+    /// above. Uses `maybe_sweep_partitioned(..., |n| plan.partition_of(n))`
+    /// so cross-partition sprouts still get the correct minimum delay
+    /// (Requirement 4, Acceptance Criterion 2), exactly as the pre-existing
+    /// `maybe_sweep_partitioned` was built for in Phase 4 Step 19.
+    structural_plasticity: Option<StructuralPlasticity>,
 }
 
 impl PartitionRuntime {
@@ -383,7 +425,34 @@ impl PartitionRuntime {
         assert_eq!(plan.partition_count(), schedulers.len(), "one Scheduler per partition is required");
         let boundary_neurons = boundary_neurons(&plan, synapses, neuron_count);
         let pending_post_spike = (0..schedulers.len()).map(|_| Vec::new()).collect();
-        Self { plan, schedulers, boundary_table: BoundaryNeuronLocalTable::default(), boundary_neurons, pending_post_spike, executor: Executor::Sequential }
+        Self {
+            plan,
+            schedulers,
+            boundary_table: BoundaryNeuronLocalTable::default(),
+            boundary_neurons,
+            pending_post_spike,
+            executor: Executor::Sequential,
+            homeostatic_scaling: None,
+            structural_plasticity: None,
+        }
+    }
+
+    /// Enables homeostatic synaptic scaling (LRN-6) as an always-on, opt-in
+    /// part of `step()` (Phase 5 Requirement 9.2/9.6) -- see the field's own
+    /// doc comment for why this is one shared instance, not one per
+    /// partition. Without this call, `step()` never touches homeostasis at
+    /// all, unchanged from every pre-Phase-5 behaviour.
+    pub fn with_homeostatic_scaling(mut self, scaling: HomeostaticScaling) -> Self {
+        self.homeostatic_scaling = Some(scaling);
+        self
+    }
+
+    /// Enables structural plasticity (LRN-7) as an always-on, opt-in part of
+    /// `step()` (Phase 5 Requirement 9.2/9.6), the structural-plasticity
+    /// counterpart to [`Self::with_homeostatic_scaling`] above.
+    pub fn with_structural_plasticity(mut self, plasticity: StructuralPlasticity) -> Self {
+        self.structural_plasticity = Some(plasticity);
+        self
     }
 
     /// Opts into real parallel execution of stage 1 and stage 3 (RUN-4)
@@ -432,14 +501,56 @@ impl PartitionRuntime {
     }
 
     /// Injects a neuromodulator signal into partition `partition_id`'s own
-    /// field only -- this module does not yet share one neuromodulator
-    /// field across partitions (RUN-6's genuine cross-partition sharing is
-    /// wired once real threads exist, per this module's docs). A caller
-    /// wanting every partition to see the same signal (matching what a
-    /// single, shared field will do once wired) must call this once per
-    /// partition with the same arguments.
-    pub fn inject_modulator(&mut self, partition_id: usize, index: usize, amount: f32) {
+    /// field *only* -- each partition's `Scheduler` owns a private
+    /// `NeuromodulatorField` (RUN-6's genuine cross-partition sharing was
+    /// never actually wired, despite this module's docs once assuming it
+    /// would be "once real threads exist" -- real threads shipped in Step
+    /// 17 and this was never revisited until Phase 5 Requirement 15's
+    /// review found it). Kept, under this explicit name, for a genuinely
+    /// *regional* injection -- LRN-5 reserves a `region_id` for exactly
+    /// this kind of per-region broadcast. Every in-tree caller wanting
+    /// every partition to see the same signal should use
+    /// [`Self::inject_modulator`] below instead of hand-rolling the
+    /// per-partition loop this method used to force on every caller (both
+    /// of this crate's own test suites did, before Phase 5 Requirement
+    /// 15.3 fixed it).
+    pub fn inject_modulator_into_partition(&mut self, partition_id: usize, index: usize, amount: f32) {
         self.schedulers[partition_id].inject_modulator(index, amount);
+    }
+
+    /// Broadcasts a neuromodulator signal to *every* partition's field
+    /// (Phase 5 Requirement 15.2/15.3): the short, obvious name is
+    /// deliberately reserved for the behaviour most callers actually want
+    /// -- a gating circuit or a reward signal spanning several partitions
+    /// must see the same level everywhere, and silently reaching only one
+    /// partition (this method's pre-Phase-5 behaviour) is exactly the
+    /// class of bug that stays invisible until a multi-partition run
+    /// disagrees with a single-partition one. See
+    /// [`Self::inject_modulator_into_partition`] for the narrower,
+    /// explicitly regional form this delegates to.
+    pub fn inject_modulator(&mut self, index: usize, amount: f32) {
+        for p in 0..self.schedulers.len() {
+            self.inject_modulator_into_partition(p, index, amount);
+        }
+    }
+
+    /// Named reward entry point (LRN-11, Phase 5 Requirement 15.1), the
+    /// `PartitionRuntime` counterpart to [`Scheduler::reward`]: broadcasts
+    /// to the dopamine channel of every partition via [`Self::inject_modulator`].
+    pub fn reward(&mut self, amount: f32) {
+        self.inject_modulator(crate::plasticity::DOPAMINE, amount);
+    }
+
+    /// The neuromodulator field's levels as last computed on partition 0,
+    /// with no tick-advancing catch-up (Phase 5 Requirement 15.5). Reading
+    /// just one partition's field is correct, not an approximation: every
+    /// caller that reaches this type's fields at all does so only through
+    /// [`Self::inject_modulator`]'s broadcast (never
+    /// [`Self::inject_modulator_into_partition`] from outside this crate's
+    /// own tests), so every partition's field holds the identical value by
+    /// construction -- see [`Self::inject_modulator`]'s doc comment.
+    pub fn modulator_levels(&self) -> Modulators {
+        self.schedulers[0].modulator_levels()
     }
 
     fn local(neurons: &NeuronArenaViewMut, index: u32) -> NeuronLocal {
@@ -670,6 +781,25 @@ impl PartitionRuntime {
         for &idx in &self.boundary_neurons {
             let owner = self.plan.partition_of(idx);
             self.boundary_table.set(idx, Self::local(&neuron_views[owner], idx));
+        }
+
+        // Phase 5 Requirement 9.2/9.6: always-on homeostasis/structural
+        // plasticity, opt-in via with_homeostatic_scaling/
+        // with_structural_plasticity above. `neuron_views`/`synapse_views`
+        // are not referenced again after the boundary-table publish loop
+        // just above, so their borrows of `neurons`/`synapses` have ended by
+        // here -- the whole, unpartitioned arenas this field's doc comment
+        // explains these mechanisms need are addressable again. `report.tick`
+        // (any partition's -- they all advance in lockstep) is used rather
+        // than `self.tick()`, matching the convention `Scheduler::step`'s own
+        // equivalent hook and every existing hand-rolled test loop use.
+        let tick = reports[0].tick;
+        if let Some(scaling) = &mut self.homeostatic_scaling {
+            scaling.maybe_apply(neurons, synapses, tick);
+        }
+        if let Some(sp) = &mut self.structural_plasticity {
+            let plan = &self.plan;
+            sp.maybe_sweep_partitioned(neurons, synapses, tick, |n| plan.partition_of(n));
         }
 
         reports

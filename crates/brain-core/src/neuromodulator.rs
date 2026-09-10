@@ -77,6 +77,38 @@ impl NeuromodulatorField {
         self.catch_up(tick);
         self.levels
     }
+
+    /// The levels as last computed, with **no** catch-up (Phase 5
+    /// Requirement 15.5): a diagnostic readback -- "what did the network
+    /// actually see" -- must not itself perturb the lazy decay clock
+    /// `levels_at` depends on. `partition.rs`'s module docs already record
+    /// how easily an out-of-order query corrupts that clock (`levels_at`
+    /// assumes non-decreasing ticks); a caller wanting the *exact* current
+    /// level at a specific tick should use `levels_at`, accepting that it
+    /// advances the clock like any other query does.
+    pub fn levels_unchecked(&self) -> Modulators {
+        self.levels
+    }
+
+    /// The field's raw, genuinely evolving state -- current levels plus the
+    /// tick they were last touched at -- for `snapshot.rs` to serialise
+    /// (Phase 5 Requirement 15.6). Deliberately excludes `decay_per_tick`:
+    /// that is derived once from caller-supplied `tau_ticks` config, not
+    /// state, matching this module's own "configuration is supplied fresh
+    /// by the caller, not reconstructed from the snapshot" convention
+    /// (`snapshot.rs`'s module docs).
+    pub fn raw_state(&self) -> (Modulators, u32) {
+        (self.levels, self.last_updated_at)
+    }
+
+    /// Overlays snapshotted state onto a freshly-constructed field (built
+    /// with the *same* `tau_ticks` the snapshot's config hash was checked
+    /// against) -- the neuromodulator-field counterpart to
+    /// `Scheduler::restore_transient_state`.
+    pub fn restore_raw_state(&mut self, levels: Modulators, last_updated_at: u32) {
+        self.levels = levels;
+        self.last_updated_at = last_updated_at;
+    }
 }
 
 #[cfg(test)]
@@ -125,6 +157,30 @@ mod tests {
         let a = field.levels_at(100)[DOPAMINE];
         let b = field.levels_at(100)[DOPAMINE];
         assert_eq!(a, b, "reading at the same tick twice must not double-decay");
+    }
+
+    /// Phase 5 Requirement 15.5.
+    #[test]
+    fn levels_unchecked_reports_injected_level_without_needing_a_tick() {
+        let mut field = NeuromodulatorField::new([50.0; NUM_MODULATORS]);
+        field.inject(0, DOPAMINE, 1.0);
+        assert!((field.levels_unchecked()[DOPAMINE] - 1.0).abs() < 1e-6);
+    }
+
+    /// The whole reason `levels_unchecked` exists rather than just calling
+    /// `levels_at` for diagnostics: a read must not itself decay the field.
+    /// Proven by comparing two back-to-back reads to a `levels_at` call
+    /// sandwiched between them -- if `levels_unchecked` decayed anything,
+    /// the second `levels_unchecked` read would differ from the first.
+    #[test]
+    fn levels_unchecked_does_not_advance_the_decay_clock() {
+        let mut field = NeuromodulatorField::new([50.0; NUM_MODULATORS]);
+        field.inject(0, DOPAMINE, 1.0);
+        let first = field.levels_unchecked()[DOPAMINE];
+        let _ = field.levels_at(500); // a real, tick-advancing read elsewhere
+        let second = field.levels_unchecked()[DOPAMINE];
+        assert!((first - 1.0).abs() < 1e-6, "levels_unchecked before any levels_at call must report the un-decayed injected value");
+        assert!(second < first, "levels_unchecked after a levels_at(500) call must reflect that decay -- it reports current state, it just never causes decay itself");
     }
 
     #[test]

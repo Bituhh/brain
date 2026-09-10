@@ -72,6 +72,7 @@
 
 pub mod arena;
 pub mod column;
+pub mod consolidation;
 pub mod graph;
 pub mod growth;
 pub mod ids;

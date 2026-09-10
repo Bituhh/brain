@@ -27,7 +27,9 @@ use crate::arena::{NeuronArena, NeuronArenaViewMut};
 use crate::inhibition::FixedNeighbourhoods;
 use crate::neuromodulator::NeuromodulatorField;
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
+use crate::plasticity::homeostatic::HomeostaticScaling;
 use crate::plasticity::predictive::{PredictingSegmentTracker, PredictiveLearning, PredictiveLearningParams};
+use crate::plasticity::structural::StructuralPlasticity;
 use crate::plasticity::{LocalContext, Modulators, NeuronLocal, RuleChain, SynapseMut};
 use crate::segment::{BinaryCoincidence, SegmentConfig, SegmentModel, SegmentState, FEEDFORWARD_SEGMENT};
 use crate::synapse::{SynapseArena, SynapseArenaViewMut};
@@ -229,6 +231,23 @@ pub struct Scheduler {
     /// against the value that actually decided this tick's outcome, not a
     /// value already decayed by the time resolution happens.
     predictive_scratch: Vec<f32>,
+    /// `None` means homeostatic synaptic scaling (LRN-6) never runs inside
+    /// `step()` -- the pre-Phase-5 behaviour, and still the default. When
+    /// configured (Phase 5 Requirement 9.2/9.6), `step()` drives its
+    /// `maybe_apply` itself every tick, at whatever interval the instance
+    /// was constructed with; this is what makes "learning is always on"
+    /// (IO-4, invariant 7) true for a caller that only ever calls `step()`,
+    /// rather than something only a hand-rolled Rust test loop could
+    /// provide (see this module's -- and `homeostatic.rs`'s -- docs).
+    homeostatic_scaling: Option<HomeostaticScaling>,
+    /// `None` means structural plasticity (LRN-7) never runs inside
+    /// `step()` -- same rationale and default as `homeostatic_scaling`
+    /// above. Uses plain `maybe_sweep` (every neuron in the one partition
+    /// this `Scheduler` owns), matching `StructuralPlasticity::maybe_sweep`'s
+    /// own "every neuron treated as belonging to the same one partition"
+    /// framing -- `PartitionScheduler`'s equivalent field uses
+    /// `maybe_sweep_partitioned` instead (`partition.rs`).
+    structural_plasticity: Option<StructuralPlasticity>,
 }
 
 impl Scheduler {
@@ -256,6 +275,8 @@ impl Scheduler {
             predictive_learning: None,
             predicting_segment: PredictingSegmentTracker::new(),
             predictive_scratch: Vec::new(),
+            homeostatic_scaling: None,
+            structural_plasticity: None,
         }
     }
 
@@ -300,11 +321,51 @@ impl Scheduler {
         self.modulators.inject(self.tick, index, amount);
     }
 
+    /// Named reward entry point (LRN-11, Phase 5 Requirement 15.1): drives
+    /// the dopamine channel specifically, so "reward" has one spelling in
+    /// this codebase rather than every caller independently knowing to
+    /// pick `DOPAMINE` and a magnitude. Exactly
+    /// `self.inject_modulator(DOPAMINE, amount)` -- no neuron or
+    /// plasticity-rule code changes to accommodate it, per LRN-11's own
+    /// "with no change to neuron code" wording; `ThreeFactorStdp` already
+    /// reads whichever channel its `modulator_index` names.
+    pub fn reward(&mut self, amount: f32) {
+        self.inject_modulator(crate::plasticity::DOPAMINE, amount);
+    }
+
+    /// The neuromodulator field's levels as last computed, with no
+    /// tick-advancing catch-up (Phase 5 Requirement 15.5) -- see
+    /// [`NeuromodulatorField::levels_unchecked`].
+    pub fn modulator_levels(&self) -> Modulators {
+        self.modulators.levels_unchecked()
+    }
+
     /// Enables local inhibition (Requirement 7): threshold crossings are
     /// candidates, resolved into winners/losers by `neighbourhoods` each
     /// tick, rather than every crossing spiking unconditionally.
     pub fn with_inhibition(mut self, neighbourhoods: FixedNeighbourhoods) -> Self {
         self.inhibition = Some(neighbourhoods);
+        self
+    }
+
+    /// Enables homeostatic synaptic scaling (LRN-6) as an always-on, opt-in
+    /// part of `step()` (Phase 5 Requirement 9.2/9.6): `scaling.maybe_apply`
+    /// runs at the end of every tick, at whatever interval `scaling` was
+    /// constructed with. Without this call, `step()` never touches
+    /// homeostasis at all -- unchanged from every pre-Phase-5 behaviour, and
+    /// still the default a caller must opt into, not out of (Requirement
+    /// 9.6's "opt-in configuration... rather than an unconditional change").
+    pub fn with_homeostatic_scaling(mut self, scaling: HomeostaticScaling) -> Self {
+        self.homeostatic_scaling = Some(scaling);
+        self
+    }
+
+    /// Enables structural plasticity (LRN-7) as an always-on, opt-in part of
+    /// `step()` (Phase 5 Requirement 9.2/9.6), the structural-plasticity
+    /// counterpart to [`Self::with_homeostatic_scaling`] above -- same
+    /// opt-in default, same "unchanged unless configured" guarantee.
+    pub fn with_structural_plasticity(mut self, plasticity: StructuralPlasticity) -> Self {
+        self.structural_plasticity = Some(plasticity);
         self
     }
 
@@ -360,6 +421,103 @@ impl Scheduler {
         }
     }
 
+    /// The neuromodulator field's raw state (Phase 5 Requirement 15.6) --
+    /// see [`NeuromodulatorField::raw_state`].
+    pub fn modulator_raw_state(&self) -> (Modulators, u32) {
+        self.modulators.raw_state()
+    }
+
+    /// Overlays snapshotted neuromodulator state onto a freshly-constructed
+    /// `Scheduler` (built with `with_plasticity` under the *same*
+    /// `modulator_tau_ticks` the snapshot's config hash was checked
+    /// against) -- the neuromodulator-field counterpart to
+    /// `restore_transient_state` above. `with_plasticity` resets the field
+    /// to a fresh, zeroed one (it has to: constructing `NeuromodulatorField`
+    /// is how `modulator_tau_ticks` config takes effect), so this must be
+    /// called *after* `with_plasticity`, not before.
+    pub fn restore_modulator_state(&mut self, levels: Modulators, last_updated_at: u32) {
+        self.modulators.restore_raw_state(levels, last_updated_at);
+    }
+
+    /// Commits a spike for neuron `idx` at `tick`: sets its dynamics state
+    /// via `D::commit_spike`, credits the causal (pre-before-post)
+    /// STDP/three-factor direction across its incoming synapses
+    /// (Requirement 8's on_post_spike), and schedules its outgoing
+    /// deliveries (SYN-2's delay). This is the same sequence
+    /// `evaluate_and_resolve`'s winner-commit path performs for a real
+    /// winning candidate, used by `consolidation.rs`'s replay (Phase 5
+    /// Requirement 10.3): from `RuleChain`'s point of view a replayed spike
+    /// *is* the same kind of event a live one produces.
+    ///
+    /// **Deliberately a separate implementation, not a shared one**, and
+    /// that trade-off is recorded here rather than left implicit:
+    /// `evaluate_and_resolve` must keep operating generically on
+    /// partition-scoped *views* (including under real threading,
+    /// `partition.rs`), which this method's whole-arena approach does not
+    /// support, and refactoring that hot, golden-raster-regression-tested
+    /// path just to share ~20 lines with a replay-only feature was judged
+    /// not worth the correctness risk. Any future change to how
+    /// on_post_spike credits a winner must be mirrored here by hand.
+    ///
+    /// Also deliberately does **not** touch predictive-learning
+    /// classification (`self.predictive_learning`): that needs the
+    /// `predictive`/segment-evaluation context real integration produces
+    /// (`predictive_before`, `PredictingSegmentTracker`), which a replayed
+    /// event -- no dendritic segment evaluation runs during replay -- has
+    /// no well-defined value for. Predictive learning stays fully active
+    /// for *live* spikes going through the real per-tick path; only its
+    /// involvement in *replayed* ones is out of this method's scope.
+    ///
+    /// Sets `self.tick = tick` first: `schedule_delivery` below computes
+    /// its ring bucket from `self.tick`, not from a parameter, so a
+    /// replayed event's deliveries must be scheduled relative to *its own*
+    /// (advancing) virtual tick, not whatever tick this scheduler was
+    /// already at (Requirement 12.2's "advance the tick counter for every
+    /// tick of replay").
+    pub(crate) fn commit_and_schedule<D: NeuronDynamics>(
+        &mut self,
+        neurons: &mut NeuronArena,
+        synapses: &mut SynapseArena,
+        params: &D::Params,
+        idx: u32,
+        tick: u32,
+    ) {
+        self.tick = tick;
+        let mut neuron_view = neurons.whole_view_mut();
+        let mut synapse_view = synapses.whole_view_mut();
+        let i = idx as usize;
+
+        let state = NeuronStateMut {
+            membrane: &mut neuron_view.membrane[i],
+            refractory_until: &mut neuron_view.refractory[i],
+            last_spike: &mut neuron_view.last_spike[i],
+            predictive: &mut neuron_view.predictive[i],
+            threshold: neuron_view.threshold[i],
+        };
+        D::commit_spike(state, params, tick);
+
+        if let Some(rules) = &self.plasticity {
+            self.incoming_scratch.clear();
+            self.incoming_scratch.extend(synapse_view.incoming(idx));
+            let post_local = neuron_local(&neuron_view, idx);
+            let modulators = self.modulators.levels_at(tick);
+            for &synapse_id in &self.incoming_scratch {
+                let source_index = synapse_view.source_of(synapse_id);
+                let ctx = LocalContext { pre: neuron_local(&neuron_view, source_index), post: post_local, modulators, tick };
+                rules.on_post_spike(synapse_mut(&mut synapse_view, synapse_id), &ctx);
+            }
+        }
+
+        let occupied: Vec<u32> = synapse_view.occupied_in_block(idx).collect();
+        for synapse_id in occupied {
+            if synapse_view.permanence[synapse_id as usize] < self.connection_threshold {
+                continue;
+            }
+            let delay = synapse_view.delay[synapse_id as usize];
+            self.schedule_delivery(delay, synapse_id);
+        }
+    }
+
     fn ensure_input_capacity(&mut self, len: usize) {
         if self.input_accum.len() < len {
             self.input_accum.resize(len, 0.0);
@@ -380,6 +538,15 @@ impl Scheduler {
         let ring_len = self.ring.len();
         let bucket = (self.tick as usize + delay as usize) % ring_len;
         self.ring[bucket].push(synapse_id);
+    }
+
+    /// Advances the tick counter directly, with no other side effect
+    /// (Phase 5 Requirement 12.2): `consolidation.rs`'s `run_consolidation`
+    /// uses this to move past the span of ticks its replay just covered,
+    /// once `commit_and_schedule` has already left `self.tick` at the last
+    /// replayed event's own tick.
+    pub(crate) fn set_tick(&mut self, tick: u32) {
+        self.tick = tick;
     }
 
     /// Applies one delivery's non-plasticity effect (Requirement 10's
@@ -608,6 +775,26 @@ impl Scheduler {
         self.apply_delivery_effects(neuron_view.capacity_len(), &effects);
         let (report, post_spike_outbox) = self.evaluate_and_resolve::<D>(&mut neuron_view, &mut synapse_view, params, |_| false);
         debug_assert!(post_spike_outbox.is_empty(), "an always-local is_remote_source must never produce a cross-partition message");
+
+        // Phase 5 Requirement 9.2/9.6: always-on homeostasis/structural
+        // plasticity, opt-in via with_homeostatic_scaling/
+        // with_structural_plasticity above. `neuron_view`/`synapse_view`'s
+        // borrows of `neurons`/`synapses` have already ended (their last use
+        // was the `evaluate_and_resolve` call above), so the concrete arenas
+        // are free to use directly here -- both mechanisms operate on whole
+        // arenas (`neurons.capacity_len()`-driven sweeps), not on views.
+        // `report.tick` (the tick just processed, before `evaluate_and_
+        // resolve`'s own `self.tick += 1`) is used rather than `self.tick`,
+        // matching the convention every existing hand-rolled test loop
+        // already uses when driving `maybe_apply`/`maybe_sweep` alongside
+        // `step()` (e.g. `tests/homeostasis.rs`'s `run` function).
+        if let Some(scaling) = &mut self.homeostatic_scaling {
+            scaling.maybe_apply(neurons, synapses, report.tick);
+        }
+        if let Some(sp) = &mut self.structural_plasticity {
+            sp.maybe_sweep(neurons, synapses, report.tick);
+        }
+
         report
     }
 
@@ -832,9 +1019,102 @@ mod tests {
     use super::*;
     use crate::arena::{NeuronArena, NeuronSpec};
     use crate::neuron::{Lif, LifParams};
+    use crate::plasticity::structural::StructuralPlasticityParams;
 
     fn make_neuron(arena: &mut NeuronArena, threshold: f32, polarity: i8) -> u32 {
         arena.allocate(NeuronSpec { threshold, polarity, coords: [0.0, 0.0, 0.0] }).index
+    }
+
+    // -- Phase 5 Requirement 9.2/9.6: always-on homeostasis/structural
+    // plasticity, opt-in on `Scheduler` itself.
+
+    #[test]
+    fn configured_homeostatic_scaling_runs_automatically_inside_step() {
+        let mut neurons = NeuronArena::new();
+        let a = make_neuron(&mut neurons, 100.0, 1); // threshold never reached -- no spikes to interact with
+        let b = make_neuron(&mut neurons, 100.0, 1);
+        let target = make_neuron(&mut neurons, 100.0, 1);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        synapses.insert(a, target, 0, 1, 0.8).unwrap();
+        synapses.insert(b, target, 0, 1, 0.8).unwrap();
+        // incoming total = 1.6; target 0.5 -> scaling should shrink both toward it.
+
+        let params = LifParams::new(5.0, 0.0, 0.0, 1);
+        let mut sched = Scheduler::new(2, 0.2).with_homeostatic_scaling(HomeostaticScaling::new(0.5, 1));
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // tick 0: gate not yet due (0 < 0+1)
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // tick 1: gate due (1 < 0+1 is false) -> fires
+
+        let incoming: Vec<u32> = synapses.incoming(target).collect();
+        let total: f32 = incoming.iter().map(|&id| synapses.permanence[id as usize]).sum();
+        assert!((total - 0.5).abs() < 1e-4, "homeostatic scaling must run automatically inside step() with no caller-driven maybe_apply call, got total {total}");
+    }
+
+    #[test]
+    fn configured_structural_plasticity_runs_automatically_inside_step() {
+        let mut neurons = NeuronArena::new();
+        let a = make_neuron(&mut neurons, 100.0, 1);
+        let target = make_neuron(&mut neurons, 100.0, 1);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        let weak = synapses.insert(a, target, 0, 1, 0.02).unwrap(); // below prune_floor below
+
+        let params = LifParams::new(5.0, 0.0, 0.0, 1);
+        let sp_params = StructuralPlasticityParams {
+            prune_floor: 0.05,
+            sprout_permanence: 0.1,
+            min_activity_streak: 3,
+            sweep_interval_ticks: 1,
+            unused_ticks_before_reclaim: 1000,
+            min_cross_partition_delay: 2,
+        };
+        let mut sched = Scheduler::new(2, 0.2).with_structural_plasticity(StructuralPlasticity::new(sp_params, FixedNeighbourhoods::new(10, 1)));
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // tick 0: gate not yet due
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // tick 1: gate due -> fires
+
+        assert!(!synapses.is_occupied(weak), "structural plasticity must prune automatically inside step() with no caller-driven maybe_sweep call");
+    }
+
+    // -- Phase 5 Requirement 15.1/15.5: `reward` and `modulator_levels`.
+
+    #[test]
+    fn reward_drives_the_dopamine_channel_specifically() {
+        let mut sched = Scheduler::new(2, 0.2).with_plasticity(make_plasticity(crate::plasticity::DOPAMINE), [1000.0; crate::plasticity::NUM_MODULATORS]);
+        sched.reward(2.5);
+        let levels = sched.modulator_levels();
+        assert!((levels[crate::plasticity::DOPAMINE] - 2.5).abs() < 1e-6);
+        for (i, &level) in levels.iter().enumerate() {
+            if i != crate::plasticity::DOPAMINE {
+                assert_eq!(level, 0.0, "reward must touch only the dopamine channel, channel {i} got {level}");
+            }
+        }
+    }
+
+    #[test]
+    fn modulator_levels_does_not_advance_the_decay_clock() {
+        let mut sched = Scheduler::new(2, 0.2).with_plasticity(make_plasticity(crate::plasticity::DOPAMINE), [50.0; crate::plasticity::NUM_MODULATORS]);
+        sched.reward(1.0);
+        let first = sched.modulator_levels()[crate::plasticity::DOPAMINE];
+        let second = sched.modulator_levels()[crate::plasticity::DOPAMINE];
+        assert_eq!(first, second, "reading modulator_levels twice with no intervening tick/injection must be stable");
+    }
+
+    #[test]
+    fn leaving_homeostasis_and_structural_plasticity_unconfigured_leaves_step_unaffected() {
+        let mut neurons = NeuronArena::new();
+        let a = make_neuron(&mut neurons, 100.0, 1);
+        let target = make_neuron(&mut neurons, 100.0, 1);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        let id = synapses.insert(a, target, 0, 1, 0.02).unwrap(); // would be pruned/rescaled if either mechanism ran
+
+        let params = LifParams::new(5.0, 0.0, 0.0, 1);
+        let mut sched = Scheduler::new(2, 0.2); // neither with_homeostatic_scaling nor with_structural_plasticity called
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+
+        assert!(synapses.is_occupied(id));
+        assert_eq!(synapses.permanence[id as usize], 0.02, "unconfigured Scheduler must leave permanence exactly as before, matching every pre-Phase-5 caller");
     }
 
     #[test]

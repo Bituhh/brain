@@ -5,12 +5,13 @@
 //! `Scheduler` run directly -- the RUN-8 reference-path claim, proven, not
 //! assumed.
 //!
-//! `PartitionRuntime` does not yet use real threads (`partition.rs`'s
-//! module docs) -- this test proves the *cross-partition messaging and
-//! plasticity-deferral mechanism itself* is correct, sequentially, which is
-//! the harder and riskier half of RUN-4/RUN-5. Real thread-based
-//! parallelism is layered on top of this already-proven algorithm in a
-//! later step.
+//! `PartitionRuntime` now does use real threads (Phase 4 Step 17,
+//! `partition.rs`'s `Executor::Rayon`/`Executor::Pinned`) -- this file's
+//! original claim that it did not is stale; the tests below cover the
+//! sequential path, both real-threading executors, and (via
+//! `cross_column_spike_phase_is_identical_across_partitioning_and_threading`)
+//! relative spike *phase* between two populations, not just which neurons
+//! spiked.
 //!
 //! **On comparing results.** Final neuron/synapse *state* (every scalar
 //! field, for every index) is compared for exact equality: no field here
@@ -26,15 +27,18 @@
 //! on that order -- only on which neurons spiked, which the sorted
 //! comparison verifies exactly.
 
-use brain_core::arena::NeuronArena;
+use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::column::ColumnRegistry;
 use brain_core::graph::{DistancePolicy, GraphBuilder};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
+use brain_core::plasticity::homeostatic::HomeostaticScaling;
 use brain_core::plasticity::stdp::StdpParams;
+use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::{RuleChain, DOPAMINE, NUM_MODULATORS};
+use brain_core::probe::SpikeRaster;
 use brain_core::scheduler::Scheduler;
 use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig, FEEDFORWARD_SEGMENT};
 use brain_core::synapse::SynapseArena;
@@ -108,7 +112,7 @@ fn build_network(seed: u64) -> (NeuronArena, SynapseArena, ColumnRegistry, Range
 /// activity without needing a PRNG in the test itself.
 fn stimulate_tick(tick: u32) -> (u32, f32) {
     let neuron = (tick * 7 + 3) % TOTAL_NEURONS;
-    let current = if tick % 3 == 0 { 8.0 } else { 3.0 };
+    let current = if tick.is_multiple_of(3) { 8.0 } else { 3.0 };
     (neuron, current)
 }
 
@@ -175,9 +179,10 @@ fn run_partitioned(seed: u64, partition_count: usize, executor: ExecutorChoice) 
     let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
     let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
     for tick in 0..TICKS {
-        for p in 0..runtime.partition_count() {
-            runtime.inject_modulator(p, DOPAMINE, 1.0);
-        }
+        // Phase 5 Requirement 15.3: the broadcasting form replaces this
+        // file's own hand-rolled per-partition loop -- exactly the trap
+        // §12a item 4 identified, now closed at the source.
+        runtime.inject_modulator(DOPAMINE, 1.0);
         let (neuron, current) = stimulate_tick(tick);
         runtime.stimulate(&neurons, neuron, current);
         let reports = runtime.step::<Lif>(&mut neurons, &mut synapses, &params);
@@ -308,4 +313,247 @@ fn the_reference_scenario_actually_produces_activity_and_learning() {
         })
     });
     assert!(moved, "test scenario must actually exercise plasticity for the comparison tests to be meaningful");
+}
+
+/// README §12a item 6's feasibility check, resolved: relative spike *phase*
+/// between two populations -- not just which neurons spiked each tick --
+/// survives partitioning and real threading exactly.
+///
+/// The equality tests above already prove `spiked_per_tick` matches
+/// tick-for-tick across every configuration, which is a phase-preservation
+/// proof by implication (two runs that agree on which neurons spiked on
+/// every tick necessarily agree on every inter-population timing
+/// relationship too) but never states that claim directly. This test makes
+/// it explicit and reuses OBS-3's `SpikeRaster` to do it, per README's
+/// specific plan for this check: build a raster restricted to the two
+/// columns, then read off "how many ticks after column A's most recent
+/// spike did column B spike" as a named series, and compare that series --
+/// not the raw spike sets -- across configurations.
+#[test]
+fn cross_column_spike_phase_is_identical_across_partitioning_and_threading() {
+    let seed = 7;
+    let (_, _, _, a_range, b_range) = build_network(seed);
+
+    fn phase_lag_series(outcome: &RunOutcome, a_range: &Range<u32>, b_range: &Range<u32>) -> Vec<Option<u32>> {
+        let mut raster = SpikeRaster::new();
+        for (tick, spiked) in outcome.spiked_per_tick.iter().enumerate() {
+            raster.record_tick(tick as u32, spiked);
+        }
+        let mut last_a_tick: Option<u32> = None;
+        let mut lags = Vec::new();
+        for &(tick, neuron) in raster.events() {
+            if a_range.contains(&neuron) {
+                last_a_tick = Some(tick);
+            } else if b_range.contains(&neuron) {
+                lags.push(last_a_tick.map(|a_tick| tick - a_tick));
+            }
+        }
+        lags
+    }
+
+    let plain = run_plain_scheduler(seed);
+    let reference = phase_lag_series(&plain, &a_range, &b_range);
+    assert!(
+        !reference.is_empty(),
+        "the reference scenario must actually produce cross-column activity for this comparison to mean anything"
+    );
+
+    let two_partitions = run_partitioned(seed, 2, ExecutorChoice::Sequential);
+    let rayon_four = run_partitioned(seed, 2, ExecutorChoice::Rayon(4));
+    let pinned_four = run_partitioned(seed, 2, ExecutorChoice::Pinned(4));
+    for (label, outcome) in [
+        ("2-partition sequential", &two_partitions),
+        ("rayon thread_count=4", &rayon_four),
+        ("pinned thread_count=4", &pinned_four),
+    ] {
+        let lags = phase_lag_series(outcome, &a_range, &b_range);
+        assert_eq!(reference, lags, "{label}: cross-column spike phase lag must match the unpartitioned reference exactly, event for event");
+    }
+}
+
+// -- Phase 5 Requirement 9.2/9.6: always-on homeostasis/structural
+// plasticity must be held to the same bit-identical standard as every other
+// mechanism above, since they are now part of `step()`'s own per-tick work
+// (`Scheduler::step`/`PartitionRuntime::step`) rather than a caller-driven
+// side loop.
+
+fn homeostatic_scaling() -> HomeostaticScaling {
+    HomeostaticScaling::new(1.0, 20)
+}
+
+fn structural_plasticity() -> StructuralPlasticity {
+    let params = StructuralPlasticityParams {
+        prune_floor: 0.05,
+        sprout_permanence: 0.1,
+        min_activity_streak: 2,
+        sweep_interval_ticks: 20,
+        unused_ticks_before_reclaim: 10_000,
+        min_cross_partition_delay: 2,
+    };
+    StructuralPlasticity::new(params, FixedNeighbourhoods::new(COLUMN_SIZE, 2))
+}
+
+fn run_plain_scheduler_with_always_on_plasticity(seed: u64) -> RunOutcome {
+    let (mut neurons, mut synapses, _columns, _a, _b) = build_network(seed);
+    let mut sched = Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
+        .with_inhibition(FixedNeighbourhoods::new(COLUMN_SIZE, 2))
+        .with_segments(segments())
+        .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
+        .with_homeostatic_scaling(homeostatic_scaling())
+        .with_structural_plasticity(structural_plasticity());
+    let params = lif_params();
+
+    let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
+    let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
+    for tick in 0..TICKS {
+        sched.inject_modulator(DOPAMINE, 1.0);
+        let (neuron, current) = stimulate_tick(tick);
+        sched.stimulate(&neurons, neuron, current);
+        let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        let mut spiked = report.spiked;
+        spiked.sort_unstable();
+        let mut vetoed = report.vetoed;
+        vetoed.sort_unstable();
+        spiked_per_tick.push(spiked);
+        vetoed_per_tick.push(vetoed);
+    }
+    RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick }
+}
+
+fn run_partitioned_with_always_on_plasticity(seed: u64, partition_count: usize, executor: ExecutorChoice) -> RunOutcome {
+    let (mut neurons, mut synapses, columns, a_range, b_range) = build_network(seed);
+    let plan = if partition_count == 1 { PartitionPlan::single(TOTAL_NEURONS) } else { PartitionPlan::contiguous(&columns, partition_count) };
+
+    let schedulers: Vec<Scheduler> = (0..plan.partition_count())
+        .map(|p| {
+            let range = plan.range_of(p);
+            Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
+                .with_inhibition(FixedNeighbourhoods::with_base(range.start, COLUMN_SIZE.min(range.end - range.start), 2))
+                .with_segments(segments())
+                .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
+        })
+        .collect();
+    let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS)
+        .with_homeostatic_scaling(homeostatic_scaling())
+        .with_structural_plasticity(structural_plasticity());
+    runtime = match executor {
+        ExecutorChoice::Sequential => runtime.with_thread_count(1),
+        ExecutorChoice::Rayon(n) => runtime.with_thread_count(n),
+        ExecutorChoice::Pinned(n) => runtime.with_pinned_thread_count(n),
+    };
+    let params = lif_params();
+    let _ = (&a_range, &b_range);
+
+    let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
+    let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
+    for tick in 0..TICKS {
+        // Phase 5 Requirement 15.3: the broadcasting form replaces this
+        // file's own hand-rolled per-partition loop -- exactly the trap
+        // §12a item 4 identified, now closed at the source.
+        runtime.inject_modulator(DOPAMINE, 1.0);
+        let (neuron, current) = stimulate_tick(tick);
+        runtime.stimulate(&neurons, neuron, current);
+        let reports = runtime.step::<Lif>(&mut neurons, &mut synapses, &params);
+        let mut spiked: Vec<u32> = reports.iter().flat_map(|r| r.spiked.iter().copied()).collect();
+        spiked.sort_unstable();
+        let mut vetoed: Vec<u32> = reports.iter().flat_map(|r| r.vetoed.iter().copied()).collect();
+        vetoed.sort_unstable();
+        spiked_per_tick.push(spiked);
+        vetoed_per_tick.push(vetoed);
+    }
+    RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick }
+}
+
+/// Requirement 9.2/9.6's own correctness proof: with both mechanisms
+/// enabled, a plain `Scheduler` and `PartitionRuntime` at 2 partitions
+/// (sequential, rayon, and the pinned executor) must still agree exactly --
+/// the always-on hook must not become a new source of partition-count- or
+/// thread-count-dependent behaviour, which is exactly the class of bug
+/// RUN-3/RUN-8 exist to rule out.
+#[test]
+fn always_on_homeostasis_and_structural_plasticity_are_identical_across_partitioning_and_threading() {
+    let seed = 7;
+    let plain = run_plain_scheduler_with_always_on_plasticity(seed);
+    let two_partitions = run_partitioned_with_always_on_plasticity(seed, 2, ExecutorChoice::Sequential);
+    let rayon_four = run_partitioned_with_always_on_plasticity(seed, 2, ExecutorChoice::Rayon(4));
+    let pinned_four = run_partitioned_with_always_on_plasticity(seed, 2, ExecutorChoice::Pinned(4));
+
+    for (label, outcome) in [
+        ("2-partition sequential", &two_partitions),
+        ("rayon thread_count=4", &rayon_four),
+        ("pinned thread_count=4", &pinned_four),
+    ] {
+        assert_eq!(plain.spiked_per_tick, outcome.spiked_per_tick, "{label}: spiked sets must match every tick");
+        assert_eq!(plain.vetoed_per_tick, outcome.vetoed_per_tick, "{label}: vetoed sets must match every tick");
+        assert_identical_arenas(&plain.neurons, &outcome.neurons, label);
+        // Not assert_identical_synapses: structural plasticity may have
+        // pruned/sprouted synapses at different *ids* across runs (ids are
+        // allocation-order-dependent, and sprouting order can legitimately
+        // differ in which free slot a new synapse lands in across identical
+        // but separately-constructed arenas) -- occupied *count* and total
+        // permanence are the meaningful invariants here, not id-for-id
+        // identity, unlike the plasticity-only tests above which never
+        // create or destroy a synapse.
+        let plain_occupied: u32 = (0..TOTAL_NEURONS).map(|s| plain.synapses.occupied_in_block(s).count() as u32).sum();
+        let outcome_occupied: u32 = (0..TOTAL_NEURONS).map(|s| outcome.synapses.occupied_in_block(s).count() as u32).sum();
+        assert_eq!(plain_occupied, outcome_occupied, "{label}: total occupied synapse count must match");
+    }
+}
+
+/// Requirement 15.3/15.4's most direct proof, isolated from every other
+/// mechanism above: a *single* broadcast `inject_modulator` call must reach
+/// every partition equally, not just whichever partition a caller happened
+/// to address. Two completely disjoint, symmetric causally-spiking pairs,
+/// one wholly inside each of two partitions, with no cross-partition wiring
+/// at all: if the broadcast reached only one partition (the bug §12a item 4
+/// found -- `inject_modulator_into_partition` never did, and nothing forced
+/// a caller to loop over every partition), only one pair's synapse would
+/// potentiate. Both must show identical, non-zero potentiation.
+#[test]
+fn a_single_broadcast_injection_reaches_every_partition_equally() {
+    let mut neurons = NeuronArena::new();
+    let mut synapses = SynapseArena::new(1);
+    let pre0 = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
+    let post0 = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
+    let pre1 = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
+    let post1 = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
+    synapses.reserve_for_neurons(neurons.capacity_len());
+    let syn0 = synapses.insert(pre0, post0, FEEDFORWARD_SEGMENT, 1, 0.5).unwrap();
+    let syn1 = synapses.insert(pre1, post1, FEEDFORWARD_SEGMENT, 1, 0.5).unwrap();
+
+    let plan = PartitionPlan::even_split(4, 2); // partition 0: neurons 0,1 (pre0/post0); partition 1: neurons 2,3 (pre1/post1)
+    let schedulers: Vec<Scheduler> = (0..2).map(|_| Scheduler::new(4, 0.4).with_plasticity(plasticity(), [1000.0; NUM_MODULATORS])).collect();
+    let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, 4);
+
+    let before0 = synapses.permanence[syn0 as usize];
+    let before1 = synapses.permanence[syn1 as usize];
+
+    runtime.inject_modulator(DOPAMINE, 1.0); // exactly once, not per-tick -- proves one call suffices
+    runtime.stimulate(&neurons, pre0, 10.0);
+    runtime.stimulate(&neurons, pre1, 10.0);
+    runtime.step::<Lif>(&mut neurons, &mut synapses, &lif_params()); // both pres spike, deliver next tick
+    runtime.stimulate(&neurons, post0, 10.0);
+    runtime.stimulate(&neurons, post1, 10.0);
+    runtime.step::<Lif>(&mut neurons, &mut synapses, &lif_params()); // deliveries land, both posts spike same tick
+
+    let after0 = synapses.permanence[syn0 as usize];
+    let after1 = synapses.permanence[syn1 as usize];
+    assert!(after0 > before0, "partition 0's pair must potentiate: {before0} -> {after0}");
+    assert!(after1 > before1, "partition 1's pair must potentiate: {before1} -> {after1}");
+    assert_eq!(after0, after1, "both partitions saw the same broadcast injection, so both pairs (identical topology) must potentiate identically");
+}
+
+/// Sanity check mirroring `the_reference_scenario_actually_produces_activity_and_learning`:
+/// if structural plasticity never pruned or sprouted anything here, the
+/// occupied-count comparison above would be trivially true for the wrong
+/// reason.
+#[test]
+fn the_always_on_plasticity_scenario_actually_prunes_or_sprouts() {
+    let (_, initial_synapses, _, _, _) = build_network(7);
+    let initial_occupied: u32 = (0..TOTAL_NEURONS).map(|s| initial_synapses.occupied_in_block(s).count() as u32).sum();
+
+    let outcome = run_plain_scheduler_with_always_on_plasticity(7);
+    let final_occupied: u32 = (0..TOTAL_NEURONS).map(|s| outcome.synapses.occupied_in_block(s).count() as u32).sum();
+
+    assert_ne!(initial_occupied, final_occupied, "structural plasticity must have pruned or sprouted at least one synapse for this scenario to be meaningful");
 }

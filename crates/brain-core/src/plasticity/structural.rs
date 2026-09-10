@@ -195,6 +195,27 @@ impl StructuralPlasticity {
         if tick < self.last_swept_at + self.params.sweep_interval_ticks {
             return None;
         }
+        Some(self.force_sweep(neurons, synapses, tick, partition_of))
+    }
+
+    /// Runs pruning, sprouting, and unused-neuron reclamation unconditionally,
+    /// ignoring `sweep_interval_ticks`/`last_swept_at` entirely --
+    /// consolidation's aggressive pruning pass (LRN-10, Phase 5 Requirement
+    /// 11.2) needs this same logic, usually at a stricter `prune_floor` than
+    /// the online sweep uses, run on its own caller-invoked schedule. Unlike
+    /// [`HomeostaticScaling::force_apply`], this *does* still update
+    /// `last_swept_at` and the activity streaks: `since_tick` is a genuine
+    /// input to the sweep's own math (`update_activity_streaks`), not merely
+    /// a scheduling gate, so a forced sweep is a real sweep whose bookkeeping
+    /// the next *online* call must build on, not a side query that leaves no
+    /// trace.
+    pub fn force_sweep(
+        &mut self,
+        neurons: &mut NeuronArena,
+        synapses: &mut SynapseArena,
+        tick: u32,
+        partition_of: impl Fn(u32) -> usize,
+    ) -> StructuralSweepReport {
         let since_tick = self.last_swept_at;
         self.update_activity_streaks(neurons, since_tick);
         self.last_swept_at = tick;
@@ -204,7 +225,7 @@ impl StructuralPlasticity {
         let sprouted = self.sprout(synapses, neuron_count, &partition_of);
         let reclaimed_neurons = self.reclaim_unused_neurons(neurons, tick);
 
-        Some(StructuralSweepReport { pruned, sprouted, reclaimed_neurons })
+        StructuralSweepReport { pruned, sprouted, reclaimed_neurons }
     }
 }
 
@@ -261,6 +282,43 @@ mod tests {
         synapses.reserve_for_neurons(2);
         let mut sp = StructuralPlasticity::new(default_params(), FixedNeighbourhoods::new(10, 1));
         assert!(sp.maybe_sweep(&mut neurons, &mut synapses, 50).is_none());
+    }
+
+    /// Phase 5 Requirement 11.2: consolidation's aggressive pruning pass
+    /// calls `force_sweep` directly, and it must prune/sprout/reclaim
+    /// regardless of how much time has elapsed since construction.
+    #[test]
+    fn force_sweep_runs_regardless_of_the_interval() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let weak = synapses.insert(0, 1, 0, 1, 0.05).unwrap();
+        let strong = synapses.insert(0, 1, 0, 1, 0.5).unwrap();
+
+        let params = StructuralPlasticityParams { sweep_interval_ticks: 1_000_000, ..default_params() };
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
+        let report = sp.force_sweep(&mut neurons, &mut synapses, 10, |_| 0);
+        assert_eq!(report.pruned, 1, "force_sweep must prune even though the interval never elapsed");
+        assert!(!synapses.is_occupied(weak));
+        assert!(synapses.is_occupied(strong));
+    }
+
+    /// Unlike `HomeostaticScaling::force_apply`, `force_sweep` *does* update
+    /// `last_swept_at` -- `since_tick` is an input to its own math
+    /// (`update_activity_streaks`), not merely a scheduling gate, so the
+    /// next *online* `maybe_sweep`/`maybe_sweep_partitioned` call must
+    /// measure activity from the forced sweep's tick forward, not
+    /// re-measure a window that has already been consumed.
+    #[test]
+    fn force_sweep_advances_last_swept_at_so_the_online_gate_respects_it() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let params = StructuralPlasticityParams { sweep_interval_ticks: 100, ..default_params() };
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
+        sp.force_sweep(&mut neurons, &mut synapses, 10, |_| 0);
+        assert!(sp.maybe_sweep(&mut neurons, &mut synapses, 109).is_none(), "gate must still be closed: only 99 ticks since the forced sweep");
+        assert!(sp.maybe_sweep(&mut neurons, &mut synapses, 110).is_some(), "gate must open exactly 100 ticks after the forced sweep's tick");
     }
 
     #[test]

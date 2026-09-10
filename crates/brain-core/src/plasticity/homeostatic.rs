@@ -46,10 +46,22 @@ impl HomeostaticScaling {
             return false;
         }
         self.last_applied_at = tick;
+        self.force_apply(neurons, synapses);
+        true
+    }
+
+    /// Applies the rescale sweep to every neuron unconditionally, ignoring
+    /// `interval_ticks`/`last_applied_at` entirely -- consolidation's
+    /// downscaling pass (LRN-10, Phase 5 Requirement 11.1) needs exactly
+    /// this same math, usually at a different target, run on its own
+    /// caller-invoked schedule rather than the online interval. Takes no
+    /// `tick` because the rescale computation itself has no use for one --
+    /// `last_applied_at` is purely `maybe_apply`'s scheduling gate, not an
+    /// input to the math, so a forced call has nothing to record here.
+    pub fn force_apply(&mut self, neurons: &NeuronArena, synapses: &mut SynapseArena) {
         for idx in 0..neurons.capacity_len() as u32 {
             self.rescale_one(synapses, idx);
         }
-        true
     }
 
     fn rescale_one(&mut self, synapses: &mut SynapseArena, target: u32) {
@@ -164,6 +176,35 @@ mod tests {
         let (neurons, mut synapses, _target) = two_neurons_three_synapses();
         let mut scaling = HomeostaticScaling::new(1.0, 1000);
         assert!(!scaling.maybe_apply(&neurons, &mut synapses, 500));
+    }
+
+    /// Phase 5 Requirement 11.1: consolidation's downscaling pass calls
+    /// `force_apply` directly, and it must rescale regardless of how much
+    /// (or how little) time has elapsed since construction.
+    #[test]
+    fn force_apply_rescales_regardless_of_the_interval() {
+        let (neurons, mut synapses, target) = two_neurons_three_synapses();
+        let mut scaling = HomeostaticScaling::new(1.5, 1_000_000); // interval never due
+        scaling.force_apply(&neurons, &mut synapses);
+
+        let incoming: Vec<u32> = synapses.incoming(target).collect();
+        let new_total: f32 = incoming.iter().map(|&id| synapses.permanence[id as usize]).sum();
+        assert!((new_total - 1.5).abs() < 1e-4, "force_apply must rescale toward target even though the interval never elapsed, got {new_total}");
+    }
+
+    /// `force_apply` takes no tick and must not touch `last_applied_at` --
+    /// it is not a scheduling operation, only the rescale math. Verified by
+    /// checking `maybe_apply`'s gate still opens at exactly its original
+    /// `interval_ticks` after several `force_apply` calls in between, not
+    /// later (which would mean `last_applied_at` had crept forward).
+    #[test]
+    fn force_apply_does_not_disturb_maybe_apply_s_scheduling() {
+        let (neurons, mut synapses, _target) = two_neurons_three_synapses();
+        let mut scaling = HomeostaticScaling::new(1.5, 1000);
+        scaling.force_apply(&neurons, &mut synapses);
+        scaling.force_apply(&neurons, &mut synapses);
+        assert!(!scaling.maybe_apply(&neurons, &mut synapses, 999), "gate must still be closed one tick early");
+        assert!(scaling.maybe_apply(&neurons, &mut synapses, 1000), "gate must open at exactly the original interval, unaffected by any force_apply call");
     }
 
     #[test]

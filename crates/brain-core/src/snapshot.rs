@@ -49,17 +49,33 @@
 use crate::arena::NeuronArena;
 use crate::column::{ColumnRegistry, ColumnSpec};
 use crate::inhibition::FixedNeighbourhoods;
+use crate::plasticity::{Modulators, NUM_MODULATORS};
 use crate::scheduler::Scheduler;
 use crate::segment::{BinaryCoincidenceParams, SegmentConfig};
 use crate::synapse::SynapseArena;
 
 const MAGIC: [u8; 6] = *b"BRAIN\0";
+/// Bumped 2 -> 3 in Phase 5 to add a neuromodulator-field-state section
+/// (Requirement 15.6). **This closes a real, pre-existing gap, not just an
+/// addition**: Requirement 16.1 (Phase 0-3) already claimed "neuromodulator
+/// levels" were part of "the complete simulation state" this format
+/// captures, but no version of this module ever actually serialised them --
+/// `restore()` always overlaid a freshly-zeroed field (`with_plasticity`
+/// constructs one), silently discarding whatever the field held at
+/// snapshot time. Found while wiring Phase 5's reward API readback
+/// (`modulator_levels()`), which made the gap observable for the first
+/// time. Per this module's own stated philosophy (levels are *evolving
+/// state*, decay time constants are *configuration* supplied fresh by the
+/// caller, same split as every other section here), only the levels and
+/// the tick they were last touched at are new payload; `modulator_tau_ticks`
+/// stays a caller-supplied config value, unchanged.
+///
 /// Bumped 1 -> 2 in Phase 4 Step 21 to add a column-registry section
 /// (Requirement 9). `README.md`'s design.md deferred exactly this --
 /// schema migration, partial loading, compatibility guarantees -- from
 /// Phase 0-3 to Phase 4; the round-trip mechanism itself (this module) was
 /// already in scope then and is unchanged in its v1 shape.
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 /// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
 /// concrete and falsifiable: `read` migrates any snapshot from this
 /// version through `FORMAT_VERSION`. Widen this only alongside an actual
@@ -391,6 +407,30 @@ fn read_columns(r: &mut Reader<'_>) -> Result<ColumnRegistry, SnapshotError> {
     Ok(registry)
 }
 
+/// New in format version 3 (Phase 5 Requirement 15.6): the neuromodulator
+/// field's current levels plus the tick they were last touched at -- the
+/// genuinely evolving half of `NeuromodulatorField`'s state (its decay time
+/// constants stay caller-supplied configuration, per this module's own
+/// convention). Absent entirely from a version-1 or -2 payload; `read`'s
+/// version dispatch supplies zeroed levels for those instead of calling
+/// this, matching what every pre-Phase-5 `restore()` silently did anyway
+/// (see `FORMAT_VERSION`'s doc comment).
+fn write_modulator_state(w: &mut Writer, levels: Modulators, last_updated_at: u32) {
+    for level in levels {
+        w.f32(level);
+    }
+    w.u32(last_updated_at);
+}
+
+fn read_modulator_state(r: &mut Reader<'_>) -> Result<(Modulators, u32), SnapshotError> {
+    let mut levels = [0.0f32; NUM_MODULATORS];
+    for level in &mut levels {
+        *level = r.f32()?;
+    }
+    let last_updated_at = r.u32()?;
+    Ok((levels, last_updated_at))
+}
+
 /// Serialises `neurons` + `synapses` + `scheduler`'s transient state
 /// (Requirement 16.1) plus `columns` (Requirement 9, new in format version
 /// 2) into a versioned binary buffer (Requirement 16.7), tagged with a
@@ -426,6 +466,9 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
 
     write_columns(&mut w, columns);
 
+    let (modulator_levels, modulator_last_updated_at) = scheduler.modulator_raw_state();
+    write_modulator_state(&mut w, modulator_levels, modulator_last_updated_at);
+
     w.buf
 }
 
@@ -442,6 +485,13 @@ pub struct Restored {
     pub ring: Vec<Vec<u32>>,
     pub dirty_members: Vec<u32>,
     pub columns: ColumnRegistry,
+    /// New in format version 3 (Phase 5 Requirement 15.6). Zeroed when
+    /// restoring a version-1 or -2 snapshot (no modulator section exists to
+    /// read) -- apply via `Scheduler::restore_modulator_state` *after*
+    /// `with_plasticity`, which otherwise resets the field to exactly these
+    /// same zeroed defaults anyway.
+    pub modulator_levels: Modulators,
+    pub modulator_last_updated_at: u32,
 }
 
 /// Restores a snapshot written by [`write`]. `expected_config_hash` must
@@ -500,7 +550,13 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
     // Acceptance Criterion 6: the only sound migration is "no columns".
     let columns = if header.version >= 2 { read_columns(&mut r)? } else { ColumnRegistry::new() };
 
-    Ok(Restored { neurons, synapses, tick, ring, dirty_members, columns })
+    // Format versions 1 and 2 have no modulator-state section -- the only
+    // sound migration is "zeroed, exactly like a fresh NeuromodulatorField"
+    // (Phase 5 Requirement 15.6), which is what every pre-Phase-5 restore()
+    // silently produced anyway.
+    let (modulator_levels, modulator_last_updated_at) = if header.version >= 3 { read_modulator_state(&mut r)? } else { ([0.0; NUM_MODULATORS], 0) };
+
+    Ok(Restored { neurons, synapses, tick, ring, dirty_members, columns, modulator_levels, modulator_last_updated_at })
 }
 
 #[cfg(test)]
@@ -627,6 +683,70 @@ mod tests {
         assert_eq!(restored.neurons.resolve(a), Err(crate::arena::ArenaError::StaleId), "the pre-free id must still read as stale after restore");
         assert_eq!(restored.neurons.resolve(reused), Ok(0));
         assert_eq!(restored.neurons.threshold[0], 2.0);
+    }
+
+    /// Phase 5 Requirement 15.6: the neuromodulator field's level and decay
+    /// clock must round-trip exactly, including partial decay -- the gap
+    /// this format version closes (see `FORMAT_VERSION`'s doc comment).
+    #[test]
+    fn round_trips_neuromodulator_state_including_partial_decay() {
+        let (mut neurons, mut synapses, mut scheduler) = sample_network();
+        scheduler.inject_modulator(crate::plasticity::DOPAMINE, 2.0);
+        // Advance the field's decay clock without a fresh injection, so a
+        // restore that merely re-injected the same amount at tick 0 (rather
+        // than genuinely restoring `last_updated_at`) would be caught: its
+        // levels would differ from the original's already-partially-decayed
+        // ones.
+        let params = LifParams::new(5.0, 0.0, 0.0, 1);
+        for _ in 0..7 {
+            scheduler.step::<Lif>(&mut neurons, &mut synapses, &params);
+        }
+        let before = scheduler.modulator_raw_state();
+
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), neurons.capacity_len() as u32, 1);
+        let restored = read(&bytes, 1).unwrap();
+
+        assert_eq!(restored.modulator_levels, before.0, "levels must round-trip exactly");
+        assert_eq!(restored.modulator_last_updated_at, before.1, "the decay clock's last-touched tick must round-trip exactly");
+    }
+
+    /// A version-1 or -2 payload has no modulator section -- restoring one
+    /// must yield exactly the zeroed defaults a fresh `NeuromodulatorField`
+    /// starts at, matching what every pre-Phase-5 `restore()` silently
+    /// produced.
+    #[test]
+    fn a_pre_phase_5_snapshot_migrates_to_zeroed_modulator_state() {
+        let (neurons, synapses, scheduler) = sample_network();
+        // Hand-construct a version-2 payload (no modulator section) by
+        // truncating what write() would have produced up through the
+        // column section -- mirroring the golden-fixture-free style
+        // `an_empty_column_registry_round_trips_to_an_empty_one` already
+        // uses one level down (version 1 has no column section either).
+        let mut w = Writer::new();
+        w.bytes(&MAGIC);
+        w.u32(2);
+        w.u64(1);
+        w.u32(scheduler.tick());
+        write_neurons(&mut w, &neurons);
+        write_synapses(&mut w, &synapses, neurons.capacity_len() as u32);
+        let ring = scheduler.ring_contents();
+        w.u32(ring.len() as u32);
+        for bucket in ring {
+            w.u32(bucket.len() as u32);
+            for &id in bucket {
+                w.u32(id);
+            }
+        }
+        let dirty = scheduler.dirty_members();
+        w.u32(dirty.len() as u32);
+        for id in dirty {
+            w.u32(id);
+        }
+        write_columns(&mut w, &ColumnRegistry::new());
+
+        let restored = read(&w.buf, 1).unwrap();
+        assert_eq!(restored.modulator_levels, [0.0; NUM_MODULATORS]);
+        assert_eq!(restored.modulator_last_updated_at, 0);
     }
 
     #[test]
