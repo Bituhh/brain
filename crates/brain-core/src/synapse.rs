@@ -16,6 +16,8 @@
 //! that needs it to test delivery). Population from connectivity policies
 //! -- deciding *which* synapses to create -- is `graph.rs`'s job (Step 5).
 
+use crate::offset_slice::OffsetSlice;
+
 /// Source-major synapse storage (SYN-1).
 pub struct SynapseArena {
     pub target_neuron: Vec<u32>,
@@ -232,6 +234,207 @@ impl SynapseArena {
             .flatten()
             .copied()
             .filter(move |&id| self.occupied[id as usize])
+    }
+
+    /// Splits this arena's fields into `neuron_ranges.len()` disjoint,
+    /// mutable [`SynapseArenaViewMut`]s (RUN-4), one per partition.
+    /// `neuron_ranges` must be exactly the same contiguous, gapless,
+    /// from-0 ranges [`crate::arena::NeuronArena::split_views_mut`] was
+    /// given -- since storage is source-major with a fixed
+    /// `cap_per_neuron`, a neuron range maps directly to a synapse-id
+    /// range (`range.start * cap_per_neuron .. range.end *
+    /// cap_per_neuron`) with no gaps or overlaps of its own to compute.
+    /// `target_index`, unlike every other field here, is indexed by
+    /// *target neuron*, not synapse id, so it is split along
+    /// `neuron_ranges` directly rather than the derived synapse-id ranges.
+    pub fn split_views_mut(&mut self, neuron_ranges: &[std::ops::Range<u32>]) -> Vec<SynapseArenaViewMut<'_>> {
+        let cap = self.cap_per_neuron;
+        let mut target_neuron_rest = self.target_neuron.as_mut_slice();
+        let mut target_segment_rest = self.target_segment.as_mut_slice();
+        let mut permanence_rest = self.permanence.as_mut_slice();
+        let mut delay_rest = self.delay.as_mut_slice();
+        let mut eligibility_rest = self.eligibility.as_mut_slice();
+        let mut last_active_rest = self.last_active.as_mut_slice();
+        let mut eligibility_updated_at_rest = self.eligibility_updated_at.as_mut_slice();
+        let mut occupied_rest = self.occupied.as_mut_slice();
+        let mut target_index_rest = self.target_index.as_mut_slice();
+
+        let mut views = Vec::with_capacity(neuron_ranges.len());
+        let mut consumed = 0u32;
+        for neuron_range in neuron_ranges {
+            assert_eq!(neuron_range.start, consumed, "split_views_mut requires contiguous, gapless ranges starting at 0");
+            let synapse_len = (neuron_range.end - neuron_range.start) as usize * cap as usize;
+            let synapse_base = neuron_range.start as usize * cap as usize;
+            let neuron_len = (neuron_range.end - neuron_range.start) as usize;
+            let neuron_base = neuron_range.start as usize;
+
+            let (target_neuron, rest) = target_neuron_rest.split_at_mut(synapse_len);
+            target_neuron_rest = rest;
+            let (target_segment, rest) = target_segment_rest.split_at_mut(synapse_len);
+            target_segment_rest = rest;
+            let (permanence, rest) = permanence_rest.split_at_mut(synapse_len);
+            permanence_rest = rest;
+            let (delay, rest) = delay_rest.split_at_mut(synapse_len);
+            delay_rest = rest;
+            let (eligibility, rest) = eligibility_rest.split_at_mut(synapse_len);
+            eligibility_rest = rest;
+            let (last_active, rest) = last_active_rest.split_at_mut(synapse_len);
+            last_active_rest = rest;
+            let (eligibility_updated_at, rest) = eligibility_updated_at_rest.split_at_mut(synapse_len);
+            eligibility_updated_at_rest = rest;
+            let (occupied, rest) = occupied_rest.split_at_mut(synapse_len);
+            occupied_rest = rest;
+            let (target_index, rest) = target_index_rest.split_at_mut(neuron_len);
+            target_index_rest = rest;
+
+            views.push(SynapseArenaViewMut {
+                cap_per_neuron: cap,
+                target_neuron: OffsetSlice::new(synapse_base, target_neuron),
+                target_segment: OffsetSlice::new(synapse_base, target_segment),
+                permanence: OffsetSlice::new(synapse_base, permanence),
+                delay: OffsetSlice::new(synapse_base, delay),
+                eligibility: OffsetSlice::new(synapse_base, eligibility),
+                last_active: OffsetSlice::new(synapse_base, last_active),
+                eligibility_updated_at: OffsetSlice::new(synapse_base, eligibility_updated_at),
+                occupied: OffsetSlice::new(synapse_base, occupied),
+                target_index: OffsetSlice::new(neuron_base, target_index),
+            });
+            consumed = neuron_range.end;
+        }
+        views
+    }
+
+    /// A single view covering the whole arena (`base = 0`) -- the
+    /// non-partitioned case (`Scheduler::step`'s reference path, RUN-8).
+    pub fn whole_view_mut(&mut self) -> SynapseArenaViewMut<'_> {
+        SynapseArenaViewMut {
+            cap_per_neuron: self.cap_per_neuron,
+            target_neuron: OffsetSlice::whole(&mut self.target_neuron),
+            target_segment: OffsetSlice::whole(&mut self.target_segment),
+            permanence: OffsetSlice::whole(&mut self.permanence),
+            delay: OffsetSlice::whole(&mut self.delay),
+            eligibility: OffsetSlice::whole(&mut self.eligibility),
+            last_active: OffsetSlice::whole(&mut self.last_active),
+            eligibility_updated_at: OffsetSlice::whole(&mut self.eligibility_updated_at),
+            occupied: OffsetSlice::whole(&mut self.occupied),
+            target_index: OffsetSlice::whole(&mut self.target_index),
+        }
+    }
+}
+
+/// A partition's exclusive, disjoint `&mut` view into a contiguous
+/// sub-range of a shared [`SynapseArena`] (RUN-4), obtained via
+/// [`SynapseArena::split_views_mut`] or [`SynapseArena::whole_view_mut`].
+/// Mirrors [`crate::arena::NeuronArenaViewMut`]'s "existing global-index
+/// call sites need no change" design -- see `offset_slice.rs`.
+pub struct SynapseArenaViewMut<'a> {
+    cap_per_neuron: u32,
+    pub target_neuron: OffsetSlice<'a, u32>,
+    pub target_segment: OffsetSlice<'a, u32>,
+    pub permanence: OffsetSlice<'a, f32>,
+    pub delay: OffsetSlice<'a, u16>,
+    pub eligibility: OffsetSlice<'a, f32>,
+    pub last_active: OffsetSlice<'a, u32>,
+    pub eligibility_updated_at: OffsetSlice<'a, u32>,
+    occupied: OffsetSlice<'a, bool>,
+    /// Indexed by *target neuron*, not synapse id -- see
+    /// [`SynapseArena::split_views_mut`]'s doc comment.
+    target_index: OffsetSlice<'a, Vec<u32>>,
+}
+
+impl<'a> SynapseArenaViewMut<'a> {
+    pub fn cap_per_neuron(&self) -> u32 {
+        self.cap_per_neuron
+    }
+
+    pub fn is_occupied(&self, synapse_id: u32) -> bool {
+        let i = synapse_id as usize;
+        self.occupied.range().contains(&i) && self.occupied[i]
+    }
+
+    pub fn source_of(&self, synapse_id: u32) -> u32 {
+        synapse_id / self.cap_per_neuron
+    }
+
+    fn block_range(&self, source_index: u32) -> std::ops::Range<usize> {
+        let start = source_index as usize * self.cap_per_neuron as usize;
+        start..start + self.cap_per_neuron as usize
+    }
+
+    /// As [`SynapseArena::occupied_in_block`] -- `source_index` must
+    /// belong to this view's own range (always true: a partition only ever
+    /// scans its own spiking neurons' outgoing blocks).
+    pub fn occupied_in_block(&self, source_index: u32) -> impl Iterator<Item = u32> + '_ {
+        let range = self.block_range(source_index);
+        range.filter(move |&slot| self.occupied[slot]).map(|slot| slot as u32)
+    }
+
+    /// As [`SynapseArena::incoming`], with one deliberate relaxation: a
+    /// returned id whose synapse data falls *outside* this view's own
+    /// range (i.e. a cross-partition incoming synapse) cannot have its
+    /// `occupied` flag checked from here at all, so it is passed through
+    /// unfiltered rather than assumed live or dead. Whether such a synapse
+    /// was removed by structural plasticity mid-run is exactly the
+    /// partition-aware structural-plasticity question a later step answers
+    /// (see the implementation plan) -- this view type does not attempt it.
+    /// `target` must belong to this view's own neuron range (always true:
+    /// a partition only ever evaluates its own committed spikes).
+    pub fn incoming(&self, target: u32) -> impl Iterator<Item = u32> + '_ {
+        self.target_index[target as usize].iter().copied().filter(move |&id| {
+            let i = id as usize;
+            !self.occupied.range().contains(&i) || self.occupied[i]
+        })
+    }
+
+    /// Whether `source_index`'s entire synapse block falls within this
+    /// view's own range -- i.e. whether this view can legally call
+    /// [`Self::insert`]/[`Self::occupied_in_block`] for it at all. `false`
+    /// for a neuron owned by another partition, which a caller (e.g.
+    /// predictive learning's burst-sprout, reaching across a k-WTA
+    /// neighbourhood that happens to span a partition boundary) must treat
+    /// as "not a candidate here", not an error.
+    pub fn owns_source(&self, source_index: u32) -> bool {
+        let range = self.block_range(source_index);
+        self.occupied.range().start <= range.start && range.end <= self.occupied.range().end
+    }
+
+    /// Whether `neuron` belongs to this view's own range -- the
+    /// [`Self::target_index`]-indexed counterpart of [`Self::owns_source`].
+    pub fn owns_neuron(&self, neuron: u32) -> bool {
+        self.target_index.range().contains(&(neuron as usize))
+    }
+
+    /// As [`SynapseArena::insert`], scanning only within `source_index`'s
+    /// own (already-reserved-at-construction-time) block for a free slot --
+    /// never grows any array, so this is sound to call on a view whose
+    /// slices cannot resize. `source_index` must satisfy
+    /// [`Self::owns_source`] and `target_neuron` must satisfy
+    /// [`Self::owns_neuron`] (both always true for the call sites in this
+    /// crate today, which only ever sprout within a single partition's own
+    /// k-WTA neighbourhood) -- violating either is a caller error
+    /// (`debug_assert`), since a cross-partition sprout is exactly the
+    /// structural-plasticity-under-partitioning question a later step
+    /// answers, not silently miscompiled data.
+    pub fn insert(&mut self, source_index: u32, target_neuron: u32, target_segment: u32, delay: u16, permanence: f32) -> Result<u32, SynapseError> {
+        debug_assert!(delay >= 1, "axonal delay must be at least one tick (SYN-2)");
+        debug_assert!(self.owns_source(source_index), "insert on a SynapseArenaViewMut requires the source to belong to this view's own range");
+        debug_assert!(self.owns_neuron(target_neuron), "insert on a SynapseArenaViewMut requires the target to belong to this view's own range");
+        let range = self.block_range(source_index);
+        for slot in range {
+            if !self.occupied[slot] {
+                self.occupied[slot] = true;
+                self.target_neuron[slot] = target_neuron;
+                self.target_segment[slot] = target_segment;
+                self.permanence[slot] = permanence;
+                self.delay[slot] = delay;
+                self.eligibility[slot] = 0.0;
+                self.last_active[slot] = u32::MAX;
+                self.eligibility_updated_at[slot] = u32::MAX;
+                self.target_index[target_neuron as usize].push(slot as u32);
+                return Ok(slot as u32);
+            }
+        }
+        Err(SynapseError::BlockFull)
     }
 }
 

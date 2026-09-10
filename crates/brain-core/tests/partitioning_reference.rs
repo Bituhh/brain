@@ -144,7 +144,7 @@ fn run_plain_scheduler(seed: u64) -> RunOutcome {
     RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick }
 }
 
-fn run_partitioned(seed: u64, partition_count: usize) -> RunOutcome {
+fn run_partitioned(seed: u64, partition_count: usize, thread_count: usize) -> RunOutcome {
     let (mut neurons, mut synapses, columns, a_range, b_range) = build_network(seed);
     let plan = if partition_count == 1 { PartitionPlan::single(TOTAL_NEURONS) } else { PartitionPlan::contiguous(&columns, partition_count) };
 
@@ -157,7 +157,7 @@ fn run_partitioned(seed: u64, partition_count: usize) -> RunOutcome {
                 .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
         })
         .collect();
-    let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS);
+    let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS).with_thread_count(thread_count);
     let params = lif_params();
     let _ = (&a_range, &b_range); // ranges only needed by build_network's cross-wiring above
 
@@ -213,7 +213,7 @@ fn assert_identical_synapses(a: &SynapseArena, b: &SynapseArena, neuron_count: u
 fn one_partition_matches_plain_scheduler_exactly() {
     let seed = 7;
     let plain = run_plain_scheduler(seed);
-    let single_partition = run_partitioned(seed, 1);
+    let single_partition = run_partitioned(seed, 1, 1);
 
     assert_eq!(plain.spiked_per_tick, single_partition.spiked_per_tick, "spiked sets must match every tick");
     assert_eq!(plain.vetoed_per_tick, single_partition.vetoed_per_tick, "vetoed sets must match every tick");
@@ -226,17 +226,39 @@ fn one_partition_matches_plain_scheduler_exactly() {
 /// (Requirement 4/5), cross-partition dendritic/segment delivery, and both
 /// directions of cross-partition plasticity (`on_delivery` deferred via the
 /// boundary table, `on_post_spike` deferred by one tick) -- must produce
-/// results indistinguishable from the unpartitioned reference.
+/// results indistinguishable from the unpartitioned reference. Sequential
+/// (`thread_count = 1`, RUN-8's reference path) here; real threading is
+/// the next test.
 #[test]
 fn two_partitions_match_the_unpartitioned_reference() {
     let seed = 7;
     let plain = run_plain_scheduler(seed);
-    let two_partitions = run_partitioned(seed, 2);
+    let two_partitions = run_partitioned(seed, 2, 1);
 
     assert_eq!(plain.spiked_per_tick, two_partitions.spiked_per_tick, "spiked sets must match every tick, partitioned or not");
     assert_eq!(plain.vetoed_per_tick, two_partitions.vetoed_per_tick, "vetoed sets must match every tick, partitioned or not");
     assert_identical_arenas(&plain.neurons, &two_partitions.neurons, "2-partition vs plain");
     assert_identical_synapses(&plain.synapses, &two_partitions.synapses, TOTAL_NEURONS, "2-partition vs plain");
+}
+
+/// Requirement 8, Acceptance Criterion 1: the same seed/topology/input run
+/// at different *thread counts* (not just different partition counts) must
+/// be bit-identical -- real rayon-managed threads now, not the sequential
+/// stand-in the tests above use. `thread_count` deliberately exceeds
+/// `partition_count` in one case (4 threads, 2 partitions) to confirm idle
+/// worker threads change nothing.
+#[test]
+fn real_threading_matches_the_sequential_reference_at_every_thread_count() {
+    let seed = 7;
+    let sequential = run_partitioned(seed, 2, 1);
+    for &thread_count in &[2usize, 4] {
+        let threaded = run_partitioned(seed, 2, thread_count);
+        let label = format!("thread_count={thread_count} vs sequential");
+        assert_eq!(sequential.spiked_per_tick, threaded.spiked_per_tick, "{label}: spiked sets must match every tick");
+        assert_eq!(sequential.vetoed_per_tick, threaded.vetoed_per_tick, "{label}: vetoed sets must match every tick");
+        assert_identical_arenas(&sequential.neurons, &threaded.neurons, &label);
+        assert_identical_synapses(&sequential.synapses, &threaded.synapses, TOTAL_NEURONS, &label);
+    }
 }
 
 /// A sanity check that this scenario actually exercises the mechanism

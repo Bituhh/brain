@@ -23,21 +23,21 @@
 //! Requirement 7.5's ablation path, not a special case the scheduler
 //! treats differently.
 
-use crate::arena::NeuronArena;
+use crate::arena::{NeuronArena, NeuronArenaViewMut};
 use crate::inhibition::FixedNeighbourhoods;
 use crate::neuromodulator::NeuromodulatorField;
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
 use crate::plasticity::predictive::{PredictingSegmentTracker, PredictiveLearning, PredictiveLearningParams};
 use crate::plasticity::{LocalContext, Modulators, NeuronLocal, RuleChain, SynapseMut};
 use crate::segment::{BinaryCoincidence, SegmentConfig, SegmentModel, SegmentState, FEEDFORWARD_SEGMENT};
-use crate::synapse::SynapseArena;
+use crate::synapse::{SynapseArena, SynapseArenaViewMut};
 
-fn neuron_local(neurons: &NeuronArena, idx: u32) -> NeuronLocal {
+fn neuron_local(neurons: &NeuronArenaViewMut, idx: u32) -> NeuronLocal {
     let i = idx as usize;
     NeuronLocal { last_spike: neurons.last_spike[i], trace: neurons.trace[i], rate_estimate: neurons.rate_estimate[i] }
 }
 
-fn synapse_mut(synapses: &mut SynapseArena, id: u32) -> SynapseMut<'_> {
+fn synapse_mut<'a>(synapses: &'a mut SynapseArenaViewMut<'_>, id: u32) -> SynapseMut<'a> {
     let i = id as usize;
     SynapseMut {
         permanence: &mut synapses.permanence[i],
@@ -445,8 +445,8 @@ impl Scheduler {
     /// (step 3) has decided anything.
     pub fn deliver<R: Fn(u32) -> Option<NeuronLocal>>(
         &mut self,
-        neurons: &NeuronArena,
-        synapses: &mut SynapseArena,
+        neurons: &NeuronArenaViewMut,
+        synapses: &mut SynapseArenaViewMut,
         remote_post: R,
     ) -> Vec<DeliveryEffect> {
         let mut effects = Vec::new();
@@ -497,15 +497,27 @@ impl Scheduler {
     /// Applies delivery effects (see [`Self::deliver`]) to this scheduler's
     /// own state, in exactly the order given -- **the caller is
     /// responsible for the canonical sort** (Requirement 8, Acceptance
-    /// Criterion 3: `effects.sort_unstable_by_key(|e| (e.source_index,
-    /// e.synapse_id))` before calling this, whether `effects` came from
-    /// this same scheduler's own `deliver` call (`step`'s case) or from
-    /// several partitions' combined output (`partition::PartitionRuntime`'s
-    /// merge phase) -- so that a target's `input_accum` is always summed in
+    /// Criterion 3: `effects.sort_by_key(|e| (e.source_index,
+    /// e.synapse_id))` -- stable, so a rare duplicate key, e.g. the same
+    /// synapse scheduled twice into one tick, still resolves in a fixed,
+    /// input-order-derived way rather than an unspecified one -- before
+    /// calling this, whether `effects` came from this same scheduler's own
+    /// `deliver` call (`step`'s case) or from several partitions' combined
+    /// output (`partition::PartitionRuntime`'s merge phase) -- so that a
+    /// target's `input_accum` is always summed in
     /// the same order regardless of how many partitions exist or which one
     /// happened to own which contribution.
-    pub fn apply_delivery_effects(&mut self, neurons: &NeuronArena, effects: &[DeliveryEffect]) {
-        self.ensure_input_capacity(neurons.capacity_len());
+    ///
+    /// `total_neuron_count` sizes this scheduler's own `input_accum`
+    /// scratch buffer -- the *whole* network's neuron count (matching what
+    /// `NeuronArena::capacity_len`/`NeuronArenaViewMut::capacity_len`
+    /// already report regardless of partitioning), not this scheduler's own
+    /// range length, since `input_accum` is addressed by global index.
+    /// Taking a plain count rather than a view here means this method
+    /// needs no arena access at all -- it only ever touches this
+    /// scheduler's own private scratch state.
+    pub fn apply_delivery_effects(&mut self, total_neuron_count: usize, effects: &[DeliveryEffect]) {
+        self.ensure_input_capacity(total_neuron_count);
         for e in effects {
             self.apply_local_effect(e.target_index, e.target_segment, e.signed_current);
         }
@@ -529,7 +541,7 @@ impl Scheduler {
     /// cross-partition freshness for `ctx.pre` is the one documented,
     /// narrow case this deferred-by-one-tick delivery does not cover
     /// exactly (see `partition.rs`'s module docs).
-    pub fn apply_remote_post_spikes(&mut self, neurons: &NeuronArena, synapses: &mut SynapseArena, messages: &[CrossPartitionPostSpike]) {
+    pub fn apply_remote_post_spikes(&mut self, neurons: &NeuronArenaViewMut, synapses: &mut SynapseArenaViewMut, messages: &[CrossPartitionPostSpike]) {
         let Some(rules) = &self.plasticity else { return };
         for msg in messages {
             let source_index = synapses.source_of(msg.synapse_id);
@@ -577,16 +589,24 @@ impl Scheduler {
         synapses: &mut SynapseArena,
         params: &D::Params,
     ) -> StepReport {
-        self.ensure_input_capacity(neurons.capacity_len());
-        let mut effects = self.deliver(neurons, synapses, |_| None);
+        // `whole_view_mut` (base = 0, covering every index) is what makes
+        // `deliver`/`evaluate_and_resolve`'s view-typed signatures a
+        // zero-behavior-change wrapper for the non-partitioned case: every
+        // indexing expression they contain already used a global index, and
+        // a whole-array view's `Index` impl is that same global index minus
+        // a base of zero.
+        let mut neuron_view = neurons.whole_view_mut();
+        let mut synapse_view = synapses.whole_view_mut();
+        self.ensure_input_capacity(neuron_view.capacity_len());
+        let mut effects = self.deliver(&neuron_view, &mut synapse_view, |_| None);
         // Requirement 8, Acceptance Criterion 3: the same canonical sort a
         // partitioned runtime's merge phase applies across several
         // schedulers' combined effects (`partition.rs`) -- a single
         // scheduler's own effects take the same path so the two cases
         // share one accumulation order by construction, not coincidence.
-        effects.sort_unstable_by_key(|e| (e.source_index, e.synapse_id));
-        self.apply_delivery_effects(neurons, &effects);
-        let (report, post_spike_outbox) = self.evaluate_and_resolve::<D>(neurons, synapses, params, |_| false);
+        effects.sort_by_key(|e| (e.source_index, e.synapse_id));
+        self.apply_delivery_effects(neuron_view.capacity_len(), &effects);
+        let (report, post_spike_outbox) = self.evaluate_and_resolve::<D>(&mut neuron_view, &mut synapse_view, params, |_| false);
         debug_assert!(post_spike_outbox.is_empty(), "an always-local is_remote_source must never produce a cross-partition message");
         report
     }
@@ -600,8 +620,8 @@ impl Scheduler {
     /// of mutating it directly, since this partition does not own it.
     pub fn evaluate_and_resolve<D: NeuronDynamics>(
         &mut self,
-        neurons: &mut NeuronArena,
-        synapses: &mut SynapseArena,
+        neurons: &mut NeuronArenaViewMut,
+        synapses: &mut SynapseArenaViewMut,
         params: &D::Params,
         is_remote_source: impl Fn(u32) -> bool,
     ) -> (StepReport, Vec<CrossPartitionPostSpike>) {

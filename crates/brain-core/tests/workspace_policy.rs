@@ -15,16 +15,40 @@ const RUST_TOOLCHAIN_TOML: &str = include_str!("../../../rust-toolchain.toml");
 /// on `napi`, or on `wasm-bindgen`) and half of Requirement 1.4 (dev-only
 /// tooling is exempt from the runtime-dependency justification rule):
 /// checked directly against the manifest text rather than via `cargo
-/// tree` (which would need this test to shell out to cargo itself) --
-/// brain-core's zero-dependency claim is precisely that no
-/// `[dependencies]` table exists at all, only `[dev-dependencies]`.
+/// tree` (which would need this test to shell out to cargo itself).
+///
+/// `rayon` is the one runtime dependency this crate is allowed: README
+/// ENG-6 names it explicitly ("the Rust core should need approximately
+/// `rayon` and nothing else"), and Phase 4's RUN-4 partitioned parallelism
+/// (`partition.rs`) is exactly the anticipated use. This test's job is
+/// narrower than "no `[dependencies]` table exists" now -- it is "the
+/// table, if present, names *only* `rayon`", so any *other* runtime
+/// dependency added later without updating this test (and its own
+/// justification, per ENG-6's "any proposed runtime dependency requires
+/// explicit justification") still fails loudly on the next `cargo test`.
 #[test]
-fn brain_core_manifest_has_no_dependencies_table() {
-    assert!(
-        !BRAIN_CORE_CARGO_TOML.contains("\n[dependencies]"),
-        "brain-core must carry zero runtime dependencies (ENG-5, ENG-6, Requirement 1.2) -- \
-         found a [dependencies] table in its Cargo.toml"
-    );
+fn brain_core_manifest_carries_no_runtime_dependency_beyond_rayon() {
+    if let Some(deps_start) = BRAIN_CORE_CARGO_TOML.find("\n[dependencies]") {
+        let after = &BRAIN_CORE_CARGO_TOML[deps_start + 1..];
+        let section_end = after[1..].find("\n[").map(|i| i + 1).unwrap_or(after.len());
+        let section = &after[..section_end];
+        let dep_lines: Vec<&str> = section
+            .lines()
+            .skip(1) // the "[dependencies]" header line itself
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .collect();
+        assert_eq!(
+            dep_lines.len(),
+            1,
+            "brain-core's [dependencies] table must name exactly one crate (rayon, ENG-6) -- found: {dep_lines:?}"
+        );
+        assert!(
+            dep_lines[0].starts_with("rayon"),
+            "brain-core's only runtime dependency must be rayon (ENG-6) -- found: {}",
+            dep_lines[0]
+        );
+    }
     assert!(
         !BRAIN_CORE_CARGO_TOML.to_lowercase().contains("napi") && !BRAIN_CORE_CARGO_TOML.to_lowercase().contains("wasm-bindgen"),
         "brain-core must not depend on a binding crate (Requirement 1.2)"

@@ -37,9 +37,9 @@
 //! matching how `predictive` itself is aggregated by `max` rather than by
 //! tracking every contributing segment.
 
-use crate::arena::NeuronArena;
+use crate::arena::NeuronArenaViewMut;
 use crate::inhibition::FixedNeighbourhoods;
-use crate::synapse::SynapseArena;
+use crate::synapse::SynapseArenaViewMut;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PredictiveLearningParams {
@@ -125,7 +125,7 @@ impl PredictiveLearning {
         Self { params, neighbourhoods }
     }
 
-    fn adjust_segment_permanence(&self, synapses: &mut SynapseArena, neuron: u32, segment: u32, delta: f32) {
+    fn adjust_segment_permanence(&self, synapses: &mut SynapseArenaViewMut, neuron: u32, segment: u32, delta: f32) {
         let ids: Vec<u32> =
             synapses.incoming(neuron).filter(|&id| synapses.target_segment[id as usize] == segment).collect();
         for id in ids {
@@ -151,10 +151,18 @@ impl PredictiveLearning {
         start..(start + size).min(neuron_count)
     }
 
-    fn reinforce_or_sprout_burst(&self, neurons: &NeuronArena, synapses: &mut SynapseArena, neuron: u32, tick: u32, neuron_count: u32) {
+    fn reinforce_or_sprout_burst(&self, neurons: &NeuronArenaViewMut, synapses: &mut SynapseArenaViewMut, neuron: u32, tick: u32, neuron_count: u32) {
         let segment = self.params.burst_target_segment;
         for source in self.neighbourhood_range(neuron, neuron_count) {
-            if source == neuron {
+            if source == neuron || !neurons.owns(source) || !synapses.owns_source(source) {
+                // A neighbourhood spanning outside this partition's own
+                // range is not a candidate here -- see
+                // `SynapseArenaViewMut::owns_source`'s doc comment. Every
+                // call site in this crate today keeps neighbourhoods
+                // within one partition (the exit criterion's own
+                // `tests/emergent.rs` goes further and disables this path
+                // entirely via a size-1 neighbourhood), so this branch is
+                // not expected to trigger in practice yet.
                 continue;
             }
             let last_spike = neurons.last_spike[source as usize];
@@ -193,8 +201,8 @@ impl PredictiveLearning {
     #[allow(clippy::too_many_arguments)]
     pub fn resolve(
         &self,
-        neurons: &NeuronArena,
-        synapses: &mut SynapseArena,
+        neurons: &NeuronArenaViewMut,
+        synapses: &mut SynapseArenaViewMut,
         tracker: &PredictingSegmentTracker,
         neuron: u32,
         predictive_now: f32,
@@ -235,7 +243,8 @@ impl PredictiveLearning {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arena::NeuronSpec;
+    use crate::arena::{NeuronArena, NeuronSpec};
+    use crate::synapse::SynapseArena;
 
     fn make_neurons(n: usize) -> NeuronArena {
         let mut neurons = NeuronArena::new();
@@ -258,7 +267,7 @@ mod tests {
 
     #[test]
     fn correct_prediction_reinforces_the_responsible_segment() {
-        let neurons = make_neurons(2);
+        let mut neurons = make_neurons(2);
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(2);
         let syn = synapses.insert(0, 1, 0, 1, 0.3).unwrap(); // source 0 -> target 1, segment 0
@@ -267,14 +276,14 @@ mod tests {
         tracker.record_fired(1, 0); // segment 0 fired for neuron 1
 
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons, &mut synapses, &tracker, 1, 0.9, true, 10, 2);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.9, true, 10, 2);
 
         assert!((synapses.permanence[syn as usize] - 0.4).abs() < 1e-6, "correct prediction must reinforce by reinforce_amount");
     }
 
     #[test]
     fn false_positive_punishes_the_responsible_segment() {
-        let neurons = make_neurons(2);
+        let mut neurons = make_neurons(2);
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(2);
         let syn = synapses.insert(0, 1, 0, 1, 0.3).unwrap();
@@ -283,14 +292,14 @@ mod tests {
         tracker.record_fired(1, 0);
 
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons, &mut synapses, &tracker, 1, 0.9, false, 10, 2);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.9, false, 10, 2);
 
         assert!((synapses.permanence[syn as usize] - 0.2).abs() < 1e-6, "false positive must punish by punish_amount");
     }
 
     #[test]
     fn only_the_responsible_segment_is_touched_not_others() {
-        let neurons = make_neurons(2);
+        let mut neurons = make_neurons(2);
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(2);
         let responsible = synapses.insert(0, 1, 0, 1, 0.3).unwrap();
@@ -300,7 +309,7 @@ mod tests {
         tracker.record_fired(1, 0);
 
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons, &mut synapses, &tracker, 1, 0.9, true, 10, 2);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.9, true, 10, 2);
 
         assert!(synapses.permanence[responsible as usize] > 0.3);
         assert_eq!(synapses.permanence[other_segment as usize], 0.3, "an uninvolved segment's synapses must not be touched");
@@ -316,7 +325,7 @@ mod tests {
 
         let tracker = PredictingSegmentTracker::new(); // nothing predicted
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons, &mut synapses, &tracker, 2, 0.0, true, 10, 3);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 2, 0.0, true, 10, 3);
 
         assert!((synapses.permanence[syn as usize] - 0.4).abs() < 1e-6, "an existing synapse from a recently-active source must be reinforced");
     }
@@ -330,7 +339,7 @@ mod tests {
 
         let tracker = PredictingSegmentTracker::new();
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons, &mut synapses, &tracker, 1, 0.0, true, 10, 2);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.0, true, 10, 2);
 
         let sprouted = synapses.occupied_in_block(0).find(|&id| synapses.target_neuron[id as usize] == 1);
         assert!(sprouted.is_some(), "must sprout a new synapse from the recently-active neighbour");
@@ -346,21 +355,21 @@ mod tests {
 
         let tracker = PredictingSegmentTracker::new();
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons, &mut synapses, &tracker, 1, 0.0, true, 10, 2);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.0, true, 10, 2);
 
         assert_eq!(synapses.occupied_in_block(0).count(), 0, "a neuron that never fired must not become a burst source");
     }
 
     #[test]
     fn neither_predicted_nor_spiked_changes_nothing() {
-        let neurons = make_neurons(2);
+        let mut neurons = make_neurons(2);
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(2);
         let syn = synapses.insert(0, 1, 0, 1, 0.3).unwrap();
 
         let tracker = PredictingSegmentTracker::new();
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons, &mut synapses, &tracker, 1, 0.0, false, 10, 2);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.0, false, 10, 2);
 
         assert_eq!(synapses.permanence[syn as usize], 0.3);
     }

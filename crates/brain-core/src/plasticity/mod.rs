@@ -80,8 +80,15 @@ pub struct SynapseMut<'a> {
 }
 
 /// A local plasticity rule (LRN-9: rules compose as an ordered slice, via
-/// `RuleChain`).
-pub trait PlasticityRule {
+/// `RuleChain`). `Send + Sync` supertraits (RUN-4): a `RuleChain` lives
+/// inside a `Scheduler`, and a partitioned runtime moves whole
+/// `Scheduler`s onto rayon-managed threads (`partition.rs`) -- nothing
+/// about a plasticity rule's *behaviour* changes here, this only lets the
+/// compiler see that `Box<dyn PlasticityRule>` may safely cross a thread
+/// boundary, which every implementation in this crate already satisfies
+/// (a rule reads only the `LocalContext`/`SynapseMut` it is handed, never
+/// shared mutable state of its own).
+pub trait PlasticityRule: Send + Sync {
     /// Called when a presynaptic spike is delivered across this synapse
     /// (the scheduler's delivery step). The natural point to evaluate
     /// STDP's anti-causal (post-before-pre) direction: `ctx.post` reflects
@@ -155,18 +162,23 @@ impl RuleChain {
 mod tests {
     use super::*;
 
+    // `AtomicU32`, not `RefCell<u32>`: PlasticityRule's Send + Sync
+    // supertraits (RUN-4 -- a RuleChain lives inside a Scheduler, and a
+    // partitioned runtime moves whole Schedulers onto rayon-managed
+    // threads) require every implementor, test helpers included, to
+    // actually be Sync.
     struct RecordingRule {
-        delivery_calls: std::cell::RefCell<u32>,
-        post_spike_calls: std::cell::RefCell<u32>,
+        delivery_calls: std::sync::atomic::AtomicU32,
+        post_spike_calls: std::sync::atomic::AtomicU32,
     }
 
     impl PlasticityRule for RecordingRule {
         fn on_delivery(&self, syn: SynapseMut<'_>, _ctx: &LocalContext) {
-            *self.delivery_calls.borrow_mut() += 1;
+            self.delivery_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             *syn.permanence += 0.1;
         }
         fn on_post_spike(&self, syn: SynapseMut<'_>, _ctx: &LocalContext) {
-            *self.post_spike_calls.borrow_mut() += 1;
+            self.post_spike_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             *syn.permanence += 0.1;
         }
     }

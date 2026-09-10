@@ -6,14 +6,19 @@
 //! or cross-partition interaction is expressed as an explicit message
 //! rather than a direct mutation of another partition's state.
 //!
-//! **This module's `PartitionRuntime` does not yet use real threads.**
-//! That is deliberately deferred to a later step, once this module's own
-//! correctness -- the harder and riskier half of RUN-4/RUN-5 -- is proven
-//! against the pre-partitioning single-threaded `Scheduler` on however many
-//! *logical* partitions a test configures, sequentially. Swapping the
-//! sequential per-tick loop below for `rayon::scope` (or a hand-rolled
-//! pinned pool) is a pure concurrency change layered on top of an already-
-//! correct algorithm, not a change to the algorithm itself.
+//! **`PartitionRuntime` runs sequentially by default** (`thread_count` 1,
+//! RUN-8's reference path) **and opts into real rayon-managed threads via
+//! [`PartitionRuntime::with_thread_count`].** The two paths run the exact
+//! same per-partition algorithm -- [`NeuronArena::split_views_mut`]/
+//! [`crate::synapse::SynapseArena::split_views_mut`] hand every partition
+//! (sequential or concurrent) a genuinely disjoint `&mut` slice of the
+//! shared arenas, so the compiler itself proves stage 1 and stage 3's
+//! per-partition work cannot alias, with no `unsafe` anywhere in this
+//! module. The order in which those disjoint views are *combined* back
+//! together (stage 2's merge, and the boundary-table publish) is what this
+//! module's correctness actually rests on, proven against the
+//! pre-partitioning single-threaded `Scheduler` at both the sequential
+//! path and real thread counts (`tests/partitioning_reference.rs`).
 //!
 //! ## The per-tick pipeline, and why it has three stages, not one
 //!
@@ -102,12 +107,12 @@
 //! like `post` does, so applying the message later never needs to ask the
 //! field a question about its own past.
 
-use crate::arena::NeuronArena;
+use crate::arena::{NeuronArena, NeuronArenaViewMut};
 use crate::column::ColumnRegistry;
 use crate::neuron::NeuronDynamics;
 use crate::plasticity::NeuronLocal;
 use crate::scheduler::{CrossPartitionPostSpike, DeliveryEffect, Scheduler, StepReport};
-use crate::synapse::SynapseArena;
+use crate::synapse::{SynapseArena, SynapseArenaViewMut};
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -241,9 +246,16 @@ impl BoundaryNeuronLocalTable {
 /// Orchestrates `partition_count` [`Scheduler`]s over one shared
 /// [`NeuronArena`]/[`SynapseArena`] (see this crate's Phase 4 design: a
 /// partition is a contiguous index range over the *same* arenas, not a
-/// second copy of them). Sequential today (see module docs); the public
-/// API is written so a future parallel executor changes only what runs
-/// `step`'s three stages, not their sequence or content.
+/// second copy of them). Runs sequentially by default (`thread_count` 1,
+/// RUN-8's reference path); [`Self::with_thread_count`] opts into real
+/// parallel execution (RUN-4) of stage 1 and stage 3 via a dedicated rayon
+/// thread pool (not the process-global one, so this runtime's own thread
+/// count is never silently affected by unrelated rayon usage elsewhere in
+/// the same process, and vice versa). The *algorithm* stage 1/stage 3 run
+/// is identical either way -- see [`NeuronArena::split_views_mut`]'s doc
+/// comment for why the compiler itself proves the per-partition views
+/// handed to concurrent tasks cannot alias, with no `unsafe` anywhere in
+/// this module.
 pub struct PartitionRuntime {
     plan: PartitionPlan,
     schedulers: Vec<Scheduler>,
@@ -253,18 +265,36 @@ pub struct PartitionRuntime {
     /// during the *previous* tick's stage 3 and applied at the very start
     /// of this tick, before stage 1.
     pending_post_spike: Vec<Vec<CrossPartitionPostSpike>>,
+    /// `None` means sequential (RUN-8's reference path, and the default --
+    /// see [`Self::with_thread_count`]).
+    thread_pool: Option<rayon::ThreadPool>,
 }
 
 impl PartitionRuntime {
     /// `schedulers[p]` must already be configured (inhibition/segments/
     /// plasticity) for partition `p`'s own range -- this constructor does
     /// not build or validate that configuration, only the cross-partition
-    /// bookkeeping layered on top of it.
+    /// bookkeeping layered on top of it. Runs sequentially until
+    /// [`Self::with_thread_count`] says otherwise.
     pub fn new(plan: PartitionPlan, schedulers: Vec<Scheduler>, synapses: &SynapseArena, neuron_count: u32) -> Self {
         assert_eq!(plan.partition_count(), schedulers.len(), "one Scheduler per partition is required");
         let boundary_neurons = boundary_neurons(&plan, synapses, neuron_count);
         let pending_post_spike = (0..schedulers.len()).map(|_| Vec::new()).collect();
-        Self { plan, schedulers, boundary_table: BoundaryNeuronLocalTable::default(), boundary_neurons, pending_post_spike }
+        Self { plan, schedulers, boundary_table: BoundaryNeuronLocalTable::default(), boundary_neurons, pending_post_spike, thread_pool: None }
+    }
+
+    /// Opts into real parallel execution of stage 1 and stage 3 (RUN-4)
+    /// over a dedicated `thread_count`-sized rayon pool. `thread_count <= 1`
+    /// clears any previously configured pool and returns to the sequential
+    /// path (RUN-8) -- both must (and, per `tests/partitioning_reference.rs`,
+    /// do) produce bit-identical results to every other thread count.
+    pub fn with_thread_count(mut self, thread_count: usize) -> Self {
+        self.thread_pool = if thread_count > 1 {
+            Some(rayon::ThreadPoolBuilder::new().num_threads(thread_count).build().expect("building this runtime's dedicated rayon thread pool"))
+        } else {
+            None
+        };
+        self
     }
 
     pub fn plan(&self) -> &PartitionPlan {
@@ -299,7 +329,7 @@ impl PartitionRuntime {
         self.schedulers[partition_id].inject_modulator(index, amount);
     }
 
-    fn local(neurons: &NeuronArena, index: u32) -> NeuronLocal {
+    fn local(neurons: &NeuronArenaViewMut, index: u32) -> NeuronLocal {
         let i = index as usize;
         NeuronLocal { last_spike: neurons.last_spike[i], trace: neurons.trace[i], rate_estimate: neurons.rate_estimate[i] }
     }
@@ -308,13 +338,32 @@ impl PartitionRuntime {
     /// partition's own [`StepReport`] in partition-id order. See this
     /// module's doc comment for the three-stage pipeline this method
     /// implements.
-    pub fn step<D: NeuronDynamics>(&mut self, neurons: &mut NeuronArena, synapses: &mut SynapseArena, params: &D::Params) -> Vec<StepReport> {
+    ///
+    /// Splits `neurons`/`synapses` into one disjoint [`NeuronArenaViewMut`]/
+    /// [`SynapseArenaViewMut`] per partition up front (RUN-4): every stage
+    /// below only ever touches its own partition's view, which is exactly
+    /// what lets stage 1 and stage 3's per-partition work run as real
+    /// rayon-managed concurrent tasks when [`Self::with_thread_count`] is
+    /// configured (`partition.rs`'s module docs) with the compiler itself
+    /// proving they cannot alias -- no `unsafe` anywhere in this method.
+    pub fn step<D: NeuronDynamics>(&mut self, neurons: &mut NeuronArena, synapses: &mut SynapseArena, params: &D::Params) -> Vec<StepReport>
+    where
+        D::Params: Sync,
+    {
+        let ranges: Vec<std::ops::Range<u32>> = (0..self.plan.partition_count()).map(|p| self.plan.range_of(p)).collect();
+        let mut neuron_views = neurons.split_views_mut(&ranges);
+        let mut synapse_views = synapses.split_views_mut(&ranges);
+        let cap_per_neuron = synapse_views[0].cap_per_neuron();
+
         // Stage 0: apply on_post_spike messages this partition was owed
         // from the previous tick's stage 3, before touching its own ring.
+        // Cheap and inherently per-partition-independent; not worth
+        // parallelising on its own (most ticks, most partitions have
+        // nothing pending).
         for p in 0..self.schedulers.len() {
             let messages = std::mem::take(&mut self.pending_post_spike[p]);
             if !messages.is_empty() {
-                self.schedulers[p].apply_remote_post_spikes(neurons, synapses, &messages);
+                self.schedulers[p].apply_remote_post_spikes(&neuron_views[p], &mut synapse_views[p], &messages);
             }
         }
 
@@ -324,55 +373,119 @@ impl PartitionRuntime {
         // local-looking ones included): applying any of them before the
         // global sort below would make the result depend on partition
         // count via floating-point summation order.
-        let mut all_effects: Vec<DeliveryEffect> = Vec::new();
-        for p in 0..self.schedulers.len() {
-            let my_range = self.plan.range_of(p);
-            let boundary_table = &self.boundary_table;
-            let effects = self.schedulers[p].deliver(neurons, synapses, move |target| {
-                if my_range.contains(&target) {
-                    None
-                } else {
-                    Some(boundary_table.get(target).unwrap_or_else(NeuronLocal::never_spiked))
-                }
-            });
-            all_effects.extend(effects);
-        }
+        //
+        // `par_iter_mut`'s `zip`/`enumerate`/`flat_map` chain is an
+        // `IndexedParallelIterator`, which -- unlike thread *completion*
+        // order -- guarantees `collect()` produces elements in the same
+        // sequence a plain `for p in 0..len` loop would, regardless of
+        // which worker thread computed which partition's effects. That is
+        // what makes the sequential (`thread_pool: None`) and parallel
+        // branches below produce the identical `all_effects` order before
+        // the canonical sort even runs (`tests/partitioning_reference.rs`
+        // checks the parallel branch against the sequential one directly).
+        let plan = &self.plan;
+        let boundary_table = &self.boundary_table;
+        let deliver_all = |schedulers: &mut [Scheduler], neuron_views: &mut [NeuronArenaViewMut], synapse_views: &mut [SynapseArenaViewMut]| -> Vec<DeliveryEffect> {
+            schedulers
+                .iter_mut()
+                .zip(neuron_views.iter_mut())
+                .zip(synapse_views.iter_mut())
+                .enumerate()
+                .flat_map(|(p, ((scheduler, nview), sview))| {
+                    let my_range = plan.range_of(p);
+                    scheduler.deliver(nview, sview, move |target| {
+                        if my_range.contains(&target) {
+                            None
+                        } else {
+                            Some(boundary_table.get(target).unwrap_or_else(NeuronLocal::never_spiked))
+                        }
+                    })
+                })
+                .collect()
+        };
+        let mut all_effects: Vec<DeliveryEffect> = if let Some(pool) = &self.thread_pool {
+            use rayon::prelude::*;
+            let schedulers = &mut self.schedulers;
+            pool.install(|| {
+                schedulers
+                    .par_iter_mut()
+                    .zip(neuron_views.par_iter_mut())
+                    .zip(synapse_views.par_iter_mut())
+                    .enumerate()
+                    .flat_map_iter(|(p, ((scheduler, nview), sview))| {
+                        let my_range = plan.range_of(p);
+                        scheduler.deliver(nview, sview, move |target| {
+                            if my_range.contains(&target) {
+                                None
+                            } else {
+                                Some(boundary_table.get(target).unwrap_or_else(NeuronLocal::never_spiked))
+                            }
+                        })
+                    })
+                    .collect()
+            })
+        } else {
+            deliver_all(&mut self.schedulers, &mut neuron_views, &mut synapse_views)
+        };
 
         // Stage 2 (the merge): one global canonical order across every
         // partition's effects (Requirement 8, Acceptance Criterion 3), then
         // route each to whichever partition owns its target and apply.
-        all_effects.sort_unstable_by_key(|e| (e.source_index, e.synapse_id));
+        all_effects.sort_by_key(|e| (e.source_index, e.synapse_id));
+        let total_neuron_count = neuron_views[0].capacity_len();
         for effect in &all_effects {
             let target_p = self.plan.partition_of(effect.target_index);
-            self.schedulers[target_p].apply_delivery_effects(neurons, std::slice::from_ref(effect));
+            self.schedulers[target_p].apply_delivery_effects(total_neuron_count, std::slice::from_ref(effect));
         }
 
         // Stage 3: evaluate and resolve. Every partition's input for this
-        // tick is now complete.
-        let mut reports = Vec::with_capacity(self.schedulers.len());
-        let mut post_spike_by_owner: Vec<CrossPartitionPostSpike> = Vec::new();
-        for p in 0..self.schedulers.len() {
-            let my_range = self.plan.range_of(p);
-            let (report, post_spike_outbox) = self.schedulers[p].evaluate_and_resolve::<D>(neurons, synapses, params, move |source_index| {
-                !my_range.contains(&source_index)
-            });
-            post_spike_by_owner.extend(post_spike_outbox);
-            reports.push(report);
-        }
+        // tick is now complete. Same indexed-order guarantee as stage 1.
+        let (reports, post_spike_by_owner): (Vec<StepReport>, Vec<Vec<CrossPartitionPostSpike>>) = if let Some(pool) = &self.thread_pool {
+            use rayon::prelude::*;
+            let schedulers = &mut self.schedulers;
+            pool.install(|| {
+                schedulers
+                    .par_iter_mut()
+                    .zip(neuron_views.par_iter_mut())
+                    .zip(synapse_views.par_iter_mut())
+                    .enumerate()
+                    .map(|(p, ((scheduler, nview), sview))| {
+                        let my_range = plan.range_of(p);
+                        scheduler.evaluate_and_resolve::<D>(nview, sview, params, move |source_index| !my_range.contains(&source_index))
+                    })
+                    .unzip()
+            })
+        } else {
+            let mut reports = Vec::with_capacity(self.schedulers.len());
+            let mut post_spike_by_owner = Vec::with_capacity(self.schedulers.len());
+            for p in 0..self.schedulers.len() {
+                let my_range = self.plan.range_of(p);
+                let (report, outbox) = self.schedulers[p].evaluate_and_resolve::<D>(&mut neuron_views[p], &mut synapse_views[p], params, move |source_index| {
+                    !my_range.contains(&source_index)
+                });
+                reports.push(report);
+                post_spike_by_owner.push(outbox);
+            }
+            (reports, post_spike_by_owner)
+        };
+        let mut post_spike_by_owner: Vec<CrossPartitionPostSpike> = post_spike_by_owner.into_iter().flatten().collect();
 
         // Route each on_post_spike message to its owning (synapse-source)
         // partition, in canonical order, to be applied at the start of
-        // that partition's next tick.
-        post_spike_by_owner.sort_unstable_by_key(|m| (synapses.source_of(m.synapse_id), m.synapse_id));
+        // that partition's next tick. `source_of` is pure arithmetic (no
+        // arena access), so it needs no particular view.
+        let source_of = |synapse_id: u32| synapse_id / cap_per_neuron;
+        post_spike_by_owner.sort_by_key(|m| (source_of(m.synapse_id), m.synapse_id));
         for msg in post_spike_by_owner {
-            let owner = self.plan.partition_of(synapses.source_of(msg.synapse_id));
+            let owner = self.plan.partition_of(source_of(msg.synapse_id));
             self.pending_post_spike[owner].push(msg);
         }
 
         // Publish this tick's final NeuronLocal for every boundary neuron,
         // for other partitions' stage 1 to read next tick.
         for &idx in &self.boundary_neurons {
-            self.boundary_table.set(idx, Self::local(neurons, idx));
+            let owner = self.plan.partition_of(idx);
+            self.boundary_table.set(idx, Self::local(&neuron_views[owner], idx));
         }
 
         reports

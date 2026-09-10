@@ -24,6 +24,7 @@
 //! observes the new values at that index, which is correct, not stale.
 
 use crate::ids::NeuronId;
+use crate::offset_slice::OffsetSlice;
 
 /// Errors accessing a `NeuronId` against a `NeuronArena`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -233,6 +234,129 @@ impl NeuronArena {
             free,
             epoch,
         }
+    }
+
+    /// Splits this arena's hot fields (everything [`Scheduler::deliver`]/
+    /// [`Scheduler::evaluate_and_resolve`] touch -- not `coords` or the
+    /// lifecycle arrays, which only construction and snapshot code need)
+    /// into `ranges.len()` disjoint, mutable [`NeuronArenaViewMut`]s
+    /// (RUN-4), one per partition. `ranges` must be contiguous, gapless,
+    /// and start at 0 (exactly what [`crate::partition::PartitionPlan`]
+    /// already guarantees) -- a caller error otherwise, not a data
+    /// condition to recover from. This is what lets several partitions run
+    /// concurrently with the compiler itself proving their arena access
+    /// cannot alias: no `unsafe` anywhere in this method or in
+    /// [`OffsetSlice`]'s indexing.
+    ///
+    /// [`Scheduler::deliver`]: crate::scheduler::Scheduler::deliver
+    /// [`Scheduler::evaluate_and_resolve`]: crate::scheduler::Scheduler::evaluate_and_resolve
+    pub fn split_views_mut(&mut self, ranges: &[std::ops::Range<u32>]) -> Vec<NeuronArenaViewMut<'_>> {
+        let total = self.capacity_len();
+        let mut membrane_rest = self.membrane.as_mut_slice();
+        let mut threshold_rest = self.threshold.as_mut_slice();
+        let mut predictive_rest = self.predictive.as_mut_slice();
+        let mut refractory_rest = self.refractory.as_mut_slice();
+        let mut last_spike_rest = self.last_spike.as_mut_slice();
+        let mut rate_estimate_rest = self.rate_estimate.as_mut_slice();
+        let mut trace_rest = self.trace.as_mut_slice();
+        let mut polarity_rest = self.polarity.as_mut_slice();
+
+        let mut views = Vec::with_capacity(ranges.len());
+        let mut consumed = 0u32;
+        for range in ranges {
+            assert_eq!(range.start, consumed, "split_views_mut requires contiguous, gapless ranges starting at 0");
+            let len = (range.end - range.start) as usize;
+            let base = range.start as usize;
+
+            let (membrane, rest) = membrane_rest.split_at_mut(len);
+            membrane_rest = rest;
+            let (threshold, rest) = threshold_rest.split_at_mut(len);
+            threshold_rest = rest;
+            let (predictive, rest) = predictive_rest.split_at_mut(len);
+            predictive_rest = rest;
+            let (refractory, rest) = refractory_rest.split_at_mut(len);
+            refractory_rest = rest;
+            let (last_spike, rest) = last_spike_rest.split_at_mut(len);
+            last_spike_rest = rest;
+            let (rate_estimate, rest) = rate_estimate_rest.split_at_mut(len);
+            rate_estimate_rest = rest;
+            let (trace, rest) = trace_rest.split_at_mut(len);
+            trace_rest = rest;
+            let (polarity, rest) = polarity_rest.split_at_mut(len);
+            polarity_rest = rest;
+
+            views.push(NeuronArenaViewMut {
+                total_neuron_count: total,
+                membrane: OffsetSlice::new(base, membrane),
+                threshold: OffsetSlice::new(base, threshold),
+                predictive: OffsetSlice::new(base, predictive),
+                refractory: OffsetSlice::new(base, refractory),
+                last_spike: OffsetSlice::new(base, last_spike),
+                rate_estimate: OffsetSlice::new(base, rate_estimate),
+                trace: OffsetSlice::new(base, trace),
+                polarity: OffsetSlice::new(base, polarity),
+            });
+            consumed = range.end;
+        }
+        views
+    }
+
+    /// A single view covering the whole arena (`base = 0`) -- the
+    /// non-partitioned case (`Scheduler::step`'s reference path, RUN-8),
+    /// for which every existing call site must behave exactly as it did
+    /// before views existed.
+    pub fn whole_view_mut(&mut self) -> NeuronArenaViewMut<'_> {
+        let total = self.capacity_len();
+        NeuronArenaViewMut {
+            total_neuron_count: total,
+            membrane: OffsetSlice::whole(&mut self.membrane),
+            threshold: OffsetSlice::whole(&mut self.threshold),
+            predictive: OffsetSlice::whole(&mut self.predictive),
+            refractory: OffsetSlice::whole(&mut self.refractory),
+            last_spike: OffsetSlice::whole(&mut self.last_spike),
+            rate_estimate: OffsetSlice::whole(&mut self.rate_estimate),
+            trace: OffsetSlice::whole(&mut self.trace),
+            polarity: OffsetSlice::whole(&mut self.polarity),
+        }
+    }
+}
+
+/// A partition's exclusive, disjoint `&mut` view into a contiguous
+/// sub-range of a shared [`NeuronArena`]'s hot fields (RUN-4), obtained via
+/// [`NeuronArena::split_views_mut`] or [`NeuronArena::whole_view_mut`].
+/// Every existing call site that indexes e.g. `neurons.membrane[i]` (`i`
+/// always a global index already, per this crate's existing convention)
+/// continues to compile and mean exactly what it always has against this
+/// type -- see `offset_slice.rs`'s module docs for why.
+pub struct NeuronArenaViewMut<'a> {
+    total_neuron_count: usize,
+    pub membrane: OffsetSlice<'a, f32>,
+    pub threshold: OffsetSlice<'a, f32>,
+    pub predictive: OffsetSlice<'a, f32>,
+    pub refractory: OffsetSlice<'a, u32>,
+    pub last_spike: OffsetSlice<'a, u32>,
+    pub rate_estimate: OffsetSlice<'a, f32>,
+    pub trace: OffsetSlice<'a, f32>,
+    pub polarity: OffsetSlice<'a, i8>,
+}
+
+impl<'a> NeuronArenaViewMut<'a> {
+    /// The arena's total live+reclaimed slot count -- *not* this view's own
+    /// range length -- matching what [`NeuronArena::capacity_len`] already
+    /// means to every existing caller (e.g. predictive learning's
+    /// burst-sprout candidate bound), regardless of how the arena happens
+    /// to be partitioned.
+    pub fn capacity_len(&self) -> usize {
+        self.total_neuron_count
+    }
+
+    /// The global neuron-index range this view owns.
+    pub fn range(&self) -> std::ops::Range<u32> {
+        self.membrane.range().start as u32..self.membrane.range().end as u32
+    }
+
+    pub fn owns(&self, neuron_index: u32) -> bool {
+        self.range().contains(&neuron_index)
     }
 }
 

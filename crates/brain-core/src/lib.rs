@@ -1,13 +1,16 @@
 //! `brain-core`: the simulation core.
 //!
-//! Zero runtime dependencies (ENG-5, ENG-6, Requirement 1.2): this
-//! `Cargo.toml` carries no `[dependencies]` table at all -- `proptest` and
-//! `criterion` below are dev-only, exempt from the rule (Requirement 1.4),
-//! and neither they nor anything else in this crate names a
-//! neural-network/tensor/autodiff/ONNX/embedding/LLM dependency
-//! (Requirement 1.3; see `tests/workspace_policy.rs` for the check that
-//! actually inspects the manifest text). Every numeric primitive used
-//! here — PRNG, arena, scheduler, plasticity — is implemented in this crate.
+//! Zero *AI/ML* runtime dependencies (ENG-5, ENG-6, Requirement 1.2):
+//! `rayon` is this crate's one runtime dependency, the exception README
+//! ENG-6 names explicitly ("the Rust core should need approximately rayon
+//! and nothing else"), used only for RUN-4's partitioned parallelism
+//! (`partition.rs`, Phase 4). `proptest` and `criterion` below are dev-only,
+//! exempt from the rule entirely (Requirement 1.4), and neither they nor
+//! rayon nor anything else in this crate names a neural-network/tensor/
+//! autodiff/embedding/LLM dependency (Requirement 1.3; see
+//! `tests/workspace_policy.rs` for the check that actually inspects the
+//! manifest text). Every numeric primitive used here — PRNG, arena,
+//! scheduler, plasticity — is implemented in this crate.
 //!
 //! Nothing in this crate may depend on a binding crate (napi, wasm-bindgen).
 //! See README.md ENG-7 and design.md's dependency rule.
@@ -21,8 +24,11 @@
 //! scale", README §11): column (Step 14, done), lateral voting
 //! (Step 15, done), partitioning core: single/multi-partition
 //! `PartitionRuntime` proven bit-identical to the pre-partitioning
-//! `Scheduler` (Step 16, done). Real multi-threading (rayon/pinned pool)
-//! is a later step -- see `partition.rs`'s module docs.
+//! `Scheduler` (Step 16, done); real rayon-managed multi-threading over
+//! disjoint `NeuronArenaViewMut`/`SynapseArenaViewMut` slices, proven
+//! bit-identical to the sequential path at every thread count (Step 17,
+//! done). A hand-rolled pinned thread pool, benchmarked against rayon, is
+//! a later step -- see `partition.rs`'s module docs and README §12a.
 //!
 //! The test suite is organised in four layers (Requirement 15.1): Rust
 //! unit tests (this crate's own `#[cfg(test)]` modules), Rust whole-network
@@ -42,6 +48,7 @@ pub mod inhibition;
 pub mod metrics;
 pub mod neuromodulator;
 pub mod neuron;
+pub mod offset_slice;
 pub mod partition;
 pub mod plasticity;
 pub mod probe;
