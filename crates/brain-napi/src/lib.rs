@@ -8,10 +8,19 @@
 #![deny(clippy::all)]
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
+use brain_core::column::ColumnRegistry;
+use brain_core::consolidation::ConsolidationParams;
+use brain_core::graph::{DistancePolicy, GraphBuilder};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
+use brain_core::plasticity::homeostatic::HomeostaticScaling;
 use brain_core::plasticity::predictive::PredictiveLearningParams;
+use brain_core::plasticity::stdp::StdpParams;
+use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams};
+use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
+use brain_core::plasticity::RuleChain;
+use brain_core::probe::SpikeRaster;
 use brain_core::scheduler::Scheduler;
 use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig};
 use brain_core::synapse::SynapseArena;
@@ -211,6 +220,147 @@ impl PredictiveLearningConfig {
     }
 }
 
+/// Homeostatic synaptic scaling (LRN-6, Phase 5 Requirement 9.2/9.6): the
+/// second of two "closed while wiring Requirement 15" gaps -- Steps 26/27
+/// wired `Scheduler`/`PartitionRuntime` to drive this automatically inside
+/// `step()` when configured, but nothing before this exposed the
+/// configuration itself past `crates/brain-napi`. Omit to leave `step()`'s
+/// homeostatic sweep disabled, matching every pre-Phase-5 caller exactly.
+#[napi(object)]
+pub struct HomeostaticScalingConfig {
+    pub target_total_permanence: f64,
+    pub interval_ticks: u32,
+}
+
+/// Structural plasticity (LRN-7, Phase 5 Requirement 9.2/9.6) -- the
+/// `HomeostaticScalingConfig` companion. Omit to leave `step()`'s
+/// structural sweep disabled, matching every pre-Phase-5 caller.
+#[napi(object)]
+pub struct StructuralPlasticityConfig {
+    pub prune_floor: f64,
+    pub sprout_permanence: f64,
+    pub min_activity_streak: u32,
+    pub sweep_interval_ticks: u32,
+    pub unused_ticks_before_reclaim: u32,
+    pub min_cross_partition_delay: u32,
+    /// Neighbourhood `size`/`k` for the sprout-candidate pool -- independent
+    /// of the scheduler's own `InhibitionConfig`, same rationale as
+    /// `PredictiveLearningConfig`'s neighbourhood fields.
+    pub neighbourhood_size: u32,
+    pub k: u32,
+}
+
+/// The STDP timing kernel's parameters (`stdp.rs`'s `StdpParams`), as a
+/// plain JS object.
+#[napi(object)]
+pub struct StdpConfig {
+    pub a_plus: f64,
+    pub a_minus: f64,
+    pub tau_plus: f64,
+    pub tau_minus: f64,
+    pub window_ticks: u32,
+}
+
+/// Local plasticity (LRN-1 to LRN-5, Requirement 8): STDP plus eligibility
+/// traces plus the three-factor modulated update. **Phase 5 finding**: no
+/// version of this configuration crossed the FFI before this phase --
+/// `NativeSimulation` never called `Scheduler::with_plasticity` in any
+/// prior phase, so STDP has never actually run for any TypeScript caller,
+/// a gap discovered while wiring Requirement 15's reward API (a modulator
+/// injection is meaningless if nothing ever reads the modulator level).
+/// Omit to leave every synapse's permanence unchanged regardless of
+/// activity, matching every pre-Phase-5 caller's behaviour exactly (`
+/// Scheduler::new`'s own default).
+#[napi(object)]
+pub struct PlasticityConfig {
+    pub stdp: StdpConfig,
+    /// Eligibility trace decay time constant, in ticks (LRN-3 -- expected
+    /// to be on the order of seconds of simulated time).
+    pub tau_eligibility_ticks: f64,
+    pub learning_rate: f64,
+    /// Which of the four neuromodulator channels drives this rule (LRN-5)
+    /// -- `0` is `DOPAMINE`, matching `modulatorLevels`' channel order.
+    pub modulator_channel: u32,
+    /// One decay time constant per neuromodulator channel, in ticks, in
+    /// the same `DOPAMINE`/`ACETYLCHOLINE`/`NORADRENALINE`/`SEROTONIN`
+    /// order `modulatorLevels` returns -- must have exactly four entries.
+    pub modulator_tau_ticks: Vec<f64>,
+}
+
+/// `PlasticityConfig` resolved into brain-core's own parameter types, once,
+/// at construction time -- not a napi type itself, so `build_scheduler` (called
+/// once per partition) never re-validates or re-converts it.
+#[derive(Clone, Copy)]
+struct ResolvedPlasticity {
+    rule_params: ThreeFactorParams,
+    modulator_tau_ticks: [f32; brain_core::plasticity::NUM_MODULATORS],
+}
+
+impl PlasticityConfig {
+    fn resolve(&self) -> Result<ResolvedPlasticity> {
+        if self.modulator_tau_ticks.len() != brain_core::plasticity::NUM_MODULATORS {
+            return Err(Error::from_reason(format!(
+                "modulatorTauTicks must have exactly {} entries, got {}",
+                brain_core::plasticity::NUM_MODULATORS,
+                self.modulator_tau_ticks.len()
+            )));
+        }
+        let mut modulator_tau_ticks = [0.0f32; brain_core::plasticity::NUM_MODULATORS];
+        for (dst, &src) in modulator_tau_ticks.iter_mut().zip(self.modulator_tau_ticks.iter()) {
+            *dst = src as f32;
+        }
+        let stdp = StdpParams {
+            a_plus: self.stdp.a_plus as f32,
+            a_minus: self.stdp.a_minus as f32,
+            tau_plus: self.stdp.tau_plus as f32,
+            tau_minus: self.stdp.tau_minus as f32,
+            window_ticks: self.stdp.window_ticks,
+        };
+        let rule_params = ThreeFactorParams::new(stdp, self.tau_eligibility_ticks as f32, self.learning_rate as f32, self.modulator_channel as usize);
+        Ok(ResolvedPlasticity { rule_params, modulator_tau_ticks })
+    }
+}
+
+/// One consolidation pass's configuration (LRN-10, Phase 5 Requirement 12).
+#[napi(object)]
+pub struct ConsolidationConfig {
+    pub replay_window: u32,
+    pub downscale_target_total_permanence: f64,
+    pub prune_floor: f64,
+    pub sprout_permanence: f64,
+    pub min_activity_streak: u32,
+    pub unused_ticks_before_reclaim: u32,
+}
+
+/// What one consolidation pass did (Requirement 12).
+#[napi(object)]
+pub struct ConsolidationReportFfi {
+    pub replayed_spikes: u32,
+    pub pruned: u32,
+}
+
+impl ConsolidationConfig {
+    fn resolve(&self) -> Result<ConsolidationParams> {
+        if !self.downscale_target_total_permanence.is_finite() || self.downscale_target_total_permanence < 0.0 {
+            return Err(Error::from_reason("downscaleTargetTotalPermanence must be finite and non-negative"));
+        }
+        if !(0.0..=1.0).contains(&self.prune_floor) {
+            return Err(Error::from_reason("pruneFloor must be within [0, 1]"));
+        }
+        if !(0.0..=1.0).contains(&self.sprout_permanence) {
+            return Err(Error::from_reason("sproutPermanence must be within [0, 1]"));
+        }
+        Ok(ConsolidationParams {
+            replay_window: self.replay_window as usize,
+            downscale_target_total_permanence: self.downscale_target_total_permanence as f32,
+            prune_floor: self.prune_floor as f32,
+            sprout_permanence: self.sprout_permanence as f32,
+            min_activity_streak: self.min_activity_streak,
+            unused_ticks_before_reclaim: self.unused_ticks_before_reclaim,
+        })
+    }
+}
+
 /// A minimal driveable simulation: neurons + synapses + an event-driven
 /// scheduler running `Lif` dynamics (Requirements 4, 5). This is the
 /// concrete FFI surface `examples/single-neuron.ts` and later `graph.rs`
@@ -227,7 +377,28 @@ pub struct NativeSimulation {
     synapses: SynapseArena,
     runtime: Runtime,
     lif_params: LifParams,
+    /// Column membership (Phase 5 Requirement 8), default empty -- an empty
+    /// registry is Requirement 8.2's fallback: `ensure_partition_runtime_built`
+    /// treats it exactly like the pre-Phase-5 flat-network path, and
+    /// `snapshot_bytes`/`restore` round-trip it unchanged either way (it was
+    /// always written, just always empty, before `build_columns` existed).
+    columns: ColumnRegistry,
+    /// Recent spike activity (Phase 5 Requirement 12), fed at the end of
+    /// every `step()` call in `Runtime::Single` mode only -- `run_consolidation`'s
+    /// replay source. Bounded to `MAX_RASTER_EVENTS`, not the network's
+    /// entire history, matching OBS-1's "bounded memory" probe discipline;
+    /// trimming happens lazily (`trim_raster`) rather than in `SpikeRaster`
+    /// itself, which is a plain unbounded recorder by design (its export
+    /// format is also used for VAL-7's golden rasters, which deliberately
+    /// want the *whole* run, not a bounded window).
+    raster: SpikeRaster,
 }
+
+/// A generous cap, not a tuned one: bounds `NativeSimulation.raster`'s
+/// memory rather than expressing any particular consolidation policy --
+/// `ConsolidationConfig.replay_window` (typically far smaller) is what
+/// actually decides how much of this gets replayed on a given call.
+const MAX_RASTER_EVENTS: usize = 200_000;
 
 /// Everything needed to build one partition's `Scheduler` identically to
 /// every other partition's (Phase 4 Step 22) -- kept around (rather than
@@ -242,6 +413,9 @@ struct SchedulerConfig {
     inhibition: Option<InhibitionConfig>,
     segments: Option<SegmentsConfig>,
     predictive_learning: Option<PredictiveLearningConfig>,
+    plasticity: Option<ResolvedPlasticity>,
+    homeostatic_scaling: Option<HomeostaticScalingConfig>,
+    structural_plasticity: Option<StructuralPlasticityConfig>,
 }
 
 fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
@@ -257,6 +431,24 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
     }
     if let Some(cfg) = &config.predictive_learning {
         scheduler = scheduler.with_predictive_learning(cfg.to_params(), FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.neighbourhood_k));
+    }
+    if let Some(resolved) = &config.plasticity {
+        let rules = RuleChain::new(vec![Box::new(ThreeFactorStdp::new(resolved.rule_params))]);
+        scheduler = scheduler.with_plasticity(rules, resolved.modulator_tau_ticks);
+    }
+    if let Some(cfg) = &config.homeostatic_scaling {
+        scheduler = scheduler.with_homeostatic_scaling(HomeostaticScaling::new(cfg.target_total_permanence as f32, cfg.interval_ticks.max(1)));
+    }
+    if let Some(cfg) = &config.structural_plasticity {
+        let params = StructuralPlasticityParams {
+            prune_floor: cfg.prune_floor as f32,
+            sprout_permanence: cfg.sprout_permanence as f32,
+            min_activity_streak: cfg.min_activity_streak,
+            sweep_interval_ticks: cfg.sweep_interval_ticks.max(1),
+            unused_ticks_before_reclaim: cfg.unused_ticks_before_reclaim,
+            min_cross_partition_delay: cfg.min_cross_partition_delay.min(u16::MAX as u32) as u16,
+        };
+        scheduler = scheduler.with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k)));
     }
     scheduler
 }
@@ -303,6 +495,83 @@ pub struct InhibitionConfig {
     pub k: u32,
 }
 
+/// A distance-based connectivity policy (`graph.rs`'s `DistancePolicy`),
+/// Phase 5 Requirement 8: connection probability falls off exponentially
+/// with distance between two neurons' coordinates. Used both for a column's
+/// own internal wiring and for lateral-voting connectivity between columns
+/// (`VotingGroupConfig`) -- the same policy shape either way, only the
+/// neuron pairs it is applied to differ.
+#[napi(object)]
+pub struct DistancePolicyConfig {
+    pub p0: f64,
+    pub length_scale: f64,
+    pub delay_min: u32,
+    pub delay_max: u32,
+    pub initial_permanence: f64,
+}
+
+impl DistancePolicyConfig {
+    fn to_policy(&self) -> DistancePolicy {
+        DistancePolicy {
+            p0: self.p0 as f32,
+            length_scale: self.length_scale as f32,
+            delay_min: self.delay_min.min(u16::MAX as u32) as u16,
+            delay_max: self.delay_max.min(u16::MAX as u32) as u16,
+            initial_permanence: self.initial_permanence as f32,
+        }
+    }
+}
+
+/// One column to build (Phase 5 Requirement 8): `GraphBuilder::build_column`
+/// allocates `neuron_count` neurons along a line starting at
+/// `(base_x, base_y, base_z)` (one unit apart along x), wires them via
+/// `internal_policy`, and registers a k-WTA neighbourhood of
+/// `neighbourhood_size`/`k` plus `segments`' dendritic-segment
+/// configuration -- exactly what `build_column` already does for any flat
+/// caller, just with coordinates this FFI surface chooses so that distinct
+/// columns are placed apart from each other by construction (their own
+/// internal wiring only ever considers a column's own neuron indices
+/// regardless of coordinates -- see `graph.rs`'s `connect` -- but
+/// `VotingGroupConfig`'s cross-column policy does read real distance, which
+/// is why callers get to choose `base_x`/`base_y`/`base_z` explicitly rather
+/// than have one silently picked for them).
+#[napi(object)]
+pub struct ColumnConfig {
+    pub neuron_count: u32,
+    pub threshold: f64,
+    pub excitatory_fraction: f64,
+    pub base_x: f64,
+    pub base_y: f64,
+    pub base_z: f64,
+    pub internal_policy: DistancePolicyConfig,
+    pub neighbourhood_size: u32,
+    pub k: u32,
+    pub segments: SegmentsConfig,
+}
+
+/// A lateral-voting group (NET-5, Phase 5 Requirement 8): every ordered pair
+/// of distinct columns in `column_ids` (returned by a prior `buildColumns`
+/// call) gets wired onto `vote_segment` via `policy`, using
+/// `GraphBuilder::connect_lateral_voting` unchanged.
+#[napi(object)]
+pub struct VotingGroupConfig {
+    pub column_ids: Vec<u32>,
+    pub vote_segment: u32,
+    pub policy: DistancePolicyConfig,
+}
+
+/// One built column's identity and neuron-index range (Phase 5 Requirement
+/// 8.3): `start..end` is the "explicit, documented mapping" a caller uses to
+/// resolve an SDR's active bits (or any column-relative index) onto global
+/// neuron indices for `stimulate`, without needing to know the network's
+/// internal numbering scheme.
+#[napi(object)]
+pub struct ColumnHandleFfi {
+    pub id: u32,
+    pub start: u32,
+    pub end: u32,
+}
+
 #[napi]
 impl NativeSimulation {
     // `thread_count`: number of native threads `PartitionRuntime` should use
@@ -329,11 +598,16 @@ impl NativeSimulation {
         inhibition: Option<InhibitionConfig>,
         segments: Option<SegmentsConfig>,
         predictive_learning: Option<PredictiveLearningConfig>,
+        plasticity: Option<PlasticityConfig>,
+        homeostatic_scaling: Option<HomeostaticScalingConfig>,
+        structural_plasticity: Option<StructuralPlasticityConfig>,
         thread_count: Option<u32>,
         total_neurons: Option<u32>,
     ) -> Result<Self> {
         let thread_count = thread_count.unwrap_or(1).max(1) as usize;
-        let config = SchedulerConfig { max_delay, connection_threshold, inhibition, segments, predictive_learning };
+        let plasticity = plasticity.map(|cfg| cfg.resolve()).transpose()?;
+        let config =
+            SchedulerConfig { max_delay, connection_threshold, inhibition, segments, predictive_learning, plasticity, homeostatic_scaling, structural_plasticity };
         let runtime = if thread_count > 1 {
             let total_neurons = total_neurons.ok_or_else(|| {
                 Error::from_reason("totalNeurons is required when threadCount > 1: PartitionRuntime must know the network's final neuron count upfront")
@@ -342,16 +616,35 @@ impl NativeSimulation {
         } else {
             Runtime::Single(Box::new(build_scheduler(&config)))
         };
-        Ok(Self { neurons: NeuronArena::new(), synapses: SynapseArena::new(synapse_cap_per_neuron.max(1)), runtime, lif_params: lif.to_lif_params() })
+        Ok(Self {
+            neurons: NeuronArena::new(),
+            synapses: SynapseArena::new(synapse_cap_per_neuron.max(1)),
+            runtime,
+            lif_params: lif.to_lif_params(),
+            columns: ColumnRegistry::new(),
+            raster: SpikeRaster::new(),
+        })
     }
 
     /// Builds this instance's `PartitionRuntime` on first use, once
     /// (`Runtime`'s doc comment explains why this can't happen eagerly in
     /// `new()`). A no-op once built, and a no-op entirely in `Single` mode.
+    ///
+    /// Phase 5 Requirement 8.2/8.6: when `build_columns` has registered at
+    /// least one column, partitioning is biased by `PartitionPlan::contiguous`
+    /// (never splits a column) instead of the flat-network
+    /// `PartitionPlan::even_split` -- additive, since an empty `columns`
+    /// registry (every pre-Phase-5 caller, and any Phase 5 caller that never
+    /// calls `build_columns`) takes the exact same `even_split` path as
+    /// before.
     fn ensure_partition_runtime_built(&mut self) {
         if let Runtime::Partitioned(state) = &mut self.runtime {
             if state.runtime.is_none() {
-                let plan = PartitionPlan::even_split(state.total_neurons, state.thread_count);
+                let plan = if self.columns.is_empty() {
+                    PartitionPlan::even_split(state.total_neurons, state.thread_count)
+                } else {
+                    PartitionPlan::contiguous(&self.columns, state.thread_count)
+                };
                 let schedulers: Vec<Scheduler> = (0..plan.partition_count()).map(|_| build_scheduler(&state.config)).collect();
                 state.runtime =
                     Some(PartitionRuntime::new(plan, schedulers, &self.synapses, state.total_neurons).with_thread_count(state.thread_count));
@@ -384,6 +677,89 @@ impl NativeSimulation {
             .ok()
     }
 
+    /// Builds `columns` (and, once every column exists, wires
+    /// `voting_groups`'s lateral-voting connectivity) using
+    /// `GraphBuilder::build_column`/`connect_lateral_voting` unchanged
+    /// (Phase 5 Requirement 8.1) -- no new neuron/synapse/plasticity code
+    /// path exists to satisfy this method. Must be called before the first
+    /// `stimulate`/`allocate`/`connect`/`step` call, the same caller-enforced
+    /// (not runtime-checked) lifecycle contract `totalNeurons` already
+    /// documents above: `build_column` requires the arena to still be at a
+    /// freshly-appended, contiguous state, true only at construction time.
+    #[napi]
+    pub fn build_columns(&mut self, seed: BigInt, columns: Vec<ColumnConfig>, voting_groups: Vec<VotingGroupConfig>) -> Result<Vec<ColumnHandleFfi>> {
+        let seed = seed.get_u64().1;
+        let builder = GraphBuilder::new(seed);
+        let mut handles = Vec::with_capacity(columns.len());
+        for cfg in &columns {
+            if cfg.neuron_count == 0 {
+                return Err(Error::from_reason("a column must have at least one neuron"));
+            }
+            let coords: Vec<[f32; 3]> =
+                (0..cfg.neuron_count).map(|j| [cfg.base_x as f32 + j as f32, cfg.base_y as f32, cfg.base_z as f32]).collect();
+            let segment_config = SegmentConfig {
+                segments_per_neuron: cfg.segments.segments_per_neuron,
+                params: BinaryCoincidenceParams { threshold: cfg.segments.coincidence_threshold as u16 },
+            };
+            let spec = builder.build_column(
+                &mut self.neurons,
+                &mut self.synapses,
+                &coords,
+                cfg.threshold as f32,
+                cfg.excitatory_fraction as f32,
+                &cfg.internal_policy.to_policy(),
+                cfg.neighbourhood_size,
+                cfg.k,
+                segment_config,
+            );
+            let range = spec.neuron_range.clone();
+            let id = self.columns.register(spec);
+            handles.push(ColumnHandleFfi { id: id as u32, start: range.start, end: range.end });
+        }
+        for vg in &voting_groups {
+            let voting_group: Vec<usize> = vg.column_ids.iter().map(|&id| id as usize).collect();
+            builder.connect_lateral_voting(&self.neurons, &mut self.synapses, &self.columns, &voting_group, vg.vote_segment, &vg.policy.to_policy());
+        }
+        Ok(handles)
+    }
+
+    /// The arena's current epoch (Requirement 2.2), mirroring `NativeArena::epoch`
+    /// -- a caller consuming `membraneView`/`predictiveView` below checks this
+    /// before trusting a previously-obtained view, the same cooperative
+    /// contract `packages/brain`'s `ArenaViews` already enforces for
+    /// `NativeArena`.
+    #[napi]
+    pub fn epoch(&self) -> u32 {
+        self.neurons.epoch() as u32
+    }
+
+    /// A zero-copy view over every neuron's membrane potential (Phase 5
+    /// Requirement 8.4): the bulk counterpart to `membraneAt`, added so a
+    /// caller reading a whole column's (or the whole network's) state does
+    /// not pay one FFI call per neuron per tick. Same safety contract as
+    /// `NativeArena::membrane_view` -- valid only until the next call that
+    /// grows the arena; check `epoch()` first.
+    #[napi]
+    pub fn membrane_view(&mut self) -> Float32Array {
+        let len = self.neurons.membrane.len();
+        let ptr = self.neurons.membrane.as_mut_ptr();
+        // SAFETY: see `NativeArena::membrane_view`'s doc comment -- the same
+        // contract applies verbatim, just against `self.neurons` here
+        // instead of `self.inner`.
+        unsafe { Float32Array::with_external_data(ptr, len, |_ptr, _len| {}) }
+    }
+
+    /// A zero-copy view over every neuron's dendritic predictive state
+    /// (Phase 5 Requirement 8.4), the bulk counterpart to `predictiveAt`.
+    /// Same safety contract as `membrane_view` above.
+    #[napi]
+    pub fn predictive_view(&mut self) -> Float32Array {
+        let len = self.neurons.predictive.len();
+        let ptr = self.neurons.predictive.as_mut_ptr();
+        // SAFETY: see `membrane_view` above.
+        unsafe { Float32Array::with_external_data(ptr, len, |_ptr, _len| {}) }
+    }
+
     /// Delivers `current` to a neuron on the next `step()` call, standing
     /// in for a real encoder (IO-1) until one exists.
     #[napi]
@@ -397,6 +773,69 @@ impl NativeSimulation {
             let Runtime::Single(scheduler) = &mut self.runtime else { unreachable!() };
             scheduler.stimulate(&self.neurons, index, current as f32);
         }
+    }
+
+    /// Named reward entry point (LRN-11, Phase 5 Requirement 15.1/15.2):
+    /// drives the dopamine channel specifically. This, `injectModulator`,
+    /// and `modulatorLevels` below are this codebase's *first* modulator
+    /// call to ever cross the FFI boundary -- `Scheduler::inject_modulator`/
+    /// `reward` existed and were tested since Phase 0-3, but nothing before
+    /// Phase 5 exposed them past `crates/brain-napi`, which made a
+    /// TypeScript-driven reinforcement experiment impossible rather than
+    /// merely awkward (README §12a item 4). Dispatches exactly like
+    /// `stimulate` above; in partitioned mode this always calls
+    /// `PartitionRuntime::inject_modulator`'s *broadcasting* form (never
+    /// `inject_modulator_into_partition` -- nothing at this boundary
+    /// targets one partition specifically, Phase 5 Requirement 15.3).
+    #[napi]
+    pub fn reward(&mut self, amount: f64) {
+        self.inject_modulator(brain_core::plasticity::DOPAMINE as u32, amount);
+    }
+
+    /// The general form of the call above -- targets a chosen channel with
+    /// a chosen amount. See `reward`'s doc comment for why this is the
+    /// first time either crosses the FFI boundary at all.
+    #[napi]
+    pub fn inject_modulator(&mut self, channel: u32, amount: f64) {
+        if self.is_partitioned() {
+            self.ensure_partition_runtime_built();
+            let Runtime::Partitioned(state) = &mut self.runtime else { unreachable!() };
+            let pr = state.runtime.as_mut().expect("ensure_partition_runtime_built just built this");
+            pr.inject_modulator(channel as usize, amount as f32);
+        } else {
+            let Runtime::Single(scheduler) = &mut self.runtime else { unreachable!() };
+            scheduler.inject_modulator(channel as usize, amount as f32);
+        }
+    }
+
+    /// Readback (Phase 5 Requirement 15.5): the neuromodulator field's
+    /// levels as last computed, with no tick-advancing catch-up (see
+    /// `NeuromodulatorField::levels_unchecked`'s doc comment for why a
+    /// diagnostic read must not itself perturb the field's lazy decay
+    /// clock). One entry per channel, in `plasticity::{DOPAMINE,
+    /// ACETYLCHOLINE, NORADRENALINE, SEROTONIN}` order. In partitioned
+    /// mode, reads partition 0's field only -- correct, not an
+    /// approximation, because every caller that ever writes through this
+    /// boundary uses the broadcasting `injectModulator` above, so every
+    /// partition's field holds the identical value by construction.
+    #[napi]
+    pub fn modulator_levels(&self) -> Vec<f64> {
+        let levels = if self.is_partitioned() {
+            let Runtime::Partitioned(state) = &self.runtime else { unreachable!() };
+            match &state.runtime {
+                Some(pr) => pr.modulator_levels(),
+                // No PartitionRuntime built yet (no stimulate/step call has
+                // happened): every partition's field would read the same
+                // fresh-constructed zero levels a Single scheduler starts
+                // at, so report that directly rather than forcing one to
+                // exist just to answer a read.
+                None => [0.0; brain_core::plasticity::NUM_MODULATORS],
+            }
+        } else {
+            let Runtime::Single(scheduler) = &self.runtime else { unreachable!() };
+            scheduler.modulator_levels()
+        };
+        levels.iter().map(|&v| v as f64).collect()
     }
 
     /// Advances the simulation by exactly one tick, returning the indices
@@ -415,7 +854,15 @@ impl NativeSimulation {
             reports.into_iter().flat_map(|r| r.spiked).collect()
         } else {
             let Runtime::Single(scheduler) = &mut self.runtime else { unreachable!() };
-            scheduler.step::<Lif>(&mut self.neurons, &mut self.synapses, &self.lif_params).spiked
+            let report = scheduler.step::<Lif>(&mut self.neurons, &mut self.synapses, &self.lif_params);
+            // Phase 5 Requirement 10.1/12: feeds `run_consolidation`'s
+            // replay source. Single mode only -- partitioned mode has no
+            // `run_consolidation` support to feed yet (see that method's
+            // own scope decision), so recording there would only cost
+            // memory for no benefit.
+            self.raster.record_tick(report.tick, &report.spiked);
+            self.trim_raster();
+            report.spiked
         }
     }
 
@@ -500,18 +947,12 @@ impl NativeSimulation {
         };
         let hash = config_hash.get_u64().1;
         // Phase 4 Step 21 added a column-registry section to the snapshot
-        // format (FORMAT_VERSION 2); NativeSimulation does not track
-        // columns yet (that FFI surface is Step 22's job), so an empty
-        // registry round-trips exactly like format version 1's absence of
-        // the section did -- see snapshot.rs's `Restored::columns` doc.
-        let bytes = brain_core::snapshot::write(
-            &self.neurons,
-            &self.synapses,
-            scheduler,
-            &brain_core::column::ColumnRegistry::new(),
-            self.neurons.capacity_len() as u32,
-            hash,
-        );
+        // format (FORMAT_VERSION 2); Phase 5's `build_columns` is what
+        // actually populates `self.columns` now, so this writes the real
+        // registry rather than always an empty one (Requirement 8.5) --
+        // a `NativeSimulation` that never calls `build_columns` still writes
+        // an empty registry, unchanged from every pre-Phase-5 snapshot.
+        let bytes = brain_core::snapshot::write(&self.neurons, &self.synapses, scheduler, &self.columns, self.neurons.capacity_len() as u32, hash);
         Ok(Uint8Array::new(bytes))
     }
 
@@ -537,6 +978,9 @@ impl NativeSimulation {
         inhibition: Option<InhibitionConfig>,
         segments: Option<SegmentsConfig>,
         predictive_learning: Option<PredictiveLearningConfig>,
+        plasticity: Option<PlasticityConfig>,
+        homeostatic_scaling: Option<HomeostaticScalingConfig>,
+        structural_plasticity: Option<StructuralPlasticityConfig>,
     ) -> Result<Self> {
         // Note: no `synapse_cap_per_neuron` parameter here -- the snapshot
         // payload already carries it (`write_synapses` stores it, and
@@ -562,13 +1006,92 @@ impl NativeSimulation {
             scheduler = scheduler
                 .with_predictive_learning(cfg.to_params(), FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.neighbourhood_k));
         }
+        if let Some(cfg) = &plasticity {
+            let resolved = cfg.resolve()?;
+            let rules = RuleChain::new(vec![Box::new(ThreeFactorStdp::new(resolved.rule_params))]);
+            scheduler = scheduler.with_plasticity(rules, resolved.modulator_tau_ticks);
+        }
+        if let Some(cfg) = &homeostatic_scaling {
+            scheduler = scheduler.with_homeostatic_scaling(HomeostaticScaling::new(cfg.target_total_permanence as f32, cfg.interval_ticks.max(1)));
+        }
+        if let Some(cfg) = &structural_plasticity {
+            let params = StructuralPlasticityParams {
+                prune_floor: cfg.prune_floor as f32,
+                sprout_permanence: cfg.sprout_permanence as f32,
+                min_activity_streak: cfg.min_activity_streak,
+                sweep_interval_ticks: cfg.sweep_interval_ticks.max(1),
+                unused_ticks_before_reclaim: cfg.unused_ticks_before_reclaim,
+                min_cross_partition_delay: cfg.min_cross_partition_delay.min(u16::MAX as u32) as u16,
+            };
+            scheduler = scheduler.with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k)));
+        }
         scheduler.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
+        // Phase 5 Requirement 15.6: must run *after* with_plasticity above,
+        // which resets the neuromodulator field to a fresh, zeroed one as a
+        // side effect of applying `modulator_tau_ticks` config -- restoring
+        // before that call would have its effect immediately discarded.
+        scheduler.restore_modulator_state(restored.modulator_levels, restored.modulator_last_updated_at);
 
         Ok(Self {
             neurons: restored.neurons,
             synapses: restored.synapses,
             runtime: Runtime::Single(Box::new(scheduler)),
             lif_params: lif.to_lif_params(),
+            // Phase 5 Requirement 8.5: column membership/identity round-trips
+            // exactly -- previously discarded here, silently losing any
+            // column structure a snapshot actually carried (Phase 4's
+            // `Restored::columns` already existed; nothing before Phase 5
+            // ever read it back out at this boundary).
+            columns: restored.columns,
+            // The raster is a bounded runtime recording, not persisted
+            // simulation state (Requirement 16.1's "complete simulation
+            // state" is about topology/permanences/tick/etc., not a replay
+            // buffer) -- a restored simulation starts with none, exactly
+            // like a freshly constructed one.
+            raster: SpikeRaster::new(),
         })
+    }
+
+    /// Keeps `self.raster` from growing without bound (OBS-1's "bounded
+    /// memory" discipline) by dropping its oldest events once it exceeds
+    /// `MAX_RASTER_EVENTS` -- `SpikeRaster` itself has no built-in capacity
+    /// limit (its export format is also used for VAL-7's golden rasters,
+    /// which deliberately want the *whole* run), so trimming happens here
+    /// instead, lazily, only when actually over the cap.
+    fn trim_raster(&mut self) {
+        if self.raster.len() <= MAX_RASTER_EVENTS {
+            return;
+        }
+        let events = self.raster.events();
+        let start = events.len() - MAX_RASTER_EVENTS;
+        let mut trimmed = SpikeRaster::new();
+        for &(tick, neuron) in &events[start..] {
+            trimmed.record(tick, neuron);
+        }
+        self.raster = trimmed;
+    }
+
+    /// Runs one consolidation pass (LRN-10, Phase 5 Requirement 12):
+    /// replays a bounded recent window of `self.raster` via
+    /// `Scheduler::run_consolidation`, then force-applies downscaling and
+    /// an aggressive pruning pass. Never runs as a side effect of `step()`
+    /// -- an explicit call only (Requirement 12.1), since README §2.9/§2.10
+    /// frames consolidation as a distinct operating state.
+    ///
+    /// **Single-mode only**, matching `run_consolidation`'s own Rust-level
+    /// scope decision (see `consolidation.rs`) and the precedent
+    /// `snapshotBytes`/`restore` already set in Phase 4: replaying a raster
+    /// correctly through the cross-partition messaging path is materially
+    /// more complex than single-threaded replay, and nothing in this
+    /// phase's milestone needs it.
+    #[napi]
+    pub fn run_consolidation(&mut self, seed: BigInt, config: ConsolidationConfig) -> Result<ConsolidationReportFfi> {
+        let Runtime::Single(scheduler) = &mut self.runtime else {
+            return Err(Error::from_reason("runConsolidation is not supported in partitioned mode (threadCount > 1): replay has no cross-partition messaging path yet"));
+        };
+        let params = config.resolve()?;
+        let seed = seed.get_u64().1;
+        let report = scheduler.run_consolidation::<Lif, _>(&mut self.neurons, &mut self.synapses, &self.lif_params, &self.raster, &params, seed);
+        Ok(ConsolidationReportFfi { replayed_spikes: report.replayed_spikes, pruned: report.pruned })
     }
 }

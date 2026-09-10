@@ -13,10 +13,48 @@ import {
   type InhibitionConfig,
   type SegmentsConfig,
   type PredictiveLearningConfig,
+  type ColumnConfig,
+  type VotingGroupConfig,
+  type ColumnHandleFfi,
+  type DistancePolicyConfig,
+  type PlasticityConfig,
+  type StdpConfig,
+  type ConsolidationConfig,
+  type ConsolidationReportFfi,
+  type HomeostaticScalingConfig,
+  type StructuralPlasticityConfig,
 } from "@brain/napi";
 import { openSync, writeSync, fsyncSync, closeSync, renameSync, readFileSync } from "node:fs";
 
-export type { LifConfig, InhibitionConfig, SegmentsConfig, PredictiveLearningConfig };
+export type {
+  LifConfig,
+  InhibitionConfig,
+  SegmentsConfig,
+  PredictiveLearningConfig,
+  ColumnConfig,
+  VotingGroupConfig,
+  DistancePolicyConfig,
+  PlasticityConfig,
+  StdpConfig,
+  ConsolidationConfig,
+  HomeostaticScalingConfig,
+  StructuralPlasticityConfig,
+};
+
+/** What one consolidation pass did (Requirement 12). */
+export type ConsolidationReport = ConsolidationReportFfi;
+
+/**
+ * A built column's identity and neuron-index range (Requirement 8.3) --
+ * plain data, the "explicit, documented mapping" a caller uses to resolve
+ * an SDR's active bits onto global neuron indices. `packages/io`'s own
+ * `ColumnHandle` (Requirement 8's TS-side consumer) wraps one of these plus
+ * a `Simulation` reference with `stimulateSdr`/`observedSdr` convenience
+ * methods -- this type is deliberately the plain data underneath that, not
+ * the richer wrapper itself, matching this package's existing "thin shell
+ * over the FFI boundary" scope.
+ */
+export type ColumnHandle = ColumnHandleFfi;
 
 export interface SimulationOptions {
   maxDelay: number;
@@ -28,6 +66,29 @@ export interface SimulationOptions {
   segments?: SegmentsConfig;
   /** Predictive learning (Requirement 12). Omit to leave predictive state unlearned. */
   predictiveLearning?: PredictiveLearningConfig;
+  /**
+   * Local plasticity -- STDP, eligibility traces, the three-factor rule
+   * (Requirement 8; LRN-1 to LRN-5). **Phase 5 finding**: no version of
+   * this configuration crossed the FFI before this phase -- omitting it
+   * (the pre-Phase-5 default, still) means permanence never changes
+   * regardless of activity, which was every prior caller's actual
+   * behaviour, whether or not that was intended.
+   */
+  plasticity?: PlasticityConfig;
+  /**
+   * Homeostatic synaptic scaling (LRN-6). Omit to leave `step()`'s
+   * homeostatic sweep disabled -- STDP alone is unstable over long runs
+   * (README §2.5), so a caller relying on "learning is always on"
+   * (Requirement 9.2) for anything beyond a short experiment should
+   * configure this.
+   */
+  homeostaticScaling?: HomeostaticScalingConfig;
+  /**
+   * Structural plasticity (LRN-7) -- pruning, sprouting, and unused-neuron
+   * reclamation, driven automatically inside `step()` when configured.
+   * Omit to leave `step()`'s structural sweep disabled.
+   */
+  structuralPlasticity?: StructuralPlasticityConfig;
   /**
    * Number of native threads `PartitionRuntime` should use (Requirement 7
    * AC1, Phase 4 RUN-4). Omit or pass 1 for today's exact single-threaded
@@ -65,6 +126,9 @@ function hashConfig(lif: LifConfig, options: SimulationOptions): bigint {
     inhibition: options.inhibition ?? null,
     segments: options.segments ?? null,
     predictiveLearning: options.predictiveLearning ?? null,
+    plasticity: options.plasticity ?? null,
+    homeostaticScaling: options.homeostaticScaling ?? null,
+    structuralPlasticity: options.structuralPlasticity ?? null,
   });
   const prime = 0x100000001b3n;
   const mask = 0xffffffffffffffffn;
@@ -237,6 +301,8 @@ export class Simulation {
   readonly #configHash: bigint;
   readonly #lif: LifConfig;
   readonly #options: SimulationOptions;
+  #membraneViewCache: { epoch: number; array: Float32Array } | undefined;
+  #predictiveViewCache: { epoch: number; array: Float32Array } | undefined;
 
   private constructor(native: NativeSimulation, lif: LifConfig, options: SimulationOptions) {
     this.#native = native;
@@ -255,6 +321,9 @@ export class Simulation {
         options.inhibition ?? null,
         options.segments ?? null,
         options.predictiveLearning ?? null,
+        options.plasticity ?? null,
+        options.homeostaticScaling ?? null,
+        options.structuralPlasticity ?? null,
         options.threadCount ?? null,
         options.totalNeurons ?? null,
       ),
@@ -294,6 +363,9 @@ export class Simulation {
       options.inhibition ?? null,
       options.segments ?? null,
       options.predictiveLearning ?? null,
+      options.plasticity ?? null,
+      options.homeostaticScaling ?? null,
+      options.structuralPlasticity ?? null,
     );
     return new Simulation(native, lif, options);
   }
@@ -313,9 +385,51 @@ export class Simulation {
     return this.#native.connect(source, target, segment, delay, permanence) ?? undefined;
   }
 
+  /**
+   * Builds a column-structured network (Requirement 8): allocates and
+   * wires every column in `columns` via `GraphBuilder::build_column`, then
+   * wires `votingGroups`'s lateral-voting connectivity between already-
+   * built columns via `connect_lateral_voting`. Must be called before the
+   * first `stimulate`/`allocate`/`connect`/`step` call -- the same
+   * construction-time contract `options.totalNeurons` already carries
+   * (caller-enforced, not runtime-checked; see `build_columns`'s Rust doc
+   * comment). Omitting `votingGroups` builds columns with no lateral
+   * voting between them, which is Requirement 2.4's ablation path, not a
+   * special case.
+   */
+  buildColumns(seed: bigint, columns: ColumnConfig[], votingGroups: VotingGroupConfig[] = []): ColumnHandle[] {
+    return this.#native.buildColumns(seed, columns, votingGroups);
+  }
+
   /** Delivers `current` to a neuron on the next `step()` call (stand-in for IO-1's encoders). */
   stimulate(index: number, current: number): void {
     this.#native.stimulate(index, current);
+  }
+
+  /**
+   * Named reward entry point (LRN-11, Requirement 15.1): drives the
+   * dopamine channel specifically, so "reward" has one spelling rather
+   * than every caller independently knowing to pick the dopamine channel
+   * and a magnitude.
+   */
+  reward(amount: number): void {
+    this.#native.reward(amount);
+  }
+
+  /** The general form of `reward` -- targets a chosen neuromodulator channel with a chosen amount (Requirement 15.2). */
+  injectModulator(channel: number, amount: number): void {
+    this.#native.injectModulator(channel, amount);
+  }
+
+  /**
+   * Readback (Requirement 15.5): the neuromodulator field's levels as last
+   * computed, with no tick-advancing catch-up -- lets a caller verify what
+   * the network actually saw rather than inferring it from what was
+   * injected. One entry per channel (dopamine, acetylcholine,
+   * noradrenaline, serotonin, in that order).
+   */
+  modulatorLevels(): number[] {
+    return this.#native.modulatorLevels();
   }
 
   /** Advances by one tick, returning the indices that spiked. */
@@ -325,6 +439,38 @@ export class Simulation {
 
   membraneAt(index: number): number {
     return this.#native.membraneAt(index);
+  }
+
+  /**
+   * Zero-copy view over every neuron's membrane potential (Requirement
+   * 8.4), the bulk counterpart to `membraneAt` -- reading a whole column's
+   * (or the whole network's) state this way costs one FFI call total,
+   * rather than one per neuron per tick. Minted at most once per epoch,
+   * mirroring `Brain.membraneArray()`'s caching. Valid only until the next
+   * operation that grows the arena (`allocate`/`connect`, or structural
+   * growth inside `step()`) -- a caller holding a previously-returned
+   * array across such a call is outside the FFI's cooperative safety
+   * contract (`NativeSimulation.membrane_view`'s Rust doc comment).
+   */
+  membraneView(): Float32Array {
+    const epoch = this.#native.epoch();
+    if (!this.#membraneViewCache || this.#membraneViewCache.epoch !== epoch) {
+      this.#membraneViewCache = { epoch, array: this.#native.membraneView() };
+    }
+    return this.#membraneViewCache.array;
+  }
+
+  /**
+   * Zero-copy view over every neuron's dendritic predictive state
+   * (Requirement 8.4), the bulk counterpart to `predictiveAt`. Same
+   * caching and validity contract as `membraneView()`.
+   */
+  predictiveView(): Float32Array {
+    const epoch = this.#native.epoch();
+    if (!this.#predictiveViewCache || this.#predictiveViewCache.epoch !== epoch) {
+      this.#predictiveViewCache = { epoch, array: this.#native.predictiveView() };
+    }
+    return this.#predictiveViewCache.array;
   }
 
   /**
@@ -357,5 +503,19 @@ export class Simulation {
 
   currentTick(): number {
     return this.#native.currentTick();
+  }
+
+  /**
+   * Runs one consolidation pass (LRN-10, Requirement 12): replays a
+   * bounded recent window of this simulation's own recorded activity,
+   * then force-applies downscaling and an aggressive pruning pass. Never
+   * runs as a side effect of `step()` -- an explicit call only, and it
+   * still advances `currentTick()` for every tick of replay it performs
+   * (Requirement 12.2), exactly like `step()` does. Single-threaded
+   * (`threadCount` omitted or 1) only, matching `snapshot()`/`restore()`'s
+   * existing restriction.
+   */
+  runConsolidation(seed: bigint, config: ConsolidationConfig): ConsolidationReport {
+    return this.#native.runConsolidation(seed, config);
   }
 }
