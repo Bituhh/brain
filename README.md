@@ -409,6 +409,17 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
   first implementation spec.
 - **Phase 4 — columns and scale.** **[R]** Column primitive, lateral voting, thread
   partitioning, snapshots, criterion benchmarks against ENG-11.
+  **Status (2026-09-10): shipped.** NET-4 (`column.rs`), NET-5 (`connect_lateral_voting`,
+  reusing the existing dendritic-segment mechanism rather than a new one), RUN-4/5/6/7/8
+  (`partition.rs`'s `PartitionRuntime`, proven bit-identical to the single-threaded reference at
+  every thread count by `tests/partitioning_reference.rs` and re-expressed at the exit-criterion
+  level by `tests/emergent_columns.rs`), the migratable snapshot format (Requirement 9,
+  `snapshot.rs` `FORMAT_VERSION` 2), the `threadCount`/`totalNeurons` FFI surface
+  (`crates/brain-napi`), and the ENG-11 benchmarks (`benches/core_bench.rs`,
+  `tests/scale.rs` — numbers and the still-open per-core-scaling-at-small-network-size question
+  in §12a). Deferred out of this phase: per-column FFI accessors (no column-building FFI exists
+  in `NativeSimulation` yet) and a full throughput benchmark at the real 100k-neuron/50M-synapse
+  scale (§12a).
 - **Phase 5 — I/O and consolidation.** **[T]** Encoders/decoders, streaming input, experiment
   harness. **[R]** sleep/replay and consolidation. Milestone: VAL-4, character-level
   prediction beating a trigram baseline.
