@@ -165,6 +165,38 @@ impl PartitionPlan {
         self.ranges.len()
     }
 
+    /// Widens the last partition's range by `additional` neurons (NET-7/10,
+    /// LRN-7's developmental growth, Requirement 3 Acceptance Criterion 5)
+    /// -- the caller's job after [`crate::growth::apply_growth`] appends
+    /// that many fresh neurons to the arena. Only the *last* partition can
+    /// grow this way: partitions are contiguous ranges over one shared
+    /// arena (`column.rs`/`partition.rs`'s whole design), and
+    /// `NeuronArena::allocate` always appends at the arena's own end, so
+    /// inserting new capacity into an *earlier* partition's range would
+    /// require shifting every later partition's neurons -- which would
+    /// invalidate their `NeuronId`s (Requirement 2.2, 11.5) and is not
+    /// attempted here. A caller wanting a specific *other* column/partition
+    /// to grow must instead give it a whole new column (`column.rs`'s
+    /// `ColumnRegistry::register`) appended after the existing ones.
+    ///
+    /// This method updates only this plan's own bookkeeping. A
+    /// [`PartitionRuntime`] already in use computes its per-tick views from
+    /// `self.plan.range_of(p)` freshly every [`PartitionRuntime::step`]
+    /// call, so a widened last range is picked up automatically from the
+    /// next tick onward -- but `PartitionRuntime::boundary_neurons` is
+    /// computed once at construction (`PartitionRuntime::new`) and is
+    /// *not* recomputed here, so a newly-grown neuron that becomes the
+    /// endpoint of a new cross-partition synapse after construction is not
+    /// yet recognised as a boundary neuron. Closing that gap needs a
+    /// `PartitionRuntime`-level recomputation step, which is not built yet
+    /// (a real limitation for a network whose growth policy creates
+    /// cross-partition synapses at runtime, not exercised by anything in
+    /// this crate's test suite today).
+    pub fn extend_last(&mut self, additional: u32) {
+        let last = self.ranges.last_mut().expect("a PartitionPlan always has at least one partition");
+        last.end += additional;
+    }
+
     pub fn range_of(&self, partition_id: usize) -> Range<u32> {
         self.ranges[partition_id].clone()
     }
@@ -650,6 +682,17 @@ mod tests {
         // 4 columns / 2 partitions = 2 columns each: [0..10,10..25) -> 0..25, [25..30,30..40) -> 25..40.
         assert_eq!(plan.range_of(0), 0..25);
         assert_eq!(plan.range_of(1), 25..40);
+    }
+
+    /// NET-7/10, Requirement 3 Acceptance Criterion 5.
+    #[test]
+    fn extend_last_widens_only_the_last_partition() {
+        let columns = registry(&[0..10, 10..25, 25..30, 30..40]);
+        let mut plan = PartitionPlan::contiguous(&columns, 2);
+        plan.extend_last(7);
+        assert_eq!(plan.range_of(0), 0..25, "the first partition must be unaffected");
+        assert_eq!(plan.range_of(1), 25..47, "only the last partition grows");
+        assert_eq!(plan.partition_of(46), 1, "the newly-grown range must resolve to the last partition");
     }
 
     #[test]

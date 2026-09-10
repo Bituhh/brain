@@ -30,7 +30,11 @@
 //! done); a hand-rolled `std::thread::scope`-based executor, benchmarked
 //! against rayon and resolved decisively in rayon's favour -- §12a open
 //! question 2 (Step 18, done). See `partition.rs`'s module docs and
-//! README §12a for the numbers.
+//! README §12a for the numbers. Structural plasticity's sprout delay now
+//! respects partition boundaries (`StructuralPlasticity::maybe_sweep_partitioned`),
+//! and `PartitionPlan`/`ColumnRegistry` both gained `extend_last` for
+//! developmental growth's arena-always-appends-at-the-end constraint
+//! (Step 19, done).
 //!
 //! The test suite is organised in four layers (Requirement 15.1): Rust
 //! unit tests (this crate's own `#[cfg(test)]` modules), Rust whole-network

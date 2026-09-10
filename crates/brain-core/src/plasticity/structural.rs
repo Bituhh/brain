@@ -38,6 +38,14 @@ pub struct StructuralPlasticityParams {
     /// needed yet since creation", which would reclaim every newly grown
     /// neuron before it had a chance to do anything.
     pub unused_ticks_before_reclaim: u32,
+    /// Minimum axonal delay (ticks) a sprouted synapse must carry when its
+    /// two endpoints belong to different partitions (Requirement 4,
+    /// Acceptance Criterion 2 -- RUN-5's "a spike with >= 2 ticks of delay
+    /// can cross a partition boundary with no synchronisation barrier").
+    /// Only consulted by [`Self::maybe_sweep_partitioned`]; a same-partition
+    /// sprout (or any sprout via plain [`Self::maybe_sweep`]) still gets
+    /// delay 1, unchanged.
+    pub min_cross_partition_delay: u16,
 }
 
 pub struct StructuralPlasticity {
@@ -100,7 +108,11 @@ impl StructuralPlasticity {
         pruned
     }
 
-    fn sprout(&self, synapses: &mut SynapseArena, neuron_count: u32) -> u32 {
+    /// `partition_of` decides each sprouted synapse's delay: same-partition
+    /// pairs (including the always-true case plain [`Self::maybe_sweep`]
+    /// uses, `|_| 0`) get delay 1 as before; cross-partition pairs get
+    /// `max(1, min_cross_partition_delay)` (Requirement 4 AC2).
+    fn sprout(&self, synapses: &mut SynapseArena, neuron_count: u32, partition_of: &dyn Fn(u32) -> usize) -> u32 {
         let mut sprouted = 0;
         // Deterministic order (Requirement 11.10): iterate neighbourhoods
         // and their members by index, never by any hash-based structure.
@@ -120,7 +132,8 @@ impl StructuralPlasticity {
                     if already_connected {
                         continue;
                     }
-                    if synapses.insert(a, b, 0, 1, self.params.sprout_permanence).is_ok() {
+                    let delay = if partition_of(a) != partition_of(b) { self.params.min_cross_partition_delay.max(1) } else { 1 };
+                    if synapses.insert(a, b, 0, delay, self.params.sprout_permanence).is_ok() {
                         sprouted += 1;
                     }
                     // BlockFull is a legitimate, expected outcome
@@ -152,12 +165,32 @@ impl StructuralPlasticity {
 
     /// Runs pruning, sprouting, and unused-neuron reclamation if
     /// `sweep_interval_ticks` have elapsed since the last sweep. Returns
-    /// `None` if it did not run this call.
-    pub fn maybe_sweep(
+    /// `None` if it did not run this call. Every sprouted synapse gets
+    /// delay 1, exactly as before partitioning existed -- equivalent to
+    /// [`Self::maybe_sweep_partitioned`] with every neuron treated as
+    /// belonging to the same one partition.
+    pub fn maybe_sweep(&mut self, neurons: &mut NeuronArena, synapses: &mut SynapseArena, tick: u32) -> Option<StructuralSweepReport> {
+        self.maybe_sweep_partitioned(neurons, synapses, tick, |_| 0)
+    }
+
+    /// As [`Self::maybe_sweep`], but a sprouted synapse whose two endpoints
+    /// resolve to different partitions under `partition_of` gets
+    /// `StructuralPlasticityParams::min_cross_partition_delay` instead of
+    /// the same-partition default of 1 (Requirement 4, Acceptance
+    /// Criterion 2). Operates on the whole, unpartitioned
+    /// `NeuronArena`/`SynapseArena` -- structural plasticity's sweep is
+    /// caller-invoked between `PartitionRuntime::step` calls (it is not
+    /// part of the per-tick hot path any `Scheduler`/`PartitionRuntime`
+    /// method calls internally), so it never contends with a
+    /// `NeuronArenaViewMut`/`SynapseArenaViewMut` borrow -- only the
+    /// caller-supplied `partition_of` closure (typically
+    /// `|n| plan.partition_of(n)`) needs to know about partitioning at all.
+    pub fn maybe_sweep_partitioned(
         &mut self,
         neurons: &mut NeuronArena,
         synapses: &mut SynapseArena,
         tick: u32,
+        partition_of: impl Fn(u32) -> usize,
     ) -> Option<StructuralSweepReport> {
         if tick < self.last_swept_at + self.params.sweep_interval_ticks {
             return None;
@@ -168,7 +201,7 @@ impl StructuralPlasticity {
 
         let neuron_count = neurons.capacity_len() as u32;
         let pruned = self.prune(synapses, neuron_count);
-        let sprouted = self.sprout(synapses, neuron_count);
+        let sprouted = self.sprout(synapses, neuron_count, &partition_of);
         let reclaimed_neurons = self.reclaim_unused_neurons(neurons, tick);
 
         Some(StructuralSweepReport { pruned, sprouted, reclaimed_neurons })
@@ -202,6 +235,7 @@ mod tests {
             min_activity_streak: 3,
             sweep_interval_ticks: 100,
             unused_ticks_before_reclaim: 1000,
+            min_cross_partition_delay: 2,
         }
     }
 
@@ -276,6 +310,50 @@ mod tests {
 
         let id = synapses.occupied_in_block(0).find(|&id| synapses.target_neuron[id as usize] == 1).unwrap();
         assert_eq!(synapses.permanence[id as usize], 0.1, "must start at sprout_permanence, sub-threshold by construction (Req 11.2)");
+    }
+
+    /// Requirement 4, Acceptance Criterion 2.
+    #[test]
+    fn cross_partition_sprouts_get_the_configured_minimum_delay() {
+        let mut neurons = make_neurons(3); // 0, 1 in partition 0; 2 in partition 1
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(3);
+        let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, min_cross_partition_delay: 4, ..default_params() };
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
+        neurons.last_spike[0] = 5;
+        neurons.last_spike[1] = 6;
+        neurons.last_spike[2] = 7;
+        let partition_of = |n: u32| if n < 2 { 0 } else { 1 };
+
+        let report = sp.maybe_sweep_partitioned(&mut neurons, &mut synapses, 10, partition_of).unwrap();
+        assert_eq!(report.sprouted, 6, "all 6 ordered pairs among 0,1,2 must sprout");
+
+        let same_partition = synapses.occupied_in_block(0).find(|&id| synapses.target_neuron[id as usize] == 1).unwrap();
+        assert_eq!(synapses.delay[same_partition as usize], 1, "0->1 (same partition) must keep delay 1");
+
+        let cross_partition = synapses.occupied_in_block(0).find(|&id| synapses.target_neuron[id as usize] == 2).unwrap();
+        assert_eq!(synapses.delay[cross_partition as usize], 4, "0->2 (cross partition) must get min_cross_partition_delay");
+
+        let cross_partition_reverse = synapses.occupied_in_block(2).find(|&id| synapses.target_neuron[id as usize] == 0).unwrap();
+        assert_eq!(synapses.delay[cross_partition_reverse as usize], 4, "2->0 (cross partition, other direction) must also get min_cross_partition_delay");
+    }
+
+    /// Plain `maybe_sweep` (no `partition_of`) must be unaffected by the
+    /// new parameter -- every sprout still gets delay 1, matching
+    /// pre-partitioning behaviour exactly.
+    #[test]
+    fn plain_maybe_sweep_still_sprouts_with_delay_one() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, min_cross_partition_delay: 4, ..default_params() };
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
+        neurons.last_spike[0] = 5;
+        neurons.last_spike[1] = 6;
+        sp.maybe_sweep(&mut neurons, &mut synapses, 10);
+
+        let id = synapses.occupied_in_block(0).find(|&id| synapses.target_neuron[id as usize] == 1).unwrap();
+        assert_eq!(synapses.delay[id as usize], 1);
     }
 
     #[test]

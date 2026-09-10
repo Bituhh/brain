@@ -105,6 +105,27 @@ impl ColumnRegistry {
     pub fn iter(&self) -> impl Iterator<Item = &ColumnSpec> {
         self.columns.iter()
     }
+
+    /// Widens the last-registered column's range by `additional` neurons
+    /// (NET-7/10's developmental growth) -- the caller's job right after
+    /// [`crate::growth::apply_growth`] appends that many fresh neurons to
+    /// the arena. Only the *last* column can grow this way, for the same
+    /// reason [`crate::partition::PartitionPlan::extend_last`] is
+    /// similarly restricted: columns are contiguous ranges over one shared
+    /// arena, and new neurons always append at the arena's own end, so
+    /// only the column already occupying that end can absorb them without
+    /// shifting (and thereby invalidating the identity of) every neuron in
+    /// every column after it. A caller wanting a specific *other* column to
+    /// grow must instead register a whole new column for the new capacity.
+    /// The grown column's existing `inhibition`/`segments` configuration is
+    /// left untouched -- both already address by global index computed
+    /// from `size`/`base`, so the widened range simply gains additional,
+    /// independent neighbourhoods/segments past the original ones, with no
+    /// change needed here.
+    pub fn extend_last(&mut self, additional: u32) {
+        let last = self.columns.last_mut().expect("a ColumnRegistry must have at least one column to extend");
+        last.neuron_range.end += additional;
+    }
 }
 
 #[cfg(test)]
@@ -141,6 +162,18 @@ mod tests {
         assert_eq!(registry.column_of(24), Some(1));
         assert_eq!(registry.column_of(25), None, "the range's end is exclusive");
         assert_eq!(registry.column_of(1000), None, "no column owns an out-of-range index");
+    }
+
+    /// NET-7/10.
+    #[test]
+    fn extend_last_widens_only_the_last_column() {
+        let mut registry = ColumnRegistry::new();
+        registry.register(spec(0..10));
+        registry.register(spec(10..20));
+        registry.extend_last(5);
+        assert_eq!(registry.range_of(0), Some(0..10), "the first column must be unaffected");
+        assert_eq!(registry.range_of(1), Some(10..25), "only the last column grows");
+        assert_eq!(registry.column_of(24), Some(1), "the newly-grown range must resolve to the last column");
     }
 
     #[test]
