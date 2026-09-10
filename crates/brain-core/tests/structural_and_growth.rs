@@ -3,6 +3,7 @@
 //! determinism, and growth not degrading what was already learned).
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
+use brain_core::column::ColumnRegistry;
 use brain_core::growth::{apply_growth, FixedSchedule, GrowthPolicy, PopulationStats};
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::plasticity::stdp::StdpParams;
@@ -174,7 +175,7 @@ fn snapshot_survives_a_real_structural_sweep_and_growth() {
     apply_growth(&mut neurons, &mut synapses, 3, |_| NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] });
 
     let neuron_count = neurons.capacity_len() as u32;
-    let bytes = snapshot::write(&neurons, &synapses, &sched, neuron_count, 7);
+    let bytes = snapshot::write(&neurons, &synapses, &sched, &ColumnRegistry::new(), neuron_count, 7);
     let restored = snapshot::read(&bytes, 7).unwrap();
 
     assert_eq!(restored.neurons.live_count(), neurons.live_count());
@@ -203,7 +204,7 @@ fn a_restored_network_can_grow_and_keep_learning_without_discarding_prior_learni
     assert!(permanence_before_snapshot > 0.5, "a->b should have potentiated before the snapshot, got {permanence_before_snapshot}");
 
     let neuron_count = neurons.capacity_len() as u32;
-    let bytes = snapshot::write(&neurons, &synapses, &sched, neuron_count, 42);
+    let bytes = snapshot::write(&neurons, &synapses, &sched, &ColumnRegistry::new(), neuron_count, 42);
     let restored = snapshot::read(&bytes, 42).unwrap();
 
     let mut neurons = restored.neurons;

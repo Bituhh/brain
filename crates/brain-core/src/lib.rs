@@ -38,7 +38,11 @@
 //! real columns and proven to survive real partitioning and real
 //! multi-threading, bit-identically (`tests/emergent_columns.rs`) -- caught
 //! and fixed a real out-of-bounds bug in predictive learning's
-//! reinforce/punish path along the way (Step 20, done).
+//! reinforce/punish path along the way (Step 20, done). Snapshot format
+//! bumped 1 -> 2 (`snapshot.rs`) to add a versioned, migratable column-
+//! registry section, plus `read_header` for partial loading -- a
+//! version-1 golden fixture (`tests/fixtures/snapshot_v1.bin`) still
+//! restores correctly, with an empty `ColumnRegistry` (Step 21, done).
 //!
 //! The test suite is organised in four layers (Requirement 15.1): Rust
 //! unit tests (this crate's own `#[cfg(test)]` modules), Rust whole-network

@@ -12,6 +12,7 @@
 //! than a large tangled network.
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
+use brain_core::column::ColumnRegistry;
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::plasticity::stdp::StdpParams;
@@ -191,7 +192,7 @@ proptest! {
         sched.step::<Lif>(&mut neurons, &mut synapses, &params);
 
         let neuron_arena_len = neurons.capacity_len() as u32;
-        let bytes = snapshot::write(&neurons, &synapses, &sched, neuron_arena_len, 7);
+        let bytes = snapshot::write(&neurons, &synapses, &sched, &ColumnRegistry::new(), neuron_arena_len, 7);
         let restored = snapshot::read(&bytes, 7).unwrap();
 
         prop_assert_eq!(restored.neurons.capacity_len(), neurons.capacity_len());

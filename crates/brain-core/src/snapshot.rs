@@ -47,11 +47,25 @@
 //! design defect to skip when the time comes, not an optional nice-to-have.
 
 use crate::arena::NeuronArena;
+use crate::column::{ColumnRegistry, ColumnSpec};
+use crate::inhibition::FixedNeighbourhoods;
 use crate::scheduler::Scheduler;
+use crate::segment::{BinaryCoincidenceParams, SegmentConfig};
 use crate::synapse::SynapseArena;
 
 const MAGIC: [u8; 6] = *b"BRAIN\0";
-pub const FORMAT_VERSION: u32 = 1;
+/// Bumped 1 -> 2 in Phase 4 Step 21 to add a column-registry section
+/// (Requirement 9). `README.md`'s design.md deferred exactly this --
+/// schema migration, partial loading, compatibility guarantees -- from
+/// Phase 0-3 to Phase 4; the round-trip mechanism itself (this module) was
+/// already in scope then and is unchanged in its v1 shape.
+pub const FORMAT_VERSION: u32 = 2;
+/// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
+/// concrete and falsifiable: `read` migrates any snapshot from this
+/// version through `FORMAT_VERSION`. Widen this only alongside an actual
+/// migration path for the version being dropped -- see `read`'s version
+/// dispatch.
+pub const OLDEST_SUPPORTED_VERSION: u32 = 1;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SnapshotError {
@@ -61,8 +75,10 @@ pub enum SnapshotError {
     /// out-of-memory attempt (Requirement 16.8's "fail loudly", applied
     /// defensively).
     Corrupt,
-    /// The version tag does not match `FORMAT_VERSION`. No partial or
-    /// best-effort load is attempted (Requirement 16.8).
+    /// The version tag is newer than `FORMAT_VERSION` or older than
+    /// `OLDEST_SUPPORTED_VERSION` (Requirement 9, Acceptance Criterion 3).
+    /// No partial or best-effort load is attempted either way
+    /// (Requirement 16.8).
     UnsupportedVersion,
     /// The caller-supplied `config_hash` does not match the one stored in
     /// the snapshot.
@@ -144,6 +160,35 @@ impl<'a> Reader<'a> {
     fn f32(&mut self) -> Result<f32, SnapshotError> {
         Ok(f32::from_le_bytes(self.take(4)?.try_into().unwrap()))
     }
+}
+
+/// A snapshot's fixed-size header, readable without touching the (usually
+/// far larger) payload after it -- Requirement 9, Acceptance Criterion 5's
+/// partial loading: a caller wanting just the version, config hash, or
+/// tick a snapshot was taken at (e.g. to decide whether it is even worth
+/// restoring) can call [`read_header`] alone.
+#[derive(Clone, Copy, Debug)]
+pub struct SnapshotHeader {
+    pub version: u32,
+    pub config_hash: u64,
+    pub tick: u32,
+}
+
+/// Reads just [`SnapshotHeader`] -- magic, version, config hash, tick --
+/// without parsing anything past it. Exactly [`read`]'s own first few
+/// field-reads, factored out so a caller can use them standalone; `read`
+/// itself re-parses the same bytes (a handful of bytes, not worth threading
+/// a partially-consumed `Reader` between two public functions for).
+pub fn read_header(bytes: &[u8]) -> Result<SnapshotHeader, SnapshotError> {
+    let mut r = Reader::new(bytes);
+    let magic = r.take(6)?;
+    if magic != MAGIC {
+        return Err(SnapshotError::Corrupt);
+    }
+    let version = r.u32()?;
+    let config_hash = r.u64()?;
+    let tick = r.u32()?;
+    Ok(SnapshotHeader { version, config_hash, tick })
 }
 
 fn write_neurons(w: &mut Writer, neurons: &NeuronArena) {
@@ -305,13 +350,57 @@ fn read_synapses(r: &mut Reader<'_>) -> Result<SynapseArena, SnapshotError> {
     Ok(synapses)
 }
 
+/// New in format version 2 (Step 21): each [`ColumnSpec`]'s neuron range,
+/// `FixedNeighbourhoods` (`base`/`size`/`k` -- its own reusable scratch
+/// buffer is not state, see `inhibition.rs`), and `SegmentConfig`. Absent
+/// entirely from a version-1 payload; `read`'s version dispatch supplies
+/// an empty `ColumnRegistry` for those instead of calling this.
+fn write_columns(w: &mut Writer, columns: &ColumnRegistry) {
+    w.u32(columns.len() as u32);
+    for column in columns.iter() {
+        w.u32(column.neuron_range.start);
+        w.u32(column.neuron_range.end);
+        w.u32(column.inhibition.base());
+        w.u32(column.inhibition.size());
+        w.u32(column.inhibition.k());
+        w.u32(column.segments.segments_per_neuron);
+        w.u16(column.segments.params.threshold);
+    }
+}
+
+fn read_columns(r: &mut Reader<'_>) -> Result<ColumnRegistry, SnapshotError> {
+    let count = r.u32()? as usize;
+    let mut registry = ColumnRegistry::new();
+    for _ in 0..count {
+        let start = r.u32()?;
+        let end = r.u32()?;
+        if end < start {
+            return Err(SnapshotError::Corrupt);
+        }
+        let base = r.u32()?;
+        let size = r.u32()?;
+        let k = r.u32()?;
+        let segments_per_neuron = r.u32()?;
+        let threshold = r.u16()?;
+        registry.register(ColumnSpec {
+            neuron_range: start..end,
+            inhibition: FixedNeighbourhoods::with_base(base, size, k),
+            segments: SegmentConfig { segments_per_neuron, params: BinaryCoincidenceParams { threshold } },
+        });
+    }
+    Ok(registry)
+}
+
 /// Serialises `neurons` + `synapses` + `scheduler`'s transient state
-/// (Requirement 16.1) into a versioned binary buffer (Requirement 16.7),
-/// tagged with a caller-supplied, opaque `config_hash` (Requirement 16.1's
+/// (Requirement 16.1) plus `columns` (Requirement 9, new in format version
+/// 2) into a versioned binary buffer (Requirement 16.7), tagged with a
+/// caller-supplied, opaque `config_hash` (Requirement 16.1's
 /// "configuration", validated rather than round-tripped -- see module
 /// docs). `neuron_count` should be the same value the synapse arena was
-/// last `reserve_for_neurons`-ed with.
-pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Scheduler, neuron_count: u32, config_hash: u64) -> Vec<u8> {
+/// last `reserve_for_neurons`-ed with. Pass `&ColumnRegistry::new()` for a
+/// column-less network -- an empty registry round-trips to an empty one,
+/// exactly like format version 1's absence of the section did.
+pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Scheduler, columns: &ColumnRegistry, neuron_count: u32, config_hash: u64) -> Vec<u8> {
     let mut w = Writer::new();
     w.bytes(&MAGIC);
     w.u32(FORMAT_VERSION);
@@ -335,41 +424,57 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
         w.u32(id);
     }
 
+    write_columns(&mut w, columns);
+
     w.buf
 }
 
 /// The state a snapshot restores, before being overlaid onto a
 /// freshly-configured `Scheduler` (see module docs on why configuration is
-/// supplied fresh rather than restored).
+/// supplied fresh rather than restored). `columns` is empty when restoring
+/// a format-version-1 snapshot (Requirement 9, Acceptance Criterion 6 --
+/// there is only one sound reading of "a network with no column section",
+/// namely "it had no columns").
 pub struct Restored {
     pub neurons: NeuronArena,
     pub synapses: SynapseArena,
     pub tick: u32,
     pub ring: Vec<Vec<u32>>,
     pub dirty_members: Vec<u32>,
+    pub columns: ColumnRegistry,
 }
 
 /// Restores a snapshot written by [`write`]. `expected_config_hash` must
 /// match the hash the snapshot was written with (Requirement 16.1's
-/// configuration check). An unrecognised version or any structural
-/// corruption fails loudly with no partial load (Requirement 16.8): every
-/// length is bounds-checked against the buffer before use, so a truncated
-/// or malformed file cannot cause an out-of-bounds read or an
-/// out-of-memory allocation attempt.
+/// configuration check). A version newer than [`FORMAT_VERSION`] or older
+/// than [`OLDEST_SUPPORTED_VERSION`], or any structural corruption, fails
+/// loudly with no partial load (Requirement 16.8, Requirement 9 Acceptance
+/// Criterion 3): every length is bounds-checked against the buffer before
+/// use, so a truncated or malformed file cannot cause an out-of-bounds
+/// read or an out-of-memory allocation attempt.
+///
+/// Migration (Requirement 9, Acceptance Criteria 2/4/6) is version-
+/// dispatched reading straight into today's [`Restored`], not a
+/// byte-rewriting pipeline through every intermediate version: the actual
+/// schema that matters is these Rust structs, and every version so far
+/// (just 1 -> 2) differs only by one additive trailing section (the column
+/// registry), so there is nothing an intermediate byte format would buy
+/// over reading directly. A future version introducing a genuinely
+/// incompatible change to an *existing* section would need its own
+/// versioned reader for that section, following this same pattern.
 pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, SnapshotError> {
-    let mut r = Reader::new(bytes);
-    let magic = r.take(6)?;
-    if magic != MAGIC {
-        return Err(SnapshotError::Corrupt);
-    }
-    let version = r.u32()?;
-    if version != FORMAT_VERSION {
+    let header = read_header(bytes)?;
+    if header.version > FORMAT_VERSION || header.version < OLDEST_SUPPORTED_VERSION {
         return Err(SnapshotError::UnsupportedVersion);
     }
-    let config_hash = r.u64()?;
-    if config_hash != expected_config_hash {
+    if header.config_hash != expected_config_hash {
         return Err(SnapshotError::ConfigMismatch);
     }
+
+    let mut r = Reader::new(bytes);
+    r.take(6)?; // magic, already validated by read_header
+    r.u32()?; // version, already read above
+    r.u64()?; // config_hash, already validated above
     let tick = r.u32()?;
 
     let neurons = read_neurons(&mut r)?;
@@ -391,7 +496,11 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
         dirty_members.push(r.u32()?);
     }
 
-    Ok(Restored { neurons, synapses, tick, ring, dirty_members })
+    // Format version 1 has no column section at all -- Requirement 9,
+    // Acceptance Criterion 6: the only sound migration is "no columns".
+    let columns = if header.version >= 2 { read_columns(&mut r)? } else { ColumnRegistry::new() };
+
+    Ok(Restored { neurons, synapses, tick, ring, dirty_members, columns })
 }
 
 #[cfg(test)]
@@ -417,7 +526,7 @@ mod tests {
         neurons.membrane[0] = 0.42;
         neurons.trace[1] = 0.9;
 
-        let bytes = write(&neurons, &synapses, &scheduler, 2, 12345);
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 12345);
         let restored = read(&bytes, 12345).unwrap();
 
         assert_eq!(restored.neurons.capacity_len(), neurons.capacity_len());
@@ -440,7 +549,7 @@ mod tests {
         let (mut neurons, synapses, scheduler) = sample_network();
         neurons.predictive[1] = 0.73;
 
-        let bytes = write(&neurons, &synapses, &scheduler, 2, 1);
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
         let restored = read(&bytes, 1).unwrap();
 
         assert_eq!(restored.neurons.predictive, neurons.predictive);
@@ -451,7 +560,7 @@ mod tests {
     fn round_trips_occupied_synapses_exactly() {
         let (neurons, mut synapses, scheduler) = sample_network();
         synapses.eligibility[0] = 0.77;
-        let bytes = write(&neurons, &synapses, &scheduler, 2, 1);
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
         let restored = read(&bytes, 1).unwrap();
 
         assert_eq!(restored.synapses.permanence[0], synapses.permanence[0]);
@@ -474,7 +583,7 @@ mod tests {
         synapses.insert(a, b, 0, 1, 0.5).unwrap();
         let scheduler = Scheduler::new(4, 0.5);
 
-        let with_one_occupied = write(&neurons, &synapses, &scheduler, 2, 1);
+        let with_one_occupied = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
 
         // A synapse arena with a much larger *capacity* but the same one
         // occupied synapse should produce a payload of comparable size,
@@ -486,7 +595,7 @@ mod tests {
         for _ in 0..1000 {
             big_neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] });
         }
-        let with_huge_capacity = write(&big_neurons, &sparse, &Scheduler::new(4, 0.5), 1000, 1);
+        let with_huge_capacity = write(&big_neurons, &sparse, &Scheduler::new(4, 0.5), &ColumnRegistry::new(), 1000, 1);
 
         // The neuron section dominates here proportional to 1000 vs 2, so
         // isolate the claim to the synapse section itself: assert the
@@ -512,7 +621,7 @@ mod tests {
         let reused = neurons.allocate(NeuronSpec { threshold: 2.0, polarity: 1, coords: [9.0; 3] });
         assert_eq!(reused.index, 0, "LIFO reuse should hand back the just-freed slot");
 
-        let bytes = write(&neurons, &synapses, &scheduler, 2, 1);
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
         let restored = read(&bytes, 1).unwrap();
 
         assert_eq!(restored.neurons.resolve(a), Err(crate::arena::ArenaError::StaleId), "the pre-free id must still read as stale after restore");
@@ -560,7 +669,7 @@ mod tests {
             let report = sched_i.step::<Lif>(&mut neurons_i, &mut synapses_i, &params);
             interrupted_trace.push(report.spiked);
             if tick == 99 {
-                snapshot_bytes = Some(write(&neurons_i, &synapses_i, &sched_i, 2, 1));
+                snapshot_bytes = Some(write(&neurons_i, &synapses_i, &sched_i, &ColumnRegistry::new(), 2, 1));
             }
         }
 
@@ -587,7 +696,7 @@ mod tests {
     #[test]
     fn unrecognised_version_fails_loudly_with_no_partial_load() {
         let (neurons, synapses, scheduler) = sample_network();
-        let mut bytes = write(&neurons, &synapses, &scheduler, 2, 1);
+        let mut bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
         // Overwrite the version field (bytes 6..10) with something bogus.
         bytes[6..10].copy_from_slice(&999u32.to_le_bytes());
         match read(&bytes, 1) { Err(SnapshotError::UnsupportedVersion) => {}, other => panic!("expected UnsupportedVersion, got a different result (ok={})", other.is_ok()) }
@@ -596,14 +705,14 @@ mod tests {
     #[test]
     fn config_hash_mismatch_is_rejected() {
         let (neurons, synapses, scheduler) = sample_network();
-        let bytes = write(&neurons, &synapses, &scheduler, 2, 42);
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 42);
         match read(&bytes, 43) { Err(SnapshotError::ConfigMismatch) => {}, other => panic!("expected ConfigMismatch, got a different result (ok={})", other.is_ok()) }
     }
 
     #[test]
     fn truncated_buffer_is_reported_as_corrupt_not_a_panic() {
         let (neurons, synapses, scheduler) = sample_network();
-        let bytes = write(&neurons, &synapses, &scheduler, 2, 1);
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
         let truncated = &bytes[..bytes.len() / 2];
         match read(truncated, 1) { Err(SnapshotError::Corrupt) => {}, other => panic!("expected Corrupt, got a different result (ok={})", other.is_ok()) }
     }
@@ -611,7 +720,7 @@ mod tests {
     #[test]
     fn bad_magic_is_rejected() {
         let (neurons, synapses, scheduler) = sample_network();
-        let mut bytes = write(&neurons, &synapses, &scheduler, 2, 1);
+        let mut bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
         bytes[0] = b'X';
         match read(&bytes, 1) { Err(SnapshotError::Corrupt) => {}, other => panic!("expected Corrupt, got a different result (ok={})", other.is_ok()) }
     }
@@ -623,11 +732,108 @@ mod tests {
         scheduler.stimulate(&neurons, 0, 10.0);
         scheduler.step::<Lif>(&mut neurons, &mut synapses, &params); // schedules a delivery + enters refractory
 
-        let bytes = write(&neurons, &synapses, &scheduler, 2, 1);
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
         let restored = read(&bytes, 1).unwrap();
 
         assert_eq!(restored.ring.len(), scheduler.ring_contents().len());
         assert_eq!(restored.ring, scheduler.ring_contents().to_vec());
         assert_eq!(restored.dirty_members, scheduler.dirty_members());
+    }
+
+    // -- Migratable format (Requirement 9, Step 21).
+
+    #[test]
+    fn read_header_reads_just_the_header_without_touching_the_payload() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 999);
+        let header = read_header(&bytes).unwrap();
+        assert_eq!(header.version, FORMAT_VERSION);
+        assert_eq!(header.config_hash, 999);
+        assert_eq!(header.tick, scheduler.tick());
+    }
+
+    #[test]
+    fn read_header_alone_rejects_bad_magic_and_truncation_like_read_does() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
+        assert!(matches!(read_header(&bytes[..3]), Err(SnapshotError::Corrupt)));
+        let mut bad_magic = bytes.clone();
+        bad_magic[0] = b'X';
+        assert!(matches!(read_header(&bad_magic), Err(SnapshotError::Corrupt)));
+    }
+
+    /// Requirement 9, Acceptance Criterion 3: too new is rejected exactly
+    /// like too old (the existing `unrecognised_version_fails_loudly_with_no_partial_load`
+    /// test above already covers "too new"; this covers "too old").
+    #[test]
+    fn a_version_older_than_the_oldest_supported_is_rejected() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let mut bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
+        bytes[6..10].copy_from_slice(&(OLDEST_SUPPORTED_VERSION - 1).to_le_bytes());
+        assert!(matches!(read(&bytes, 1), Err(SnapshotError::UnsupportedVersion)));
+    }
+
+    #[test]
+    fn columns_round_trip_exactly() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let mut columns = ColumnRegistry::new();
+        columns.register(ColumnSpec {
+            neuron_range: 0..1,
+            inhibition: FixedNeighbourhoods::with_base(0, 1, 1),
+            segments: SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 5 } },
+        });
+        columns.register(ColumnSpec {
+            neuron_range: 1..2,
+            inhibition: FixedNeighbourhoods::with_base(1, 1, 1),
+            segments: SegmentConfig { segments_per_neuron: 3, params: BinaryCoincidenceParams { threshold: 7 } },
+        });
+
+        let bytes = write(&neurons, &synapses, &scheduler, &columns, 2, 1);
+        let restored = read(&bytes, 1).unwrap();
+
+        assert_eq!(restored.columns.len(), 2);
+        assert_eq!(restored.columns.range_of(0), Some(0..1));
+        assert_eq!(restored.columns.range_of(1), Some(1..2));
+        assert_eq!(restored.columns.get(0).unwrap().segments.segments_per_neuron, 2);
+        assert_eq!(restored.columns.get(1).unwrap().segments.segments_per_neuron, 3);
+        assert_eq!(restored.columns.get(0).unwrap().inhibition.k(), 1);
+    }
+
+    #[test]
+    fn an_empty_column_registry_round_trips_to_an_empty_one() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
+        let restored = read(&bytes, 1).unwrap();
+        assert!(restored.columns.is_empty());
+    }
+
+    /// Requirement 9, Acceptance Criteria 4 and 6: a snapshot written by the
+    /// pre-Phase-4 format (version 1, no column section at all -- captured
+    /// once, before this format change landed, from the exact same
+    /// `sample_network`-shaped scenario this test file already uses) must
+    /// still restore correctly, with an empty `ColumnRegistry`, and the
+    /// restored state must be usable to continue simulating.
+    #[test]
+    fn a_version_1_snapshot_restores_with_an_empty_column_registry_and_keeps_working() {
+        let bytes = std::fs::read("tests/fixtures/snapshot_v1.bin").expect("golden v1 fixture must exist -- see Step 21's commit for how it was generated");
+        let header = read_header(&bytes).unwrap();
+        assert_eq!(header.version, 1, "the fixture must actually be a version-1 payload, or this test proves nothing");
+
+        let restored = read(&bytes, 12345).unwrap();
+        assert!(restored.columns.is_empty(), "a version-1 snapshot has no columns to migrate, so it must restore to an empty registry");
+        assert_eq!(restored.tick, 5);
+        assert_eq!(restored.neurons.live_count(), 2);
+
+        // The restored state must still be genuinely usable, not just
+        // structurally present -- continue stepping it.
+        let mut neurons = restored.neurons;
+        let mut synapses = restored.synapses;
+        let mut scheduler = Scheduler::new(10, 0.5);
+        scheduler.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
+        let params = LifParams::new(5.0, 0.0, 0.0, 2);
+        for _ in 0..10 {
+            scheduler.step::<Lif>(&mut neurons, &mut synapses, &params);
+        }
+        assert_eq!(scheduler.tick(), 15);
     }
 }

@@ -368,7 +368,19 @@ impl NativeSimulation {
     #[napi]
     pub fn snapshot_bytes(&self, config_hash: BigInt) -> Uint8Array {
         let hash = config_hash.get_u64().1;
-        let bytes = brain_core::snapshot::write(&self.neurons, &self.synapses, &self.scheduler, self.neurons.capacity_len() as u32, hash);
+        // Phase 4 Step 21 added a column-registry section to the snapshot
+        // format (FORMAT_VERSION 2); NativeSimulation does not track
+        // columns yet (that FFI surface is Step 22's job), so an empty
+        // registry round-trips exactly like format version 1's absence of
+        // the section did -- see snapshot.rs's `Restored::columns` doc.
+        let bytes = brain_core::snapshot::write(
+            &self.neurons,
+            &self.synapses,
+            &self.scheduler,
+            &brain_core::column::ColumnRegistry::new(),
+            self.neurons.capacity_len() as u32,
+            hash,
+        );
         Uint8Array::new(bytes)
     }
 
