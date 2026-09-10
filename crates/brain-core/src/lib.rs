@@ -27,8 +27,10 @@
 //! `Scheduler` (Step 16, done); real rayon-managed multi-threading over
 //! disjoint `NeuronArenaViewMut`/`SynapseArenaViewMut` slices, proven
 //! bit-identical to the sequential path at every thread count (Step 17,
-//! done). A hand-rolled pinned thread pool, benchmarked against rayon, is
-//! a later step -- see `partition.rs`'s module docs and README §12a.
+//! done); a hand-rolled `std::thread::scope`-based executor, benchmarked
+//! against rayon and resolved decisively in rayon's favour -- §12a open
+//! question 2 (Step 18, done). See `partition.rs`'s module docs and
+//! README §12a for the numbers.
 //!
 //! The test suite is organised in four layers (Requirement 15.1): Rust
 //! unit tests (this crate's own `#[cfg(test)]` modules), Rust whole-network

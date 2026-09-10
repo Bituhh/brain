@@ -201,6 +201,16 @@ impl PartitionPlan {
     }
 }
 
+/// How many partitions `Executor::Pinned`'s worker threads each own, so
+/// `total_partitions` partitions are covered by at most `thread_count`
+/// threads (never more, however many partitions there are) via
+/// `[T]::chunks_mut`. Ceiling division: e.g. 5 partitions over 2 threads
+/// gives chunks of 3 and 2, not 2 and 2 (which would drop one).
+fn chunk_size_for(total_partitions: usize, thread_count: usize) -> usize {
+    let thread_count = thread_count.clamp(1, total_partitions.max(1));
+    total_partitions.div_ceil(thread_count).max(1)
+}
+
 /// Every neuron that is the source or target of at least one
 /// cross-partition synapse, sorted and deduplicated. Computed once from a
 /// static `PartitionPlan` and topology -- structural plasticity/growth
@@ -243,6 +253,42 @@ impl BoundaryNeuronLocalTable {
     }
 }
 
+/// How `PartitionRuntime::step` runs stage 1 and stage 3's per-partition
+/// work (§12a open question 2, **resolved in rayon's favour, decisively**
+/// -- `benches/core_bench.rs`'s `rayon_vs_pinned_pool` group and README
+/// §12a's write-up of the numbers). Both non-sequential variants run the
+/// *identical* per-partition algorithm; only the mechanism dispatching it
+/// to threads differs, and `tests/partitioning_reference.rs` holds all
+/// three to the same bit-identical standard -- `Pinned` is kept as the
+/// benchmark's comparison point, not because it is expected to win.
+enum Executor {
+    /// RUN-8's reference path: one thread, no dispatch machinery at all.
+    Sequential,
+    /// A dedicated rayon thread pool (not the process-global one, so this
+    /// runtime's own thread count is never silently affected by unrelated
+    /// rayon usage elsewhere in the process, and vice versa). The measured
+    /// default: flat-to-mildly-regressive with added threads on the
+    /// benchmark's network size, never catastrophic.
+    Rayon(rayon::ThreadPool),
+    /// A hand-rolled alternative using `std::thread::scope`: one scoped
+    /// `std::thread::spawn` per partition, per stage, joined before the
+    /// stage's results are used. This is the "each tick spawns fresh
+    /// threads" variant, not README §12a's ideal of threads pinned for a
+    /// whole run and fed work over a channel between ticks -- that variant
+    /// needs either a scope spanning the *entire* multi-tick run (with
+    /// work handed across ticks via a channel) or `unsafe` lifetime
+    /// smuggling, and is not implemented here. The benchmark shows exactly
+    /// what this simplification costs: OS thread creation/teardown, paid
+    /// twice per tick per partition, dominates completely -- ~9x slower
+    /// than rayon at 2 threads, worsening to ~10x at 8, on the measured
+    /// network (README §12a). Kept as the benchmark's comparison point and
+    /// documented evidence for the decision, not as a candidate for
+    /// further investment. `usize` is the requested thread count --
+    /// `std::thread::scope` has no persistent pool object of its own to
+    /// hold.
+    Pinned(usize),
+}
+
 /// Orchestrates `partition_count` [`Scheduler`]s over one shared
 /// [`NeuronArena`]/[`SynapseArena`] (see this crate's Phase 4 design: a
 /// partition is a contiguous index range over the *same* arenas, not a
@@ -265,9 +311,7 @@ pub struct PartitionRuntime {
     /// during the *previous* tick's stage 3 and applied at the very start
     /// of this tick, before stage 1.
     pending_post_spike: Vec<Vec<CrossPartitionPostSpike>>,
-    /// `None` means sequential (RUN-8's reference path, and the default --
-    /// see [`Self::with_thread_count`]).
-    thread_pool: Option<rayon::ThreadPool>,
+    executor: Executor,
 }
 
 impl PartitionRuntime {
@@ -275,25 +319,36 @@ impl PartitionRuntime {
     /// plasticity) for partition `p`'s own range -- this constructor does
     /// not build or validate that configuration, only the cross-partition
     /// bookkeeping layered on top of it. Runs sequentially until
-    /// [`Self::with_thread_count`] says otherwise.
+    /// [`Self::with_thread_count`]/[`Self::with_pinned_thread_count`] says
+    /// otherwise.
     pub fn new(plan: PartitionPlan, schedulers: Vec<Scheduler>, synapses: &SynapseArena, neuron_count: u32) -> Self {
         assert_eq!(plan.partition_count(), schedulers.len(), "one Scheduler per partition is required");
         let boundary_neurons = boundary_neurons(&plan, synapses, neuron_count);
         let pending_post_spike = (0..schedulers.len()).map(|_| Vec::new()).collect();
-        Self { plan, schedulers, boundary_table: BoundaryNeuronLocalTable::default(), boundary_neurons, pending_post_spike, thread_pool: None }
+        Self { plan, schedulers, boundary_table: BoundaryNeuronLocalTable::default(), boundary_neurons, pending_post_spike, executor: Executor::Sequential }
     }
 
     /// Opts into real parallel execution of stage 1 and stage 3 (RUN-4)
     /// over a dedicated `thread_count`-sized rayon pool. `thread_count <= 1`
-    /// clears any previously configured pool and returns to the sequential
-    /// path (RUN-8) -- both must (and, per `tests/partitioning_reference.rs`,
-    /// do) produce bit-identical results to every other thread count.
+    /// returns to the sequential path (RUN-8) -- both must (and, per
+    /// `tests/partitioning_reference.rs`, do) produce bit-identical results
+    /// to every other thread count.
     pub fn with_thread_count(mut self, thread_count: usize) -> Self {
-        self.thread_pool = if thread_count > 1 {
-            Some(rayon::ThreadPoolBuilder::new().num_threads(thread_count).build().expect("building this runtime's dedicated rayon thread pool"))
+        self.executor = if thread_count > 1 {
+            Executor::Rayon(rayon::ThreadPoolBuilder::new().num_threads(thread_count).build().expect("building this runtime's dedicated rayon thread pool"))
         } else {
-            None
+            Executor::Sequential
         };
+        self
+    }
+
+    /// As [`Self::with_thread_count`], but dispatches stage 1/stage 3 via
+    /// the hand-rolled `std::thread::scope`-based executor instead of
+    /// rayon (§12a open question 2, `Executor::Pinned`'s doc comment for
+    /// what this variant does and does not implement). `thread_count <= 1`
+    /// returns to the sequential path, same as `with_thread_count`.
+    pub fn with_pinned_thread_count(mut self, thread_count: usize) -> Self {
+        self.executor = if thread_count > 1 { Executor::Pinned(thread_count) } else { Executor::Sequential };
         self
     }
 
@@ -403,29 +458,61 @@ impl PartitionRuntime {
                 })
                 .collect()
         };
-        let mut all_effects: Vec<DeliveryEffect> = if let Some(pool) = &self.thread_pool {
-            use rayon::prelude::*;
-            let schedulers = &mut self.schedulers;
-            pool.install(|| {
-                schedulers
-                    .par_iter_mut()
-                    .zip(neuron_views.par_iter_mut())
-                    .zip(synapse_views.par_iter_mut())
-                    .enumerate()
-                    .flat_map_iter(|(p, ((scheduler, nview), sview))| {
-                        let my_range = plan.range_of(p);
-                        scheduler.deliver(nview, sview, move |target| {
-                            if my_range.contains(&target) {
-                                None
-                            } else {
-                                Some(boundary_table.get(target).unwrap_or_else(NeuronLocal::never_spiked))
-                            }
+        let mut all_effects: Vec<DeliveryEffect> = match &self.executor {
+            Executor::Sequential => deliver_all(&mut self.schedulers, &mut neuron_views, &mut synapse_views),
+            Executor::Rayon(pool) => {
+                use rayon::prelude::*;
+                let schedulers = &mut self.schedulers;
+                pool.install(|| {
+                    schedulers
+                        .par_iter_mut()
+                        .zip(neuron_views.par_iter_mut())
+                        .zip(synapse_views.par_iter_mut())
+                        .enumerate()
+                        .flat_map_iter(|(p, ((scheduler, nview), sview))| {
+                            let my_range = plan.range_of(p);
+                            scheduler.deliver(nview, sview, move |target| {
+                                if my_range.contains(&target) {
+                                    None
+                                } else {
+                                    Some(boundary_table.get(target).unwrap_or_else(NeuronLocal::never_spiked))
+                                }
+                            })
                         })
-                    })
-                    .collect()
-            })
-        } else {
-            deliver_all(&mut self.schedulers, &mut neuron_views, &mut synapse_views)
+                        .collect()
+                })
+            }
+            Executor::Pinned(thread_count) => {
+                let chunk_size = chunk_size_for(self.schedulers.len(), *thread_count);
+                let schedulers = &mut self.schedulers;
+                std::thread::scope(|s| {
+                    let handles: Vec<_> = schedulers
+                        .chunks_mut(chunk_size)
+                        .zip(neuron_views.chunks_mut(chunk_size))
+                        .zip(synapse_views.chunks_mut(chunk_size))
+                        .enumerate()
+                        .map(|(chunk_idx, ((sched_chunk, nview_chunk), sview_chunk))| {
+                            let chunk_start = chunk_idx * chunk_size;
+                            s.spawn(move || {
+                                let mut effects = Vec::new();
+                                for (i, ((scheduler, nview), sview)) in sched_chunk.iter_mut().zip(nview_chunk.iter_mut()).zip(sview_chunk.iter_mut()).enumerate() {
+                                    let p = chunk_start + i;
+                                    let my_range = plan.range_of(p);
+                                    effects.extend(scheduler.deliver(nview, sview, move |target| {
+                                        if my_range.contains(&target) {
+                                            None
+                                        } else {
+                                            Some(boundary_table.get(target).unwrap_or_else(NeuronLocal::never_spiked))
+                                        }
+                                    }));
+                                }
+                                effects
+                            })
+                        })
+                        .collect();
+                    handles.into_iter().flat_map(|h| h.join().expect("a pinned-executor worker thread panicked in stage 1")).collect()
+                })
+            }
         };
 
         // Stage 2 (the merge): one global canonical order across every
@@ -440,33 +527,72 @@ impl PartitionRuntime {
 
         // Stage 3: evaluate and resolve. Every partition's input for this
         // tick is now complete. Same indexed-order guarantee as stage 1.
-        let (reports, post_spike_by_owner): (Vec<StepReport>, Vec<Vec<CrossPartitionPostSpike>>) = if let Some(pool) = &self.thread_pool {
-            use rayon::prelude::*;
-            let schedulers = &mut self.schedulers;
-            pool.install(|| {
-                schedulers
-                    .par_iter_mut()
-                    .zip(neuron_views.par_iter_mut())
-                    .zip(synapse_views.par_iter_mut())
-                    .enumerate()
-                    .map(|(p, ((scheduler, nview), sview))| {
-                        let my_range = plan.range_of(p);
-                        scheduler.evaluate_and_resolve::<D>(nview, sview, params, move |source_index| !my_range.contains(&source_index))
-                    })
-                    .unzip()
-            })
-        } else {
-            let mut reports = Vec::with_capacity(self.schedulers.len());
-            let mut post_spike_by_owner = Vec::with_capacity(self.schedulers.len());
-            for p in 0..self.schedulers.len() {
-                let my_range = self.plan.range_of(p);
-                let (report, outbox) = self.schedulers[p].evaluate_and_resolve::<D>(&mut neuron_views[p], &mut synapse_views[p], params, move |source_index| {
-                    !my_range.contains(&source_index)
-                });
-                reports.push(report);
-                post_spike_by_owner.push(outbox);
+        let (reports, post_spike_by_owner): (Vec<StepReport>, Vec<Vec<CrossPartitionPostSpike>>) = match &self.executor {
+            Executor::Sequential => {
+                let mut reports = Vec::with_capacity(self.schedulers.len());
+                let mut post_spike_by_owner = Vec::with_capacity(self.schedulers.len());
+                for p in 0..self.schedulers.len() {
+                    let my_range = self.plan.range_of(p);
+                    let (report, outbox) = self.schedulers[p].evaluate_and_resolve::<D>(&mut neuron_views[p], &mut synapse_views[p], params, move |source_index| {
+                        !my_range.contains(&source_index)
+                    });
+                    reports.push(report);
+                    post_spike_by_owner.push(outbox);
+                }
+                (reports, post_spike_by_owner)
             }
-            (reports, post_spike_by_owner)
+            Executor::Rayon(pool) => {
+                use rayon::prelude::*;
+                let schedulers = &mut self.schedulers;
+                pool.install(|| {
+                    schedulers
+                        .par_iter_mut()
+                        .zip(neuron_views.par_iter_mut())
+                        .zip(synapse_views.par_iter_mut())
+                        .enumerate()
+                        .map(|(p, ((scheduler, nview), sview))| {
+                            let my_range = plan.range_of(p);
+                            scheduler.evaluate_and_resolve::<D>(nview, sview, params, move |source_index| !my_range.contains(&source_index))
+                        })
+                        .unzip()
+                })
+            }
+            Executor::Pinned(thread_count) => {
+                let total_partitions = self.schedulers.len();
+                let chunk_size = chunk_size_for(total_partitions, *thread_count);
+                let schedulers = &mut self.schedulers;
+                std::thread::scope(|s| {
+                    let handles: Vec<_> = schedulers
+                        .chunks_mut(chunk_size)
+                        .zip(neuron_views.chunks_mut(chunk_size))
+                        .zip(synapse_views.chunks_mut(chunk_size))
+                        .enumerate()
+                        .map(|(chunk_idx, ((sched_chunk, nview_chunk), sview_chunk))| {
+                            let chunk_start = chunk_idx * chunk_size;
+                            s.spawn(move || {
+                                let mut reports = Vec::new();
+                                let mut outboxes = Vec::new();
+                                for (i, ((scheduler, nview), sview)) in sched_chunk.iter_mut().zip(nview_chunk.iter_mut()).zip(sview_chunk.iter_mut()).enumerate() {
+                                    let p = chunk_start + i;
+                                    let my_range = plan.range_of(p);
+                                    let (report, outbox) = scheduler.evaluate_and_resolve::<D>(nview, sview, params, move |source_index| !my_range.contains(&source_index));
+                                    reports.push(report);
+                                    outboxes.push(outbox);
+                                }
+                                (reports, outboxes)
+                            })
+                        })
+                        .collect();
+                    let mut reports = Vec::with_capacity(total_partitions);
+                    let mut post_spike_by_owner = Vec::with_capacity(total_partitions);
+                    for h in handles {
+                        let (chunk_reports, chunk_outboxes) = h.join().expect("a pinned-executor worker thread panicked in stage 3");
+                        reports.extend(chunk_reports);
+                        post_spike_by_owner.extend(chunk_outboxes);
+                    }
+                    (reports, post_spike_by_owner)
+                })
+            }
         };
         let mut post_spike_by_owner: Vec<CrossPartitionPostSpike> = post_spike_by_owner.into_iter().flatten().collect();
 

@@ -144,7 +144,13 @@ fn run_plain_scheduler(seed: u64) -> RunOutcome {
     RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick }
 }
 
-fn run_partitioned(seed: u64, partition_count: usize, thread_count: usize) -> RunOutcome {
+enum ExecutorChoice {
+    Sequential,
+    Rayon(usize),
+    Pinned(usize),
+}
+
+fn run_partitioned(seed: u64, partition_count: usize, executor: ExecutorChoice) -> RunOutcome {
     let (mut neurons, mut synapses, columns, a_range, b_range) = build_network(seed);
     let plan = if partition_count == 1 { PartitionPlan::single(TOTAL_NEURONS) } else { PartitionPlan::contiguous(&columns, partition_count) };
 
@@ -157,7 +163,12 @@ fn run_partitioned(seed: u64, partition_count: usize, thread_count: usize) -> Ru
                 .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
         })
         .collect();
-    let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS).with_thread_count(thread_count);
+    let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS);
+    runtime = match executor {
+        ExecutorChoice::Sequential => runtime.with_thread_count(1),
+        ExecutorChoice::Rayon(n) => runtime.with_thread_count(n),
+        ExecutorChoice::Pinned(n) => runtime.with_pinned_thread_count(n),
+    };
     let params = lif_params();
     let _ = (&a_range, &b_range); // ranges only needed by build_network's cross-wiring above
 
@@ -213,7 +224,7 @@ fn assert_identical_synapses(a: &SynapseArena, b: &SynapseArena, neuron_count: u
 fn one_partition_matches_plain_scheduler_exactly() {
     let seed = 7;
     let plain = run_plain_scheduler(seed);
-    let single_partition = run_partitioned(seed, 1, 1);
+    let single_partition = run_partitioned(seed, 1, ExecutorChoice::Sequential);
 
     assert_eq!(plain.spiked_per_tick, single_partition.spiked_per_tick, "spiked sets must match every tick");
     assert_eq!(plain.vetoed_per_tick, single_partition.vetoed_per_tick, "vetoed sets must match every tick");
@@ -233,7 +244,7 @@ fn one_partition_matches_plain_scheduler_exactly() {
 fn two_partitions_match_the_unpartitioned_reference() {
     let seed = 7;
     let plain = run_plain_scheduler(seed);
-    let two_partitions = run_partitioned(seed, 2, 1);
+    let two_partitions = run_partitioned(seed, 2, ExecutorChoice::Sequential);
 
     assert_eq!(plain.spiked_per_tick, two_partitions.spiked_per_tick, "spiked sets must match every tick, partitioned or not");
     assert_eq!(plain.vetoed_per_tick, two_partitions.vetoed_per_tick, "vetoed sets must match every tick, partitioned or not");
@@ -250,10 +261,28 @@ fn two_partitions_match_the_unpartitioned_reference() {
 #[test]
 fn real_threading_matches_the_sequential_reference_at_every_thread_count() {
     let seed = 7;
-    let sequential = run_partitioned(seed, 2, 1);
+    let sequential = run_partitioned(seed, 2, ExecutorChoice::Sequential);
     for &thread_count in &[2usize, 4] {
-        let threaded = run_partitioned(seed, 2, thread_count);
-        let label = format!("thread_count={thread_count} vs sequential");
+        let threaded = run_partitioned(seed, 2, ExecutorChoice::Rayon(thread_count));
+        let label = format!("rayon thread_count={thread_count} vs sequential");
+        assert_eq!(sequential.spiked_per_tick, threaded.spiked_per_tick, "{label}: spiked sets must match every tick");
+        assert_eq!(sequential.vetoed_per_tick, threaded.vetoed_per_tick, "{label}: vetoed sets must match every tick");
+        assert_identical_arenas(&sequential.neurons, &threaded.neurons, &label);
+        assert_identical_synapses(&sequential.synapses, &threaded.synapses, TOTAL_NEURONS, &label);
+    }
+}
+
+/// §12a open question 2's other candidate: the hand-rolled
+/// `std::thread::scope`-based executor must be held to the exact same
+/// bit-identical standard as rayon, at every thread count the benchmark
+/// (`benches/core_bench.rs`) will compare it against.
+#[test]
+fn pinned_executor_matches_the_sequential_reference_at_every_thread_count() {
+    let seed = 7;
+    let sequential = run_partitioned(seed, 2, ExecutorChoice::Sequential);
+    for &thread_count in &[2usize, 4] {
+        let threaded = run_partitioned(seed, 2, ExecutorChoice::Pinned(thread_count));
+        let label = format!("pinned thread_count={thread_count} vs sequential");
         assert_eq!(sequential.spiked_per_tick, threaded.spiked_per_tick, "{label}: spiked sets must match every tick");
         assert_eq!(sequential.vetoed_per_tick, threaded.vetoed_per_tick, "{label}: vetoed sets must match every tick");
         assert_identical_arenas(&sequential.neurons, &threaded.neurons, &label);

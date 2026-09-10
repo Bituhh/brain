@@ -481,11 +481,31 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
    1 GB for the 50M-synapse target — comfortable now, but not with a 10× ambition. The native
    `napi-rs` build has no such cap, which is why it is the primary target and WASM is reserved
    for visualisation and demos.
-2. **Threading library.** `rayon` versus a hand-rolled thread pool. Rayon's work-stealing is
-   designed for data parallelism over collections, whereas RUN-4 wants long-lived threads that
-   each own a fixed partition for the whole run — closer to a pinned actor model. Decide at
-   Phase 4 with a benchmark; the single-threaded reference path (RUN-8) is unaffected either
-   way.
+2. **Threading library — resolved 2026-09-10 (Phase 4 Step 18), in rayon's favour, decisively.**
+   `crates/brain-core/benches/core_bench.rs`'s `rayon_vs_pinned_pool` group compared
+   `PartitionRuntime::with_thread_count` (a dedicated rayon pool) against
+   `with_pinned_thread_count` (a hand-rolled `std::thread::scope`-based executor: one
+   `std::thread::spawn` per partition, per stage, every tick) on a 16-column / 3,200-neuron
+   network with cross-column wiring, 50 ticks per iteration, at thread counts 1/2/4/8. At
+   `thread_count = 1` both are within noise of each other (~1.5–1.6 ms/iteration — expected, one
+   task either way). Past that, they diverge sharply and in opposite directions: rayon stays flat
+   to mildly regressive (~1.6 → 2.6 → 2.7 → 3.6 ms at 1/2/4/8 threads — this benchmark's network
+   is too small for more cores to help, but nothing gets *dramatically* worse), while the pinned
+   executor gets **dramatically** worse with every added thread (~1.6 → 13.8 → 20.4 → 35.7 ms).
+   The cause is exactly what a hand-rolled `std::thread::spawn`-per-tick design predicts:
+   OS thread creation/teardown, paid twice per tick (stage 1 and stage 3) for every partition, at
+   thread_count = 8 that is up to 800 real OS threads spawned and joined per 50-tick benchmark
+   iteration — cost that has nothing to do with the simulation work itself and that rayon's
+   persistent, low-overhead work-stealing pool simply does not pay. This is not evidence against
+   the "long-lived, pinned-actor" model in the abstract — a genuinely persistent pool (worker
+   threads parked on a channel, fed new borrowed work each tick rather than respawned) could
+   plausibly close most of this gap — but building that well is a real undertaking, and rayon
+   already meets RUN-4's need at the measured scale with no further engineering. Per this
+   project's own "measure before optimising" pattern, that is where this decision stops: rayon is
+   `PartitionRuntime`'s documented default and recommended executor; the pinned implementation
+   stays in the tree (both are held to the same bit-identical standard by
+   `tests/partitioning_reference.rs`) as a reference comparison point, not as a candidate for
+   further investment absent new evidence it would matter.
 
 ---
 
