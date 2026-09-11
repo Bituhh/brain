@@ -55,6 +55,31 @@ use crate::segment::{BinaryCoincidenceParams, SegmentConfig};
 use crate::synapse::SynapseArena;
 
 const MAGIC: [u8; 6] = *b"BRAIN\0";
+/// Bumped 5 -> 6 (dendritic-threshold-homeostasis spec, Requirement 7) to
+/// add a per-segment threshold homeostasis section: `segment_threshold`,
+/// `segment_rate_estimate`, and `segment_last_depolarised_tick`, the live
+/// state `SegmentThresholdHomeostasis` drifts. Follows the version-5
+/// coincidence-window section's own precedent exactly -- a new, opt-in
+/// mechanism whose state is genuinely cross-tick (unlike the scratch
+/// buffers this module already excludes) but behaviourally absent for
+/// every caller who never calls `Scheduler::with_segment_threshold_homeostasis`.
+/// Absent from a version 1-5 payload; `read`'s version dispatch leaves all
+/// three new arrays empty for those, exactly what a fresh `Scheduler`
+/// already starts with.
+///
+/// Bumped 4 -> 5 on 2026-09-11 (README §12a item 6) to add a
+/// dendritic-coincidence-window state section. This closes the item's own
+/// named cost of deferring the fix: "`segment_counts` is within-tick
+/// scratch and therefore not snapshotted, so making it decay turns it into
+/// genuine cross-tick state." Unlike every prior bump, this one costs no
+/// golden-raster regeneration: the widened window is opt-in
+/// (`Scheduler::with_segment_coincidence_window`), and at the unchanged
+/// default (`segment_count_decay_per_tick == 0.0`) the new section is
+/// present but behaviourally inert -- see `write_segment_coincidence_state`'s
+/// doc comment. Absent from a version 1-4 payload; `read`'s version
+/// dispatch leaves both new arrays empty for those, exactly what a fresh
+/// `Scheduler` already starts with.
+///
 /// Bumped 3 -> 4 in Phase 5.5 to add a spike-frequency-adaptation section
 /// (NEU-8, Requirement 2). `adaptation` is a new, genuinely evolving
 /// per-neuron `NeuronArena` field (Phase 0-3's `predictive`/`rate_estimate`/
@@ -89,7 +114,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// schema migration, partial loading, compatibility guarantees -- from
 /// Phase 0-3 to Phase 4; the round-trip mechanism itself (this module) was
 /// already in scope then and is unchanged in its v1 shape.
-pub const FORMAT_VERSION: u32 = 4;
+pub const FORMAT_VERSION: u32 = 6;
 /// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
 /// concrete and falsifiable: `read` migrates any snapshot from this
 /// version through `FORMAT_VERSION`. Widen this only alongside an actual
@@ -367,6 +392,88 @@ fn read_adaptation(r: &mut Reader<'_>, count: usize) -> Result<Vec<f32>, Snapsho
     Ok(adaptation)
 }
 
+/// New in format version 5 (README §12a item 6, settled 2026-09-11): the
+/// dendritic coincidence window's decaying per-segment state
+/// (`Scheduler::segment_coincidence_raw_state`). Unlike `adaptation`
+/// above, this is not one entry per neuron -- it is sized to whatever
+/// composite index has actually been touched so far (RUN-9c's "proportional
+/// to live structure," extended to this state), so both arrays are
+/// length-prefixed rather than implicitly sized from `neuron_count`.
+/// Persisted unconditionally, even for a caller who never calls
+/// `with_segment_coincidence_window`: at the default `0.0` decay these
+/// arrays carry no live behavioural weight (every composite is fully reset
+/// the next time it is touched regardless of what is restored here -- see
+/// that method's doc comment), so writing them is a no-cost simplification
+/// rather than a real caller-visible feature, matching every other
+/// section's "no special case for the default configuration" precedent.
+fn write_segment_coincidence_state(w: &mut Writer, counts: &[f32], last_touched_tick: &[u32]) {
+    debug_assert_eq!(counts.len(), last_touched_tick.len(), "the two arrays share one composite index and must have the same length");
+    w.u32(counts.len() as u32);
+    for &v in counts {
+        w.f32(v);
+    }
+    for &t in last_touched_tick {
+        w.u32(t);
+    }
+}
+
+fn read_segment_coincidence_state(r: &mut Reader<'_>) -> Result<(Vec<f32>, Vec<u32>), SnapshotError> {
+    let len = r.u32()? as usize;
+    let mut counts = Vec::with_capacity(len);
+    for _ in 0..len {
+        counts.push(r.f32()?);
+    }
+    let mut last_touched_tick = Vec::with_capacity(len);
+    for _ in 0..len {
+        last_touched_tick.push(r.u32()?);
+    }
+    Ok((counts, last_touched_tick))
+}
+
+/// New in format version 6 (dendritic-threshold-homeostasis spec,
+/// Requirement 7). Persisted unconditionally, same "no special case for the
+/// default/disabled configuration" precedent as
+/// `write_segment_coincidence_state` -- a caller who never calls
+/// `with_segment_threshold_homeostasis` simply has all three arrays empty,
+/// costing three `u32(0)` length prefixes.
+fn write_segment_threshold_state(w: &mut Writer, threshold: &[f32], rate_estimate: &[f32], last_depolarised_tick: &[u32]) {
+    debug_assert_eq!(threshold.len(), rate_estimate.len(), "the three arrays share one composite index and must have the same length");
+    debug_assert_eq!(threshold.len(), last_depolarised_tick.len(), "the three arrays share one composite index and must have the same length");
+    w.u32(threshold.len() as u32);
+    for &v in threshold {
+        w.f32(v);
+    }
+    for &v in rate_estimate {
+        w.f32(v);
+    }
+    for &t in last_depolarised_tick {
+        w.u32(t);
+    }
+}
+
+/// `(segment_threshold, segment_rate_estimate, segment_last_depolarised_tick)`
+/// -- named here purely to keep `read_segment_threshold_state`'s signature
+/// under clippy's type-complexity threshold; not part of this module's
+/// public surface.
+type SegmentThresholdState = (Vec<f32>, Vec<f32>, Vec<u32>);
+
+fn read_segment_threshold_state(r: &mut Reader<'_>) -> Result<SegmentThresholdState, SnapshotError> {
+    let len = r.u32()? as usize;
+    let mut threshold = Vec::with_capacity(len);
+    for _ in 0..len {
+        threshold.push(r.f32()?);
+    }
+    let mut rate_estimate = Vec::with_capacity(len);
+    for _ in 0..len {
+        rate_estimate.push(r.f32()?);
+    }
+    let mut last_depolarised_tick = Vec::with_capacity(len);
+    for _ in 0..len {
+        last_depolarised_tick.push(r.u32()?);
+    }
+    Ok((threshold, rate_estimate, last_depolarised_tick))
+}
+
 fn write_synapses(w: &mut Writer, synapses: &SynapseArena, neuron_count: u32) {
     w.u32(synapses.cap_per_neuron());
     w.u32(neuron_count);
@@ -516,6 +623,12 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
 
     write_adaptation(&mut w, neurons);
 
+    let (segment_counts, segment_last_touched_tick) = scheduler.segment_coincidence_raw_state();
+    write_segment_coincidence_state(&mut w, segment_counts, segment_last_touched_tick);
+
+    let (segment_threshold, segment_rate_estimate, segment_last_depolarised_tick) = scheduler.segment_threshold_raw_state();
+    write_segment_threshold_state(&mut w, segment_threshold, segment_rate_estimate, segment_last_depolarised_tick);
+
     w.buf
 }
 
@@ -539,6 +652,19 @@ pub struct Restored {
     /// same zeroed defaults anyway.
     pub modulator_levels: Modulators,
     pub modulator_last_updated_at: u32,
+    /// New in format version 5 (README §12a item 6). Empty when restoring
+    /// a version 1-4 snapshot -- exactly what a fresh `Scheduler` already
+    /// starts with, and behaviourally identical to any other value at the
+    /// default `segment_count_decay_per_tick == 0.0` regardless (see
+    /// `write_segment_coincidence_state`'s doc comment).
+    pub segment_counts: Vec<f32>,
+    pub segment_last_touched_tick: Vec<u32>,
+    /// New in format version 6 (dendritic-threshold-homeostasis spec,
+    /// Requirement 7). Empty when restoring a version 1-5 snapshot -- exactly
+    /// what a fresh `Scheduler` already starts with.
+    pub segment_threshold: Vec<f32>,
+    pub segment_rate_estimate: Vec<f32>,
+    pub segment_last_depolarised_tick: Vec<u32>,
 }
 
 /// Restores a snapshot written by [`write`]. `expected_config_hash` must
@@ -610,7 +736,32 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
         neurons.adaptation = read_adaptation(&mut r, neurons.capacity_len())?;
     }
 
-    Ok(Restored { neurons, synapses, tick, ring, dirty_members, columns, modulator_levels, modulator_last_updated_at })
+    // Format versions 1-4 have no coincidence-window section -- the only
+    // sound migration is "empty," exactly what a fresh `Scheduler` already
+    // starts with (README §12a item 6).
+    let (segment_counts, segment_last_touched_tick) = if header.version >= 5 { read_segment_coincidence_state(&mut r)? } else { (Vec::new(), Vec::new()) };
+
+    // Format versions 1-5 have no segment-threshold-homeostasis section --
+    // the only sound migration is "empty," exactly what a fresh `Scheduler`
+    // already starts with (dendritic-threshold-homeostasis spec, Requirement 7).
+    let (segment_threshold, segment_rate_estimate, segment_last_depolarised_tick) =
+        if header.version >= 6 { read_segment_threshold_state(&mut r)? } else { (Vec::new(), Vec::new(), Vec::new()) };
+
+    Ok(Restored {
+        neurons,
+        synapses,
+        tick,
+        ring,
+        dirty_members,
+        columns,
+        modulator_levels,
+        modulator_last_updated_at,
+        segment_counts,
+        segment_last_touched_tick,
+        segment_threshold,
+        segment_rate_estimate,
+        segment_last_depolarised_tick,
+    })
 }
 
 #[cfg(test)]
@@ -618,6 +769,7 @@ mod tests {
     use super::*;
     use crate::arena::NeuronSpec;
     use crate::neuron::{Lif, LifParams};
+    use crate::plasticity::homeostatic::SegmentThresholdHomeostasis;
 
     fn sample_network() -> (NeuronArena, SynapseArena, Scheduler) {
         let mut neurons = NeuronArena::new();
@@ -904,6 +1056,178 @@ mod tests {
 
         assert_eq!(restored_tail, uninterrupted_trace[100..], "restored continuation must be bit-identical to the uninterrupted run's tail");
         assert_eq!(interrupted_trace, uninterrupted_trace, "sanity: the interrupted run's own live trace must match uninterrupted (same seed/inputs throughout)");
+    }
+
+    /// README §12a item 6 / RUN-9a: a caller who opts into
+    /// `with_segment_coincidence_window` has genuine cross-tick decaying
+    /// state now, so a snapshot taken mid-decay (a real, non-zero,
+    /// below-threshold residual) must restore and continue bit-identically
+    /// to an uninterrupted run -- the same property
+    /// `round_trip_through_the_scheduler_is_bit_identical_to_uninterrupted_run`
+    /// already proves for every other kind of evolving state.
+    #[test]
+    fn round_trip_preserves_a_partially_decayed_coincidence_window() {
+        fn build() -> (NeuronArena, SynapseArena, u32, u32) {
+            let mut neurons = NeuronArena::new();
+            let source = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
+            let target = neurons.allocate(NeuronSpec { threshold: 100.0, polarity: 1, coords: [0.0; 3] }).index;
+            let mut synapses = SynapseArena::new(8);
+            synapses.reserve_for_neurons(neurons.capacity_len());
+            for delay in 1..=4u16 {
+                synapses.insert(source, target, 0, delay, 0.9).unwrap();
+            }
+            (neurons, synapses, source, target)
+        }
+        fn scheduler() -> Scheduler {
+            Scheduler::new(4, 0.3)
+                .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 3 } })
+                .with_segment_coincidence_window(10.0)
+        }
+        let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(50.0, 0.0);
+
+        // Uninterrupted: source spikes once at tick 0, four delayed
+        // synapses land on ticks 1-4, crossing the threshold-3 segment
+        // partway through (see `segment_coincidence_window.rs`'s own
+        // widened-window test for the same arithmetic).
+        let (mut neurons_u, mut synapses_u, source_u, target_u) = build();
+        let mut sched_u = scheduler();
+        sched_u.stimulate(&neurons_u, source_u, 10.0);
+        sched_u.step::<Lif>(&mut neurons_u, &mut synapses_u, &params);
+        let mut uninterrupted_predictive = Vec::new();
+        for _ in 0..6u32 {
+            sched_u.step::<Lif>(&mut neurons_u, &mut synapses_u, &params);
+            uninterrupted_predictive.push(neurons_u.predictive[target_u as usize]);
+        }
+
+        // Interrupted: identical setup, snapshot after tick 2 (a real,
+        // below-threshold, partially-decayed residual sits in the segment's
+        // accumulator at this point -- exactly the state this test exists
+        // to prove survives a restore).
+        let (mut neurons_i, mut synapses_i, source_i, target_i) = build();
+        let mut sched_i = scheduler();
+        sched_i.stimulate(&neurons_i, source_i, 10.0);
+        sched_i.step::<Lif>(&mut neurons_i, &mut synapses_i, &params);
+        let mut snapshot_bytes = None;
+        for tick in 0..6u32 {
+            sched_i.step::<Lif>(&mut neurons_i, &mut synapses_i, &params);
+            if tick == 1 {
+                snapshot_bytes = Some(write(&neurons_i, &synapses_i, &sched_i, &ColumnRegistry::new(), 2, 1));
+            }
+        }
+
+        let restored = read(&snapshot_bytes.unwrap(), 1).unwrap();
+        let mut neurons_r = restored.neurons;
+        let mut synapses_r = restored.synapses;
+        let mut sched_r = scheduler();
+        sched_r.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
+        sched_r.restore_segment_coincidence_state(restored.segment_counts, restored.segment_last_touched_tick);
+        let mut restored_tail = Vec::new();
+        for _ in 2..6u32 {
+            sched_r.step::<Lif>(&mut neurons_r, &mut synapses_r, &params);
+            restored_tail.push(neurons_r.predictive[target_i as usize]);
+        }
+
+        assert_eq!(
+            restored_tail,
+            uninterrupted_predictive[2..],
+            "a restored run must reach the same threshold-crossing tick as an uninterrupted one, not just the same eventual outcome"
+        );
+        assert!(uninterrupted_predictive.iter().any(|&p| p > 0.0), "sanity: the segment must actually cross threshold at some point in this scenario");
+    }
+
+    /// A version-4 (pre-item-6) snapshot has no coincidence-window section
+    /// at all -- the only sound migration is "empty," which behaves
+    /// identically to any other value at the default
+    /// `segment_count_decay_per_tick == 0.0` regardless (no caller of a
+    /// pre-item-6 snapshot could have configured
+    /// `with_segment_coincidence_window`, since it did not exist yet).
+    #[test]
+    fn a_version_4_snapshot_restores_with_an_empty_coincidence_window_section() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
+        // `sample_network` never configures segments, so the trailing
+        // section this test needs to strip is just its own 4-byte
+        // zero-length prefix (see `write_segment_coincidence_state`).
+        let truncated_len = bytes.len() - size_of::<u32>();
+        let mut truncated = bytes[..truncated_len].to_vec();
+        truncated[6..10].copy_from_slice(&4u32.to_le_bytes());
+
+        let restored = read(&truncated, 7).unwrap();
+        assert!(restored.segment_counts.is_empty(), "a version-4 snapshot has no coincidence-window section, so it must restore to an empty one");
+        assert!(restored.segment_last_touched_tick.is_empty());
+    }
+
+    /// Dendritic-threshold-homeostasis spec, Requirement 7 Acceptance
+    /// Criteria 1/2: every segment's live threshold, rate estimate, and
+    /// last-depolarised tick round-trip through a snapshot exactly, mirroring
+    /// `round_trip_preserves_a_partially_decayed_coincidence_window`'s
+    /// technique but for this newer, version-6 section.
+    #[test]
+    fn round_trips_segment_threshold_homeostasis_state_exactly() {
+        let mut neurons = NeuronArena::new();
+        let source = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
+        let target = neurons.allocate(NeuronSpec { threshold: 100.0, polarity: 1, coords: [0.0; 3] }).index;
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        synapses.insert(source, target, 0, 1, 0.9).unwrap();
+
+        let mut sched = Scheduler::new(4, 0.3)
+            .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } })
+            .with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(0.0, 0.0, 0.2, 0.1, 5));
+        let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(50.0, 0.0);
+
+        // Drive the source every tick so the one real segment depolarises
+        // repeatedly, well above a target rate of 0.0 -- by tick 10 (one
+        // sweep at interval 5, gated the same way `IntrinsicHomeostasis`
+        // already is) its threshold has moved off its initial value and its
+        // rate estimate is non-zero, exactly the genuinely evolving state
+        // this test exists to prove survives a restore.
+        for _ in 0..10u32 {
+            sched.stimulate(&neurons, source, 10.0);
+            sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        }
+        let (threshold_before, rate_before, last_depolarised_before) = {
+            let (t, r, l) = sched.segment_threshold_raw_state();
+            (t.to_vec(), r.to_vec(), l.to_vec())
+        };
+        // Composite index is `target * segments_per_neuron + segment` --
+        // `target` is neuron index 1 here (`source` was allocated first),
+        // so the one real, touched composite is index 1, not 0.
+        let composite = target as usize;
+        assert!(
+            threshold_before[composite] > 1.0,
+            "sanity: repeated depolarisation above target rate 0.0 must have raised the threshold, got {}",
+            threshold_before[composite]
+        );
+
+        let bytes = write(&neurons, &synapses, &sched, &ColumnRegistry::new(), 2, 3);
+        let restored = read(&bytes, 3).unwrap();
+
+        assert_eq!(restored.segment_threshold, threshold_before, "segment_threshold must round-trip exactly");
+        assert_eq!(restored.segment_rate_estimate, rate_before, "segment_rate_estimate must round-trip exactly");
+        assert_eq!(restored.segment_last_depolarised_tick, last_depolarised_before, "segment_last_depolarised_tick must round-trip exactly");
+    }
+
+    /// A version-5 (pre-this-spec) snapshot has no segment-threshold-
+    /// homeostasis section at all -- the only sound migration is "empty",
+    /// exactly what a fresh `Scheduler` already starts with, mirroring
+    /// `a_version_4_snapshot_restores_with_an_empty_coincidence_window_section`'s
+    /// own technique one version up.
+    #[test]
+    fn a_version_5_snapshot_restores_with_an_empty_segment_threshold_section() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
+        // `sample_network` never configures segments, so the trailing
+        // section this test needs to strip is just its own 4-byte
+        // zero-length prefix (see `write_segment_threshold_state`).
+        let truncated_len = bytes.len() - size_of::<u32>();
+        let mut truncated = bytes[..truncated_len].to_vec();
+        truncated[6..10].copy_from_slice(&5u32.to_le_bytes());
+
+        let restored = read(&truncated, 7).unwrap();
+        assert!(restored.segment_threshold.is_empty(), "a version-5 snapshot has no segment-threshold section, so it must restore to an empty one");
+        assert!(restored.segment_rate_estimate.is_empty());
+        assert!(restored.segment_last_depolarised_tick.is_empty());
     }
 
     #[test]

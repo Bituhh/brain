@@ -50,6 +50,13 @@ mod purpose {
     /// tagging by purpose at all.
     pub const VOTE_CONNECT_DECISION: u32 = 3;
     pub const VOTE_DELAY_DRAW: u32 = 4;
+    /// Which of the target neuron's `segments_per_neuron` dendritic segments
+    /// an accepted `connect` synapse lands on (README §13.12 item 6). Keyed
+    /// on the same `(source, target)` pair as `CONNECT_DECISION`/
+    /// `DELAY_DRAW` but a distinct purpose tag, so it draws its own
+    /// independent stream rather than reusing (and so correlating with)
+    /// either of those decisions.
+    pub const SEGMENT_ASSIGN: u32 = 5;
 }
 
 /// A distance-based connectivity policy (Requirement 6.2): connection
@@ -128,12 +135,30 @@ impl GraphBuilder {
     /// outcome, not every desired connection needs to succeed -- this
     /// silently skips those rather than treating them as errors, matching
     /// design.md's Error Handling table.
+    ///
+    /// `segments_per_neuron` distributes each accepted synapse across the
+    /// *target* neuron's dendritic segments (README §2.3, NEU-5) rather than
+    /// funnelling every synapse onto segment `0` -- found 2026-09-11 as
+    /// §13.12 item 6: with everything on one shared segment, a population's
+    /// entire internal recurrent web is a single coincidence detector and
+    /// (once segments are actually enabled -- §12a item 8) is purely
+    /// depolarising (NEU-6), never contributing direct excitatory current.
+    /// The assignment is drawn from its own `purpose::SEGMENT_ASSIGN`
+    /// stream, keyed by `(source, target)` exactly like `CONNECT_DECISION`/
+    /// `DELAY_DRAW` (RUN-3: a pure function of `(seed, source, target)`,
+    /// independent of thread, iteration order or partitioning). At
+    /// `segments_per_neuron <= 1` this always resolves to segment `0` and
+    /// skips the draw entirely -- there is nothing to distribute, and this
+    /// keeps every existing single-segment caller's synapse-level behaviour
+    /// (not just its final topology) bit-identical to before this parameter
+    /// existed.
     pub fn connect(
         &self,
         neurons: &NeuronArena,
         synapses: &mut SynapseArena,
         neuron_indices: &[u32],
         policy: &DistancePolicy,
+        segments_per_neuron: u32,
     ) {
         synapses.reserve_for_neurons(neurons.capacity_len());
         for &source in neuron_indices {
@@ -148,7 +173,13 @@ impl GraphBuilder {
                 let mut delay_rng = derive_stream(self.seed, source, purpose::DELAY_DRAW, target);
                 let delay_span = (policy.delay_max - policy.delay_min + 1) as u32;
                 let delay = policy.delay_min + delay_rng.next_below(delay_span) as u16;
-                let _ = synapses.insert(source, target, 0, delay.max(1), policy.initial_permanence);
+                let segment = if segments_per_neuron <= 1 {
+                    0
+                } else {
+                    let mut segment_rng = derive_stream(self.seed, source, purpose::SEGMENT_ASSIGN, target);
+                    segment_rng.next_below(segments_per_neuron)
+                };
+                let _ = synapses.insert(source, target, segment, delay.max(1), policy.initial_permanence);
             }
         }
     }
@@ -158,6 +189,13 @@ impl GraphBuilder {
     /// microcircuit via the existing [`Self::connect`], restricted to just
     /// this column's own indices -- no new allocation/connection code path,
     /// which is Requirement 1's Acceptance Criteria 1-2 by construction.
+    /// `segments.segments_per_neuron` is forwarded straight to `connect`, so
+    /// the column's own internal wiring is distributed across its neurons'
+    /// dendritic segments exactly as any other `connect` call now is (§13.12
+    /// item 6) -- this is plain field access, not a new dependency on the
+    /// scheduler-level config `segments` mirrors (see `column.rs`'s
+    /// `ColumnSpec` doc comment on that field's own, separate, still-open
+    /// validation gap).
     ///
     /// Assumes this call is made against an arena with no reclaimed
     /// (freed-and-not-yet-reused) slots, so `allocate_population` appends a
@@ -185,7 +223,7 @@ impl GraphBuilder {
         assert!(!coords.is_empty(), "a column must have at least one neuron");
         let indices = self.allocate_population(neurons, coords, threshold, excitatory_fraction);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        self.connect(neurons, synapses, &indices, internal_policy);
+        self.connect(neurons, synapses, &indices, internal_policy, segments.segments_per_neuron);
 
         let start = *indices.iter().min().unwrap();
         let end = *indices.iter().max().unwrap() + 1;
@@ -339,7 +377,7 @@ mod tests {
         // p0 = 1.0 at distance 0 -> every possible directed pair connects,
         // including self-loops and both directions of every pair.
         let policy = DistancePolicy { p0: 1.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.6 };
-        builder.connect(&neurons, &mut synapses, &indices, &policy);
+        builder.connect(&neurons, &mut synapses, &indices, &policy, 1);
 
         let a = indices[0];
         let b = indices[1];
@@ -358,7 +396,7 @@ mod tests {
         let indices = builder.allocate_population(&mut neurons, &coords, 1.0, 1.0);
 
         let policy = DistancePolicy { p0: 0.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.6 };
-        builder.connect(&neurons, &mut synapses, &indices, &policy);
+        builder.connect(&neurons, &mut synapses, &indices, &policy, 1);
 
         let total: usize = indices.iter().map(|&i| synapses.occupied_in_block(i).count()).sum();
         assert_eq!(total, 0);
@@ -379,7 +417,7 @@ mod tests {
         let indices = builder.allocate_population(&mut neurons, &coords, 1.0, 1.0);
 
         let policy = DistancePolicy { p0: 0.9, length_scale: 5.0, delay_min: 1, delay_max: 3, initial_permanence: 0.6 };
-        builder.connect(&neurons, &mut synapses, &indices, &policy);
+        builder.connect(&neurons, &mut synapses, &indices, &policy, 1);
 
         let mut near_hits = 0u32;
         let mut near_total = 0u32;
@@ -421,7 +459,7 @@ mod tests {
         let indices = builder.allocate_population(&mut neurons, &coords, 1.0, 1.0);
 
         let policy = DistancePolicy { p0: 0.5, length_scale: 8.0, delay_min: 1, delay_max: 1, initial_permanence: 0.6 };
-        builder.connect(&neurons, &mut synapses, &indices, &policy);
+        builder.connect(&neurons, &mut synapses, &indices, &policy, 1);
 
         // Analytic expected out-degree for a mid-line neuron (far enough
         // from both edges that boundary truncation of the exponential
@@ -437,6 +475,119 @@ mod tests {
             relative_error < 0.25,
             "mid-line out-degree {actual} vs analytic expectation {expected:.1}, relative error {relative_error:.3}"
         );
+    }
+
+    // -- Segment distribution (README §13.12 item 6, NEU-5): `connect` must
+    // spread accepted synapses across a target's dendritic segments rather
+    // than funnelling everything onto segment 0, deterministically (RUN-3),
+    // and must leave the single-segment case exactly as it was before this
+    // parameter existed.
+
+    #[test]
+    fn connect_uses_only_segment_zero_when_segments_per_neuron_is_one() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(50);
+        let builder = GraphBuilder::new(3);
+        let coords = line_coords(30, 0.0); // distance 0 everywhere -> dense
+        let indices = builder.allocate_population(&mut neurons, &coords, 1.0, 1.0);
+
+        let policy = DistancePolicy { p0: 1.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.6 };
+        builder.connect(&neurons, &mut synapses, &indices, &policy, 1);
+
+        let total: usize = indices.iter().map(|&i| synapses.occupied_in_block(i).count()).sum();
+        assert!(total > 0, "policy should have produced connections to check");
+        for &source in &indices {
+            for s in synapses.occupied_in_block(source) {
+                assert_eq!(synapses.target_segment[s as usize], 0, "segments_per_neuron=1 must always land on segment 0");
+            }
+        }
+    }
+
+    #[test]
+    fn connect_distributes_synapses_across_all_configured_segments() {
+        // Dense, fully-connected population (p0=1.0 at distance 0) so every
+        // ordered pair produces a synapse -- with 30 neurons that is 900
+        // synapses across 4 segments, comfortably enough to expect every
+        // segment index to appear if the distribution is genuinely spread
+        // rather than collapsed onto one or two segments.
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(50);
+        let builder = GraphBuilder::new(9);
+        let coords = line_coords(30, 0.0);
+        let indices = builder.allocate_population(&mut neurons, &coords, 1.0, 1.0);
+
+        let policy = DistancePolicy { p0: 1.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.6 };
+        const SEGMENTS_PER_NEURON: u32 = 4;
+        builder.connect(&neurons, &mut synapses, &indices, &policy, SEGMENTS_PER_NEURON);
+
+        let mut counts = [0u32; SEGMENTS_PER_NEURON as usize];
+        let mut total = 0u32;
+        for &source in &indices {
+            for s in synapses.occupied_in_block(source) {
+                let seg = synapses.target_segment[s as usize];
+                assert!(seg < SEGMENTS_PER_NEURON, "segment {seg} out of range for segments_per_neuron={SEGMENTS_PER_NEURON}");
+                counts[seg as usize] += 1;
+                total += 1;
+            }
+        }
+        assert!(total > 500, "expected a dense topology to check distribution against, got {total} synapses");
+        for (seg, &count) in counts.iter().enumerate() {
+            assert!(count > 0, "segment {seg} never received a single synapse out of {total}");
+            let share = count as f32 / total as f32;
+            assert!(
+                (share - 1.0 / SEGMENTS_PER_NEURON as f32).abs() < 0.1,
+                "segment {seg} got {share:.3} of synapses, expected roughly {:.3}",
+                1.0 / SEGMENTS_PER_NEURON as f32
+            );
+        }
+    }
+
+    #[test]
+    fn segment_assignment_is_a_deterministic_function_of_seed_source_and_target() {
+        fn run() -> Vec<u32> {
+            let mut neurons = NeuronArena::new();
+            let mut synapses = SynapseArena::new(50);
+            let builder = GraphBuilder::new(21);
+            let coords = line_coords(20, 0.0);
+            let indices = builder.allocate_population(&mut neurons, &coords, 1.0, 1.0);
+            let policy = DistancePolicy { p0: 1.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.6 };
+            builder.connect(&neurons, &mut synapses, &indices, &policy, 5);
+            indices.iter().flat_map(|&i| synapses.occupied_in_block(i).map(|s| synapses.target_segment[s as usize])).collect()
+        }
+        // Same seed, independently rebuilt from scratch, must reproduce the
+        // exact same per-synapse segment assignment (RUN-3) -- not merely
+        // the same connectivity, which `polarity_assignment_is_deterministic_
+        // for_a_given_seed` above already covers for a different draw.
+        assert_eq!(run(), run());
+    }
+
+    #[test]
+    fn build_column_forwards_segments_per_neuron_to_its_internal_wiring() {
+        // Requirement 1 AC1-2's "no new allocation/connection code path"
+        // extends to this parameter too: a column built with
+        // segments_per_neuron > 1 must show the same spread `connect`
+        // itself does, not silently stay collapsed onto segment 0 the way
+        // it did before this fix (§13.12 item 6).
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(50);
+        let builder = GraphBuilder::new(5);
+        let coords = line_coords(20, 0.0);
+        let policy = DistancePolicy { p0: 1.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.6 };
+        let multi_segment = SegmentConfig { segments_per_neuron: 3, params: BinaryCoincidenceParams { threshold: 2 } };
+
+        let column = builder.build_column(&mut neurons, &mut synapses, &coords, 1.0, 1.0, &policy, 20, 2, multi_segment);
+
+        let mut seen_nonzero_segment = false;
+        for i in column.neuron_range.clone() {
+            for s in synapses.occupied_in_block(i) {
+                let seg = synapses.target_segment[s as usize];
+                assert!(seg < 3, "segment {seg} out of range for segments_per_neuron=3");
+                if seg != 0 {
+                    seen_nonzero_segment = true;
+                }
+            }
+        }
+        assert!(seen_nonzero_segment, "a column's internal wiring must use more than just segment 0 when segments_per_neuron > 1");
     }
 
     // -- Column primitive (NET-4, Requirement 1): `build_column` must be
@@ -499,7 +650,7 @@ mod tests {
         let mut direct_synapses = SynapseArena::new(64);
         let indices = builder.allocate_population(&mut direct_neurons, &coords, 1.0, 0.8);
         direct_synapses.reserve_for_neurons(direct_neurons.capacity_len());
-        builder.connect(&direct_neurons, &mut direct_synapses, &indices, &policy);
+        builder.connect(&direct_neurons, &mut direct_synapses, &indices, &policy, 1);
 
         assert_eq!(via_column_neurons.polarity, direct_neurons.polarity);
         assert_eq!(via_column_neurons.coords, direct_neurons.coords);

@@ -8,18 +8,21 @@
 //! easier by the depolarisation (`neuron.rs`'s `predictive` field lowers
 //! the *effective* threshold, it does not bypass it -- Requirement 10.3).
 //!
-//! **The coincidence window is one tick.** `active` is how many distinct
-//! synapses on this segment delivered *this* tick, counted by the
-//! scheduler during its normal delivery loop -- not tracked here. This is
-//! a deliberate simplification: a real dendritic coincidence window is a
-//! handful of milliseconds, wider than one 0.1 ms tick, so synapses whose
-//! axonal delays differ by a couple of ticks could miss each other here
-//! even though a wider window would have caught them. Widening it
-//! correctly needs a short decaying per-segment count (the same
-//! lazy-decay shape used for eligibility and neuromodulator levels
-//! elsewhere in this crate), which is a real, bounded piece of future
-//! work, not attempted here without a concrete case showing the one-tick
-//! window is too narrow to matter.
+//! **The coincidence window defaults to one tick, and is optionally
+//! widenable (README §12a item 6, settled 2026-09-11).** `active` is a
+//! *count*, not a boolean tally, of how many distinct synapses on this
+//! segment delivered within the window -- accumulated by the scheduler
+//! (`scheduler.rs`'s `apply_local_effect`/`evaluate_and_resolve`) via a
+//! per-composite value that decays across ticks rather than resetting to
+//! zero the instant it is evaluated, the same lazy-decay shape eligibility
+//! and neuromodulator levels already use elsewhere in this crate. The
+//! default decay (`Scheduler::with_segment_coincidence_window` never
+//! called) is `0.0` -- full decay after any elapsed tick -- which
+//! reproduces the original one-tick-only window exactly: two synapses
+//! whose axonal delays differ by even one tick still never coincide unless
+//! a caller opts into a wider window. `active` is therefore a graded
+//! `f32`, not `u16`: a decayed accumulator is not an integer count of
+//! *this instant's* deliveries the way the old hard-reset tally was.
 
 /// A dendritic spike's graded depolarisation level (Requirement 10.5) --
 /// not a boolean, so a future graded model (e.g. one with a real
@@ -45,7 +48,7 @@ pub struct SegmentState;
 /// scheduler's per-tick evaluation loop monomorphises with no vtable.
 pub trait SegmentModel {
     type Params: Copy;
-    fn evaluate(active: u16, state: &SegmentState, params: &Self::Params) -> Depolarisation;
+    fn evaluate(active: f32, state: &SegmentState, params: &Self::Params) -> Depolarisation;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -64,8 +67,8 @@ pub struct BinaryCoincidence;
 impl SegmentModel for BinaryCoincidence {
     type Params = BinaryCoincidenceParams;
 
-    fn evaluate(active: u16, _state: &SegmentState, params: &Self::Params) -> Depolarisation {
-        if active >= params.threshold {
+    fn evaluate(active: f32, _state: &SegmentState, params: &Self::Params) -> Depolarisation {
+        if active >= params.threshold as f32 {
             Depolarisation(1.0)
         } else {
             Depolarisation::NONE
@@ -117,13 +120,13 @@ mod tests {
     #[test]
     fn below_threshold_does_not_fire() {
         let params = BinaryCoincidenceParams { threshold: 10 };
-        assert_eq!(BinaryCoincidence::evaluate(9, &SegmentState, &params), Depolarisation::NONE);
+        assert_eq!(BinaryCoincidence::evaluate(9.0, &SegmentState, &params), Depolarisation::NONE);
     }
 
     #[test]
     fn at_threshold_fires_at_full_strength() {
         let params = BinaryCoincidenceParams { threshold: 10 };
-        assert_eq!(BinaryCoincidence::evaluate(10, &SegmentState, &params), Depolarisation(1.0));
+        assert_eq!(BinaryCoincidence::evaluate(10.0, &SegmentState, &params), Depolarisation(1.0));
     }
 
     #[test]
@@ -132,12 +135,22 @@ mod tests {
         // values -- not a magnitude that scales with how far over
         // threshold the count is.
         let params = BinaryCoincidenceParams { threshold: 10 };
-        assert_eq!(BinaryCoincidence::evaluate(50, &SegmentState, &params), Depolarisation(1.0));
+        assert_eq!(BinaryCoincidence::evaluate(50.0, &SegmentState, &params), Depolarisation(1.0));
     }
 
     #[test]
     fn zero_active_never_fires() {
         let params = BinaryCoincidenceParams { threshold: 1 };
-        assert_eq!(BinaryCoincidence::evaluate(0, &SegmentState, &params), Depolarisation::NONE);
+        assert_eq!(BinaryCoincidence::evaluate(0.0, &SegmentState, &params), Depolarisation::NONE);
+    }
+
+    #[test]
+    fn a_decayed_fractional_count_below_threshold_does_not_fire() {
+        // Requirement (§12a item 6): a widened window's accumulator is a
+        // graded f32, not an integer tally -- a partially-decayed residual
+        // that has not reached a whole additional coincidence must not
+        // round up to one.
+        let params = BinaryCoincidenceParams { threshold: 2 };
+        assert_eq!(BinaryCoincidence::evaluate(1.9999, &SegmentState, &params), Depolarisation::NONE);
     }
 }

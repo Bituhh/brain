@@ -14,7 +14,7 @@ use brain_core::graph::{DistancePolicy, GraphBuilder};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
-use brain_core::plasticity::homeostatic::HomeostaticScaling;
+use brain_core::plasticity::homeostatic::{HomeostaticScaling, SegmentThresholdHomeostasis};
 use brain_core::plasticity::predictive::PredictiveLearningParams;
 use brain_core::plasticity::stdp::StdpParams;
 use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams};
@@ -190,12 +190,43 @@ impl LifConfig {
 /// Dendritic segment configuration (Requirement 10): omit to leave every
 /// synapse feedforward regardless of its `segment` argument to `connect`,
 /// matching pre-Step-8 behaviour exactly.
+///
+/// Found 2026-09-11 while investigating why VAL-4 measured at chance: a
+/// `NativeSimulation` runs exactly one `Scheduler`, which supports exactly
+/// one dendritic-segment configuration (`build_scheduler` only ever calls
+/// `with_segments` from `SimulationOptions.segments`, once). `ColumnConfig`
+/// below carries its own `segments` field, and it is a *plausible* reading
+/// of that field that a column configures its own dendritic-segment
+/// scheme -- but `ColumnSpec.segments` (`column.rs`) is bookkeeping only,
+/// never read by anything that runs the simulation. A column whose
+/// `segments` disagreed with (or was configured while)
+/// `SimulationOptions.segments` was left unset silently ran with no
+/// dendritic segments at all: every synapse became feedforward regardless
+/// of its `targetSegment`, NEU-5/NEU-6/LRN-8 never engaged, and nothing
+/// said so. This was VAL-4's shipped configuration exactly --
+/// `packages/io/src/milestone/charPrediction.ts` set a `segments` value on
+/// its column and never on `SimulationOptions`, so predictive learning
+/// never ran and the measured ~chance-level accuracy reflected a network
+/// with no predictive mechanism, not a negative result about one.
+/// `NativeSimulation::build_columns` now validates every column's
+/// `segments` against the scheduler-wide configuration and refuses to
+/// build (a clear `Result::Err`, not a silent no-op) on any mismatch --
+/// see its own doc comment.
+#[derive(Clone, Copy)]
 #[napi(object)]
 pub struct SegmentsConfig {
     pub segments_per_neuron: u32,
     /// How many simultaneously-active synapses on one segment are needed
     /// for it to depolarise its neuron (`segment.rs`'s `BinaryCoincidence`).
     pub coincidence_threshold: u32,
+}
+
+impl SegmentsConfig {
+    const NONE: SegmentsConfig = SegmentsConfig { segments_per_neuron: 0, coincidence_threshold: 0 };
+
+    fn matches(&self, other: &SegmentsConfig) -> bool {
+        self.segments_per_neuron == other.segments_per_neuron && self.coincidence_threshold == other.coincidence_threshold
+    }
 }
 
 /// Predictive learning configuration (Requirement 12): omit to leave
@@ -240,6 +271,23 @@ impl PredictiveLearningConfig {
 #[napi(object)]
 pub struct HomeostaticScalingConfig {
     pub target_total_permanence: f64,
+    pub interval_ticks: u32,
+}
+
+/// Per-segment threshold homeostasis (dendritic-threshold-homeostasis
+/// spec, Requirement 1/2) -- `SegmentThresholdHomeostasis`'s FFI-layer
+/// mirror, same shape as `HomeostaticScalingConfig` above. Omit to leave
+/// every segment evaluating against `SegmentsConfig::coincidence_threshold`
+/// exactly as before this existed, matching every pre-existing caller.
+/// Meaningless without `segments` also configured (there is no segment to
+/// adjust), but this is not validated here, matching
+/// `PredictiveLearningConfig`'s own stated precedent one field up.
+#[napi(object)]
+pub struct SegmentThresholdHomeostasisConfig {
+    pub target_rate: f64,
+    pub smoothing: f64,
+    pub adjustment_rate: f64,
+    pub min_threshold: f64,
     pub interval_ticks: u32,
 }
 
@@ -457,6 +505,15 @@ pub struct NativeSimulation {
     /// `raster`), so `metrics_snapshot` is a pure read with no parameter
     /// the caller has to track themselves.
     last_spike_count: u32,
+    /// The dendritic-segment configuration this instance's `Scheduler`
+    /// actually runs (a copy of whatever `segments` was passed to `new`/
+    /// `restore`, or `SegmentsConfig::NONE` if omitted). Purely an FFI-layer
+    /// bookkeeping field -- `build_columns` uses it to validate every
+    /// column's own `segments` against the one scheme this simulation
+    /// actually has, since `Scheduler` has no accessor of its own for a
+    /// value this module already has fresh from the caller (see
+    /// `SegmentsConfig`'s doc comment for why this validation exists at all).
+    scheduler_segments: SegmentsConfig,
 }
 
 /// A generous cap, not a tuned one: bounds `NativeSimulation.raster`'s
@@ -481,6 +538,7 @@ struct SchedulerConfig {
     plasticity: Option<ResolvedPlasticity>,
     homeostatic_scaling: Option<HomeostaticScalingConfig>,
     structural_plasticity: Option<StructuralPlasticityConfig>,
+    segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
 }
 
 fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
@@ -514,6 +572,15 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
             min_cross_partition_delay: cfg.min_cross_partition_delay.min(u16::MAX as u32) as u16,
         };
         scheduler = scheduler.with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k)));
+    }
+    if let Some(cfg) = &config.segment_threshold_homeostasis {
+        scheduler = scheduler.with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(
+            cfg.target_rate as f32,
+            cfg.smoothing as f32,
+            cfg.adjustment_rate as f32,
+            cfg.min_threshold as f32,
+            cfg.interval_ticks.max(1),
+        ));
     }
     scheduler
 }
@@ -600,6 +667,16 @@ impl DistancePolicyConfig {
 /// `VotingGroupConfig`'s cross-column policy does read real distance, which
 /// is why callers get to choose `base_x`/`base_y`/`base_z` explicitly rather
 /// than have one silently picked for them).
+///
+/// `segments` registers this column's scheme in `ColumnSpec` for identity/
+/// snapshot bookkeeping (`column.rs`), but **does not itself configure
+/// live dendritic-segment behaviour** -- that is entirely
+/// `SimulationOptions.segments`, one scheme shared by every column in this
+/// `NativeSimulation` (`SegmentsConfig`'s doc comment explains why, and the
+/// real bug this was found from). `build_columns` requires this field to
+/// equal whatever `SimulationOptions.segments` actually is (or
+/// `{segmentsPerNeuron: 0, coincidenceThreshold: 0}` if this simulation
+/// has none), refusing to build otherwise.
 #[napi(object)]
 pub struct ColumnConfig {
     pub neuron_count: u32,
@@ -687,13 +764,24 @@ impl NativeSimulation {
         plasticity: Option<PlasticityConfig>,
         homeostatic_scaling: Option<HomeostaticScalingConfig>,
         structural_plasticity: Option<StructuralPlasticityConfig>,
+        segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
         thread_count: Option<u32>,
         total_neurons: Option<u32>,
     ) -> Result<Self> {
         let thread_count = thread_count.unwrap_or(1).max(1) as usize;
         let plasticity = plasticity.map(|cfg| cfg.resolve()).transpose()?;
-        let config =
-            SchedulerConfig { max_delay, connection_threshold, inhibition, segments, predictive_learning, plasticity, homeostatic_scaling, structural_plasticity };
+        let scheduler_segments = segments.unwrap_or(SegmentsConfig::NONE);
+        let config = SchedulerConfig {
+            max_delay,
+            connection_threshold,
+            inhibition,
+            segments,
+            predictive_learning,
+            plasticity,
+            homeostatic_scaling,
+            structural_plasticity,
+            segment_threshold_homeostasis,
+        };
         let runtime = if thread_count > 1 {
             let total_neurons = total_neurons.ok_or_else(|| {
                 Error::from_reason("totalNeurons is required when threadCount > 1: PartitionRuntime must know the network's final neuron count upfront")
@@ -710,6 +798,7 @@ impl NativeSimulation {
             columns: ColumnRegistry::new(),
             raster: SpikeRaster::new(),
             last_spike_count: 0,
+            scheduler_segments,
         })
     }
 
@@ -793,9 +882,25 @@ impl NativeSimulation {
         let seed = seed.get_u64().1;
         let builder = GraphBuilder::new(seed);
         let mut handles = Vec::with_capacity(columns.len());
-        for cfg in &columns {
+        for (i, cfg) in columns.iter().enumerate() {
             if cfg.neuron_count == 0 {
                 return Err(Error::from_reason("a column must have at least one neuron"));
+            }
+            // See `SegmentsConfig`'s doc comment: every neuron in this
+            // `NativeSimulation` shares one `Scheduler`, which runs at most
+            // one dendritic-segment configuration -- `ColumnSpec.segments`
+            // is bookkeeping only and has no live effect, so a column that
+            // claims a different (or nonzero, while the scheduler has none)
+            // segment scheme than the one actually running would silently
+            // get no segments at all. Refuse instead: this is exactly the
+            // bug that left VAL-4 running with predictive learning
+            // disabled and nothing saying so.
+            if !cfg.segments.matches(&self.scheduler_segments) {
+                return Err(Error::from_reason(format!(
+                    "column {i}'s segments ({}/{} = segmentsPerNeuron/coincidenceThreshold) do not match this simulation's scheduler-wide segment configuration ({}/{}). Every column shares one `Scheduler`, which runs a single segment scheme set once via `SimulationOptions.segments` (or none at all) -- pass the same values here, or {{segmentsPerNeuron: 0, coincidenceThreshold: 0}} if this column does not use dendritic segments.",
+                    cfg.segments.segments_per_neuron, cfg.segments.coincidence_threshold,
+                    self.scheduler_segments.segments_per_neuron, self.scheduler_segments.coincidence_threshold,
+                )));
             }
             let coords: Vec<[f32; 3]> =
                 (0..cfg.neuron_count).map(|j| [cfg.base_x as f32 + j as f32, cfg.base_y as f32, cfg.base_z as f32]).collect();
@@ -1366,6 +1471,7 @@ impl NativeSimulation {
         plasticity: Option<PlasticityConfig>,
         homeostatic_scaling: Option<HomeostaticScalingConfig>,
         structural_plasticity: Option<StructuralPlasticityConfig>,
+        segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
     ) -> Result<Self> {
         // Note: no `synapse_cap_per_neuron` parameter here -- the snapshot
         // payload already carries it (`write_synapses` stores it, and
@@ -1410,12 +1516,31 @@ impl NativeSimulation {
             };
             scheduler = scheduler.with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k)));
         }
+        if let Some(cfg) = &segment_threshold_homeostasis {
+            scheduler = scheduler.with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(
+                cfg.target_rate as f32,
+                cfg.smoothing as f32,
+                cfg.adjustment_rate as f32,
+                cfg.min_threshold as f32,
+                cfg.interval_ticks.max(1),
+            ));
+        }
         scheduler.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
         // Phase 5 Requirement 15.6: must run *after* with_plasticity above,
         // which resets the neuromodulator field to a fresh, zeroed one as a
         // side effect of applying `modulator_tau_ticks` config -- restoring
         // before that call would have its effect immediately discarded.
         scheduler.restore_modulator_state(restored.modulator_levels, restored.modulator_last_updated_at);
+        // README §12a item 6 / RUN-9a: the dendritic coincidence window's
+        // decaying state, format version 5. Safe even when `segments` is
+        // `None` above -- nothing ever reads these arrays in that case.
+        scheduler.restore_segment_coincidence_state(restored.segment_counts, restored.segment_last_touched_tick);
+        // dendritic-threshold-homeostasis spec, Requirement 7: format
+        // version 6's segment-threshold-homeostasis state. Safe even when
+        // `segment_threshold_homeostasis` is `None` above -- nothing ever
+        // reads these arrays in that case, same precedent as the
+        // coincidence-window state immediately above.
+        scheduler.restore_segment_threshold_state(restored.segment_threshold, restored.segment_rate_estimate, restored.segment_last_depolarised_tick);
 
         Ok(Self {
             neurons: restored.neurons,
@@ -1435,6 +1560,7 @@ impl NativeSimulation {
             // like a freshly constructed one.
             raster: SpikeRaster::new(),
             last_spike_count: 0,
+            scheduler_segments: segments.unwrap_or(SegmentsConfig::NONE),
         })
     }
 

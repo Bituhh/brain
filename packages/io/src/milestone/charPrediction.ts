@@ -38,7 +38,7 @@
 // candidate set or redefining "accuracy" -- see `runCharPredictionTrial`
 // below, which reports the real, comparable numbers either way.
 
-import { Simulation, type LifConfig, type SimulationOptions, type ColumnConfig } from "@brain/core";
+import { Simulation, type LifConfig, type SimulationOptions, type ColumnConfig, type SegmentThresholdHomeostasisConfig } from "@brain/core";
 import { wrapColumnHandles, type ColumnHandle } from "../columns.ts";
 import { encodeChar, SUPPORTED_ALPHABET, type CharEncoderConfig } from "../encoders/text.ts";
 import { decode, type Candidate } from "../decoders/overlap.ts";
@@ -57,6 +57,17 @@ export interface CharPredictionConfig {
   readonly minConfidence: number;
   readonly stimulateCurrent: number;
   readonly slidingWindow: number;
+  /**
+   * Per-segment threshold homeostasis (dendritic-threshold-homeostasis
+   * spec) -- a field on this config, rather than hardcoded inside
+   * `buildNetwork`, specifically so `scripts/tune-segment-threshold-
+   * homeostasis.ts` can vary it per trial without duplicating the rest of
+   * this network's configuration. `undefined` disables the mechanism
+   * entirely (every segment evaluates against `segments.coincidenceThreshold`
+   * exactly as before this existed). `DEFAULT_CONFIG` carries the current
+   * best-known value from README §13.12 item 7's tuning table.
+   */
+  readonly segmentThresholdHomeostasis?: SegmentThresholdHomeostasisConfig;
 }
 
 export const DEFAULT_CONFIG: CharPredictionConfig = {
@@ -72,6 +83,16 @@ export const DEFAULT_CONFIG: CharPredictionConfig = {
   minConfidence: 0.15,
   stimulateCurrent: 10.0,
   slidingWindow: 2000,
+  // Converged value from `scripts/tune-segment-threshold-homeostasis.ts`'s
+  // automated search (README §13.12 item 7's tuning table): targetRate=0.99
+  // -- the search's practical ceiling (one MIN_STEP short of the `< 1.0`
+  // bound `SegmentThresholdHomeostasis::new` enforces) -- gives mean
+  // network accuracy 13.18% (5 official seeds), a 4x improvement over the
+  // 3.23% fixed-threshold baseline and, within seed-to-seed noise, back to
+  // the original pre-item-6-fix figure of 13.22%. smoothing/adjustmentRate/
+  // minThreshold/intervalTicks were held fixed across every trial in that
+  // table -- only targetRate was swept.
+  segmentThresholdHomeostasis: { targetRate: 0.99, smoothing: 0.9, adjustmentRate: 0.1, minThreshold: 1.0, intervalTicks: 200 },
 };
 
 function charEncoderConfig(width: number, density: number): CharEncoderConfig {
@@ -82,7 +103,7 @@ function buildCandidates(config: CharEncoderConfig): Candidate<string>[] {
   return SUPPORTED_ALPHABET.map((char) => ({ label: char, sdr: encodeChar(config, char) }));
 }
 
-function columnConfig(width: number): ColumnConfig {
+export function columnConfig(width: number): ColumnConfig {
   return {
     neuronCount: width,
     threshold: 0.5,
@@ -112,7 +133,18 @@ function columnConfig(width: number): ColumnConfig {
   };
 }
 
-function buildNetwork(seed: bigint, width: number): { sim: Simulation; column: ColumnHandle } {
+/**
+ * `segmentThresholdHomeostasis` defaults to `DEFAULT_CONFIG`'s current
+ * best-known value (README §13.12 item 7's tuning table) rather than being
+ * hardcoded inline, so `scripts/tune-segment-threshold-homeostasis.ts` can
+ * pass a different candidate per trial without rebuilding this function.
+ * Pass `undefined` explicitly to disable the mechanism entirely.
+ */
+export function buildNetwork(
+  seed: bigint,
+  width: number,
+  segmentThresholdHomeostasis: SegmentThresholdHomeostasisConfig | undefined = DEFAULT_CONFIG.segmentThresholdHomeostasis,
+): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 };
   const options: SimulationOptions = {
     maxDelay: 1,
@@ -129,6 +161,36 @@ function buildNetwork(seed: bigint, width: number): { sim: Simulation; column: C
     // overlap against the observed activity, and decode() stops
     // discriminating between them at all.
     inhibition: { neighbourhoodSize: width, k: Math.max(1, Math.round(width * NETWORK_DENSITY)) },
+    // Found 2026-09-11 (README §11 Phase 5 status, §12a item 6's
+    // neighbour finding): this line was missing entirely. `columnConfig`
+    // below sets a `segments` value on the *column*, but a column's own
+    // `segments` has no live effect independent of this scheduler-wide
+    // setting (`crates/brain-napi/src/lib.rs`'s `SegmentsConfig` doc
+    // comment) -- without this, `Scheduler.segments` was `None`, every
+    // synapse (including every segment-targeted one `columnConfig` wires)
+    // delivered as plain feedforward current, and NEU-5/NEU-6/LRN-8's
+    // dendritic prediction never ran at all. `NativeSimulation.buildColumns`
+    // now refuses to build when this and `columnConfig`'s `segments`
+    // disagree, which is what caught this omission.
+    segments: { segmentsPerNeuron: 2, coincidenceThreshold: 3 },
+    // dendritic-threshold-homeostasis spec (README §13.12 items 6/7):
+    // fixing the segment-0 collapse bug and letting both real segments
+    // receive distinct wiring made accuracy *worse*, 13.22% -> 3.23%, and
+    // pushed predictiveView()'s density artefact toward 97/97 candidates
+    // passing `minConfidence` every tick. This replaces the fixed
+    // `coincidenceThreshold: 3` (chosen for one segment's worth of wiring,
+    // no longer meaningful once wiring is spread across two) with a
+    // self-tuning per-segment threshold instead -- the caller-supplied
+    // value (default: `DEFAULT_CONFIG`'s current best-known one). See
+    // README §13.12 item 7's tuning table for every trial's measured VAL-4
+    // result (Requirement 13.6: honestly, not just the best one kept), and
+    // `scripts/tune-segment-threshold-homeostasis.ts` for the search that
+    // produced it.
+    // Spread rather than assigned directly: `exactOptionalPropertyTypes`
+    // distinguishes "field omitted" from "field present with value
+    // `undefined`", and `SimulationOptions.segmentThresholdHomeostasis`'s
+    // `undefined` case (mechanism disabled) must omit the field entirely.
+    ...(segmentThresholdHomeostasis !== undefined && { segmentThresholdHomeostasis }),
     predictiveLearning: {
       significanceThreshold: 0.5,
       reinforceAmount: 0.08,
@@ -190,7 +252,7 @@ export interface TrialResult {
 export function runCharPredictionTrial(corpus: string, seed: bigint, config: CharPredictionConfig = DEFAULT_CONFIG): TrialResult {
   const encoderConfig = charEncoderConfig(config.width, config.density);
   const candidates = buildCandidates(encoderConfig);
-  const { sim, column } = buildNetwork(seed, config.width);
+  const { sim, column } = buildNetwork(seed, config.width, config.segmentThresholdHomeostasis);
   const trigram = new TrigramModel();
   const networkAcc = new SlidingWindowAccuracy(config.slidingWindow);
   const trigramAcc = new SlidingWindowAccuracy(config.slidingWindow);

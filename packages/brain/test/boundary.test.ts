@@ -315,7 +315,12 @@ function columnConfig(overrides: Partial<ColumnConfig> = {}): ColumnConfig {
     internalPolicy: { p0: 0.0, lengthScale: 1.0, delayMin: 1, delayMax: 1, initialPermanence: 0.9 },
     neighbourhoodSize: 4,
     k: 1,
-    segments: { segmentsPerNeuron: 1, coincidenceThreshold: 2 },
+    // These wiring-shape/gating tests deliberately don't exercise
+    // dendritic-segment dynamics (see the voting test below's own comment)
+    // -- must match `Simulation.create`'s omitted `SimulationOptions.segments`
+    // (Requirement 2, found 2026-09-11: a column's own `segments` has no
+    // live effect independent of the scheduler-wide configuration).
+    segments: { segmentsPerNeuron: 0, coincidenceThreshold: 0 },
     ...overrides,
   };
 }

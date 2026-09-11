@@ -152,6 +152,77 @@ impl IntrinsicHomeostasis {
     }
 }
 
+/// Homeostasis for a dendritic segment's own coincidence threshold
+/// (Requirement 1, dendritic-threshold-homeostasis spec): [`IntrinsicHomeostasis`]
+/// above in every respect except *what* it adjusts and *how it is addressed*
+/// -- a segment's own coincidence threshold instead of a neuron's somatic
+/// one, indexed by composite (`neuron * segments_per_neuron + segment`,
+/// `scheduler.rs`'s existing addressing scheme) instead of by neuron index.
+///
+/// Exists because a hand-picked absolute `BinaryCoincidenceParams.threshold`
+/// (README §2.3, §13.12 items 6/7) does not mean the same thing once
+/// `segments_per_neuron` or synapse density changes -- `evaluate_and_resolve`
+/// combines a neuron's segments by `max`, so splitting synapses across more
+/// segments under one fixed threshold gives a neuron more independent
+/// chances to depolarise per tick, not more selectivity. A target *rate*
+/// stays meaningful regardless of segment count or network scale (invariant
+/// 10: capacity is grown, not configured), unlike a raw synapse count.
+///
+/// Deliberately takes raw slices rather than a `Scheduler` reference, same
+/// as [`HomeostaticScaling`]/[`IntrinsicHomeostasis`] stay decoupled from
+/// `NeuronArena`/`SynapseArena`'s own internals -- this keeps the mechanism
+/// itself agnostic to how `Scheduler` chooses to store or address segments.
+pub struct SegmentThresholdHomeostasis {
+    /// Desired long-run fraction of sweeps a segment depolarises in at least
+    /// once (mirrors [`IntrinsicHomeostasis::target_rate`]'s framing exactly,
+    /// one level down the dendrite).
+    pub target_rate: f32,
+    /// Same meaning as [`IntrinsicHomeostasis::smoothing`].
+    pub smoothing: f32,
+    /// Same meaning as [`IntrinsicHomeostasis::adjustment_rate`].
+    pub adjustment_rate: f32,
+    /// Threshold never drifts below this (Requirement 4) -- an unbounded
+    /// downward drift would let a chronically quiet segment approach a
+    /// threshold of zero and depolarise from noise alone.
+    pub min_threshold: f32,
+    pub interval_ticks: u32,
+    last_applied_at: u32,
+}
+
+impl SegmentThresholdHomeostasis {
+    pub fn new(target_rate: f32, smoothing: f32, adjustment_rate: f32, min_threshold: f32, interval_ticks: u32) -> Self {
+        assert!(interval_ticks > 0, "interval_ticks must be positive");
+        assert!((0.0..1.0).contains(&smoothing), "smoothing must be in [0, 1)");
+        assert!((0.0..1.0).contains(&target_rate), "target_rate must be in [0, 1)");
+        assert!(min_threshold >= 0.0, "min_threshold must not be negative");
+        Self { target_rate, smoothing, adjustment_rate, min_threshold, interval_ticks, last_applied_at: 0 }
+    }
+
+    /// Applies one sweep, over `touched` (every composite index the caller
+    /// has ever resized into existence -- Requirement 3: never reads any
+    /// other composite's state), if `interval_ticks` have elapsed since the
+    /// last one. Returns whether it actually ran, matching
+    /// [`IntrinsicHomeostasis::maybe_apply`]'s convention.
+    pub fn maybe_apply(&mut self, threshold: &mut [f32], rate_estimate: &mut [f32], last_depolarised_tick: &[u32], touched: &[u32], tick: u32) -> bool {
+        if tick < self.last_applied_at + self.interval_ticks {
+            return false;
+        }
+        let window_start = self.last_applied_at;
+        self.last_applied_at = tick;
+
+        for &composite in touched {
+            let i = composite as usize;
+            let depolarised_this_window = last_depolarised_tick[i] != u32::MAX && last_depolarised_tick[i] >= window_start;
+            let observed = if depolarised_this_window { 1.0 } else { 0.0 };
+            rate_estimate[i] = rate_estimate[i] * self.smoothing + observed * (1.0 - self.smoothing);
+
+            let error = rate_estimate[i] - self.target_rate;
+            threshold[i] = (threshold[i] + self.adjustment_rate * error).max(self.min_threshold);
+        }
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,5 +395,84 @@ mod tests {
         neurons.free(a).unwrap();
         let mut homeostasis = IntrinsicHomeostasis::new(0.1, 0.0, 0.2, 0.1, 10);
         assert!(homeostasis.maybe_apply(&mut neurons, 10));
+    }
+
+    // -- SegmentThresholdHomeostasis (dendritic-threshold-homeostasis spec,
+    // Requirement 1/3/4). One-for-one mirrors of IntrinsicHomeostasis's own
+    // tests above, addressed by composite index instead of neuron index.
+
+    #[test]
+    fn a_segment_depolarising_above_target_has_its_threshold_raised() {
+        let mut threshold = vec![1.0];
+        let mut rate_estimate = vec![0.0];
+        let last_depolarised_tick = vec![50]; // depolarised recently, within the upcoming window
+
+        let mut homeostasis = SegmentThresholdHomeostasis::new(0.0, 0.0, 0.2, 0.1, 100);
+        assert!(homeostasis.maybe_apply(&mut threshold, &mut rate_estimate, &last_depolarised_tick, &[0], 100));
+
+        assert!(threshold[0] > 1.0, "depolarising when the target rate is 0 must raise the threshold, got {}", threshold[0]);
+    }
+
+    #[test]
+    fn a_quiet_segment_below_target_has_its_threshold_lowered_but_not_below_the_floor() {
+        let mut threshold = vec![0.15];
+        let mut rate_estimate = vec![0.0];
+        let last_depolarised_tick = vec![u32::MAX]; // never depolarised
+
+        // target_rate just under 1.0 -- `new`'s contract requires `[0, 1)`
+        // (a segment cannot depolarise more than once per sweep under this
+        // binary observation model), unlike `IntrinsicHomeostasis::new`
+        // which does not validate this.
+        let mut homeostasis = SegmentThresholdHomeostasis::new(0.999, 0.0, 0.2, 0.1, 100);
+        assert!(homeostasis.maybe_apply(&mut threshold, &mut rate_estimate, &last_depolarised_tick, &[0], 100));
+        assert!(threshold[0] < 0.15, "a quiet segment below target rate must have its threshold lowered");
+
+        for tick in [200, 300, 400, 500] {
+            homeostasis.maybe_apply(&mut threshold, &mut rate_estimate, &last_depolarised_tick, &[0], tick);
+        }
+        assert!(threshold[0] >= 0.1, "threshold must never drop below min_threshold, got {}", threshold[0]);
+    }
+
+    #[test]
+    fn a_segment_at_exactly_its_target_rate_is_left_unchanged() {
+        let mut threshold = vec![1.0];
+        let mut rate_estimate = vec![0.5]; // already sitting at target
+        let last_depolarised_tick = vec![50]; // observed=1.0 this window
+
+        // smoothing close to 1.0 makes the new observation's contribution
+        // negligible, isolating "at target, no correction" the same way
+        // `a_neuron_at_exactly_its_target_rate_is_left_unchanged` does.
+        let mut homeostasis = SegmentThresholdHomeostasis::new(0.5, 0.999999, 0.2, 0.1, 100);
+        homeostasis.maybe_apply(&mut threshold, &mut rate_estimate, &last_depolarised_tick, &[0], 100);
+        assert!((threshold[0] - 1.0).abs() < 1e-3, "a segment already at its target rate should see negligible drift");
+    }
+
+    #[test]
+    fn segment_threshold_homeostasis_does_not_apply_before_the_interval_elapses() {
+        let mut threshold = vec![1.0];
+        let mut rate_estimate = vec![0.0];
+        let last_depolarised_tick = vec![u32::MAX];
+        let mut homeostasis = SegmentThresholdHomeostasis::new(0.1, 0.0, 0.2, 0.1, 1000);
+        assert!(!homeostasis.maybe_apply(&mut threshold, &mut rate_estimate, &last_depolarised_tick, &[0], 500));
+    }
+
+    /// Requirement 1 Acceptance Criterion 5 / Requirement 3 Acceptance
+    /// Criterion 1: every segment on a neuron adjusts using only its own
+    /// recorded history -- one composite's threshold must never move because
+    /// of another composite's activity, even when swept in the same call.
+    #[test]
+    fn two_segments_on_the_same_sweep_adjust_independently() {
+        let mut threshold = vec![1.0, 1.0];
+        let mut rate_estimate = vec![0.0, 0.0];
+        // Composite 0 depolarised recently (observed rate 1.0, above the
+        // 0.5 target below); composite 1 never has (observed rate 0.0,
+        // below it).
+        let last_depolarised_tick = vec![50, u32::MAX];
+
+        let mut homeostasis = SegmentThresholdHomeostasis::new(0.5, 0.0, 0.2, 0.1, 100);
+        assert!(homeostasis.maybe_apply(&mut threshold, &mut rate_estimate, &last_depolarised_tick, &[0, 1], 100));
+
+        assert!(threshold[0] > 1.0, "composite 0's own recorded activity must raise its own threshold");
+        assert!(threshold[1] < 1.0, "composite 1's own (silent) history must lower its threshold, unaffected by composite 0's activity");
     }
 }

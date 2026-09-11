@@ -122,7 +122,7 @@ fn build_topology(seed: u64, clique_permanence: f32) -> (NeuronArena, SynapseAre
 
     let clique_indices: Vec<u32> = clique_range.clone().collect();
     let clique_policy = DistancePolicy { p0: 1.0, length_scale: 1.0e6, delay_min: 1, delay_max: 1, initial_permanence: clique_permanence };
-    builder.connect(&neurons, &mut synapses, &clique_indices, &clique_policy);
+    builder.connect(&neurons, &mut synapses, &clique_indices, &clique_policy, 1);
 
     (neurons, synapses, column_range, clique_range)
 }

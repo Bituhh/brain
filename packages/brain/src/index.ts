@@ -24,6 +24,7 @@ import {
   type ConsolidationReportFfi,
   type HomeostaticScalingConfig,
   type StructuralPlasticityConfig,
+  type SegmentThresholdHomeostasisConfig,
   type ProbeOptionsFfi,
   type ProbeDataFfi,
   type SegmentSampleFfi,
@@ -46,6 +47,7 @@ export type {
   ConsolidationConfig,
   HomeostaticScalingConfig,
   StructuralPlasticityConfig,
+  SegmentThresholdHomeostasisConfig,
 };
 
 /** A probe's configuration (OBS-1, Phase 6 Requirement 4). */
@@ -107,6 +109,17 @@ export interface SimulationOptions {
    * Omit to leave `step()`'s structural sweep disabled.
    */
   structuralPlasticity?: StructuralPlasticityConfig;
+  /**
+   * Per-segment threshold homeostasis (dendritic-threshold-homeostasis
+   * spec, Requirement 1/2): each dendritic segment adjusts its own
+   * coincidence threshold toward a target depolarisation rate, instead of
+   * evaluating against a fixed `segments.coincidenceThreshold` for the
+   * network's whole lifetime. Omit to leave every segment evaluating
+   * against `segments.coincidenceThreshold` exactly as before this existed
+   * -- meaningless without `segments` also configured, but not validated
+   * at this boundary (matches `predictiveLearning`'s own precedent).
+   */
+  segmentThresholdHomeostasis?: SegmentThresholdHomeostasisConfig;
   /**
    * Number of native threads `PartitionRuntime` should use (Requirement 7
    * AC1, Phase 4 RUN-4). Omit or pass 1 for today's exact single-threaded
@@ -351,6 +364,7 @@ export class Simulation {
         options.plasticity ?? null,
         options.homeostaticScaling ?? null,
         options.structuralPlasticity ?? null,
+        options.segmentThresholdHomeostasis ?? null,
         options.threadCount ?? null,
         options.totalNeurons ?? null,
       ),
@@ -393,6 +407,7 @@ export class Simulation {
       options.plasticity ?? null,
       options.homeostaticScaling ?? null,
       options.structuralPlasticity ?? null,
+      options.segmentThresholdHomeostasis ?? null,
     );
     return new Simulation(native, lif, options);
   }

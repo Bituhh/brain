@@ -150,7 +150,7 @@ fn build_flat_benchmark_network() -> (NeuronArena, SynapseArena) {
         (0..total_neurons).map(|i| [(i % COLUMN_SIZE) as f32, (i / COLUMN_SIZE) as f32 * 1000.0, 0.0]).collect();
     let indices = builder.allocate_population(&mut neurons, &coords, 1.0, 0.8);
     let policy = DistancePolicy { p0: 0.05, length_scale: 5.0, delay_min: 1, delay_max: 2, initial_permanence: 0.4 };
-    builder.connect(&neurons, &mut synapses, &indices, &policy);
+    builder.connect(&neurons, &mut synapses, &indices, &policy, 1);
     (neurons, synapses)
 }
 

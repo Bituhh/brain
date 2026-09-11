@@ -42,7 +42,20 @@ function buildNetwork(sensoryBaseX: number, wireVoting: boolean) {
   // `columns_and_voting.rs`'s own mechanism, reused here for location
   // instead of another sensory column.
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 1000, predictiveThresholdReduction: THRESHOLD_REDUCTION };
-  const options: SimulationOptions = { maxDelay: 4, connectionThreshold: 0.5, synapseCapPerNeuron: 8 };
+  // Found 2026-09-11 (Requirement 2, `crates/brain-napi/src/lib.rs`'s
+  // `SegmentsConfig` doc comment): `SimulationOptions.segments` was
+  // missing entirely, and the two columns below disagreed with each other
+  // (1 vs. 2) besides -- a `Scheduler` runs exactly one dendritic-segment
+  // scheme for every neuron it owns, so with no top-level `segments` at
+  // all, `VOTE_SEGMENT`-targeted synapses were silently delivering as
+  // plain feedforward current, not depolarisation, and this "mechanism-
+  // level proof" of NEU-6 was not actually exercising NEU-6.
+  // `segmentsPerNeuron: 2` (not 1) because the sensory column's own
+  // synapses target segment index 1 (`VOTE_SEGMENT`) -- the stride is a
+  // network-wide constant, so it must be large enough for the largest real
+  // usage regardless of which column that usage lives in.
+  const segments = { segmentsPerNeuron: 2, coincidenceThreshold: 1 };
+  const options: SimulationOptions = { maxDelay: 4, connectionThreshold: 0.5, synapseCapPerNeuron: 8, segments };
   const sim = Simulation.create(lif, options);
 
   const locationColumn: ColumnConfig = {
@@ -55,7 +68,7 @@ function buildNetwork(sensoryBaseX: number, wireVoting: boolean) {
     internalPolicy: { p0: 0.0, lengthScale: 1.0, delayMin: 1, delayMax: 1, initialPermanence: 0.9 },
     neighbourhoodSize: LOCATION_WIDTH * 2,
     k: LOCATION_WIDTH * 2, // no within-column competition -- every driven bit may fire
-    segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1 },
+    segments, // must match `SimulationOptions.segments` exactly (see above)
   };
   const sensoryColumn: ColumnConfig = {
     neuronCount: 1, // a single "symbol X detector" neuron is enough for this mechanism-level proof
@@ -67,7 +80,7 @@ function buildNetwork(sensoryBaseX: number, wireVoting: boolean) {
     internalPolicy: { p0: 0.0, lengthScale: 1.0, delayMin: 1, delayMax: 1, initialPermanence: 0.9 },
     neighbourhoodSize: 1,
     k: 1,
-    segments: { segmentsPerNeuron: 2, coincidenceThreshold: 1 },
+    segments, // must match `SimulationOptions.segments` exactly (see above)
   };
   // Distance-only wiring: a location neuron and the sensory neuron connect
   // only when they are coordinate-close, under a short length_scale --

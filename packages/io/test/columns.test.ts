@@ -15,7 +15,12 @@ function columnConfig(overrides: Partial<ColumnConfig> = {}): ColumnConfig {
     internalPolicy: { p0: 0.0, lengthScale: 1.0, delayMin: 1, delayMax: 1, initialPermanence: 0.9 },
     neighbourhoodSize: 4,
     k: 4, // every candidate can win -- this bridge is not testing inhibition
-    segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1 },
+    // No dendritic segments in play here (a bare stimulate/step mapping
+    // check) -- must match `SimulationOptions`, which also omits
+    // `segments`, matching `NativeSimulation.buildColumns`'s validation
+    // (Requirement 2, found 2026-09-11: a column's own `segments` has no
+    // live effect independent of the scheduler-wide configuration).
+    segments: { segmentsPerNeuron: 0, coincidenceThreshold: 0 },
     ...overrides,
   };
 }

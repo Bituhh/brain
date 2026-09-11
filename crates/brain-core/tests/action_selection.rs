@@ -97,8 +97,8 @@ fn build_topology(seed: u64, wire_gating: bool) -> Topology {
     synapses.reserve_for_neurons(neurons.capacity_len());
 
     let clique_policy = tight_policy(CLIQUE_PERMANENCE);
-    builder.connect(&neurons, &mut synapses, &a_exc, &clique_policy);
-    builder.connect(&neurons, &mut synapses, &b_exc, &clique_policy);
+    builder.connect(&neurons, &mut synapses, &a_exc, &clique_policy, 1);
+    builder.connect(&neurons, &mut synapses, &b_exc, &clique_policy, 1);
 
     let drive_policy = tight_policy(DRIVE_PERMANENCE);
     builder.connect_between(&neurons, &mut synapses, &a_exc, &a_inh, FEEDFORWARD_SEGMENT, &drive_policy);

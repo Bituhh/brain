@@ -21,7 +21,10 @@ function twoNeuronColumnConfig(): ColumnConfig {
     internalPolicy: { p0: 1.0, lengthScale: 1000, delayMin: 1, delayMax: 1, initialPermanence: 0.3 },
     neighbourhoodSize: 2,
     k: 2, // both neurons can win -- this harness is not testing inhibition
-    segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1 },
+    // No dendritic segments exercised by this harness test -- must match
+    // `SimulationOptions`, which also omits `segments` (Requirement 2,
+    // found 2026-09-11: see columns.test.ts).
+    segments: { segmentsPerNeuron: 0, coincidenceThreshold: 0 },
   };
 }
 

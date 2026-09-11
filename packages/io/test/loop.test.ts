@@ -18,7 +18,10 @@ function fourActionColumnConfig(): ColumnConfig {
     internalPolicy: { p0: 0.0, lengthScale: 1.0, delayMin: 1, delayMax: 1, initialPermanence: 0.9 }, // no internal wiring -- this test drives neurons directly
     neighbourhoodSize: 4,
     k: 4,
-    segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1 },
+    // No internal wiring and no dendritic segments in this smoke test --
+    // must match `SimulationOptions`, which also omits `segments`
+    // (Requirement 2, found 2026-09-11: see columns.test.ts).
+    segments: { segmentsPerNeuron: 0, coincidenceThreshold: 0 },
   };
 }
 

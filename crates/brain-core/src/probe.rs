@@ -99,6 +99,14 @@ pub struct SegmentSample {
     pub segment: u32,
     pub active: u16,
     pub depolarisation: f32,
+    /// This segment's coincidence threshold as of this tick (dendritic-
+    /// threshold-homeostasis spec, Requirement 8): `SegmentConfig::params.
+    /// threshold` when per-segment homeostasis is disabled (i.e. every
+    /// segment's fixed, unchanging value), or its current live threshold
+    /// when the mechanism is attached and has drifted it -- so this
+    /// mechanism's effect is directly visible alongside the existing
+    /// per-segment activity record, without a second probe mechanism.
+    pub threshold: f32,
 }
 
 /// A probe attached to one neuron (Requirement 13.1): records its spike
@@ -160,9 +168,9 @@ impl Probe {
     /// 6). Called by the scheduler's `segment_touched` evaluation loop, once
     /// per touched segment belonging to this probe's neuron -- a no-op if
     /// `record_segments` was not enabled for this probe.
-    pub fn observe_segment(&mut self, tick: u32, segment: u32, active: u16, depolarisation: f32) {
+    pub fn observe_segment(&mut self, tick: u32, segment: u32, active: u16, depolarisation: f32, threshold: f32) {
         if let Some(s) = &mut self.segments {
-            s.push(SegmentSample { tick, segment, active, depolarisation });
+            s.push(SegmentSample { tick, segment, active, depolarisation, threshold });
         }
     }
 
@@ -363,14 +371,14 @@ mod tests {
         // Requirement 6.1, 6.4
         let options = ProbeOptions { capacity: 5, record_membrane: false, weight_synapses: Vec::new(), record_segments: true };
         let mut probe = Probe::new(0, options);
-        probe.observe_segment(3, 1, 7, 0.0);
-        probe.observe_segment(3, 2, 15, 1.0);
+        probe.observe_segment(3, 1, 7, 0.0, 10.0);
+        probe.observe_segment(3, 2, 15, 1.0, 10.0);
         let history = probe.segment_history().unwrap();
         assert_eq!(
             history.iter().copied().collect::<Vec<_>>(),
             vec![
-                SegmentSample { tick: 3, segment: 1, active: 7, depolarisation: 0.0 },
-                SegmentSample { tick: 3, segment: 2, active: 15, depolarisation: 1.0 },
+                SegmentSample { tick: 3, segment: 1, active: 7, depolarisation: 0.0, threshold: 10.0 },
+                SegmentSample { tick: 3, segment: 2, active: 15, depolarisation: 1.0, threshold: 10.0 },
             ]
         );
     }
@@ -381,7 +389,7 @@ mod tests {
         let options = ProbeOptions { capacity: 4, record_membrane: false, weight_synapses: Vec::new(), record_segments: true };
         let mut probe = Probe::new(0, options);
         for tick in 0..1000u32 {
-            probe.observe_segment(tick, 0, 20, 1.0);
+            probe.observe_segment(tick, 0, 20, 1.0, 10.0);
         }
         assert_eq!(probe.segment_history().unwrap().len(), 4, "Requirement 13.2/6.1: memory must stay bounded");
     }

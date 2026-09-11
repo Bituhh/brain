@@ -30,12 +30,12 @@ use crate::inhibition::FixedNeighbourhoods;
 use crate::metrics::{FiringRateMeter, PredictionAccuracyMeter};
 use crate::neuromodulator::NeuromodulatorField;
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
-use crate::plasticity::homeostatic::HomeostaticScaling;
+use crate::plasticity::homeostatic::{HomeostaticScaling, SegmentThresholdHomeostasis};
 use crate::plasticity::predictive::{PredictingSegmentTracker, PredictiveLearning, PredictiveLearningParams};
 use crate::plasticity::structural::StructuralPlasticity;
 use crate::plasticity::{LocalContext, Modulators, NeuronLocal, RuleChain, SynapseMut};
 use crate::probe::Probe;
-use crate::segment::{BinaryCoincidence, SegmentConfig, SegmentModel, SegmentState, FEEDFORWARD_SEGMENT};
+use crate::segment::{BinaryCoincidence, Depolarisation, SegmentConfig, SegmentModel, SegmentState, FEEDFORWARD_SEGMENT};
 use crate::synapse::{SynapseArena, SynapseArenaViewMut};
 
 /// Always-on metrics window (Requirement 5.1, Phase 6): OBS-2 frames the
@@ -216,14 +216,63 @@ pub struct Scheduler {
     /// `target_segment` value -- the behaviour every synapse had before
     /// segments existed (Requirement 10's opt-in path).
     segments: Option<SegmentConfig>,
-    // Per-(neuron, segment) coincidence counts for the current tick, flat
-    // indexed as `neuron * segments_per_neuron + segment`
-    // (`segment_counts`), with `segment_touched` tracking which composite
-    // indices were touched this tick for O(touched) evaluation and clear
-    // -- the same "reused scratch, cleared only where touched" pattern as
-    // `DirtySet` and the inhibition/ring scratch buffers (ENG-9).
-    segment_counts: Vec<u16>,
+    // Per-(neuron, segment) coincidence counts, flat indexed as
+    // `neuron * segments_per_neuron + segment` (`segment_counts`), with
+    // `segment_touched` tracking which composite indices received a fresh
+    // delivery *this* tick for O(touched) evaluation -- the same "reused
+    // scratch, touched only where needed" pattern as `DirtySet` and the
+    // inhibition/ring scratch buffers (ENG-9).
+    //
+    // Settled 2026-09-11 (README §12a item 6): `segment_counts` is a
+    // decaying `f32` accumulator, not a per-tick-reset `u16` tally --
+    // `segment_last_touched_tick` records the tick each composite was last
+    // touched so `apply_local_effect` can decay it by
+    // `segment_count_decay_per_tick.powi(elapsed)` before adding a fresh
+    // delivery, rather than the old unconditional reset-to-zero. This is
+    // genuinely cross-tick state now (unlike before, when it was pure
+    // within-tick scratch): `segment_count_decay_per_tick == 0.0` (the
+    // default -- see `with_segment_coincidence_window`) collapses
+    // `elapsed >= 1`'s `0.0.powi(elapsed) == 0.0` to an exact reset every
+    // time, reproducing the original one-tick-only window bit-for-bit, so
+    // every caller that never calls `with_segment_coincidence_window` is
+    // unaffected. `snapshot.rs` persists both arrays (format version 5)
+    // for callers that do opt in, so RUN-9a's round-trip fidelity holds
+    // for this state exactly like every other genuinely evolving field.
+    segment_counts: Vec<f32>,
+    segment_last_touched_tick: Vec<u32>,
     segment_touched: Vec<u32>,
+    /// Coincidence-window decay rate (README §12a item 6), applied to a
+    /// composite's accumulated count for each tick elapsed since it was
+    /// last touched. `0.0` (the default -- see [`Scheduler::new`]) means
+    /// full decay after any elapsed tick, i.e. the original one-tick-only
+    /// window; [`Scheduler::with_segment_coincidence_window`] widens it.
+    segment_count_decay_per_tick: f32,
+    /// `None` means every segment evaluates against
+    /// `SegmentConfig::params.threshold` exactly as it always has
+    /// (dendritic-threshold-homeostasis spec, Requirement 2) -- the default,
+    /// and zero extra cost when never configured. When attached via
+    /// [`Self::with_segment_threshold_homeostasis`], each composite gets its
+    /// own live `f32` threshold (`segment_threshold` below) that drifts
+    /// toward `target_rate` independently of `BinaryCoincidenceParams`,
+    /// which remains only each segment's *initial* value (see this spec's
+    /// design doc's "Design Decision: where the live threshold lives" for
+    /// why this is a parallel override rather than a change to
+    /// `BinaryCoincidenceParams` itself).
+    segment_threshold_homeostasis: Option<SegmentThresholdHomeostasis>,
+    /// Live per-composite threshold, same `neuron * segments_per_neuron +
+    /// segment` addressing as `segment_counts`. Empty/unused unless
+    /// `segment_threshold_homeostasis` is attached; lazily resized (seeded
+    /// to `config.params.threshold as f32`) the first time a composite is
+    /// touched, in lockstep with `segment_counts`/`segment_last_touched_tick`.
+    segment_threshold: Vec<f32>,
+    /// Each composite's smoothed depolarisation-rate estimate, the segment
+    /// counterpart to `NeuronArena::rate_estimate` -- same lifecycle as
+    /// `segment_threshold`, initial value `0.0`.
+    segment_rate_estimate: Vec<f32>,
+    /// The tick each composite last depolarised, `u32::MAX` meaning never --
+    /// same sentinel convention as `NeuronArena::last_spike`. Same lifecycle
+    /// as `segment_threshold`.
+    segment_last_depolarised_tick: Vec<u32>,
     /// `None` means predictive learning (Requirement 12) is disabled --
     /// `predictive`'s only effect remains the Step 8 threshold-lowering
     /// behaviour, with no learning attached to whether a prediction was
@@ -293,7 +342,13 @@ impl Scheduler {
             incoming_scratch: Vec::new(),
             segments: None,
             segment_counts: Vec::new(),
+            segment_last_touched_tick: Vec::new(),
             segment_touched: Vec::new(),
+            segment_count_decay_per_tick: 0.0,
+            segment_threshold_homeostasis: None,
+            segment_threshold: Vec::new(),
+            segment_rate_estimate: Vec::new(),
+            segment_last_depolarised_tick: Vec::new(),
             predictive_learning: None,
             predicting_segment: PredictingSegmentTracker::new(),
             predictive_scratch: Vec::new(),
@@ -355,6 +410,23 @@ impl Scheduler {
         self
     }
 
+    /// Widens the dendritic coincidence window past its one-tick default
+    /// (README §12a item 6, settled 2026-09-11): `tau_ticks` is the
+    /// accumulator's decay time constant, in ticks, converted internally
+    /// to `exp(-1/tau_ticks)` exactly like `LifParams::with_predictive`'s
+    /// own `tau_predictive_ticks` -- a genuine per-tick decay rate, not a
+    /// hard cutoff, so two synapses whose axonal delays differ by a couple
+    /// of ticks can still jointly cross a segment's threshold. Not calling
+    /// this at all is the default and leaves the original window exactly
+    /// as narrow as before this existed (see `segment.rs`'s module docs).
+    /// Meaningless without `with_segments` also configured, for the same
+    /// reason `with_predictive_learning` states.
+    pub fn with_segment_coincidence_window(mut self, tau_ticks: f32) -> Self {
+        debug_assert!(tau_ticks > 0.0, "tau_ticks must be positive");
+        self.segment_count_decay_per_tick = (-1.0 / tau_ticks).exp();
+        self
+    }
+
     /// Enables predictive learning (Requirement 12): a neuron's own
     /// dendritic prediction (`with_segments`, Requirement 10) is checked
     /// against whether it actually fired, and the responsible segment's
@@ -412,6 +484,22 @@ impl Scheduler {
     /// 9.6's "opt-in configuration... rather than an unconditional change").
     pub fn with_homeostatic_scaling(mut self, scaling: HomeostaticScaling) -> Self {
         self.homeostatic_scaling = Some(scaling);
+        self
+    }
+
+    /// Enables per-segment threshold homeostasis (dendritic-threshold-
+    /// homeostasis spec, Requirement 1/2) as an always-on, opt-in part of
+    /// `step()`, mirroring [`Self::with_homeostatic_scaling`] exactly:
+    /// `homeostasis.maybe_apply` runs at the end of every tick, at whatever
+    /// interval `homeostasis` was constructed with. Without this call,
+    /// every segment evaluates against `SegmentConfig::params.threshold`
+    /// exactly as before -- unchanged from every pre-existing behaviour, and
+    /// still the default a caller must opt into, not out of. Meaningless
+    /// without `with_segments` also configured (there would be no segment to
+    /// adjust), but this does not enforce that ordering, matching
+    /// `with_predictive_learning`'s own stated precedent.
+    pub fn with_segment_threshold_homeostasis(mut self, homeostasis: SegmentThresholdHomeostasis) -> Self {
+        self.segment_threshold_homeostasis = Some(homeostasis);
         self
     }
 
@@ -492,6 +580,61 @@ impl Scheduler {
     /// called *after* `with_plasticity`, not before.
     pub fn restore_modulator_state(&mut self, levels: Modulators, last_updated_at: u32) {
         self.modulators.restore_raw_state(levels, last_updated_at);
+    }
+
+    /// The dendritic coincidence window's raw decaying state (README §12a
+    /// item 6, `snapshot.rs` format version 5): `segment_counts` and
+    /// `segment_last_touched_tick` in lockstep, both indexed by the same
+    /// composite `neuron * segments_per_neuron + segment` addressing
+    /// `apply_local_effect` uses. Only genuinely meaningful once a caller
+    /// has opted into `with_segment_coincidence_window` -- at the default
+    /// `0.0` decay, every composite is fully reset by the time it is next
+    /// touched regardless of what this returns, so a caller that never
+    /// opts in loses nothing by skipping this (though `snapshot.rs`
+    /// persists it unconditionally for simplicity, exactly like every
+    /// other section here).
+    pub fn segment_coincidence_raw_state(&self) -> (&[f32], &[u32]) {
+        (&self.segment_counts, &self.segment_last_touched_tick)
+    }
+
+    /// Overlays snapshotted dendritic-coincidence state onto a
+    /// freshly-constructed `Scheduler` (built with the same `with_segments`/
+    /// `with_segment_coincidence_window` configuration the snapshot's
+    /// config hash was checked against) -- the coincidence-window
+    /// counterpart to `restore_modulator_state`. Safe to call even when
+    /// segments are not configured at all: nothing ever reads these arrays
+    /// in that case.
+    pub fn restore_segment_coincidence_state(&mut self, counts: Vec<f32>, last_touched_tick: Vec<u32>) {
+        debug_assert_eq!(counts.len(), last_touched_tick.len(), "the two arrays are addressed by the same composite index and must have the same length");
+        self.segment_counts = counts;
+        self.segment_last_touched_tick = last_touched_tick;
+    }
+
+    /// Per-segment threshold homeostasis's raw state (dendritic-threshold-
+    /// homeostasis spec, Requirement 7, `snapshot.rs` format version 6):
+    /// `segment_threshold`, `segment_rate_estimate`, and
+    /// `segment_last_depolarised_tick` in lockstep, all addressed by the
+    /// same composite index `segment_coincidence_raw_state` uses. Empty
+    /// unless `segment_threshold_homeostasis` was ever attached -- a caller
+    /// that never opts in loses nothing by skipping this, matching
+    /// `segment_coincidence_raw_state`'s own precedent.
+    pub fn segment_threshold_raw_state(&self) -> (&[f32], &[f32], &[u32]) {
+        (&self.segment_threshold, &self.segment_rate_estimate, &self.segment_last_depolarised_tick)
+    }
+
+    /// Overlays snapshotted per-segment threshold homeostasis state onto a
+    /// freshly-constructed `Scheduler` (built with the same `with_segments`/
+    /// `with_segment_threshold_homeostasis` configuration the snapshot's
+    /// config hash was checked against) -- the segment-threshold counterpart
+    /// to `restore_segment_coincidence_state`. Safe to call even when this
+    /// mechanism is not configured at all: nothing ever reads these arrays
+    /// in that case.
+    pub fn restore_segment_threshold_state(&mut self, threshold: Vec<f32>, rate_estimate: Vec<f32>, last_depolarised_tick: Vec<u32>) {
+        debug_assert_eq!(threshold.len(), rate_estimate.len(), "segment_threshold and segment_rate_estimate share one composite index and must have the same length");
+        debug_assert_eq!(threshold.len(), last_depolarised_tick.len(), "segment_threshold and segment_last_depolarised_tick share one composite index and must have the same length");
+        self.segment_threshold = threshold;
+        self.segment_rate_estimate = rate_estimate;
+        self.segment_last_depolarised_tick = last_depolarised_tick;
     }
 
     /// Commits a spike for neuron `idx` at `tick`: sets its dynamics state
@@ -617,15 +760,39 @@ impl Scheduler {
     fn apply_local_effect(&mut self, target: u32, target_segment: u32, signed_current: f32) {
         let is_dendritic = self.segments.is_some() && target_segment != FEEDFORWARD_SEGMENT;
         if is_dendritic {
-            let segments_per_neuron = self.segments.as_ref().unwrap().segments_per_neuron;
+            let config = self.segments.as_ref().unwrap();
+            let segments_per_neuron = config.segments_per_neuron;
             let composite = target as usize * segments_per_neuron as usize + target_segment as usize;
             if self.segment_counts.len() <= composite {
-                self.segment_counts.resize(composite + 1, 0);
+                self.segment_counts.resize(composite + 1, 0.0);
+                self.segment_last_touched_tick.resize(composite + 1, u32::MAX);
             }
-            if self.segment_counts[composite] == 0 {
+            if self.segment_threshold_homeostasis.is_some() && self.segment_threshold.len() <= composite {
+                let initial_threshold = config.params.threshold as f32;
+                self.segment_threshold.resize(composite + 1, initial_threshold);
+                self.segment_rate_estimate.resize(composite + 1, 0.0);
+                self.segment_last_depolarised_tick.resize(composite + 1, u32::MAX);
+            }
+            let last_touched = self.segment_last_touched_tick[composite];
+            if last_touched != self.tick {
+                // First delivery to this composite this tick: decay
+                // whatever residual survived from its last touch (README
+                // §12a item 6), then queue it for evaluation. `last_touched
+                // == u32::MAX` means "never touched" -- `segment_counts`
+                // is already `0.0` from the resize default above, so there
+                // is nothing to decay. Ticks only ever advance, so
+                // `last_touched < self.tick` always holds here and
+                // `elapsed >= 1`, which is what makes the default
+                // `segment_count_decay_per_tick == 0.0` collapse this to an
+                // exact reset every time (see this field's doc comment).
+                if last_touched != u32::MAX {
+                    let elapsed = self.tick - last_touched;
+                    self.segment_counts[composite] *= self.segment_count_decay_per_tick.powi(elapsed as i32);
+                }
                 self.segment_touched.push(composite as u32);
+                self.segment_last_touched_tick[composite] = self.tick;
             }
-            self.segment_counts[composite] = self.segment_counts[composite].saturating_add(1);
+            self.segment_counts[composite] += 1.0;
         } else {
             self.input_accum[target as usize] += signed_current;
             self.dirty.insert(target);
@@ -868,6 +1035,18 @@ impl Scheduler {
         if let Some(sp) = &mut self.structural_plasticity {
             sp.maybe_sweep(neurons, synapses, report.tick);
         }
+        // dendritic-threshold-homeostasis spec, Requirement 1/2/6: a fifth
+        // always-on, opt-in sweep alongside homeostatic_scaling/
+        // structural_plasticity above. `0..segment_threshold.len()` is
+        // exactly the set of composites this scheduler has ever resized
+        // into existence -- `segment_touched` (used by `evaluate_and_resolve`
+        // above) is cleared every tick and so cannot serve as this sweep's
+        // touched-composite list; no separate list needs to be retained
+        // across ticks just for this.
+        if let Some(homeostasis) = &mut self.segment_threshold_homeostasis {
+            let touched: Vec<u32> = (0..self.segment_threshold.len() as u32).collect();
+            homeostasis.maybe_apply(&mut self.segment_threshold, &mut self.segment_rate_estimate, &self.segment_last_depolarised_tick, &touched, report.tick);
+        }
 
         report
     }
@@ -893,10 +1072,38 @@ impl Scheduler {
         // integrated this tick even if no feedforward input also arrived.
         if let Some(config) = &self.segments {
             let segments_per_neuron = config.segments_per_neuron;
+            // dendritic-threshold-homeostasis spec, Requirement 2: reading
+            // this once up front (rather than matching on
+            // `self.segment_threshold_homeostasis` per composite) keeps the
+            // borrow disjoint from the mutable field accesses below, and
+            // makes the `None` arm's cost -- and behaviour -- identical to
+            // before this mechanism existed.
+            let threshold_homeostasis_enabled = self.segment_threshold_homeostasis.is_some();
             for &composite in &self.segment_touched {
+                // Deliberately *not* reset to zero here any more (README
+                // §12a item 6): `segment_counts` is now a decaying
+                // accumulator that persists across ticks, and the decay
+                // itself happens lazily, in `apply_local_effect`, the next
+                // time this composite is touched -- see that method's doc
+                // comment for why this is bit-identical to the old
+                // hard-reset behaviour when `segment_count_decay_per_tick`
+                // is `0.0` (the default).
                 let active = self.segment_counts[composite as usize];
-                self.segment_counts[composite as usize] = 0;
-                let depolarisation = BinaryCoincidence::evaluate(active, &SegmentState, &config.params);
+                // Requirement 2: the `false` arm is exactly the pre-existing
+                // call, bit-for-bit -- `BinaryCoincidenceParams.threshold`
+                // stays every segment's evaluation criterion unless this
+                // mechanism is attached. The `true` arm compares against the
+                // live per-composite threshold instead (see the "Design
+                // Decision" in this spec's design doc for why this is a
+                // parallel `f32` override rather than a change to
+                // `BinaryCoincidenceParams` itself).
+                let effective_threshold =
+                    if threshold_homeostasis_enabled { self.segment_threshold[composite as usize] } else { config.params.threshold as f32 };
+                let depolarisation = if threshold_homeostasis_enabled {
+                    if active >= effective_threshold { Depolarisation(1.0) } else { Depolarisation::NONE }
+                } else {
+                    BinaryCoincidence::evaluate(active, &SegmentState, &config.params)
+                };
                 let neuron = composite / segments_per_neuron;
                 let segment = composite % segments_per_neuron;
                 // Requirement 6 (Phase 6): record activity regardless of
@@ -906,9 +1113,10 @@ impl Scheduler {
                 // composites already being visited because they had real
                 // synaptic delivery this tick (RUN-1) -- an unwatched
                 // neuron's segments never add a lookup that wasn't already
-                // happening.
+                // happening. Rounded for the probe's own `u16` record --
+                // observational only, not part of any behavioural decision.
                 if let Some(probe) = self.probes.get_mut(&neuron) {
-                    probe.observe_segment(self.tick, segment, active, depolarisation.0);
+                    probe.observe_segment(self.tick, segment, active.round() as u16, depolarisation.0, effective_threshold);
                 }
                 if depolarisation.0 > 0.0 {
                     let slot = &mut neurons.predictive[neuron as usize];
@@ -916,6 +1124,12 @@ impl Scheduler {
                     self.dirty.insert(neuron);
                     if self.predictive_learning.is_some() {
                         self.predicting_segment.record_fired(neuron, segment);
+                    }
+                    // dendritic-threshold-homeostasis spec, Requirement 1:
+                    // the one piece of local history the mechanism's own
+                    // sweep reads back (`SegmentThresholdHomeostasis::maybe_apply`).
+                    if threshold_homeostasis_enabled {
+                        self.segment_last_depolarised_tick[composite as usize] = self.tick;
                     }
                 }
             }

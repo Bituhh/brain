@@ -31,6 +31,25 @@ use std::ops::Range;
 /// microcircuit configuration. Deliberately not `Copy`/`Clone`:
 /// `FixedNeighbourhoods` owns a reusable scratch buffer (ENG-9), so a
 /// column's inhibition scheme is meant to be used in place, not duplicated.
+///
+/// **`inhibition` and `segments` are identity/bookkeeping data, not a live
+/// per-column scheme -- found 2026-09-11 while tracking down a VAL-4 bug.**
+/// A `Scheduler` (and therefore a `PartitionRuntime` partition, which owns
+/// one `Scheduler` per partition -- README §12a item 3) carries at most one
+/// `Option<FixedNeighbourhoods>` and one `Option<SegmentConfig>` for *all*
+/// the neurons it owns, set once via `with_inhibition`/`with_segments`.
+/// Nothing reads a `ColumnSpec`'s own `inhibition`/`segments` back out to
+/// drive k-WTA or dendritic evaluation -- they exist so a column's
+/// identity and configuration round-trip through `snapshot.rs`, and (for
+/// `inhibition`) because `FixedNeighbourhoods::with_base` happens to
+/// reproduce the correct per-column blocks *when* every column shares the
+/// scheduler's own `size`/`k` and is laid out contiguously starting at
+/// index 0, which is a caller convention this type does not enforce. A
+/// caller who assumes either field independently configures this column's
+/// own live behaviour is mistaken in exactly the way
+/// `crates/brain-napi/src/lib.rs`'s `SegmentsConfig` doc comment describes
+/// for `segments` specifically (that FFI layer now validates it); no
+/// equivalent check exists yet for `inhibition`.
 pub struct ColumnSpec {
     pub neuron_range: Range<u32>,
     pub inhibition: FixedNeighbourhoods,
