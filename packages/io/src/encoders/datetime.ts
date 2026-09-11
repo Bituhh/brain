@@ -47,14 +47,30 @@ export function dayOfWeekComponent(width: number, activeBits: number): CyclicCom
   return { name: "dayOfWeek", extract: (date) => date.getDay(), period: DAYS_PER_WEEK, width, activeBits };
 }
 
-function encodeComponent(component: CyclicComponent, date: Date): number[] {
-  const raw = ((component.extract(date) % component.period) + component.period) % component.period; // normalise into [0, period)
-  const buckets = component.width; // a cyclic window has no "activeBits - 1" shrinkage: bucket 0 and bucket (width-1) are themselves adjacent
-  const fraction = raw / component.period; // in [0, 1)
+/**
+ * The general wrapping bucket construction behind every cyclic component
+ * here: `rawValue` (any real number) is normalised into `[0, period)`, then
+ * mapped to a contiguous run of `activeBits` bits within a `width`-bit
+ * window that *wraps* at the window's own edge -- bucket 0 and bucket
+ * `width - 1` are themselves adjacent, unlike `encodeScalar`'s plain
+ * sliding window, which is what gives Requirement 4.3's phase-equivalence
+ * overlap (e.g. 23:59 and 00:01 sharing bits).
+ *
+ * Exported (Phase 5.5 Requirement 6) so `location.ts`'s grid-cell-like
+ * modules can reuse the exact same wraparound construction for spatial
+ * periods instead of temporal ones -- a grid-cell module *is* a cyclic
+ * component whose period is a spatial wavelength rather than a clock
+ * period. `encodeDatetime` below is now a thin caller of this, not a
+ * parallel implementation.
+ */
+export function encodeCyclicComponent(period: number, width: number, activeBits: number, rawValue: number): number[] {
+  const raw = ((rawValue % period) + period) % period; // normalise into [0, period)
+  const buckets = width; // a cyclic window has no "activeBits - 1" shrinkage: bucket 0 and bucket (width-1) are themselves adjacent
+  const fraction = raw / period; // in [0, 1)
   const start = Math.floor(fraction * buckets);
   const bits: number[] = [];
-  for (let i = 0; i < component.activeBits; i++) {
-    bits.push((start + i) % component.width); // wraps at the component's own width -- the mechanism behind Requirement 4.3
+  for (let i = 0; i < activeBits; i++) {
+    bits.push((start + i) % width); // wraps at the window's own width -- the mechanism behind Requirement 4.3
   }
   return bits;
 }
@@ -70,7 +86,7 @@ export function encodeDatetime(config: DatetimeEncoderConfig, date: Date): Sdr {
   const bits: number[] = [];
   let offset = 0;
   for (const component of config.components) {
-    for (const bit of encodeComponent(component, date)) {
+    for (const bit of encodeCyclicComponent(component.period, component.width, component.activeBits, component.extract(date))) {
       bits.push(offset + bit);
     }
     offset += component.width;

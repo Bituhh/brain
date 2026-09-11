@@ -163,15 +163,20 @@ fn walk_rs_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
 /// Requirement 1.5/16.6 (invariant 8): "any type, field or branch in the
 /// core that names a modality... is a design defect" (README invariant
 /// 8), extended by Requirement 16.6 to action/effector/environment names
-/// once the sensorimotor loop exists. Scans every `.rs` file under
-/// `brain-core/src` and `brain-napi/src` (walked at test-run time via
+/// once the sensorimotor loop exists, and by Phase 5.5 Requirement 6.5 to
+/// location/grid/reference-frame names now that NET-9 exists (built
+/// entirely in `packages/io`, over the existing FFI -- see
+/// `location.ts`/`harness/reference-frame.ts`). Scans every `.rs` file
+/// under `brain-core/src` and `brain-napi/src` (walked at test-run time via
 /// `std::fs`, not `include_str!`, so a newly added file is covered
 /// automatically) for forbidden words as *whole identifier tokens*, not
 /// substrings -- see `identifier_tokens`'s doc comment for why that
 /// distinction matters here specifically.
 #[test]
 fn neither_core_crate_names_a_modality_action_effector_or_environment() {
-    let forbidden = ["text", "pixel", "image", "audio", "sound", "video", "action", "effector", "motor", "environment"];
+    let forbidden = [
+        "text", "pixel", "image", "audio", "sound", "video", "action", "effector", "motor", "environment", "location", "grid",
+    ];
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut files = Vec::new();
     walk_rs_files(&manifest_dir.join("src"), &mut files);
@@ -185,6 +190,38 @@ fn neither_core_crate_names_a_modality_action_effector_or_environment() {
                 assert!(
                     !forbidden.contains(&token.as_str()),
                     "{}: code (outside comments) must not name a modality/action/effector/environment (Requirement 1.5/16.6), found identifier token '{}' in line: {}",
+                    path.display(),
+                    token,
+                    line.trim()
+                );
+            }
+        }
+    }
+}
+
+/// VIZ-2 (Phase 6 Requirement 13.3): the visualiser must never become a
+/// dependency of the engine -- "no visualiser-specific concept (colour,
+/// screen coordinates, UI state) SHALL appear anywhere below
+/// `packages/brain`" (design.md). A sibling to the modality scan above,
+/// reusing its exact walk-and-assert structure against a different
+/// forbidden list, since this guards a distinct invariant (layering, not
+/// modality-agnosticism) even though the mechanism is identical.
+#[test]
+fn neither_core_crate_names_a_visualiser_concept() {
+    let forbidden = ["viz", "render", "canvas", "websocket", "webgl"];
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    walk_rs_files(&manifest_dir.join("src"), &mut files);
+    walk_rs_files(&manifest_dir.join("../brain-napi/src"), &mut files);
+    assert!(!files.is_empty(), "the source walk must actually find files, or this test would pass vacuously");
+
+    for path in &files {
+        let Ok(source) = std::fs::read_to_string(path) else { continue };
+        for line in non_comment_lines(&source) {
+            for token in identifier_tokens(line) {
+                assert!(
+                    !forbidden.contains(&token.as_str()),
+                    "{}: code (outside comments) must not name a visualiser-specific concept (Phase 6 Requirement 13.3), found identifier token '{}' in line: {}",
                     path.display(),
                     token,
                     line.trim()

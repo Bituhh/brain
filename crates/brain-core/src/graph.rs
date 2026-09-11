@@ -199,6 +199,59 @@ impl GraphBuilder {
         ColumnSpec { neuron_range, inhibition, segments }
     }
 
+    /// Wires a distance-policy-sampled set of synapses from every index in
+    /// `source_indices` to every index in `target_indices` onto
+    /// `target_segment` (Phase 5.5 Requirement 3, Acceptance Criteria 1-2).
+    /// The same sampling `connect`/the old `connect_lateral_voting` body
+    /// already used, generalised to arbitrary index sets rather than one
+    /// population or a whole column range -- `connect_lateral_voting` below
+    /// is now a caller of this rather than a parallel implementation, and
+    /// `NET-13`'s cross-population inhibitory gating (built from a
+    /// polarity-filtered subset of a column's own range) is the same
+    /// operation at a different pair of index sets and a different segment
+    /// (`crate::segment::FEEDFORWARD_SEGMENT` rather than an ordinary
+    /// dendritic one -- see `crates/brain-napi`'s `GatingGroupConfig` for
+    /// why that choice matters).
+    ///
+    /// Draws are keyed by `purpose::VOTE_CONNECT_DECISION`/
+    /// `VOTE_DELAY_DRAW` regardless of caller, exactly as they were before
+    /// this method existed -- lateral voting and gating wiring can never
+    /// address the same `(source, target)` pair from the same call site in
+    /// one construction (voting is within a column's own range, gating is
+    /// deliberately restricted to a *different* column's range), so sharing
+    /// one purpose tag between the two callers does not collide.
+    pub fn connect_between(
+        &self,
+        neurons: &NeuronArena,
+        synapses: &mut SynapseArena,
+        source_indices: &[u32],
+        target_indices: &[u32],
+        target_segment: u32,
+        policy: &DistancePolicy,
+    ) {
+        // Defensive, matching `connect`'s own precedent: idempotent (only
+        // grows if needed), so a caller that already reserved via
+        // `build_column`/`connect` pays nothing extra, and a caller that
+        // has not (this method's own unit test tripped on exactly this)
+        // does not panic on an unreserved block.
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        for &source in source_indices {
+            let source_coords = neurons.coords[source as usize];
+            for &target in target_indices {
+                let d = distance(source_coords, neurons.coords[target as usize]);
+                let p = policy.probability_at(d);
+                let mut decision_rng = derive_stream(self.seed, source, purpose::VOTE_CONNECT_DECISION, target);
+                if decision_rng.next_f32() >= p {
+                    continue;
+                }
+                let mut delay_rng = derive_stream(self.seed, source, purpose::VOTE_DELAY_DRAW, target);
+                let delay_span = (policy.delay_max - policy.delay_min + 1) as u32;
+                let delay = policy.delay_min + delay_rng.next_below(delay_span) as u16;
+                let _ = synapses.insert(source, target, target_segment, delay.max(1), policy.initial_permanence);
+            }
+        }
+    }
+
     /// Wires lateral voting (NET-5) between every ordered pair of distinct
     /// columns in `voting_group`: for each pair, a `DistancePolicy`-sampled
     /// set of synapses from one column's neurons lands on the other
@@ -218,7 +271,6 @@ impl GraphBuilder {
     /// `voting_group` names column ids already registered in `columns`
     /// (panics if any id is unregistered -- a caller error, not a data
     /// condition to recover from).
-    #[allow(clippy::too_many_arguments)]
     pub fn connect_lateral_voting(
         &self,
         neurons: &NeuronArena,
@@ -230,26 +282,14 @@ impl GraphBuilder {
     ) {
         for &from_id in voting_group {
             let from_range = columns.range_of(from_id).expect("voting_group must name a registered column id");
+            let from_indices: Vec<u32> = from_range.collect();
             for &to_id in voting_group {
                 if from_id == to_id {
                     continue;
                 }
                 let to_range = columns.range_of(to_id).expect("voting_group must name a registered column id");
-                for source in from_range.clone() {
-                    let source_coords = neurons.coords[source as usize];
-                    for target in to_range.clone() {
-                        let d = distance(source_coords, neurons.coords[target as usize]);
-                        let p = policy.probability_at(d);
-                        let mut decision_rng = derive_stream(self.seed, source, purpose::VOTE_CONNECT_DECISION, target);
-                        if decision_rng.next_f32() >= p {
-                            continue;
-                        }
-                        let mut delay_rng = derive_stream(self.seed, source, purpose::VOTE_DELAY_DRAW, target);
-                        let delay_span = (policy.delay_max - policy.delay_min + 1) as u32;
-                        let delay = policy.delay_min + delay_rng.next_below(delay_span) as u16;
-                        let _ = synapses.insert(source, target, vote_segment, delay.max(1), policy.initial_permanence);
-                    }
-                }
+                let to_indices: Vec<u32> = to_range.collect();
+                self.connect_between(neurons, synapses, &from_indices, &to_indices, vote_segment, policy);
             }
         }
     }
@@ -506,6 +546,50 @@ mod tests {
                 assert!(!a_range.contains(&target), "lateral voting must never wire within the same column ({source} -> {target})");
                 assert!(b_range.contains(&target), "lateral voting from column a must land in column b");
                 assert_eq!(synapses.target_segment[id as usize], 0, "must target the requested vote segment");
+            }
+        }
+    }
+
+    /// Phase 5.5 Requirement 3: `connect_between` on two arbitrary index
+    /// sets must produce exactly the connectivity a manual double loop over
+    /// those same two sets, using the same policy, would -- the same
+    /// property `build_column_wiring_matches_a_direct_allocate_and_connect_call`
+    /// already establishes for `connect` versus `build_column`.
+    #[test]
+    fn connect_between_matches_a_manual_double_loop_over_two_index_sets() {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(64);
+        let builder = GraphBuilder::new(11);
+        let coords = line_coords(20, 1.0);
+        let indices = builder.allocate_population(&mut neurons, &coords, 1.0, 1.0);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        let sources: Vec<u32> = indices[0..5].to_vec();
+        let targets: Vec<u32> = indices[10..20].to_vec();
+        let policy = DistancePolicy { p0: 0.7, length_scale: 6.0, delay_min: 1, delay_max: 3, initial_permanence: 0.5 };
+
+        builder.connect_between(&neurons, &mut synapses, &sources, &targets, 2, &policy);
+
+        for &source in &sources {
+            let observed: Vec<u32> = synapses.occupied_in_block(source).map(|s| synapses.target_neuron[s as usize]).collect();
+            let mut expected = Vec::new();
+            let source_coords = neurons.coords[source as usize];
+            for &target in &targets {
+                let d = distance(source_coords, neurons.coords[target as usize]);
+                let p = policy.probability_at(d);
+                let mut decision_rng = derive_stream(11, source, purpose::VOTE_CONNECT_DECISION, target);
+                if decision_rng.next_f32() < p {
+                    expected.push(target);
+                }
+            }
+            assert_eq!(observed, expected, "neuron {source}'s connectivity must match a manual double loop over the same index sets");
+        }
+        // Every observed synapse must land on the requested segment and
+        // never target a neuron outside `targets` (sources and targets are
+        // disjoint here, so this also proves no self/cross contamination).
+        for &source in &sources {
+            for s in synapses.occupied_in_block(source) {
+                assert_eq!(synapses.target_segment[s as usize], 2);
+                assert!(targets.contains(&synapses.target_neuron[s as usize]));
             }
         }
     }

@@ -35,7 +35,7 @@ topology, or not at all.
 | 2 | [Research summary](#2-research-summary--what-the-brain-actually-does) | The neuroscience evidence base |
 | 3–9 | Requirements | `NEU-*` `SYN-*` `LRN-*` `NET-*` `RUN-*` `IO-*` `ENG-*` `OBS-*` `VAL-*` `VIZ-*` |
 | 10 | [Architectural invariants](#10-architectural-invariants) | The ten rules that keep this from becoming a neural network library |
-| 11 | [Phasing](#11-suggested-phasing) | Build order, Phase 0 → 6 |
+| 11 | [Phasing](#11-suggested-phasing) | Build order, Phase 0 → 7 |
 | 12 | [Decisions taken](#12-decisions-taken) | Resolved questions and why |
 | 12a | [Open questions](#12a-open-questions) | The seven investigated questions, each with a verdict |
 | 13 | [Prior art](#13-prior-art--what-has-already-been-tried-and-what-came-of-it) | What has been tried before, and how it went |
@@ -327,7 +327,7 @@ Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (lat
 | RUN-9a | M | **Round-trip fidelity.** A run that is snapshotted, restored and continued must produce results bit-identical to an uninterrupted run of the same length. This single property subsumes almost every serialisation bug, and it constrains RUN-3: the PRNG must expose and restore its internal state, not merely its seed. |
 | RUN-9b | M | **Restore then expand.** A restored network can have neurons and synapses added to it and continue learning, without a rebuild and without discarding what it already knows. Loading a brain and growing it is a first-class operation. |
 | RUN-9c | S | Snapshot size is proportional to *live* structure, not allocated capacity, and snapshots are taken at tick boundaries. |
-| RUN-10 | C | Browser runtime via the WASM build (ENG-4), sharing the same core crate — for the live visualiser on small networks and for zero-install demos. Note the WASM32 4 GB address-space cap; large runs stay native. |
+| RUN-10 | C | Browser runtime via a WASM build, sharing the same core crate — for a *public*, backend-free, zero-install demo. **Deferred, not currently needed**: usage today is local-only, and the native build already streams live state to the browser visualiser over a local socket (Phase 6) — that covers both small and large networks with no address-space cap. Revisit only if a public, no-backend-to-run demo is actually wanted; build the WASM target then, or stand up a hosted server around the native build instead, rather than maintaining a second binding target speculatively. If it is ever built, note the WASM32 4 GB address-space cap — large runs would stay native regardless. |
 | RUN-11 | C   | **WebGPU stays optional and narrow** — dense sub-populations, the offline consolidation/replay pass (which *can* be batched densely), and visualiser rendering. It must never become the default compute path. GPUs are close to the worst fit for this workload: at 2% activity a dense kernel wastes 98% of its throughput, and going dense to feed the GPU would destroy the sparsity invariant #4 exists to protect; spike propagation is irregular scatter/gather with atomics (canonical GPU worst case); LRN-7 mutates topology at runtime whereas GPU buffers want static structure; dendritic segments are ragged; and at a 0.1 ms tick, per-dispatch CPU↔GPU synchronisation can exceed the work. Corroborating evidence: the teams that built dedicated hardware for exactly this workload chose many small cores with local memory and message passing — SpiNNaker is a million ARM cores, Loihi is asynchronous event-driven silicon. Neither is a GPU, and both are structurally the same shape as RUN-4's partitioning. |
 
 ## 7. I/O requirements
@@ -348,10 +348,10 @@ Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (lat
 | ENG-1 | M | **Two languages, one boundary rule.** The dividing line is *what touches a synapse on every tick* versus *what a human iterates on*. Rust owns the simulation core and topology generation. TypeScript owns orchestration, experiment scripting, encoders/decoders, and visualisation. Encoders belong to TS despite feeling engine-ish: they fire once per *input*, against ~10,000 ticks per simulated second of core work, so iteration speed matters far more than throughput. |
 | ENG-2 | M | **Rust core**, edition 2021+. `unsafe` is permitted only where a benchmark justifies it, and every such block carries a comment stating the invariant it relies on. The structure-of-arrays layout (RUN-2) means the core is plain `Vec<f32>` and `u32` indices — no `Rc<RefCell<_>>`, no lifetime-parameterised graph types. The borrow checker should have almost nothing to complain about; if it does, the layout is drifting. |
 | ENG-3 | M | **TypeScript shell**, `strict: true`, ES2022+, Node 20+. No `any` at the FFI boundary. |
-| ENG-4 | M | **Dual build target from one core crate.** `napi-rs` native addon is the primary path (full native threads, no address-space cap, zero-copy buffers). `wasm-bindgen` is the secondary target, for the in-browser visualiser and zero-install demos. The core crate stays platform-agnostic; only a thin binding layer differs per target. |
+| ENG-4 | M | **`napi-rs` native addon is the build target** — full native threads, no address-space cap, zero-copy buffers. The core crate stays platform-agnostic (no binding crate is imported by `brain-core` itself), so a second, `wasm-bindgen` binding layer remains *possible* without a redesign — but it is not built now; see RUN-10 (**C**, deferred) for why. |
 | ENG-5 | M | **Zero dependencies related to AI/ML, in both ecosystems.** Nothing from crates.io or npm that is a neural-network, tensor, autodiff, ONNX, embedding, or LLM package. Every numeric primitive — PRNG, distributions, sparse ops, any linear algebra needed — is written in this repo. |
 | ENG-6 | M | **Minimal dependencies generally.** The Rust core should need approximately `rayon` and nothing else, and even that is hand-rollable. The TS shell should need nothing at runtime. Dev tooling (cargo test, criterion, typescript, a test runner, a linter) is unrestricted. Any proposed runtime dependency requires explicit justification. |
-| ENG-7 | M | **Repo layout** — a cargo workspace and an npm workspace side by side: `crates/brain-core` (neurons, synapses, graph, plasticity, scheduler — no FFI), `crates/brain-napi` (Node bindings), `crates/brain-wasm` (WASM bindings), `packages/brain` (TS API over the addon), `packages/io` (encoders/decoders), `packages/viz` (later), `examples/`. The core crate never imports a binding crate; the engine never imports UI code. |
+| ENG-7 | M | **Repo layout** — a cargo workspace and an npm workspace side by side: `crates/brain-core` (neurons, synapses, graph, plasticity, scheduler — no FFI), `crates/brain-napi` (Node bindings), `packages/brain` (TS API over the addon), `packages/io` (encoders/decoders), `packages/viz` (later), `examples/`. `crates/brain-wasm` is **not** part of current layout — deferred alongside RUN-10, added only if a WASM target is actually built. The core crate never imports a binding crate; the engine never imports UI code. |
 | ENG-8 | M | **The FFI boundary is zero-copy.** Rust owns the simulation buffers; TypeScript receives typed-array views over that exact memory rather than serialised copies. The visualiser reads neuron state per frame with no marshalling. Nothing per-tick and nothing per-synapse may cross the boundary as a structured value — only bulk views and scalar control calls. |
 | ENG-9 | S | **Hot-path discipline.** No allocation per tick in steady state — pre-allocated arenas and ring buffers. No panics in the core loop; fallible operations return `Result` at the boundary, not inside it. Flat arrays and integer indices only. |
 | ENG-10 | M | Public API small and stable. Memory layout is an implementation detail and is never part of the contract. |
@@ -501,8 +501,120 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
   tuning time, in the way Requirement 14.4's exit criterion did — NET-12 is an emergent-behaviour
   result, not a mechanical build, and nothing here should be scheduled assuming it lands on the
   first attempt.
-- **Phase 6 — visualisation.** **[T]** plus the `brain-wasm` build target, so the visualiser
-  can run a live network in the browser rather than only replaying rasters.
+  **Status (2026-09-11): shipped, all three emergent-behaviour requirements validated.** Per
+  Requirement 8's honest-reporting discipline, reported separately rather than as one phase-level
+  verdict:
+  - **NET-12: met.** `crates/brain-core/tests/working_memory.rs`, seeds `[1,2,3,4,5]`. A
+    self-recurrent clique built from ordinary `connect`-level wiring (no new engine mechanism)
+    sustains a pattern-specific attractor after its driving input is withdrawn, and the ablation
+    (recurrent permanence held below `connection_threshold`) reliably fails to. One genuine tuning
+    finding, recorded in the test's own module doc: with this project's usual `tau_m_ticks = 5`, a
+    single-tick recurrent pulse is damped to ~18% of its nominal magnitude on arrival, nowhere near
+    enough for a 5-neuron clique at maximum permanence to re-cross threshold; `tau_m_ticks = 1`
+    (≈63% landing per pulse) is what actually closes the gap. NEU-8's adaptation (Requirement 2,
+    shipped alongside NET-12 as its anticipated brake) was not needed for this configuration to
+    settle rather than run away — recorded as a finding, not an oversight.
+  - **NET-13: met.** `crates/brain-core/tests/action_selection.rs` and
+    `packages/brain/test/boundary.test.ts`, seeds `[1,2,3]` for the Rust suite. Suppress
+    (Requirement 3) is real Dale-signed inhibitory neurons, cross-population via the new
+    `GraphBuilder::connect_between` (a generalisation of `connect_lateral_voting`'s own sampling
+    loop, which now calls it rather than duplicating it) onto `FEEDFORWARD_SEGMENT` — confirmed
+    during design that voting's dendritic-segment path cannot suppress, only depolarise, so
+    suppression needed the direct-current path instead. Hold (Requirement 4) reuses NET-12's
+    mechanism unchanged: no second attractor implementation exists. Reward-shaped selection
+    (Requirement 5) is a deterministic mechanism proof, not a stochastic win-rate — this project's
+    own stated preference (`columns_and_voting.rs`) for a clean proof over a noisy one where both
+    are available — showing a repeatedly-rewarded synapse's permanence provably diverges from an
+    untouched control's and that difference alone decides a later tied competition. Reward broadcast
+    under a gating topology spanning a partition boundary is covered by
+    `tests/partitioning_reference.rs`'s new case, extending the same file that closed the original
+    §12a item 4 broadcast bug. The FFI surface (`GatingGroupConfig`, `buildColumns`'s new
+    `gatingGroups` parameter) required no change to `brain-core` beyond `connect_between` itself.
+  - **NET-9: met, as a mechanism-level proof rather than a learned-behaviour one.** Built entirely
+    in `packages/io` (`location.ts`, `harness/reference-frame.ts`) with **zero core changes**,
+    confirmed by extending `workspace_policy.rs`'s invariant-8 scan to also forbid `location`/`grid`
+    identifiers in `brain-core`/`brain-napi`. `encodeLocation` reuses `encoders/datetime.ts`'s
+    cyclic-component construction directly (a grid-cell module *is* a cyclic component whose period
+    is spatial rather than temporal — the promoted, now-exported `encodeCyclicComponent` is the one
+    implementation both use), giving genuine multi-scale periodicity without a new algorithm.
+    Location-to-sensory binding reuses NET-5's `connect_lateral_voting` unchanged: a location
+    column's activity depolarises a specific sensory neuron only when the location bits wired near
+    it (by construction-time distance) are the active ones, so the identical weak sensory drive
+    spikes under one location and not a different, non-overlapping one —
+    `packages/io/test/reference-frame.slow.test.ts`, plus its ablation (voting never wired). A
+    fast-tier smoke test (`reference-frame.test.ts`) covers the orchestration loop itself.
+  - **LRN-12: not built.** README §12 decision 9 records why: none of the above needed
+    single-coincidence pattern separation that Phase 0–5's existing gradual/eligibility-based
+    plasticity couldn't already provide.
+  - **Background, unaffected by this phase:** Phase 5's VAL-4 milestone (character-level prediction
+    beating a trigram baseline) remains unmet — this phase's recurrent/predictive structure shares
+    the same substrate that produced VAL-4's representation-identity gap, but fixing it was out of
+    scope here and none of NET-12/13/9's work concluded it was a prerequisite.
+- **Phase 6 — visualisation.** **[T]** A browser visualiser driven by the native (`napi-rs`)
+  build over a local socket, showing a live network rather than only replaying rasters. **No WASM
+  build target** — usage is local-only for now, so native + local streaming covers small and
+  large networks alike with no address-space cap to design around. A `wasm-bindgen` target
+  (RUN-10, ENG-4) is deferred, not part of this phase's scope; revisit only if a public,
+  backend-free demo is actually wanted later, at which point either build it or put a hosted
+  server in front of the native build instead.
+  **Status (2026-09-11): shipped, verified against a real browser via chrome-devtools-mcp, not
+  just its own test suite.** `crates/brain-napi` gained the FFI surface OBS-1/2/3 never had
+  (neuron coords/polarity/threshold/refractory/last-spike/adaptation bulk views, synapse
+  target/segment/permanence/delay/occupied bulk views, `rasterBytes`, `attachProbe`/
+  `detachProbe`/`readProbe`, `firingRate`/`predictionAccuracy`/`metricsSnapshot`), all
+  `Runtime::Single`-only (stated, not silent — partitioned-mode probes/raster/live-visualisation
+  are explicitly deferred; `threadCount > 1` is refused by `packages/viz`'s server at startup,
+  matching `snapshotBytes`/`runConsolidation`'s existing precedent). `crates/brain-core` gained
+  one genuinely new capability: per-tick per-segment activity recording
+  (`probe.rs`'s `SegmentSample`/`observe_segment`, hooked into `scheduler.rs`'s existing
+  `segment_touched` evaluation loop at zero extra cost for unwatched neurons — see
+  `crates/brain-core/tests/observability.rs`). `packages/viz` (new) is a hand-rolled binary
+  WebSocket protocol (`protocol.ts`, `ws.ts` — no `ws` npm dependency, matching this project's
+  existing hand-rolled-format precedent) plus a plain-Canvas-2D, no-bundler browser client
+  (`client/graph-view.ts`, `spike-flash.ts`, `scrubber.ts`, `segment-panel.ts`, `controls.ts`).
+  VIZ-1 (spatial graph view, colour-by-state, edge weight, live spike flash), VIZ-2 (engine
+  independence — enforced by a new `workspace_policy.rs` scan test,
+  `neither_core_crate_names_a_visualiser_concept` — and no charting/graph/bundler library) and
+  VIZ-3 (time-scrubbing — spike timing only, not historical state, a stated scope line; dendritic
+  segment drill-down with real per-tick activity) are all met, each independently confirmed
+  working end-to-end in an actual browser (topology rendering, live colour/flash updates, pause/
+  resume/step-once/stimulate, metrics and raster requests, the segment panel's live activity
+  feed). **One real engineering finding worth recording**: the server's tick loop was originally
+  unthrottled (`setImmediate`-driven, stepping as fast as the event loop allowed), which for a
+  24-neuron demo network meant **over 100,000 ticks/second** — discovered only during manual
+  browser verification, when `requestMetricsSnapshot`/`requestRaster` replies appeared to vanish
+  entirely. They were not lost; they were correctly enqueued behind an ever-growing backlog of
+  `tick` broadcasts that no real browser tab could ever fully drain. Fixed by capping the loop to
+  a configurable `ticksPerSecond` (default 60, matching a typical display refresh rate) via
+  `VizServerOptions.ticksPerSecond` — `stepOnce` remains unthrottled, since it is an explicit,
+  one-shot user action, not the automatic loop. Recorded here because it is exactly the kind of
+  gap a test suite alone would not have caught: every automated test in
+  `packages/viz/test/server.slow.test.ts` passed both before and after the fix, since none of
+  them drove a real browser's JS message-processing cost against the unthrottled loop.
+- **Phase 7 — scale validation, drift and visual inspection.** **[R]** Closes the empirical gaps
+  Phase 5.5 surfaced and revisits the two follow-ups Phase 4 deferred, rather than opening new
+  ones. Scheduled *after* Phase 6, deliberately: its results are meant to be watched live through
+  the browser visualiser, not only read off spike rasters. Scope:
+  - NET-12/13 at a larger, locality-realistic scale — beyond Phase 5.5's 5-neuron clique and
+    2-column race. This doubles as the throughput benchmark Phase 4's §12a item 9 deferred:
+    `tests/scale.rs`'s 100k-neuron test only measures memory, using a ring-wiring topology
+    explicitly flagged there as having no locality and producing a misleading per-core-throughput
+    number. A validated larger recurrent/columnar topology gives that benchmark a realistic one.
+  - Self-release: NEU-8 adaptation (Requirement 2, shipped in Phase 5.5) is currently dormant —
+    every existing test leaves it at its zero default. Here it is exercised as the mechanism that
+    lets a sustained attractor terminate itself with no external suppression, at a scale/duration
+    where refractory dynamics alone (sufficient at Phase 5.5's scale) stop being enough.
+  - NET-13 with more than two competing populations, where adaptation-driven fatigue plausibly
+    starts to matter for who gets to win next, not just cross-population suppression.
+  - VAL-3 / semantic drift: today's soak test (`homeostasis.rs`, Requirement 9.3) checks that
+    weights stay bounded over a long run, not that predictions stay accurate — §13.12 item 5 flags
+    this as the specific gap that would catch NELL-style precision decay.
+  - VAL-4 resurfaced: either a further tuning pass informed by whatever NET-12/13-at-scale finds
+    about the shared predictive substrate, or the demotion decision floated at §13.12 item 1
+    (VAL-2(b)/(c) as the architectural acceptance bar instead) made explicitly, rather than left
+    open indefinitely.
+  - **[T]** All of the above driven through Phase 6's visualiser as the primary way of inspecting
+    results, not an afterthought — the explicit reason this phase is sequenced after it.
 
 ---
 
@@ -535,11 +647,15 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
    flat arrays, so the borrow checker has nothing to object to. The layout chosen for cache
    performance happens to also be the one that sidesteps Rust's hardest part.
 
-   Build targets are `napi-rs` (primary — native threads, no address-space cap, zero-copy
-   buffers) and `wasm-bindgen` (secondary — browser visualiser, zero-install demos) from one
-   platform-agnostic core crate. The boundary is *what touches a synapse every tick* versus
-   *what a human iterates on*; encoders sit on the TypeScript side despite feeling engine-ish,
-   because they run once per input against ~10,000 ticks per simulated second of core work.
+   Build target is `napi-rs` — native threads, no address-space cap, zero-copy buffers — from a
+   platform-agnostic core crate. A `wasm-bindgen` target was originally planned alongside it for a
+   browser visualiser, but is deferred (see RUN-10, ENG-4): the visualiser instead runs against
+   the native build over a local socket, which covers current (local-only) usage at any network
+   size with no WASM32 address-space cap to work around. `wasm-bindgen` stays a later option, not
+   a standing build target, revisited only if a public, backend-free demo is actually wanted. The
+   boundary is *what touches a synapse every tick* versus *what a human iterates on*; encoders sit
+   on the TypeScript side despite feeling engine-ish, because they run once per input against
+   ~10,000 ticks per simulated second of core work.
 
    Accepted costs: a cargo + npm dual toolchain, a CI matrix producing prebuilt binaries per
    platform, slower core iteration than a scripting language, and two languages to
@@ -582,6 +698,33 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
    never be potentiated by activity, so SYN-3's `[0,1]` scalar needs no change. Cost of having
    deferred this past Phase 4: the second-arena route's call-site list is short today and would
    have been shorter still before partitioning and snapshots existed.
+9. **LRN-12 (fast one-shot binding): not built in Phase 5.5 — decided 2026-09-11, after NET-12,
+   NET-13 and NET-9 all shipped without needing it.** Decision 8 above settled the mechanism shape
+   *if* LRN-12 is ever built; this decision is the separate "whether, now" call Phase 5.5
+   Requirement 7 asked for, made in light of what the phase's three emergent-behaviour requirements
+   actually turned out to require.
+
+   The evidence: NET-12's sustained attractor (`tests/working_memory.rs`) was built entirely from
+   ordinary above-threshold recurrent permanence set at construction time — no binding of a
+   *specific* pattern on a single coincidence was needed, because the attractor's pattern-specificity
+   comes from which neurons were wired into the recurrent clique in the first place, not from
+   anything learned online. NET-13's suppress/hold/reward (`tests/action_selection.rs`) reused
+   NET-12's mechanism for hold and Phase 5's shipped `ThreeFactorStdp` for reward-shaped selection —
+   the reward experiment's whole point was that gradually-accumulating, eligibility-gated STDP
+   potentiation (SYN-3's existing model) was sufficient to bias a later tied competition; nothing
+   about it needed a single-coincidence bind. NET-9's reference frames (`location.ts`,
+   `reference-frame.slow.test.ts`) bind a location signal to a sensory pattern via ordinary
+   `connect_lateral_voting` wiring set once at construction, the same NEU-6 depolarisation mechanism
+   NET-5 already validated — again, no online one-shot binding.
+
+   In short: every mechanism this phase built needed either construction-time topology or
+   Phase 0–5's existing gradual/eligibility-based plasticity, and none of them hit the specific wall
+   LRN-12 exists to solve — sparse pattern separation on a *single* coincidence, with near-duplicate
+   inputs not colliding. That wall may still be real for some future requirement (§2.9's fast-store
+   hypothesis is unaffected by this decision), but nothing in Phase 5.5 forced it, so no fast-store
+   code was written (Requirement 7, Acceptance Criterion 2's "not needed" branch). Decision 8's
+   mechanism-shape work is not wasted: it stays the settled answer for whenever a future requirement
+   does surface a concrete need.
 
 ## 12a. Open questions
 

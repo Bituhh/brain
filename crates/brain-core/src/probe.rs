@@ -64,11 +64,17 @@ pub struct ProbeOptions {
     pub capacity: usize,
     pub record_membrane: bool,
     pub weight_synapses: Vec<u32>,
+    /// Requirement 6 (Phase 6): record per-tick dendritic-segment activity
+    /// (which segment, how many coincident synapses, resulting
+    /// depolarisation) for VIZ-3's segment drill-down. Fed by the
+    /// scheduler's own `segment_touched` evaluation loop, the same shape
+    /// `observe`'s `permanence_of` callback already uses for weights.
+    pub record_segments: bool,
 }
 
 impl ProbeOptions {
     pub fn spikes_only(capacity: usize) -> Self {
-        Self { capacity, record_membrane: false, weight_synapses: Vec::new() }
+        Self { capacity, record_membrane: false, weight_synapses: Vec::new(), record_segments: false }
     }
 }
 
@@ -78,6 +84,21 @@ impl ProbeOptions {
 pub struct WeightSample {
     pub synapse_id: u32,
     pub permanence: f32,
+}
+
+/// One dendritic-segment activity sample (Requirement 6, Phase 6): recorded
+/// whenever the scheduler's `segment_touched` evaluation visits a segment
+/// belonging to a probed neuron -- `active` and `depolarisation` are
+/// whatever `BinaryCoincidence::evaluate` (or a future graded model, per
+/// NEU-6a) computed for that segment this tick, regardless of whether the
+/// segment actually depolarised, since a below-threshold count is still
+/// meaningful for VIZ-3's drill-down view.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SegmentSample {
+    pub tick: u32,
+    pub segment: u32,
+    pub active: u16,
+    pub depolarisation: f32,
 }
 
 /// A probe attached to one neuron (Requirement 13.1): records its spike
@@ -90,6 +111,14 @@ pub struct Probe {
     membrane: Option<BoundedRecorder<f32>>,
     weights: Option<BoundedRecorder<Vec<WeightSample>>>,
     weight_synapses: Vec<u32>,
+    /// Requirement 6 (Phase 6): populated only when `ProbeOptions.record_segments`
+    /// is set -- fed by `Probe::observe_segment`, called from the scheduler's
+    /// `segment_touched` loop rather than from `observe` (segments are evaluated
+    /// at a different point in the tick than spikes/membrane/weights, and a
+    /// probed neuron may have zero, one, or several segments touched in a
+    /// given tick, unlike the always-exactly-one-sample-per-tick shape
+    /// `observe`'s other streams have).
+    segments: Option<BoundedRecorder<SegmentSample>>,
 }
 
 impl Probe {
@@ -100,6 +129,7 @@ impl Probe {
             membrane: options.record_membrane.then(|| BoundedRecorder::new(options.capacity)),
             weights: (!options.weight_synapses.is_empty()).then(|| BoundedRecorder::new(options.capacity)),
             weight_synapses: options.weight_synapses,
+            segments: options.record_segments.then(|| BoundedRecorder::new(options.capacity)),
         }
     }
 
@@ -126,6 +156,16 @@ impl Probe {
         }
     }
 
+    /// Records one dendritic segment's activity for this tick (Requirement
+    /// 6). Called by the scheduler's `segment_touched` evaluation loop, once
+    /// per touched segment belonging to this probe's neuron -- a no-op if
+    /// `record_segments` was not enabled for this probe.
+    pub fn observe_segment(&mut self, tick: u32, segment: u32, active: u16, depolarisation: f32) {
+        if let Some(s) = &mut self.segments {
+            s.push(SegmentSample { tick, segment, active, depolarisation });
+        }
+    }
+
     pub fn spike_times(&self) -> impl Iterator<Item = &u32> {
         self.spikes.iter()
     }
@@ -136,6 +176,10 @@ impl Probe {
 
     pub fn weight_history(&self) -> Option<&BoundedRecorder<Vec<WeightSample>>> {
         self.weights.as_ref()
+    }
+
+    pub fn segment_history(&self) -> Option<&BoundedRecorder<SegmentSample>> {
+        self.segments.as_ref()
     }
 }
 
@@ -288,7 +332,7 @@ mod tests {
 
     #[test]
     fn probe_records_membrane_trace_when_enabled() {
-        let options = ProbeOptions { capacity: 5, record_membrane: true, weight_synapses: Vec::new() };
+        let options = ProbeOptions { capacity: 5, record_membrane: true, weight_synapses: Vec::new(), record_segments: false };
         let mut probe = Probe::new(0, options);
         probe.observe(0, false, 0.1, |_| 0.0);
         probe.observe(1, false, 0.2, |_| 0.0);
@@ -298,13 +342,48 @@ mod tests {
 
     #[test]
     fn probe_records_watched_synapse_permanence_when_enabled() {
-        let options = ProbeOptions { capacity: 5, record_membrane: false, weight_synapses: vec![3, 9] };
+        let options = ProbeOptions { capacity: 5, record_membrane: false, weight_synapses: vec![3, 9], record_segments: false };
         let mut probe = Probe::new(0, options);
         let permanences = [(3u32, 0.4f32), (9, 0.8)].into_iter().collect::<std::collections::HashMap<_, _>>();
         probe.observe(0, false, 0.0, |id| permanences[&id]);
         let history = probe.weight_history().unwrap();
         let first = history.iter().next().unwrap();
         assert_eq!(first, &vec![WeightSample { synapse_id: 3, permanence: 0.4 }, WeightSample { synapse_id: 9, permanence: 0.8 }]);
+    }
+
+    #[test]
+    fn probe_without_segments_option_records_nothing_for_it() {
+        // Requirement 6.1
+        let probe = Probe::new(0, ProbeOptions::spikes_only(10));
+        assert!(probe.segment_history().is_none());
+    }
+
+    #[test]
+    fn probe_records_segment_activity_when_enabled() {
+        // Requirement 6.1, 6.4
+        let options = ProbeOptions { capacity: 5, record_membrane: false, weight_synapses: Vec::new(), record_segments: true };
+        let mut probe = Probe::new(0, options);
+        probe.observe_segment(3, 1, 7, 0.0);
+        probe.observe_segment(3, 2, 15, 1.0);
+        let history = probe.segment_history().unwrap();
+        assert_eq!(
+            history.iter().copied().collect::<Vec<_>>(),
+            vec![
+                SegmentSample { tick: 3, segment: 1, active: 7, depolarisation: 0.0 },
+                SegmentSample { tick: 3, segment: 2, active: 15, depolarisation: 1.0 },
+            ]
+        );
+    }
+
+    #[test]
+    fn probe_segment_history_bounds_memory_regardless_of_run_length() {
+        // Requirement 6.1's bounded-memory discipline extended to segment recording
+        let options = ProbeOptions { capacity: 4, record_membrane: false, weight_synapses: Vec::new(), record_segments: true };
+        let mut probe = Probe::new(0, options);
+        for tick in 0..1000u32 {
+            probe.observe_segment(tick, 0, 20, 1.0);
+        }
+        assert_eq!(probe.segment_history().unwrap().len(), 4, "Requirement 13.2/6.1: memory must stay bounded");
     }
 
     #[test]

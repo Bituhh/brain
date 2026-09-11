@@ -51,6 +51,13 @@ pub struct NeuronArena {
     /// Decaying dendritic depolarisation (NEU-6). Lowers effective firing
     /// threshold; never fires the cell directly.
     pub predictive: Vec<f32>,
+    /// Spike-frequency adaptation (NEU-8): a slow outward current that
+    /// raises the effective drive requirement, the opposite-signed
+    /// counterpart to `predictive`. Only ever written by `commit_spike`
+    /// (via `LifParams::adaptation_increment`) and decayed by `integrate`
+    /// -- `0.0` for every neuron unless `LifParams::with_adaptation` is
+    /// configured.
+    pub adaptation: Vec<f32>,
     /// Tick until which the neuron is refractory (NEU-1).
     pub refractory: Vec<u32>,
     /// `u32::MAX` sentinel means "has never spiked".
@@ -95,6 +102,7 @@ impl NeuronArena {
             membrane: Vec::new(),
             threshold: Vec::new(),
             predictive: Vec::new(),
+            adaptation: Vec::new(),
             refractory: Vec::new(),
             last_spike: Vec::new(),
             rate_estimate: Vec::new(),
@@ -135,6 +143,7 @@ impl NeuronArena {
         self.membrane.capacity() * size_of::<f32>()
             + self.threshold.capacity() * size_of::<f32>()
             + self.predictive.capacity() * size_of::<f32>()
+            + self.adaptation.capacity() * size_of::<f32>()
             + self.refractory.capacity() * size_of::<u32>()
             + self.last_spike.capacity() * size_of::<u32>()
             + self.rate_estimate.capacity() * size_of::<f32>()
@@ -175,6 +184,7 @@ impl NeuronArena {
             self.membrane[i] = 0.0;
             self.threshold[i] = spec.threshold;
             self.predictive[i] = 0.0;
+            self.adaptation[i] = 0.0;
             self.refractory[i] = 0;
             self.last_spike[i] = u32::MAX;
             self.rate_estimate[i] = 0.0;
@@ -188,6 +198,7 @@ impl NeuronArena {
             self.membrane.push(0.0);
             self.threshold.push(spec.threshold);
             self.predictive.push(0.0);
+            self.adaptation.push(0.0);
             self.refractory.push(0);
             self.last_spike.push(u32::MAX);
             self.rate_estimate.push(0.0);
@@ -226,10 +237,12 @@ impl NeuronArena {
     /// per-field initialisation because a restore is populating
     /// already-lived values, not fresh ones.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn from_raw_parts(
         membrane: Vec<f32>,
         threshold: Vec<f32>,
         predictive: Vec<f32>,
+        adaptation: Vec<f32>,
         refractory: Vec<u32>,
         last_spike: Vec<u32>,
         rate_estimate: Vec<f32>,
@@ -245,6 +258,7 @@ impl NeuronArena {
             membrane,
             threshold,
             predictive,
+            adaptation,
             refractory,
             last_spike,
             rate_estimate,
@@ -277,6 +291,7 @@ impl NeuronArena {
         let mut membrane_rest = self.membrane.as_mut_slice();
         let mut threshold_rest = self.threshold.as_mut_slice();
         let mut predictive_rest = self.predictive.as_mut_slice();
+        let mut adaptation_rest = self.adaptation.as_mut_slice();
         let mut refractory_rest = self.refractory.as_mut_slice();
         let mut last_spike_rest = self.last_spike.as_mut_slice();
         let mut rate_estimate_rest = self.rate_estimate.as_mut_slice();
@@ -296,6 +311,8 @@ impl NeuronArena {
             threshold_rest = rest;
             let (predictive, rest) = predictive_rest.split_at_mut(len);
             predictive_rest = rest;
+            let (adaptation, rest) = adaptation_rest.split_at_mut(len);
+            adaptation_rest = rest;
             let (refractory, rest) = refractory_rest.split_at_mut(len);
             refractory_rest = rest;
             let (last_spike, rest) = last_spike_rest.split_at_mut(len);
@@ -312,6 +329,7 @@ impl NeuronArena {
                 membrane: OffsetSlice::new(base, membrane),
                 threshold: OffsetSlice::new(base, threshold),
                 predictive: OffsetSlice::new(base, predictive),
+                adaptation: OffsetSlice::new(base, adaptation),
                 refractory: OffsetSlice::new(base, refractory),
                 last_spike: OffsetSlice::new(base, last_spike),
                 rate_estimate: OffsetSlice::new(base, rate_estimate),
@@ -334,6 +352,7 @@ impl NeuronArena {
             membrane: OffsetSlice::whole(&mut self.membrane),
             threshold: OffsetSlice::whole(&mut self.threshold),
             predictive: OffsetSlice::whole(&mut self.predictive),
+            adaptation: OffsetSlice::whole(&mut self.adaptation),
             refractory: OffsetSlice::whole(&mut self.refractory),
             last_spike: OffsetSlice::whole(&mut self.last_spike),
             rate_estimate: OffsetSlice::whole(&mut self.rate_estimate),
@@ -355,6 +374,7 @@ pub struct NeuronArenaViewMut<'a> {
     pub membrane: OffsetSlice<'a, f32>,
     pub threshold: OffsetSlice<'a, f32>,
     pub predictive: OffsetSlice<'a, f32>,
+    pub adaptation: OffsetSlice<'a, f32>,
     pub refractory: OffsetSlice<'a, u32>,
     pub last_spike: OffsetSlice<'a, u32>,
     pub rate_estimate: OffsetSlice<'a, f32>,
@@ -498,6 +518,7 @@ mod tests {
             arena.membrane.clone(),
             arena.threshold.clone(),
             arena.predictive.clone(),
+            arena.adaptation.clone(),
             arena.refractory.clone(),
             arena.last_spike.clone(),
             arena.rate_estimate.clone(),

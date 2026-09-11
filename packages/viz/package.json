@@ -1,0 +1,15 @@
+{
+  "name": "@brain/viz",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Browser visualiser: a local WebSocket server embedding @brain/core plus a plain-Canvas, no-bundler browser client (VIZ-1/2/3, OBS-1/2/3, Phase 6).",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "dependencies": {
+    "@brain/core": "0.0.0"
+  },
+  "scripts": {
+    "build": "tsc --build"
+  }
+}

@@ -23,16 +23,26 @@
 //! Requirement 7.5's ablation path, not a special case the scheduler
 //! treats differently.
 
+use std::collections::HashMap;
+
 use crate::arena::{NeuronArena, NeuronArenaViewMut};
 use crate::inhibition::FixedNeighbourhoods;
+use crate::metrics::{FiringRateMeter, PredictionAccuracyMeter};
 use crate::neuromodulator::NeuromodulatorField;
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
 use crate::plasticity::homeostatic::HomeostaticScaling;
 use crate::plasticity::predictive::{PredictingSegmentTracker, PredictiveLearning, PredictiveLearningParams};
 use crate::plasticity::structural::StructuralPlasticity;
 use crate::plasticity::{LocalContext, Modulators, NeuronLocal, RuleChain, SynapseMut};
+use crate::probe::Probe;
 use crate::segment::{BinaryCoincidence, SegmentConfig, SegmentModel, SegmentState, FEEDFORWARD_SEGMENT};
 use crate::synapse::{SynapseArena, SynapseArenaViewMut};
+
+/// Always-on metrics window (Requirement 5.1, Phase 6): OBS-2 frames the
+/// incremental meters as "cheap enough to leave permanently on", so
+/// `Scheduler` constructs both unconditionally with this fixed default --
+/// no new constructor parameter, so no existing call site changes.
+const DEFAULT_METRICS_WINDOW_TICKS: usize = 100;
 
 fn neuron_local(neurons: &NeuronArenaViewMut, idx: u32) -> NeuronLocal {
     let i = idx as usize;
@@ -248,6 +258,18 @@ pub struct Scheduler {
     /// framing -- `PartitionScheduler`'s equivalent field uses
     /// `maybe_sweep_partitioned` instead (`partition.rs`).
     structural_plasticity: Option<StructuralPlasticity>,
+    /// Interactive observability (Requirement 4/6, Phase 6): keyed by
+    /// neuron index, matching `Probe::new(neuron, options)`'s existing
+    /// one-probe-per-neuron shape -- attaching a second probe to the same
+    /// neuron replaces the first rather than needing a separate id scheme.
+    /// Read-only with respect to simulation state (see `step`'s doc comment
+    /// on why this does not threaten RUN-3/RUN-9a determinism): iteration
+    /// order over this map never leaks into anything that affects dynamics.
+    probes: HashMap<u32, Probe>,
+    /// Always-on population firing rate (OBS-2, Requirement 5.1, Phase 6).
+    firing_rate: FiringRateMeter,
+    /// Always-on prediction accuracy (OBS-2, Requirement 5.1, Phase 6).
+    prediction_accuracy: PredictionAccuracyMeter,
 }
 
 impl Scheduler {
@@ -277,7 +299,40 @@ impl Scheduler {
             predictive_scratch: Vec::new(),
             homeostatic_scaling: None,
             structural_plasticity: None,
+            probes: HashMap::new(),
+            firing_rate: FiringRateMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
+            prediction_accuracy: PredictionAccuracyMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
         }
+    }
+
+    /// Attaches a probe to `neuron` (Requirement 4, Phase 6), replacing any
+    /// probe already attached to it. Fed automatically, once per tick, from
+    /// inside `step()` -- no separate polling call is required.
+    pub fn attach_probe(&mut self, neuron: u32, probe: Probe) {
+        self.probes.insert(neuron, probe);
+    }
+
+    /// Detaches `neuron`'s probe, if any (Requirement 4.4) -- frees its
+    /// bounded buffers and stops the per-tick `O(#probes)` observation cost
+    /// for it.
+    pub fn detach_probe(&mut self, neuron: u32) {
+        self.probes.remove(&neuron);
+    }
+
+    pub fn probe(&self, neuron: u32) -> Option<&Probe> {
+        self.probes.get(&neuron)
+    }
+
+    /// Population firing rate over the always-on window (OBS-2, Requirement
+    /// 5.1) -- mean spikes per tick as a fraction of `population_size`.
+    pub fn firing_rate(&self, population_size: u32) -> f64 {
+        self.firing_rate.population_rate(population_size)
+    }
+
+    /// Prediction accuracy over the always-on window (OBS-2, Requirement
+    /// 5.1).
+    pub fn prediction_accuracy(&self) -> f64 {
+        self.prediction_accuracy.accuracy()
     }
 
     /// Enables local plasticity (Requirement 8): `rules` runs on every
@@ -492,6 +547,7 @@ impl Scheduler {
             refractory_until: &mut neuron_view.refractory[i],
             last_spike: &mut neuron_view.last_spike[i],
             predictive: &mut neuron_view.predictive[i],
+            adaptation: &mut neuron_view.adaptation[i],
             threshold: neuron_view.threshold[i],
         };
         D::commit_spike(state, params, tick);
@@ -776,6 +832,24 @@ impl Scheduler {
         let (report, post_spike_outbox) = self.evaluate_and_resolve::<D>(&mut neuron_view, &mut synapse_view, params, |_| false);
         debug_assert!(post_spike_outbox.is_empty(), "an always-local is_remote_source must never produce a cross-partition message");
 
+        // OBS-2, Requirement 5.1 (Phase 6): always-on incremental metrics --
+        // cheap enough (per metrics.rs's own framing) to update every tick
+        // unconditionally, unlike MetricsSnapshot::compute's O(neurons+
+        // synapses) on-demand scan.
+        self.firing_rate.record(report.spiked.len() as u32);
+        self.prediction_accuracy.record(report.predicted_spikes, report.spiked.len() as u32);
+
+        // Requirement 4 (Phase 6): feed every attached probe once per tick.
+        // O(#probes), not O(neurons) -- a caller attaching/detaching many
+        // short-lived probes during an interactive session costs nothing
+        // for neurons no one is watching.
+        if !self.probes.is_empty() {
+            for (&neuron, probe) in self.probes.iter_mut() {
+                let i = neuron as usize;
+                probe.observe(report.tick, report.spiked.contains(&neuron), neurons.membrane[i], |syn| synapses.permanence[syn as usize]);
+            }
+        }
+
         // Phase 5 Requirement 9.2/9.6: always-on homeostasis/structural
         // plasticity, opt-in via with_homeostatic_scaling/
         // with_structural_plasticity above. `neuron_view`/`synapse_view`'s
@@ -823,9 +897,20 @@ impl Scheduler {
                 let active = self.segment_counts[composite as usize];
                 self.segment_counts[composite as usize] = 0;
                 let depolarisation = BinaryCoincidence::evaluate(active, &SegmentState, &config.params);
+                let neuron = composite / segments_per_neuron;
+                let segment = composite % segments_per_neuron;
+                // Requirement 6 (Phase 6): record activity regardless of
+                // whether this segment actually depolarised -- a
+                // below-threshold coincidence count is still meaningful for
+                // VIZ-3's drill-down. O(1) hashmap lookup, reached only for
+                // composites already being visited because they had real
+                // synaptic delivery this tick (RUN-1) -- an unwatched
+                // neuron's segments never add a lookup that wasn't already
+                // happening.
+                if let Some(probe) = self.probes.get_mut(&neuron) {
+                    probe.observe_segment(self.tick, segment, active, depolarisation.0);
+                }
                 if depolarisation.0 > 0.0 {
-                    let neuron = composite / segments_per_neuron;
-                    let segment = composite % segments_per_neuron;
                     let slot = &mut neurons.predictive[neuron as usize];
                     *slot = slot.max(depolarisation.0);
                     self.dirty.insert(neuron);
@@ -856,6 +941,7 @@ impl Scheduler {
                 refractory_until: &mut neurons.refractory[i],
                 last_spike: &mut neurons.last_spike[i],
                 predictive: &mut neurons.predictive[i],
+                adaptation: &mut neurons.adaptation[i],
                 threshold: neurons.threshold[i],
             };
             let outcome = D::integrate(state, params, input, self.tick);
@@ -911,6 +997,7 @@ impl Scheduler {
                 refractory_until: &mut neurons.refractory[i],
                 last_spike: &mut neurons.last_spike[i],
                 predictive: &mut neurons.predictive[i],
+                adaptation: &mut neurons.adaptation[i],
                 threshold: neurons.threshold[i],
             };
             if is_winner {

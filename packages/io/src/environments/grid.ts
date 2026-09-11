@@ -25,6 +25,18 @@ export interface GridWorldConfig {
    * actually moving the cursor there.
    */
   readonly distinguishingCell?: { readonly x: number; readonly y: number; readonly symbol: string };
+  /**
+   * Places the *same* symbol at a second specific cell (Phase 5.5
+   * Requirement 6's reference-frame disambiguation task: the same local
+   * sensory pattern recurring at two different locations, distinguishable
+   * only by a location signal). Deliberately a separate field from
+   * `distinguishingCell` rather than a generalisation of it -- the two
+   * serve different requirements (IO-5's ablation wants one unique,
+   * reachable-only-by-moving cell; NET-9's wants a *repeated* one), and
+   * keeping them separate means neither's existing behaviour or tests are
+   * touched by the other's addition.
+   */
+  readonly repeatedCell?: { readonly x: number; readonly y: number; readonly symbol: string };
   readonly startX?: number;
   readonly startY?: number;
 }
@@ -74,6 +86,13 @@ export class GridWorld {
       const { x, y, symbol } = config.distinguishingCell;
       if (x < 0 || x >= config.width || y < 0 || y >= config.height) {
         throw new RangeError(`distinguishingCell (${x}, ${y}) is outside the ${config.width}x${config.height} grid`);
+      }
+      this.#grid[y]![x] = symbol;
+    }
+    if (config.repeatedCell) {
+      const { x, y, symbol } = config.repeatedCell;
+      if (x < 0 || x >= config.width || y < 0 || y >= config.height) {
+        throw new RangeError(`repeatedCell (${x}, ${y}) is outside the ${config.width}x${config.height} grid`);
       }
       this.#grid[y]![x] = symbol;
     }

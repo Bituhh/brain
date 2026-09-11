@@ -55,6 +55,20 @@ use crate::segment::{BinaryCoincidenceParams, SegmentConfig};
 use crate::synapse::SynapseArena;
 
 const MAGIC: [u8; 6] = *b"BRAIN\0";
+/// Bumped 3 -> 4 in Phase 5.5 to add a spike-frequency-adaptation section
+/// (NEU-8, Requirement 2). `adaptation` is a new, genuinely evolving
+/// per-neuron `NeuronArena` field (Phase 0-3's `predictive`/`rate_estimate`/
+/// `trace` precedent: a decaying, plasticity-relevant value, not
+/// configuration), but unlike those three -- which predate this format's
+/// versioning entirely -- `adaptation` is introduced after three format
+/// versions already shipped, so it cannot be inlined into `write_neurons`'s
+/// un-versioned fixed-field block without breaking every existing snapshot.
+/// It is therefore a new trailing section, following the column-registry
+/// and modulator-state sections' own precedent exactly: absent from a
+/// version 1-3 payload, for which `read` supplies the zeroed default
+/// `read_neurons` already leaves in place (matching what every
+/// pre-Phase-5.5 restore() produced, since NEU-8 did not exist).
+///
 /// Bumped 2 -> 3 in Phase 5 to add a neuromodulator-field-state section
 /// (Requirement 15.6). **This closes a real, pre-existing gap, not just an
 /// addition**: Requirement 16.1 (Phase 0-3) already claimed "neuromodulator
@@ -75,7 +89,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// schema migration, partial loading, compatibility guarantees -- from
 /// Phase 0-3 to Phase 4; the round-trip mechanism itself (this module) was
 /// already in scope then and is unchanged in its v1 shape.
-pub const FORMAT_VERSION: u32 = 3;
+pub const FORMAT_VERSION: u32 = 4;
 /// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
 /// concrete and falsifiable: `read` migrates any snapshot from this
 /// version through `FORMAT_VERSION`. Widen this only alongside an actual
@@ -305,10 +319,20 @@ fn read_neurons(r: &mut Reader<'_>) -> Result<NeuronArena, SnapshotError> {
         free.push(r.u32()?);
     }
     let epoch = r.u64()?;
+    // `adaptation` (NEU-8, new in format version 4) is deliberately *not*
+    // read here -- it is a new trailing section (see `FORMAT_VERSION`'s doc
+    // comment), not an inline field of the un-versioned neuron block this
+    // function parses, so every pre-existing snapshot version is read
+    // exactly as before. `read` overlays the real values after this
+    // function returns, for version >= 4; every older version keeps this
+    // zeroed default, matching what every pre-Phase-5.5 restore() already
+    // implicitly produced.
+    let adaptation = vec![0.0f32; count];
     Ok(NeuronArena::from_raw_parts(
         membrane,
         threshold,
         predictive,
+        adaptation,
         refractory,
         last_spike,
         rate_estimate,
@@ -320,6 +344,27 @@ fn read_neurons(r: &mut Reader<'_>) -> Result<NeuronArena, SnapshotError> {
         free,
         epoch,
     ))
+}
+
+/// New in format version 4 (Phase 5.5 Requirement 2): spike-frequency
+/// adaptation's current value per neuron -- the genuinely evolving half of
+/// NEU-8's state (its decay time constant and increment stay caller-supplied
+/// `LifParams` configuration, per this module's own convention, same split
+/// as `predictive`/`rate_estimate`/`trace`). Absent entirely from a
+/// version-1/2/3 payload; `read`'s version dispatch leaves `read_neurons`'s
+/// zeroed default in place for those instead of calling this.
+fn write_adaptation(w: &mut Writer, neurons: &NeuronArena) {
+    for &v in &neurons.adaptation {
+        w.f32(v);
+    }
+}
+
+fn read_adaptation(r: &mut Reader<'_>, count: usize) -> Result<Vec<f32>, SnapshotError> {
+    let mut adaptation = Vec::with_capacity(count);
+    for _ in 0..count {
+        adaptation.push(r.f32()?);
+    }
+    Ok(adaptation)
 }
 
 fn write_synapses(w: &mut Writer, synapses: &SynapseArena, neuron_count: u32) {
@@ -469,6 +514,8 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
     let (modulator_levels, modulator_last_updated_at) = scheduler.modulator_raw_state();
     write_modulator_state(&mut w, modulator_levels, modulator_last_updated_at);
 
+    write_adaptation(&mut w, neurons);
+
     w.buf
 }
 
@@ -527,7 +574,7 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
     r.u64()?; // config_hash, already validated above
     let tick = r.u32()?;
 
-    let neurons = read_neurons(&mut r)?;
+    let mut neurons = read_neurons(&mut r)?;
     let synapses = read_synapses(&mut r)?;
 
     let ring_len = r.u32()? as usize;
@@ -555,6 +602,13 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
     // (Phase 5 Requirement 15.6), which is what every pre-Phase-5 restore()
     // silently produced anyway.
     let (modulator_levels, modulator_last_updated_at) = if header.version >= 3 { read_modulator_state(&mut r)? } else { ([0.0; NUM_MODULATORS], 0) };
+
+    // Format versions 1-3 have no adaptation section -- `read_neurons`
+    // already left `neurons.adaptation` zeroed, exactly what every
+    // pre-Phase-5.5 restore() implicitly produced (NEU-8 did not exist).
+    if header.version >= 4 {
+        neurons.adaptation = read_adaptation(&mut r, neurons.capacity_len())?;
+    }
 
     Ok(Restored { neurons, synapses, tick, ring, dirty_members, columns, modulator_levels, modulator_last_updated_at })
 }
@@ -610,6 +664,45 @@ mod tests {
 
         assert_eq!(restored.neurons.predictive, neurons.predictive);
         assert_eq!(restored.neurons.predictive[1], 0.73);
+    }
+
+    /// Phase 5.5 Requirement 2.5: NEU-8's adaptation state round-trips
+    /// exactly, mirroring `round_trips_dendritic_predictive_state` above.
+    #[test]
+    fn round_trips_spike_frequency_adaptation() {
+        let (mut neurons, synapses, scheduler) = sample_network();
+        neurons.adaptation[1] = 0.42;
+
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
+        let restored = read(&bytes, 1).unwrap();
+
+        assert_eq!(restored.neurons.adaptation, neurons.adaptation);
+        assert_eq!(restored.neurons.adaptation[1], 0.42);
+    }
+
+    /// A snapshot written before format version 4 (NEU-8) existed has no
+    /// adaptation section at all -- the only sound migration is "zeroed",
+    /// matching `read_neurons`'s own default and what every pre-Phase-5.5
+    /// restore() implicitly produced. Constructed by truncating a
+    /// freshly-written payload's trailing adaptation section and flipping
+    /// its version tag, the same technique
+    /// `a_version_older_than_the_oldest_supported_is_rejected` already uses,
+    /// rather than requiring a new binary fixture file.
+    #[test]
+    fn a_version_3_snapshot_restores_with_zeroed_adaptation() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let mut bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
+        let adaptation_bytes = neurons.capacity_len() * size_of::<f32>();
+        let truncated_len = bytes.len() - adaptation_bytes;
+        bytes.truncate(truncated_len);
+        bytes[6..10].copy_from_slice(&3u32.to_le_bytes());
+
+        let restored = read(&bytes, 1).unwrap();
+        assert_eq!(
+            restored.neurons.adaptation,
+            vec![0.0; neurons.capacity_len()],
+            "a version-3 snapshot has no adaptation section, so it must restore to zeroed defaults"
+        );
     }
 
     #[test]

@@ -19,6 +19,7 @@ import {
   type SimulationOptions,
   type ColumnConfig,
   type VotingGroupConfig,
+  type GatingGroupConfig,
   type ConsolidationConfig,
 } from "../src/index.ts";
 
@@ -356,6 +357,54 @@ test("Simulation.buildColumns wires lateral voting only between named columns (R
   // was supplied (Requirement 2, Acceptance Criterion 4's "additive, not a
   // mode switch").
   assert.equal(handles.length, 2);
+});
+
+// -- Phase 5.5 Requirement 3: NET-13's suppress half (cross-population
+// inhibitory gating) at the FFI boundary.
+
+test("Simulation.buildColumns wires gating suppression only between named columns (Requirement 3, NET-13)", () => {
+  // Column 0 is entirely inhibitory (excitatoryFraction 0), column 1
+  // entirely excitatory, so the gating wiring's effect is unambiguous:
+  // every neuron in column 0 that fires delivers negative current to every
+  // neuron in column 1 via FEEDFORWARD_SEGMENT (direct somatic current, not
+  // a dendritic segment -- see GatingGroupConfig's Rust doc comment).
+  // p0 = 1.0 at effectively zero distance makes the wiring decision
+  // deterministic, matching the existing voting test's own convention.
+  const gatingPolicy: GatingGroupConfig["policy"] = { p0: 1.0, lengthScale: 1000.0, delayMin: 1, delayMax: 1, initialPermanence: 0.95 };
+  const TICKS = 60;
+  const B_CURRENT = 3.0; // alone, comfortably crosses threshold 1.0 every couple of ticks
+  const A_CURRENT = 8.0; // strong enough to keep column 0 (the suppressor) reliably firing
+
+  function runScenario(wireGating: boolean): number {
+    const sim = Simulation.create(
+      { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+      { maxDelay: 2, connectionThreshold: 0.5, synapseCapPerNeuron: 8 },
+    );
+    const columnA = columnConfig({ neuronCount: 6, excitatoryFraction: 0.0, baseY: 0 });
+    const columnB = columnConfig({ neuronCount: 3, excitatoryFraction: 1.0, baseY: 1000 });
+    const gatingGroups: GatingGroupConfig[] = wireGating ? [{ columnIds: [0, 1], policy: gatingPolicy }] : [];
+    const handles = sim.buildColumns(1n, [columnA, columnB], [], gatingGroups);
+    const [a, b] = handles;
+
+    let bSpikes = 0;
+    for (let tick = 0; tick < TICKS; tick++) {
+      for (let i = a!.start; i < a!.end; i++) sim.stimulate(i, A_CURRENT);
+      for (let i = b!.start; i < b!.end; i++) sim.stimulate(i, B_CURRENT);
+      const spiked = sim.step();
+      for (const idx of spiked) {
+        if (idx >= b!.start && idx < b!.end) bSpikes++;
+      }
+    }
+    return bSpikes;
+  }
+
+  const withoutGating = runScenario(false);
+  const withGating = runScenario(true);
+  assert.ok(withoutGating > 0, "column B must fire reliably on its own when gating is not wired");
+  assert.ok(
+    withGating < withoutGating,
+    `gating must measurably suppress column B's firing (without=${withoutGating}, with=${withGating})`,
+  );
 });
 
 test("Simulation.buildColumns is additive: a flat (no build_columns) network is unaffected (Requirement 8.2)", () => {
@@ -824,6 +873,187 @@ test("Simulation: consolidation round-trips through snapshot/restore (advanced t
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// -- Phase 6 Requirement 1: neuron-state bulk views (coords, polarity,
+// threshold, refractory, last spike, adaptation).
+
+test("Simulation.coordsView reflects real column-placed coordinates (NET-3, Requirement 1)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
+  );
+  sim.buildColumns(1n, [columnConfig({ neuronCount: 3, baseX: 10, baseY: 20, baseZ: 30 })]);
+
+  const coords = sim.coordsView();
+  assert.equal(coords.length, 9, "3 neurons * 3 components");
+  assert.deepEqual(Array.from(coords), [10, 20, 30, 11, 20, 30, 12, 20, 30]);
+});
+
+test("Simulation.polarityView reflects Dale-signed polarity (NEU-4, Requirement 1)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
+  );
+  const excitatory = sim.allocateNeuron(1.0, 1);
+  const inhibitory = sim.allocateNeuron(1.0, -1);
+  const polarity = sim.polarityView();
+  assert.equal(polarity[excitatory], 1);
+  assert.equal(polarity[inhibitory], -1);
+});
+
+test("Simulation.thresholdView, refractoryView and lastSpikeView reflect real neuron state (Requirement 1)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 3 },
+    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
+  );
+  const a = sim.allocateNeuron(0.7, 1);
+  assert.equal(sim.thresholdView()[a], Math.fround(0.7));
+  assert.equal(sim.lastSpikeView()[a], 0xffffffff, "u32::MAX sentinel before any spike");
+
+  sim.stimulate(a, 10.0);
+  sim.step(); // a spikes at tick 0
+
+  assert.equal(sim.lastSpikeView()[a], 0, "lastSpikeView must reflect the tick a actually spiked at");
+  assert.ok(sim.refractoryView()[a]! > sim.currentTick(), "a must be refractory immediately after spiking");
+});
+
+test("Simulation.adaptationView defaults to zero with no adaptation configured (NEU-8, Requirement 1.4 backward compatibility)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
+  );
+  const a = sim.allocateNeuron(0.5, 1);
+  for (let i = 0; i < 10; i++) {
+    sim.stimulate(a, 10.0);
+    sim.step();
+  }
+  assert.equal(sim.adaptationView()[a], 0, "adaptation must stay exactly zero when tauAdaptationTicks/adaptationIncrement are never configured");
+});
+
+// -- Phase 6 Requirement 2: synapse-state bulk views.
+
+test("Simulation synapse bulk views expose a connected synapse's real data, and occupied filters unallocated slots (SYN-1/2/3, Requirement 2)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 5, connectionThreshold: 0.5, synapseCapPerNeuron: 2 },
+  );
+  const a = sim.allocateNeuron(0.5, 1);
+  const b = sim.allocateNeuron(0.5, 1);
+  const synId = sim.connect(a, b, 3, 4, 0.75)!;
+  assert.notEqual(synId, undefined);
+
+  const capPerNeuron = sim.synapseCapPerNeuron();
+  assert.equal(capPerNeuron, 2);
+  assert.equal(Math.floor(synId / capPerNeuron), a, "a synapse id's source must resolve via id / capPerNeuron");
+
+  assert.equal(sim.synapseTargetNeuronView()[synId], b);
+  assert.equal(sim.synapseTargetSegmentView()[synId], 3);
+  assert.equal(sim.synapsePermanenceView()[synId], Math.fround(0.75));
+  assert.equal(sim.synapseDelayView()[synId], 4);
+
+  const occupied = sim.synapseOccupiedView();
+  assert.equal(occupied[synId], 1, "the slot actually connected must be marked occupied");
+  // `a`'s second slot (capacity 2) was never used.
+  const unusedSlot = a * capPerNeuron + 1;
+  assert.equal(occupied[unusedSlot], 0, "an unallocated slot within the same block must be marked unoccupied");
+});
+
+// -- Phase 6 Requirement 3: spike-raster export FFI (OBS-3).
+
+test("Simulation.rasterBytes exports real recorded spikes and throws in partitioned mode (OBS-3, Requirement 3)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
+  );
+  const a = sim.allocateNeuron(0.5, 1);
+  sim.stimulate(a, 10.0);
+  sim.step();
+
+  const bytes = sim.rasterBytes();
+  assert.ok(bytes.length > 14, "a raster with at least one recorded spike must be longer than the bare header");
+  assert.deepEqual(Array.from(bytes.subarray(0, 6)).map((b) => String.fromCharCode(b)).join(""), "RASTER");
+
+  const partitioned = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1, threadCount: 2, totalNeurons: 1 },
+  );
+  partitioned.allocateNeuron(0.5, 1);
+  partitioned.stimulate(0, 1.0);
+  partitioned.step();
+  assert.throws(() => partitioned.rasterBytes());
+});
+
+// -- Phase 6 Requirement 4: probe FFI (OBS-1).
+
+test("Simulation attachProbe/readProbe/detachProbe round-trip real spike and membrane data through the addon (OBS-1, Requirement 4)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
+  );
+  const a = sim.allocateNeuron(0.5, 1);
+  sim.attachProbe(a, { capacity: 10, recordMembrane: true, recordSegments: false, weightSynapses: [] });
+
+  sim.stimulate(a, 10.0);
+  sim.step(); // tick 0: a spikes
+
+  const data = sim.readProbe(a);
+  assert.notEqual(data, undefined);
+  assert.deepEqual(data!.spikeTimes, [0]);
+  assert.equal(data!.membraneTrace!.length, 1);
+
+  sim.detachProbe(a);
+  assert.equal(sim.readProbe(a), undefined, "a detached probe must no longer be readable");
+});
+
+test("Simulation attachProbe with recordSegments records real per-tick segment activity (Requirement 6)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 4, segments: { segmentsPerNeuron: 1, coincidenceThreshold: 2 } },
+  );
+  const s1 = sim.allocateNeuron(0.5, 1);
+  const s2 = sim.allocateNeuron(0.5, 1);
+  const target = sim.allocateNeuron(100.0, 1); // never spikes on its own
+  sim.connect(s1, target, 0, 1, 0.9);
+  sim.connect(s2, target, 0, 1, 0.9);
+  sim.attachProbe(target, { capacity: 10, recordMembrane: false, recordSegments: true, weightSynapses: [] });
+
+  sim.stimulate(s1, 10.0);
+  sim.stimulate(s2, 10.0);
+  sim.step(); // both sources spike
+  sim.step(); // deliveries land, segment 0 reaches its threshold (2 of 2)
+
+  const data = sim.readProbe(target)!;
+  assert.ok(data.segmentSamples && data.segmentSamples.length > 0, "segment activity must have been recorded");
+  const sample = data.segmentSamples![0]!;
+  assert.equal(sample.segment, 0);
+  assert.equal(sample.active, 2);
+  assert.ok(sample.depolarisation > 0, "2 of 2 must reach the configured threshold");
+});
+
+// -- Phase 6 Requirement 5: metrics FFI (OBS-2).
+
+test("Simulation firingRate/predictionAccuracy/metricsSnapshot report real values through the addon (OBS-2, Requirement 5)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
+  );
+  const a = sim.allocateNeuron(0.5, 1);
+  const b = sim.allocateNeuron(0.5, 1);
+  sim.connect(a, b, 0, 1, 0.9);
+
+  assert.equal(sim.firingRate(), 0);
+  assert.equal(sim.predictionAccuracy(), 0);
+
+  for (let i = 0; i < 10; i++) {
+    sim.stimulate(a, 10.0);
+    sim.step();
+  }
+  assert.ok(sim.firingRate() > 0, "a fired repeatedly under sustained stimulation");
+
+  const snapshot = sim.metricsSnapshot();
+  assert.equal(snapshot.synapseCount, 1);
+  assert.equal(snapshot.excitatoryFraction, 1.0);
 });
 
 test("TypeScript strict mode is enabled and the FFI surface names no `any` (Requirement 1.5)", () => {

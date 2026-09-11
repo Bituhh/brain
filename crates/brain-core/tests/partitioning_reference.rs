@@ -543,6 +543,68 @@ fn a_single_broadcast_injection_reaches_every_partition_equally() {
     assert_eq!(after0, after1, "both partitions saw the same broadcast injection, so both pairs (identical topology) must potentiate identically");
 }
 
+/// Phase 5.5 Requirement 5, Acceptance Criterion 3: a reward-broadcast
+/// injection must reach every partition equally even when the topology
+/// itself contains a cross-*partition* NET-13-style gating edge (an
+/// inhibitory-polarity source projecting onto an excitatory target on
+/// `FEEDFORWARD_SEGMENT`, the same connectivity shape `GatingGroupConfig`
+/// wires) -- proving Requirement 3's suppress mechanism and Requirement 5's
+/// broadcast fix compose correctly across a partition boundary, not just
+/// individually. Mirrors `a_single_broadcast_injection_reaches_every_partition_equally`'s
+/// structure, with one inhibitory neuron (`gate`, partition 1) added that
+/// projects onto `post0` (partition 0) alongside the existing causal pair.
+#[test]
+fn reward_broadcasts_correctly_across_a_partition_boundary_containing_a_gating_edge() {
+    let mut neurons = NeuronArena::new();
+    let mut synapses = SynapseArena::new(2);
+    let pre0 = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
+    let post0 = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
+    let filler = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index; // pads partition 0 to size 3; never stimulated
+    let pre1 = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
+    let post1 = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
+    let gate = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: -1, coords: [0.0; 3] }).index; // inhibitory, partition 1
+    let _ = filler;
+    synapses.reserve_for_neurons(neurons.capacity_len());
+    let syn0 = synapses.insert(pre0, post0, FEEDFORWARD_SEGMENT, 1, 0.5).unwrap();
+    let syn1 = synapses.insert(pre1, post1, FEEDFORWARD_SEGMENT, 1, 0.5).unwrap();
+    // Cross-partition gating edge: gate (partition 1) -> post0 (partition 0),
+    // NET-13's suppress shape, exercised through RUN-5's cross-partition
+    // delivery path. Delay 2 (not 1): RUN-5's own invariant is that a
+    // cross-partition message must not arrive earlier than the receiving
+    // partition could have already processed it -- this test's first draft
+    // used delay 1 on a cross-partition edge and the delivery silently
+    // never landed (permanence never moved), which is exactly the failure
+    // mode that invariant exists to prevent.
+    synapses.insert(gate, post0, FEEDFORWARD_SEGMENT, 2, 0.3).unwrap();
+
+    // even_split(6, 2) => partition 0 = indices [0,3) = {pre0, post0,
+    // filler}, partition 1 = indices [3,6) = {pre1, post1, gate}. Both
+    // causal pairs (pre0->post0, pre1->post1) stay within one partition
+    // each, matching `a_single_broadcast_injection_reaches_every_partition_equally`'s
+    // proven-working shape exactly; only the gating edge crosses the
+    // boundary, isolating that as the one new variable under test.
+    let plan = PartitionPlan::even_split(6, 2);
+    let schedulers: Vec<Scheduler> = (0..2).map(|_| Scheduler::new(4, 0.4).with_plasticity(plasticity(), [1000.0; NUM_MODULATORS])).collect();
+    let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, 6);
+
+    let before0 = synapses.permanence[syn0 as usize];
+    let before1 = synapses.permanence[syn1 as usize];
+
+    runtime.inject_modulator(DOPAMINE, 1.0); // exactly once -- broadcast, not per-partition
+    runtime.stimulate(&neurons, pre0, 10.0);
+    runtime.stimulate(&neurons, pre1, 10.0);
+    runtime.step::<Lif>(&mut neurons, &mut synapses, &lif_params()); // both pres spike, deliver next tick
+    runtime.stimulate(&neurons, post0, 10.0);
+    runtime.stimulate(&neurons, post1, 10.0);
+    runtime.step::<Lif>(&mut neurons, &mut synapses, &lif_params()); // deliveries land, both posts spike same tick
+
+    let after0 = synapses.permanence[syn0 as usize];
+    let after1 = synapses.permanence[syn1 as usize];
+    assert!(after0 > before0, "partition 0's pair must potentiate despite the cross-partition gating edge present: {before0} -> {after0}");
+    assert!(after1 > before1, "partition 1's pair must potentiate identically: {before1} -> {after1}");
+    assert_eq!(after0, after1, "the broadcast must reach both partitions equally regardless of the cross-partition gating edge's presence");
+}
+
 /// Sanity check mirroring `the_reference_scenario_actually_produces_activity_and_learning`:
 /// if structural plasticity never pruned or sprouted anything here, the
 /// occupied-count comparison above would be trivially true for the wrong

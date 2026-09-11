@@ -36,6 +36,15 @@ pub struct NeuronStateMut<'a> {
     /// simply stays at its resting value for any run that doesn't use
     /// them.
     pub predictive: &'a mut f32,
+    /// Spike-frequency adaptation (NEU-8): a slow outward current that
+    /// increases on each committed spike and decays between them, raising
+    /// the neuron's *effective* drive requirement the same way `predictive`
+    /// lowers its effective threshold -- opposite sign, same mechanism
+    /// shape. `0.0` when adaptation is disabled (`LifParams::new`'s
+    /// default), so every pre-Phase-5.5 caller is unaffected, the same
+    /// guarantee `predictive` already gives (see `NEU-8`/Phase 5.5
+    /// Requirement 2).
+    pub adaptation: &'a mut f32,
     /// Read-only here: homeostasis (NEU-7, Step 6) adapts this elsewhere,
     /// not as part of ordinary integration.
     pub threshold: f32,
@@ -142,6 +151,15 @@ pub struct LifParams {
     /// remains a real, crossable, positive value on its own). Defaults to
     /// `0.0`.
     pub predictive_threshold_reduction: f32,
+    /// `exp(-1 / tau_adaptation_ticks)` -- spike-frequency adaptation's own
+    /// decay (NEU-8), independent of membrane decay. Defaults to `0.0`
+    /// (instant decay, i.e. no lingering adaptation) via [`LifParams::new`],
+    /// so existing callers that never touch adaptation are unaffected.
+    pub adaptation_decay_per_tick: f32,
+    /// Added to `adaptation` on every *committed* spike (never a vetoed
+    /// one -- adaptation reflects the cell's own firing history, not near
+    /// misses). Defaults to `0.0`.
+    pub adaptation_increment: f32,
 }
 
 impl LifParams {
@@ -149,7 +167,10 @@ impl LifParams {
     /// `predictive_threshold_reduction` both `0.0`): `predictive` decays
     /// to nothing instantly and contributes no threshold reduction, so
     /// existing callers that never configure segments see no behaviour
-    /// change. Use [`LifParams::with_predictive`] to enable it.
+    /// change. Use [`LifParams::with_predictive`] to enable it. Adaptation
+    /// (`adaptation_decay_per_tick`, `adaptation_increment`) defaults to
+    /// `0.0` the same way, for the same reason -- see
+    /// [`LifParams::with_adaptation`].
     pub fn new(tau_m_ticks: f32, v_rest: f32, v_reset: f32, refractory_ticks: u32) -> Self {
         debug_assert!(tau_m_ticks > 0.0, "tau_m_ticks must be positive");
         Self {
@@ -159,6 +180,8 @@ impl LifParams {
             refractory_ticks,
             predictive_decay_per_tick: 0.0,
             predictive_threshold_reduction: 0.0,
+            adaptation_decay_per_tick: 0.0,
+            adaptation_increment: 0.0,
         }
     }
 
@@ -166,6 +189,18 @@ impl LifParams {
         debug_assert!(tau_predictive_ticks > 0.0, "tau_predictive_ticks must be positive");
         self.predictive_decay_per_tick = (-1.0 / tau_predictive_ticks).exp();
         self.predictive_threshold_reduction = threshold_reduction;
+        self
+    }
+
+    /// Enables spike-frequency adaptation (NEU-8): each committed spike adds
+    /// `increment` to `adaptation`, which decays with time constant
+    /// `tau_adaptation_ticks` and is subtracted from effective input current
+    /// every tick (see [`Lif::integrate`]) -- a per-spike brake distinct
+    /// from k-WTA (per-tick) and intrinsic homeostasis (per-sweep).
+    pub fn with_adaptation(mut self, tau_adaptation_ticks: f32, increment: f32) -> Self {
+        debug_assert!(tau_adaptation_ticks > 0.0, "tau_adaptation_ticks must be positive");
+        self.adaptation_decay_per_tick = (-1.0 / tau_adaptation_ticks).exp();
+        self.adaptation_increment = increment;
         self
     }
 }
@@ -192,11 +227,20 @@ impl NeuronDynamics for Lif {
         if tick < *state.refractory_until {
             *state.membrane = p.v_reset;
             *state.predictive *= p.predictive_decay_per_tick;
-            let still_active = tick + 1 < *state.refractory_until || *state.predictive > SETTLE_EPSILON;
+            *state.adaptation *= p.adaptation_decay_per_tick;
+            let still_active = tick + 1 < *state.refractory_until
+                || *state.predictive > SETTLE_EPSILON
+                || *state.adaptation > SETTLE_EPSILON;
             return IntegrationOutcome { crossed_threshold: false, margin: 0.0, still_active };
         }
 
-        let target = p.v_rest + input;
+        // NEU-8: adaptation is a slow outward current, subtracted from
+        // effective drive at its *current* (undecayed) value this tick --
+        // the same "use now, decay after" ordering `predictive_now` above
+        // already establishes, so a spike that just incremented adaptation
+        // on this very tick's `commit_spike` call is felt starting next
+        // tick, not retroactively docked against the input that produced it.
+        let target = p.v_rest + input - state.adaptation.clamp(0.0, f32::MAX);
         *state.membrane = target + (*state.membrane - target) * p.decay_per_tick;
 
         // Requirement 10.3: predictive state *lowers* the effective
@@ -206,14 +250,16 @@ impl NeuronDynamics for Lif {
         let crossed = *state.membrane >= effective_threshold;
 
         *state.predictive *= p.predictive_decay_per_tick;
+        *state.adaptation *= p.adaptation_decay_per_tick;
 
         if crossed {
             // still_active is ignored by the scheduler whenever
             // crossed_threshold is true -- see that field's doc comment.
             IntegrationOutcome { crossed_threshold: true, margin: *state.membrane - effective_threshold, still_active: false }
         } else {
-            let unsettled =
-                (*state.membrane - p.v_rest).abs() > SETTLE_EPSILON || *state.predictive > SETTLE_EPSILON;
+            let unsettled = (*state.membrane - p.v_rest).abs() > SETTLE_EPSILON
+                || *state.predictive > SETTLE_EPSILON
+                || *state.adaptation > SETTLE_EPSILON;
             IntegrationOutcome { crossed_threshold: false, margin: 0.0, still_active: unsettled }
         }
     }
@@ -222,6 +268,7 @@ impl NeuronDynamics for Lif {
         *state.last_spike = tick;
         *state.membrane = p.v_reset;
         *state.refractory_until = tick + 1 + p.refractory_ticks;
+        *state.adaptation += p.adaptation_increment;
     }
 
     fn veto_spike(_state: NeuronStateMut<'_>, _p: &LifParams, _tick: u32) {
@@ -236,14 +283,16 @@ impl NeuronDynamics for Lif {
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
     fn make_state<'a>(
         membrane: &'a mut f32,
         refractory_until: &'a mut u32,
         last_spike: &'a mut u32,
         predictive: &'a mut f32,
+        adaptation: &'a mut f32,
         threshold: f32,
     ) -> NeuronStateMut<'a> {
-        NeuronStateMut { membrane, refractory_until, last_spike, predictive, threshold }
+        NeuronStateMut { membrane, refractory_until, last_spike, predictive, adaptation, threshold }
     }
 
     /// Replicates the old, pre-inhibition `step()`: integrate, and if it
@@ -263,13 +312,14 @@ mod tests {
         refractory_until: &mut u32,
         last_spike: &mut u32,
         predictive: &mut f32,
+        adaptation: &mut f32,
         threshold: f32,
         p: &LifParams,
         input: f32,
         tick: u32,
     ) -> (bool, bool) {
         let outcome = Lif::integrate(
-            NeuronStateMut { membrane, refractory_until, last_spike, predictive, threshold },
+            NeuronStateMut { membrane, refractory_until, last_spike, predictive, adaptation, threshold },
             p,
             input,
             tick,
@@ -281,7 +331,11 @@ mod tests {
         // lose here, so this always commits): still_active depends on
         // whether refractory continues past next tick, read back from the
         // arena since commit_spike just set it.
-        Lif::commit_spike(NeuronStateMut { membrane, refractory_until, last_spike, predictive, threshold }, p, tick);
+        Lif::commit_spike(
+            NeuronStateMut { membrane, refractory_until, last_spike, predictive, adaptation, threshold },
+            p,
+            tick,
+        );
         let still_active = *refractory_until > tick + 1;
         (true, still_active)
     }
@@ -294,9 +348,10 @@ mod tests {
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
         let mut predictive = 0.0f32;
+        let mut adaptation = 0.0f32;
         for tick in 0..200u32 {
             let (spiked, _) = step_without_competition(
-                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, 100.0,
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, 100.0,
                 &params,
                 0.0,
                 tick,
@@ -317,10 +372,11 @@ mod tests {
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
         let mut predictive = 0.0f32;
+        let mut adaptation = 0.0f32;
         let mut last_still_active = true;
         for tick in 0..300u32 {
             let (spiked, still_active) = step_without_competition(
-                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, 1000.0,
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, 1000.0,
                 &params,
                 0.0,
                 tick,
@@ -341,9 +397,10 @@ mod tests {
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
         let mut predictive = 0.0f32;
+        let mut adaptation = 0.0f32;
         for tick in 0..10_000u32 {
             let (spiked, _) = step_without_competition(
-                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold,
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, threshold,
                 &params,
                 input,
                 tick,
@@ -361,9 +418,10 @@ mod tests {
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
         let mut predictive = 0.0f32;
+        let mut adaptation = 0.0f32;
 
         let (spiked, still_active) = step_without_competition(
-            &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold,
+            &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, threshold,
             &params,
             10.0,
             0,
@@ -377,7 +435,7 @@ mod tests {
         // While refractory, strong input must not produce another spike.
         for tick in 1..=3u32 {
             let (spiked, _) = step_without_competition(
-                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold,
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, threshold,
                 &params,
                 1000.0,
                 tick,
@@ -389,7 +447,7 @@ mod tests {
         // Refractory ends at tick 4 (refractory_until=4): large input should
         // now be free to drive an immediate spike.
         let (spiked, _) = step_without_competition(
-            &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold,
+            &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, threshold,
             &params,
             1000.0,
             4,
@@ -404,8 +462,9 @@ mod tests {
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
         let mut predictive = 0.0f32;
+        let mut adaptation = 0.0f32;
         let (spiked, still_active) = step_without_competition(
-            &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, 1.0,
+            &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, 1.0,
             &params,
             10.0,
             0,
@@ -425,12 +484,21 @@ mod tests {
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
         let mut predictive = 0.0f32;
+        let mut adaptation = 0.0f32;
         let threshold = 1.0;
 
-        let outcome =
-            Lif::integrate(make_state(&mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold), &params, 0.0, 0);
+        let outcome = Lif::integrate(
+            make_state(&mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, threshold),
+            &params,
+            0.0,
+            0,
+        );
         assert!(outcome.crossed_threshold);
-        Lif::veto_spike(make_state(&mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold), &params, 0);
+        Lif::veto_spike(
+            make_state(&mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, threshold),
+            &params,
+            0,
+        );
 
         assert!(membrane >= threshold, "a vetoed spike must not be reset");
         assert_eq!(last_spike, u32::MAX, "a vetoed spike must not record last_spike");
@@ -460,10 +528,11 @@ mod tests {
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
         let mut predictive = 0.0f32;
+        let mut adaptation = 0.0f32;
         let mut spike_ticks = Vec::new();
         for tick in 0..20_000u32 {
             let (spiked, _) = step_without_competition(
-                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, threshold,
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, threshold,
                 &params,
                 input,
                 tick,
@@ -505,8 +574,10 @@ mod tests {
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
         let mut predictive = 1.0f32; // fully depolarised
-        let (spiked, _) =
-            step_without_competition(&mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, 1.0, &params, 0.0, 0);
+        let mut adaptation = 0.0f32;
+        let (spiked, _) = step_without_competition(
+            &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, 1.0, &params, 0.0, 0,
+        );
         assert!(!spiked, "predictive state with zero feedforward input must not spike by itself");
     }
 
@@ -532,11 +603,13 @@ mod tests {
         let mut predicted_refractory = 0u32;
         let mut predicted_last_spike = u32::MAX;
         let mut predicted_predictive = 1.0f32;
+        let mut predicted_adaptation = 0.0f32;
 
         let mut plain_membrane = 0.0f32;
         let mut plain_refractory = 0u32;
         let mut plain_last_spike = u32::MAX;
         let mut plain_predictive = 0.0f32;
+        let mut plain_adaptation = 0.0f32;
 
         let mut predicted_spiked_tick = None;
         let mut plain_spiked_tick = None;
@@ -544,7 +617,7 @@ mod tests {
             if predicted_spiked_tick.is_none() {
                 let (spiked, _) = step_without_competition(
                     &mut predicted_membrane, &mut predicted_refractory, &mut predicted_last_spike, &mut predicted_predictive,
-                    threshold, &params, input, tick,
+                    &mut predicted_adaptation, threshold, &params, input, tick,
                 );
                 if spiked {
                     predicted_spiked_tick = Some(tick);
@@ -552,8 +625,8 @@ mod tests {
             }
             if plain_spiked_tick.is_none() {
                 let (spiked, _) = step_without_competition(
-                    &mut plain_membrane, &mut plain_refractory, &mut plain_last_spike, &mut plain_predictive, threshold, &params,
-                    input, tick,
+                    &mut plain_membrane, &mut plain_refractory, &mut plain_last_spike, &mut plain_predictive,
+                    &mut plain_adaptation, threshold, &params, input, tick,
                 );
                 if spiked {
                     plain_spiked_tick = Some(tick);
@@ -573,8 +646,11 @@ mod tests {
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
         let mut predictive = 1.0f32;
+        let mut adaptation = 0.0f32;
         for _ in 0..200 {
-            step_without_competition(&mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, 100.0, &params, 0.0, 0);
+            step_without_competition(
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, 100.0, &params, 0.0, 0,
+            );
         }
         assert!(predictive < 0.01, "predictive state should have decayed to near nothing after 20 time constants, got {predictive}");
     }
@@ -589,8 +665,140 @@ mod tests {
         let mut refractory_until = 0u32;
         let mut last_spike = u32::MAX;
         let mut predictive = 1.0f32; // even if somehow set, must have zero effect
-        let (spiked, _) = step_without_competition(&mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, 1.0, &params, 0.9, 0);
+        let mut adaptation = 0.0f32;
+        let (spiked, _) = step_without_competition(
+            &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, 1.0, &params, 0.9, 0,
+        );
         assert!(!spiked, "with predictive_threshold_reduction=0.0, predictive must have no effect on thresholding");
         assert_eq!(predictive, 0.0, "with predictive_decay_per_tick=0.0, predictive decays to zero on the very next tick");
+    }
+
+    // -- Spike-frequency adaptation (NEU-8, Phase 5.5 Requirement 2): a
+    // slow outward current that increases on each committed spike and
+    // decays between them, raising the *effective* drive requirement the
+    // same way `predictive` lowers the effective threshold (opposite sign,
+    // same mechanism shape). These tests mirror the predictive-state tests
+    // above field-for-field.
+
+    #[test]
+    fn adaptation_increments_on_spike_and_decays_between_spikes() {
+        let params = LifParams::new(5.0, 0.0, 0.0, 0).with_adaptation(50.0, 0.5);
+        let mut membrane = 0.99f32; // one strong-input tick from threshold
+        let mut refractory_until = 0u32;
+        let mut last_spike = u32::MAX;
+        let mut predictive = 0.0f32;
+        let mut adaptation = 0.0f32;
+        let (spiked, _) = step_without_competition(
+            &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, 1.0, &params, 10.0, 0,
+        );
+        assert!(spiked);
+        assert!(adaptation > 0.0, "a committed spike must increment adaptation");
+        let just_after_spike = adaptation;
+        for tick in 1..50u32 {
+            step_without_competition(
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, 1.0, &params, 0.0, tick,
+            );
+        }
+        assert!(adaptation < just_after_spike, "adaptation must decay with no further spikes, got {adaptation} vs {just_after_spike}");
+    }
+
+    #[test]
+    fn adaptation_raises_the_effective_drive_requirement_making_refiring_harder() {
+        // Requirement 2 AC3: a neuron with accumulated adaptation is
+        // measurably harder to re-fire than an otherwise-identical neuron
+        // with none, under the same input -- the sign-flipped counterpart
+        // of `predictive_state_lowers_the_effective_threshold`.
+        let params = LifParams::new(20.0, 0.0, 0.0, 0).with_adaptation(1000.0, 0.5);
+        let input = 1.2; // supra-threshold against 1.0 with no adaptation, sub-threshold once 1.0 of accumulated adaptation is subtracted
+
+        let mut adapted_membrane = 0.0f32;
+        let mut adapted_refractory = 0u32;
+        let mut adapted_last_spike = u32::MAX;
+        let mut adapted_predictive = 0.0f32;
+        let mut adapted_adaptation = 1.0f32; // already accumulated, as if from prior spikes
+
+        let mut plain_membrane = 0.0f32;
+        let mut plain_refractory = 0u32;
+        let mut plain_last_spike = u32::MAX;
+        let mut plain_predictive = 0.0f32;
+        let mut plain_adaptation = 0.0f32;
+
+        let mut adapted_spiked_tick = None;
+        let mut plain_spiked_tick = None;
+        for tick in 0..500u32 {
+            if adapted_spiked_tick.is_none() {
+                let (spiked, _) = step_without_competition(
+                    &mut adapted_membrane, &mut adapted_refractory, &mut adapted_last_spike, &mut adapted_predictive,
+                    &mut adapted_adaptation, 1.0, &params, input, tick,
+                );
+                if spiked {
+                    adapted_spiked_tick = Some(tick);
+                }
+            }
+            if plain_spiked_tick.is_none() {
+                let (spiked, _) = step_without_competition(
+                    &mut plain_membrane, &mut plain_refractory, &mut plain_last_spike, &mut plain_predictive,
+                    &mut plain_adaptation, 1.0, &params, input, tick,
+                );
+                if spiked {
+                    plain_spiked_tick = Some(tick);
+                }
+            }
+        }
+
+        assert!(plain_spiked_tick.is_some(), "plain neuron should spike under this supra-threshold input");
+        assert!(
+            adapted_spiked_tick.is_none() || adapted_spiked_tick > plain_spiked_tick,
+            "adapted neuron should spike later than (or never, within the window, unlike) the plain one"
+        );
+    }
+
+    #[test]
+    fn zero_adaptation_configuration_is_unaffected_by_adaptation_field() {
+        // Regression guard: LifParams::new (without with_adaptation) must
+        // leave existing behaviour completely unchanged. Unlike
+        // `predictive` (which `segment.rs` can set independently of
+        // `LifParams`, so that test forces a nonzero initial value),
+        // `adaptation` is only ever written by `commit_spike`'s
+        // `adaptation_increment` -- with that at its default `0.0`, driving
+        // a neuron through several real spikes under supra-threshold
+        // current must leave `adaptation` at exactly `0.0` throughout.
+        let params = LifParams::new(20.0, 0.0, 0.0, 5);
+        let mut membrane = 0.0f32;
+        let mut refractory_until = 0u32;
+        let mut last_spike = u32::MAX;
+        let mut predictive = 0.0f32;
+        let mut adaptation = 0.0f32;
+        let mut spikes = 0;
+        for tick in 0..1000u32 {
+            let (spiked, _) = step_without_competition(
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, 1.0, &params, 2.0, tick,
+            );
+            if spiked {
+                spikes += 1;
+            }
+            assert_eq!(adaptation, 0.0, "with adaptation_increment=0.0, adaptation must stay exactly zero, tick {tick}");
+        }
+        assert!(spikes > 1, "expected multiple spikes under supra-threshold current, got {spikes}");
+    }
+
+    #[test]
+    fn adaptation_stays_non_negative_and_bounded_over_a_long_run() {
+        // Property-style invariant check (Requirement 2.6, VAL-8's
+        // discipline): repeated spiking under a large increment must not
+        // drive adaptation negative or into non-finite territory.
+        let params = LifParams::new(5.0, 0.0, 0.0, 0).with_adaptation(20.0, 10.0);
+        let mut membrane = 0.0f32;
+        let mut refractory_until = 0u32;
+        let mut last_spike = u32::MAX;
+        let mut predictive = 0.0f32;
+        let mut adaptation = 0.0f32;
+        for tick in 0..5_000u32 {
+            step_without_competition(
+                &mut membrane, &mut refractory_until, &mut last_spike, &mut predictive, &mut adaptation, 1.0, &params, 5.0, tick,
+            );
+            assert!(adaptation >= 0.0, "adaptation must never go negative, got {adaptation} at tick {tick}");
+            assert!(adaptation.is_finite(), "adaptation must stay finite, got {adaptation} at tick {tick}");
+        }
     }
 }

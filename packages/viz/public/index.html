@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Brain visualiser</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0b1120;
+        color: #e5e7eb;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.5rem 1rem;
+        background: #111827;
+        border-bottom: 1px solid #1f2937;
+        flex-wrap: wrap;
+      }
+      header form {
+        display: inline-flex;
+        gap: 0.25rem;
+        align-items: center;
+      }
+      header input[type="number"] {
+        width: 5rem;
+      }
+      main {
+        flex: 1;
+        display: flex;
+        min-height: 0;
+      }
+      #graph-container {
+        flex: 1;
+        position: relative;
+      }
+      #graph {
+        width: 100%;
+        height: 100%;
+        display: block;
+        background: #0b1120;
+      }
+      #segment-panel {
+        width: 20rem;
+        overflow-y: auto;
+        padding: 0.75rem 1rem;
+        background: #111827;
+        border-left: 1px solid #1f2937;
+      }
+      #segment-panel ul {
+        padding-left: 1.1rem;
+        max-height: 8rem;
+        overflow-y: auto;
+      }
+      #segment-panel pre {
+        white-space: pre-wrap;
+        font-size: 0.75rem;
+        background: #0b1120;
+        padding: 0.5rem;
+        border-radius: 4px;
+      }
+      footer {
+        padding: 0.35rem 1rem;
+        background: #111827;
+        border-top: 1px solid #1f2937;
+        font-size: 0.8rem;
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+      button {
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <header id="controls">
+      <strong>Brain visualiser</strong>
+      <span id="status">connecting...</span>
+      <button type="button" data-action="pause">Pause</button>
+      <button type="button" data-action="resume">Resume</button>
+      <button type="button" data-action="step">Step once</button>
+      <form data-form="stimulate">
+        <label>Stimulate neuron <input type="number" name="index" min="0" step="1" required /></label>
+        <label>current <input type="number" name="current" step="0.1" value="10" required /></label>
+        <button type="submit">Go</button>
+      </form>
+      <form data-form="reward">
+        <label>Reward <input type="number" name="amount" step="0.1" value="1" required /></label>
+        <button type="submit">Send</button>
+      </form>
+      <label>State stride <input type="number" data-input="stride" min="1" step="1" value="1" /></label>
+      <label><input type="checkbox" data-input="show-potential" /> Show potential synapses</label>
+      <button type="button" data-action="request-raster">Request raster</button>
+      <button type="button" data-action="request-metrics">Request metrics</button>
+    </header>
+    <main>
+      <div id="graph-container">
+        <canvas id="graph"></canvas>
+      </div>
+      <aside id="segment-panel" hidden></aside>
+    </main>
+    <footer>
+      <span id="metrics">(no metrics yet -- click "Request metrics")</span>
+      <span>
+        <label>Scrub <input type="range" id="scrub" min="0" max="0" value="0" disabled /></label>
+        <button type="button" id="follow" disabled>Follow live</button>
+      </span>
+    </footer>
+    <script type="module" src="/dist/client/main.js"></script>
+  </body>
+</html>

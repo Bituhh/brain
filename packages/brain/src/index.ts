@@ -15,6 +15,7 @@ import {
   type PredictiveLearningConfig,
   type ColumnConfig,
   type VotingGroupConfig,
+  type GatingGroupConfig,
   type ColumnHandleFfi,
   type DistancePolicyConfig,
   type PlasticityConfig,
@@ -23,6 +24,11 @@ import {
   type ConsolidationReportFfi,
   type HomeostaticScalingConfig,
   type StructuralPlasticityConfig,
+  type ProbeOptionsFfi,
+  type ProbeDataFfi,
+  type SegmentSampleFfi,
+  type WeightSampleFfi,
+  type MetricsSnapshotFfi,
 } from "@brain/napi";
 import { openSync, writeSync, fsyncSync, closeSync, renameSync, readFileSync } from "node:fs";
 
@@ -33,6 +39,7 @@ export type {
   PredictiveLearningConfig,
   ColumnConfig,
   VotingGroupConfig,
+  GatingGroupConfig,
   DistancePolicyConfig,
   PlasticityConfig,
   StdpConfig,
@@ -40,6 +47,17 @@ export type {
   HomeostaticScalingConfig,
   StructuralPlasticityConfig,
 };
+
+/** A probe's configuration (OBS-1, Phase 6 Requirement 4). */
+export type ProbeOptions = ProbeOptionsFfi;
+/** A probe's recorded data (OBS-1, Phase 6 Requirement 4). */
+export type ProbeData = ProbeDataFfi;
+/** One dendritic-segment activity sample (Phase 6 Requirement 6). */
+export type SegmentSample = SegmentSampleFfi;
+/** One weight sample read back from a probe (Phase 6 Requirement 4). */
+export type WeightSample = WeightSampleFfi;
+/** The on-demand arena-level metrics scan (OBS-2, Phase 6 Requirement 5). */
+export type MetricsSnapshot = MetricsSnapshotFfi;
 
 /** What one consolidation pass did (Requirement 12). */
 export type ConsolidationReport = ConsolidationReportFfi;
@@ -303,6 +321,15 @@ export class Simulation {
   readonly #options: SimulationOptions;
   #membraneViewCache: { epoch: number; array: Float32Array } | undefined;
   #predictiveViewCache: { epoch: number; array: Float32Array } | undefined;
+  /**
+   * Requirement 1/2 (Phase 6): every additional bulk view added this phase
+   * shares one cache keyed by name rather than repeating
+   * `membraneView()`/`predictiveView()`'s own per-field cache-field
+   * boilerplate eleven more times -- same per-epoch validity contract,
+   * same "mint at most once per epoch" behaviour, just one map instead of
+   * one field per view.
+   */
+  #viewCache = new Map<string, { epoch: number; array: unknown }>();
 
   private constructor(native: NativeSimulation, lif: LifConfig, options: SimulationOptions) {
     this.#native = native;
@@ -388,17 +415,24 @@ export class Simulation {
   /**
    * Builds a column-structured network (Requirement 8): allocates and
    * wires every column in `columns` via `GraphBuilder::build_column`, then
-   * wires `votingGroups`'s lateral-voting connectivity between already-
-   * built columns via `connect_lateral_voting`. Must be called before the
-   * first `stimulate`/`allocate`/`connect`/`step` call -- the same
+   * wires `votingGroups`'s lateral-voting connectivity and `gatingGroups`'s
+   * cross-population inhibitory connectivity (Phase 5.5 Requirement 3)
+   * between already-built columns via `connect_lateral_voting`/
+   * `connect_between`. Must be called before the first
+   * `stimulate`/`allocate`/`connect`/`step` call -- the same
    * construction-time contract `options.totalNeurons` already carries
    * (caller-enforced, not runtime-checked; see `build_columns`'s Rust doc
-   * comment). Omitting `votingGroups` builds columns with no lateral
-   * voting between them, which is Requirement 2.4's ablation path, not a
-   * special case.
+   * comment). Omitting `votingGroups`/`gatingGroups` builds columns with no
+   * lateral voting/gating between them, which is each requirement's own
+   * ablation path, not a special case.
    */
-  buildColumns(seed: bigint, columns: ColumnConfig[], votingGroups: VotingGroupConfig[] = []): ColumnHandle[] {
-    return this.#native.buildColumns(seed, columns, votingGroups);
+  buildColumns(
+    seed: bigint,
+    columns: ColumnConfig[],
+    votingGroups: VotingGroupConfig[] = [],
+    gatingGroups: GatingGroupConfig[] = [],
+  ): ColumnHandle[] {
+    return this.#native.buildColumns(seed, columns, votingGroups, gatingGroups);
   }
 
   /** Delivers `current` to a neuron on the next `step()` call (stand-in for IO-1's encoders). */
@@ -473,6 +507,94 @@ export class Simulation {
     return this.#predictiveViewCache.array;
   }
 
+  /** @internal shared per-epoch cache for every Phase 6 bulk view below. */
+  #cachedView<T>(key: string, fetch: () => T): T {
+    const epoch = this.#native.epoch();
+    const cached = this.#viewCache.get(key);
+    if (!cached || cached.epoch !== epoch) {
+      const array = fetch();
+      this.#viewCache.set(key, { epoch, array });
+      return array;
+    }
+    return cached.array as T;
+  }
+
+  /** Zero-copy view over every neuron's position (NET-3, Phase 6 Requirement 1), flattened `[x0,y0,z0,x1,y1,z1,...]`. Same caching/validity contract as `membraneView()`. */
+  coordsView(): Float32Array {
+    return this.#cachedView("coords", () => this.#native.coordsView());
+  }
+
+  /** Zero-copy view over every neuron's fixed polarity (NEU-4, Phase 6 Requirement 1). Same caching/validity contract as `membraneView()`. */
+  polarityView(): Int8Array {
+    return this.#cachedView("polarity", () => this.#native.polarityView());
+  }
+
+  /** Zero-copy view over every neuron's threshold (Phase 6 Requirement 1). Same caching/validity contract as `membraneView()`. */
+  thresholdView(): Float32Array {
+    return this.#cachedView("threshold", () => this.#native.thresholdView());
+  }
+
+  /** Zero-copy view over the tick until which each neuron is refractory (NEU-1, Phase 6 Requirement 1). Same caching/validity contract as `membraneView()`. */
+  refractoryView(): Uint32Array {
+    return this.#cachedView("refractory", () => this.#native.refractoryView());
+  }
+
+  /** Zero-copy view over the tick each neuron last spiked at (Phase 6 Requirement 1). Same caching/validity contract as `membraneView()`. */
+  lastSpikeView(): Uint32Array {
+    return this.#cachedView("lastSpike", () => this.#native.lastSpikeView());
+  }
+
+  /** Zero-copy view over every neuron's spike-frequency adaptation state (NEU-8, Phase 6 Requirement 1). Same caching/validity contract as `membraneView()`. */
+  adaptationView(): Float32Array {
+    return this.#cachedView("adaptation", () => this.#native.adaptationView());
+  }
+
+  /** `SynapseArena`'s fixed per-source-block capacity (Phase 6 Requirement 2.1) -- a synapse id `i`'s source neuron is `Math.floor(i / synapseCapPerNeuron())`. */
+  synapseCapPerNeuron(): number {
+    return this.#native.synapseCapPerNeuron();
+  }
+
+  /** Zero-copy view over every synapse slot's target neuron (SYN-1, Phase 6 Requirement 2). Includes unoccupied slots -- see `synapseOccupiedView()`. */
+  synapseTargetNeuronView(): Uint32Array {
+    return this.#cachedView("synapseTargetNeuron", () => this.#native.synapseTargetNeuronView());
+  }
+
+  /** Zero-copy view over every synapse slot's target dendritic segment (SYN-1, Phase 6 Requirement 2). */
+  synapseTargetSegmentView(): Uint32Array {
+    return this.#cachedView("synapseTargetSegment", () => this.#native.synapseTargetSegmentView());
+  }
+
+  /** Zero-copy view over every synapse slot's permanence (SYN-3, Phase 6 Requirement 2) -- filter against `connectionThreshold` client-side to find functionally-connected synapses. */
+  synapsePermanenceView(): Float32Array {
+    return this.#cachedView("synapsePermanence", () => this.#native.synapsePermanenceView());
+  }
+
+  /** Zero-copy view over every synapse slot's axonal delay (SYN-2, Phase 6 Requirement 2). */
+  synapseDelayView(): Uint16Array {
+    return this.#cachedView("synapseDelay", () => this.#native.synapseDelayView());
+  }
+
+  /**
+   * Whether each synapse slot is occupied (Phase 6 Requirement 2.1) --
+   * **not zero-copy** (see `NativeSimulation.synapse_occupied_view`'s Rust
+   * doc comment) **and deliberately not cached**, unlike every other view
+   * on this class: structural plasticity (LRN-7) can prune or sprout a
+   * synapse within an already-reserved block on any tick, with no epoch
+   * bump at all (epoch tracks *neuron*-count growth/reallocation, which is
+   * a coarser event) -- caching this by epoch would silently serve stale
+   * occupancy across ticks where only occupancy, not neuron count,
+   * changed. Every other bulk view above is a genuinely live, zero-copy
+   * window into Rust-owned memory (mutations are visible with no refetch,
+   * the same property `membraneView()` already relies on), so caching
+   * *them* by epoch is a pure "don't re-mint the wrapper" optimisation
+   * with no staleness risk -- this one is different because the
+   * underlying call itself is a fresh copy, so skipping the cache costs
+   * nothing extra and buys correctness.
+   */
+  synapseOccupiedView(): Uint8Array {
+    return this.#native.synapseOccupiedView();
+  }
+
   /**
    * Sets a membrane value directly. A caller driving discrete,
    * one-symbol-per-tick presentations (rather than continuous drive) uses
@@ -517,5 +639,86 @@ export class Simulation {
    */
   runConsolidation(seed: bigint, config: ConsolidationConfig): ConsolidationReport {
     return this.#native.runConsolidation(seed, config);
+  }
+
+  /**
+   * The connection threshold this simulation was constructed with (SYN-3),
+   * Phase 6: a caller filtering synapse bulk views for the functionally-
+   * connected subset (design.md's Requirement 2.2 decision) needs this
+   * value and has no other way to recover it, since `#options` is
+   * otherwise private to this instance.
+   */
+  get connectionThreshold(): number {
+    return this.#options.connectionThreshold;
+  }
+
+  /**
+   * The arena's current epoch (Requirement 2.2), Phase 6: lets a caller
+   * like `packages/viz`'s server detect structural growth (NET-7/NET-10)
+   * between ticks and re-push topology, without needing to mint or
+   * compare an actual view.
+   */
+  epoch(): number {
+    return this.#native.epoch();
+  }
+
+  /**
+   * Whether this simulation is running in partitioned mode (`threadCount
+   * > 1`), Phase 6 -- lets a caller like `packages/viz`'s server refuse to
+   * start against a partitioned simulation up front, rather than
+   * discovering the restriction lazily via a thrown error.
+   */
+  isPartitioned(): boolean {
+    return this.#native.isPartitioned();
+  }
+
+  /**
+   * Exports the recorded spike raster (OBS-3, Phase 6 Requirement 3) via
+   * `SpikeRaster::export`'s existing binary format -- the historical
+   * record VIZ-3's time-scrubbing replays. Single-threaded
+   * (`threadCount` omitted or 1) only, matching `snapshot()`/
+   * `runConsolidation()`'s existing restriction.
+   */
+  rasterBytes(): Uint8Array {
+    return this.#native.rasterBytes();
+  }
+
+  /**
+   * Attaches a probe to `neuron` (OBS-1, Phase 6 Requirement 4), replacing
+   * any probe already attached to it. Fed automatically from inside
+   * `step()` -- no separate polling call is required. Single-threaded
+   * only, matching `rasterBytes()`.
+   */
+  attachProbe(neuron: number, options: ProbeOptions): void {
+    this.#native.attachProbe(neuron, options);
+  }
+
+  /** Detaches `neuron`'s probe, if any (Requirement 4.4) -- a no-op if none was attached. */
+  detachProbe(neuron: number): void {
+    this.#native.detachProbe(neuron);
+  }
+
+  /** Reads back `neuron`'s probe data (Requirement 4.3), or `undefined` if no probe is attached to it. */
+  readProbe(neuron: number): ProbeData | undefined {
+    return this.#native.readProbe(neuron) ?? undefined;
+  }
+
+  /** Population firing rate over the always-on window (OBS-2, Requirement 5.1) -- cheap enough to call every tick. */
+  firingRate(): number {
+    return this.#native.firingRate();
+  }
+
+  /** Prediction accuracy over the always-on window (OBS-2, Requirement 5.1). */
+  predictionAccuracy(): number {
+    return this.#native.predictionAccuracy();
+  }
+
+  /**
+   * The on-demand, O(neurons+synapses) metrics scan (OBS-2, Requirement
+   * 5.2) -- never run automatically inside `step()`; call at whatever
+   * cadence the caller decides (design.md's Requirement 5.3 decision).
+   */
+  metricsSnapshot(): MetricsSnapshot {
+    return this.#native.metricsSnapshot();
   }
 }

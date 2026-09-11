@@ -44,6 +44,13 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const REQUIREMENTS_PATHS = [
   path.join(repoRoot, '.claude', 'scratch', 'brain-engine', 'requirements.md'),
   path.join(repoRoot, '.claude', 'scratch', 'brain-engine-phase5', 'requirements.md'),
+  // Phase 5.5 joins the same known id-collision limitation documented above
+  // (its own Requirements 1-9 restart from scratch too) -- accepted rather
+  // than fixed here, following Phase 5's own precedent for joining this list.
+  path.join(repoRoot, '.claude', 'scratch', 'brain-engine-phase5-5', 'requirements.md'),
+  // Phase 6 (browser visualiser) joins the same list, same known
+  // id-collision limitation, same precedent.
+  path.join(repoRoot, '.claude', 'scratch', 'brain-engine-phase6', 'requirements.md'),
 ];
 
 // Deliberate, reviewed gaps -- add to this list only with a comment
@@ -72,6 +79,26 @@ const DEFERRED = new Set([
   '17.4',
   '17.5',
   '17.6',
+  // Phase 5.5 Requirement 7 (LRN-12 build/no-build decision): the same
+  // shape as Phase 5's Requirement 17 above. Satisfied by README §12
+  // decision 9 ("not built" -- see requirements.md's Requirement 7,
+  // Acceptance Criterion 2), not by a citing test; ACs 3-5 describe the
+  // conditional-build branch, which this decision did not take, so there is
+  // deliberately no fast-binding code in this phase to cite them either.
+  '7.1',
+  '7.2',
+  '7.3',
+  '7.4',
+  '7.5',
+  // Phase 5.5 Requirement 8 (honest reporting of empirical results): a
+  // process/documentation requirement discharged by README §11's Phase 5.5
+  // status block, not by a citing test -- there is nothing in these three
+  // acceptance criteria for a unit/integration test to assert beyond what
+  // the emergent-behaviour tests (NET-12/13/9) already do, which are
+  // themselves cited elsewhere under Requirements 1/3-5/6.
+  '8.1',
+  '8.2',
+  '8.3',
 ]);
 
 const TEST_DIRS = [
@@ -80,6 +107,7 @@ const TEST_DIRS = [
   path.join(repoRoot, 'crates', 'brain-napi', 'src'),
   path.join(repoRoot, 'packages', 'brain', 'test'),
   path.join(repoRoot, 'packages', 'io', 'test'),
+  path.join(repoRoot, 'packages', 'viz', 'test'),
   path.join(repoRoot, 'scripts'), // this checker itself cites 15.9/15.10 in its own header
 ];
 const TEST_FILE_EXTENSIONS = new Set(['.rs', '.ts', '.mjs']);
