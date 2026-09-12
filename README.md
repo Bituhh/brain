@@ -1687,23 +1687,23 @@ Three claims, in decreasing order of confidence that they are unprecedented.
    Trials so far, against the identical protocol (5 seeds, 15,000 characters, the same corpus
    slice) item 7's 3.23% figure above was measured with:
 
-   | targetRate | smoothing | adjustmentRate | minThreshold | intervalTicks | seeds | mean network accuracy | range across seeds |
-   |---|---|---|---|---|---|---|---|
-   | *(mechanism disabled — item 7's fixed-`coincidenceThreshold: 3` baseline)* | — | — | — | — | 5 | 3.23% | 2.30–4.50% |
-   | 0.1 | 0.9 | 0.1 | 1.0 | 200 | 5 | 1.33% | 0.60–1.85% |
-   | 0.05 | 0.9 | 0.1 | 1.0 | 200 | 5 | 0.17% | 0.05–0.25% |
-   | 0.3 | 0.9 | 0.1 | 1.0 | 200 | 5 | 1.81% | 1.05–2.30% |
-   | 0.7 | 0.9 | 0.1 | 1.0 | 200 | 5 | 5.02% | 2.80–6.25% |
-   | 0.9 | 0.9 | 0.1 | 1.0 | 200 | 5 | 8.83% | 5.25–11.15% |
-   | 0.95 | 0.9 | 0.1 | 1.0 | 200 | 3 | 12.18% | 10.85–13.40% |
-   | 0.85 | 0.9 | 0.1 | 1.0 | 200 | 3 | 8.40% | 6.05–9.60% |
-   | 0.99 | 0.9 | 0.1 | 1.0 | 200 | 3 | 13.65% | 11.70–14.85% |
-   | 0.94 | 0.9 | 0.1 | 1.0 | 200 | 3 | 11.28% | 10.15–12.05% |
-   | 0.965 | 0.9 | 0.1 | 1.0 | 200 | 3 | 12.33% | 11.45–13.30% |
-   | 0.9775 | 0.9 | 0.1 | 1.0 | 200 | 3 | 12.38% | 11.00–13.95% |
-   | 0.9838 | 0.9 | 0.1 | 1.0 | 200 | 3 | 12.85% | 11.65–14.45% |
-   | 0.9869 | 0.9 | 0.1 | 1.0 | 200 | 3 | 13.30% | 11.50–14.35% |
-   | **0.99** | 0.9 | 0.1 | 1.0 | 200 | **5** | **13.18%** | **11.70–14.85%** |
+| targetRate                                                                 | smoothing | adjustmentRate | minThreshold | intervalTicks | seeds | mean network accuracy | range across seeds |
+| ----------------------------------------------------------------------------| -----------| ----------------| --------------| ---------------| -------| -----------------------| --------------------|
+| *(mechanism disabled — item 7's fixed-`coincidenceThreshold: 3` baseline)* | —         | —              | —            | —             | 5     | 3.23%                 | 2.30–4.50%         |
+| 0.1                                                                        | 0.9       | 0.1            | 1.0          | 200           | 5     | 1.33%                 | 0.60–1.85%         |
+| 0.05                                                                       | 0.9       | 0.1            | 1.0          | 200           | 5     | 0.17%                 | 0.05–0.25%         |
+| 0.3                                                                        | 0.9       | 0.1            | 1.0          | 200           | 5     | 1.81%                 | 1.05–2.30%         |
+| 0.7                                                                        | 0.9       | 0.1            | 1.0          | 200           | 5     | 5.02%                 | 2.80–6.25%         |
+| 0.9                                                                        | 0.9       | 0.1            | 1.0          | 200           | 5     | 8.83%                 | 5.25–11.15%        |
+| 0.95                                                                       | 0.9       | 0.1            | 1.0          | 200           | 3     | 12.18%                | 10.85–13.40%       |
+| 0.85                                                                       | 0.9       | 0.1            | 1.0          | 200           | 3     | 8.40%                 | 6.05–9.60%         |
+| 0.99                                                                       | 0.9       | 0.1            | 1.0          | 200           | 3     | 13.65%                | 11.70–14.85%       |
+| 0.94                                                                       | 0.9       | 0.1            | 1.0          | 200           | 3     | 11.28%                | 10.15–12.05%       |
+| 0.965                                                                      | 0.9       | 0.1            | 1.0          | 200           | 3     | 12.33%                | 11.45–13.30%       |
+| 0.9775                                                                     | 0.9       | 0.1            | 1.0          | 200           | 3     | 12.38%                | 11.00–13.95%       |
+| 0.9838                                                                     | 0.9       | 0.1            | 1.0          | 200           | 3     | 12.85%                | 11.65–14.45%       |
+| 0.9869                                                                     | 0.9       | 0.1            | 1.0          | 200           | 3     | 13.30%                | 11.50–14.35%       |
+| **0.99**                                                                   | 0.9       | 0.1            | 1.0          | 200           | **5** | **13.18%**            | **11.70–14.85%**   |
 
    Trial 1 (`targetRate = 0.1`) made the regression *worse*, not better. Likely reason, consistent
    with this item's own OR-combination diagnosis above: `targetRate` is a *per-segment* rate, but a
@@ -1735,6 +1735,18 @@ Three claims, in decreasing order of confidence that they are unprecedented.
    closes most, not all, of item 6's fix's own regression, and the milestone (network > trigram,
    28.40%) remains **not met** — recorded honestly, not the headline this item set out to find, but
    real progress on the specific regression item 6's fix introduced.
+
+   **A second, independent axis, manually explored, 2026-09-12: `NETWORK_WIDTH`.** With
+   `targetRate = 0.99` held fixed, manually sweeping `charPrediction.ts`'s `NETWORK_WIDTH` (400,
+   800, up to 2000 — `NETWORK_DENSITY` unchanged at 0.08, so this scales `columnConfig`'s
+   `neighbourhoodSize`/`k` and `synapseCapPerNeuron` proportionally, not just neuron count) found
+   800 the best of those tried: mean network accuracy 17.37% (5 official seeds) — clearing the
+   original pre-item-6-fix figure outright, not just approaching it. Not yet run back through the
+   automated search or logged trial-by-trial the way `targetRate` was (only the winning width's
+   number is recorded here); `NETWORK_WIDTH = 800` is applied in `charPrediction.ts` regardless.
+   Further joint tuning of both axes is deferred to Phase 7's own resurfaced-VAL-4 item below,
+   which is explicitly scoped to retune informed by whatever that phase's larger-scale NET-12/13
+   work finds about the shared predictive substrate, rather than continuing ad hoc here.
 
 ---
 

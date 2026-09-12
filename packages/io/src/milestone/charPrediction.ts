@@ -47,7 +47,7 @@ import { SlidingWindowAccuracy } from "../metrics.ts";
 import { TrigramModel } from "../baseline/trigram.ts";
 import type { Sdr } from "../sdr.ts";
 
-export const NETWORK_WIDTH = 400;
+export const NETWORK_WIDTH = 800;
 export const NETWORK_DENSITY = 0.08;
 
 export interface CharPredictionConfig {
