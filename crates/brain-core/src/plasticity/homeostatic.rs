@@ -223,6 +223,91 @@ impl SegmentThresholdHomeostasis {
     }
 }
 
+/// Self-tuning k-WTA sparsity (inhibition-homeostasis spec, Requirement 1):
+/// [`IntrinsicHomeostasis`]'s EMA/error/proportional-nudge/`interval_ticks`
+/// template applied to `inhibition.rs`'s `FixedNeighbourhoods` k, which
+/// today is a hand-picked absolute count fixed at construction (README §12
+/// decision 10) -- the "correct" k for a population depends on its size and
+/// connectivity, which invariant 10/NET-10 explicitly do not treat as fixed
+/// forever.
+///
+/// The observed rate is the same quantity OBS-2/`MetricsSnapshot::compute`
+/// already call "sparsity" -- fraction of the live population that spiked
+/// this tick -- not a per-neighbourhood candidate-win-rate, which would
+/// conflate sparsity with how many candidates happened to cross threshold at
+/// all. Tracked as one global EMA against one scheduler-wide
+/// `FixedNeighbourhoods` scheme, matching this spec's own uniform-only scope.
+///
+/// **Sign is inverted relative to [`IntrinsicHomeostasis`]/
+/// [`SegmentThresholdHomeostasis`]:** those raise their tuned value
+/// (threshold) when activity is too high, because a higher threshold makes
+/// firing *harder*. A higher `k` makes winning *easier* -- too much activity
+/// (`error > 0`) must *decrease* `k`, not increase it. Guarded by a
+/// dedicated unit test below so this can't silently regress via a future
+/// copy-paste from the other two.
+///
+/// Returns the new `k` rather than mutating an arena directly (unlike its
+/// siblings): the "arena" here is the live `FixedNeighbourhoods`, which needs
+/// wholesale reconstruction (`FixedNeighbourhoods::with_base`) rather than an
+/// in-place field write, since its fields are private with no setters.
+pub struct InhibitionHomeostasis {
+    /// Desired long-run fraction of the live population that spikes per
+    /// tick -- same framing as [`IntrinsicHomeostasis::target_rate`], one
+    /// level up (population instead of neuron).
+    pub target_rate: f32,
+    /// Same meaning as [`IntrinsicHomeostasis::smoothing`].
+    pub smoothing: f32,
+    /// Same meaning as [`IntrinsicHomeostasis::adjustment_rate`].
+    pub adjustment_rate: f32,
+    /// `k` never drifts below this -- an unbounded downward drift could
+    /// reach zero, which `FixedNeighbourhoods` rejects outright. The
+    /// ceiling (`k <= size`) is deliberately not known here (this type has
+    /// no notion of `size`, matching `SegmentThresholdHomeostasis`'s own
+    /// decoupling from `SegmentConfig`); the integration site clamps
+    /// against the live scheme's own `size()` when applying.
+    pub min_k: f32,
+    pub interval_ticks: u32,
+    last_applied_at: u32,
+    rate_estimate: f32,
+    k_estimate: f32,
+}
+
+impl InhibitionHomeostasis {
+    /// `initial_k` seeds `k_estimate` at the scheme's `k` at construction
+    /// time, so the very first `maybe_apply` nudges from the caller's own
+    /// starting point, not from zero.
+    pub fn new(target_rate: f32, smoothing: f32, adjustment_rate: f32, min_k: f32, interval_ticks: u32, initial_k: f32) -> Self {
+        assert!(interval_ticks > 0, "interval_ticks must be positive");
+        assert!((0.0..1.0).contains(&smoothing), "smoothing must be in [0, 1)");
+        assert!((0.0..1.0).contains(&target_rate), "target_rate must be in [0, 1)");
+        assert!(min_k >= 1.0, "min_k must be at least 1.0");
+        Self { target_rate, smoothing, adjustment_rate, min_k, interval_ticks, last_applied_at: 0, rate_estimate: 0.0, k_estimate: initial_k }
+    }
+
+    /// Call once per tick with this tick's observed population activity
+    /// fraction.
+    pub fn record_activity(&mut self, observed_rate: f32) {
+        self.rate_estimate = self.rate_estimate * self.smoothing + observed_rate * (1.0 - self.smoothing);
+    }
+
+    /// Gated on `interval_ticks`, matching
+    /// [`IntrinsicHomeostasis::maybe_apply`]'s convention: `Some(new_k)`
+    /// (rounded, `>= 1`) when an adjustment applies this tick, `None`
+    /// otherwise.
+    pub fn maybe_apply(&mut self, tick: u32) -> Option<u32> {
+        if tick < self.last_applied_at + self.interval_ticks {
+            return None;
+        }
+        self.last_applied_at = tick;
+        let error = self.rate_estimate - self.target_rate;
+        // NOTE the sign: subtract, not add -- see this type's doc comment
+        // for why k's relationship to "too much activity" is inverted
+        // relative to threshold.
+        self.k_estimate = (self.k_estimate - self.adjustment_rate * error).max(self.min_k);
+        Some(self.k_estimate.round().max(1.0) as u32)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,5 +559,52 @@ mod tests {
 
         assert!(threshold[0] > 1.0, "composite 0's own recorded activity must raise its own threshold");
         assert!(threshold[1] < 1.0, "composite 1's own (silent) history must lower its threshold, unaffected by composite 0's activity");
+    }
+
+    // -- InhibitionHomeostasis (inhibition-homeostasis spec, Requirement 1).
+
+    #[test]
+    fn activity_above_target_lowers_k_not_raises_it() {
+        // Guards the sign-flip specifically: unlike threshold homeostasis,
+        // too much activity must *decrease* k. adjustment_rate=2.0 so a
+        // full-magnitude error (1.0) moves k_estimate by a whole unit,
+        // large enough to survive `maybe_apply`'s rounding.
+        let mut homeostasis = InhibitionHomeostasis::new(0.0, 0.0, 2.0, 1.0, 100, 10.0);
+        homeostasis.record_activity(1.0); // far above target 0.0
+        let new_k = homeostasis.maybe_apply(100).expect("interval elapsed");
+        assert!(new_k < 10, "activity above target must lower k, got {new_k}");
+    }
+
+    #[test]
+    fn activity_below_target_raises_k() {
+        let mut homeostasis = InhibitionHomeostasis::new(0.99, 0.0, 2.0, 1.0, 100, 2.0);
+        homeostasis.record_activity(0.0); // far below target 0.99
+        let new_k = homeostasis.maybe_apply(100).expect("interval elapsed");
+        assert!(new_k > 2, "activity below target must raise k, got {new_k}");
+    }
+
+    #[test]
+    fn k_never_drops_below_the_min_floor() {
+        let mut homeostasis = InhibitionHomeostasis::new(0.0, 0.0, 5.0, 3.0, 10, 4.0);
+        for tick in (10..=200).step_by(10) {
+            homeostasis.record_activity(1.0); // relentless downward pressure
+            let new_k = homeostasis.maybe_apply(tick).unwrap();
+            assert!(new_k >= 3, "k must never drop below min_k=3, got {new_k}");
+        }
+    }
+
+    #[test]
+    fn inhibition_homeostasis_does_not_apply_before_the_interval_elapses() {
+        let mut homeostasis = InhibitionHomeostasis::new(0.1, 0.0, 0.2, 1.0, 1000, 5.0);
+        homeostasis.record_activity(0.9);
+        assert!(homeostasis.maybe_apply(500).is_none(), "must not apply before interval_ticks have elapsed");
+    }
+
+    #[test]
+    fn a_rate_at_exactly_its_target_is_left_unchanged() {
+        let mut homeostasis = InhibitionHomeostasis::new(0.5, 0.999999, 0.2, 1.0, 100, 10.0);
+        homeostasis.record_activity(0.5); // already at target; high smoothing keeps it there
+        let new_k = homeostasis.maybe_apply(100).unwrap();
+        assert_eq!(new_k, 10, "a rate already at its target should see negligible drift, got {new_k}");
     }
 }
