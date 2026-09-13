@@ -929,22 +929,24 @@ what it is and is not expected to buy.
 
 ## Status
 
-| ID | Status | Notes |
-|---|---|---|
-| A1 | done | `packages/io/src/canonicalBrain.ts` + `canonicalBrain.test.ts`; found & closed NEU-7's missing FFI surface along the way — see README §11 Phase 7 status and §13.12 item 13 |
-| A2 | not started | |
-| A3 | not started | |
-| B1 | not started | critical path |
-| B2 | not started | |
-| C1 | not started | |
-| C2 | not started | |
-| D1 | not started | |
-| D2 | not started | |
-| D3 | not started | tuning-bound |
-| E1 | not started | |
-| F1 | not started | |
-| F2 | not started | |
-| F3 | not started | |
-| F4 | not started | |
-| F5 | not started | |
-| F6 | not started | |
+| ID | Status | Completed | Duration | Notes |
+|---|---|---|---|---|
+| A1 | done | 2026-09-13 20:10 +0100 | ~19 min* | `packages/io/src/canonicalBrain.ts` + `canonicalBrain.test.ts`; found & closed NEU-7's missing FFI surface along the way — see README §11 Phase 7 status and §13.12 item 13 |
+| A2 | not started | | | |
+| A3 | not started | | | |
+| B1 | not started | | | critical path |
+| B2 | not started | | | |
+| C1 | not started | | | |
+| C2 | not started | | | |
+| D1 | not started | | | |
+| D2 | not started | | | |
+| D3 | not started | | | tuning-bound |
+| E1 | not started | | | |
+| F1 | not started | | | |
+| F2 | not started | | | |
+| F3 | not started | | | |
+| F4 | not started | | | |
+| F5 | not started | | | |
+| F6 | not started | | | |
+
+*A1's duration is measured from its first file edit (19:51 +0100) to the completing commit (20:10 +0100) — this session has no independently logged start time, so it excludes the research/reading phase (README, PLAN.md, `charPrediction.ts`, `scheduler.rs`/`lib.rs`) that preceded that first edit, and understates the real total. Future items should log a start timestamp here (or in the item's own commit trail) when work begins, so this column can be a real measurement rather than a partial one.
