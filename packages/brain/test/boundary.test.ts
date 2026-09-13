@@ -966,7 +966,7 @@ test("Simulation synapse bulk views expose a connected synapse's real data, and 
 
 // -- Phase 6 Requirement 3: spike-raster export FFI (OBS-3).
 
-test("Simulation.rasterBytes exports real recorded spikes and throws in partitioned mode (OBS-3, Requirement 3)", () => {
+test("Simulation.rasterBytes exports real recorded spikes (OBS-3, Requirement 3)", () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
@@ -978,15 +978,35 @@ test("Simulation.rasterBytes exports real recorded spikes and throws in partitio
   const bytes = sim.rasterBytes();
   assert.ok(bytes.length > 14, "a raster with at least one recorded spike must be longer than the bare header");
   assert.deepEqual(Array.from(bytes.subarray(0, 6)).map((b) => String.fromCharCode(b)).join(""), "RASTER");
+});
 
-  const partitioned = Simulation.create(
-    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
-    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1, threadCount: 2, totalNeurons: 1 },
-  );
-  partitioned.allocateNeuron(0.5, 1);
-  partitioned.stimulate(0, 1.0);
-  partitioned.step();
-  assert.throws(() => partitioned.rasterBytes());
+// Phase 7 Requirement 1(d): partitioned-mode support for rasterBytes/
+// attachProbe/firingRate/predictionAccuracy, previously all
+// `Runtime::Single`-only (this same file used to assert `rasterBytes`
+// *threw* in partitioned mode -- see git history for that prior test).
+test("Simulation.rasterBytes exports real recorded spikes in partitioned mode too, reproducing threadCount 1's raster exactly (Phase 7 Requirement 1(d))", () => {
+  function buildAndRaster(threadCount?: number): Uint8Array {
+    const sim = Simulation.create(
+      { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+      {
+        maxDelay: 1,
+        connectionThreshold: 0.5,
+        synapseCapPerNeuron: 1,
+        ...(threadCount !== undefined ? { threadCount, totalNeurons: 4 } : {}),
+      },
+    );
+    const neurons = [sim.allocateNeuron(0.5, 1), sim.allocateNeuron(0.5, 1), sim.allocateNeuron(0.5, 1), sim.allocateNeuron(0.5, 1)];
+    for (let tick = 0; tick < 5; tick++) {
+      for (const n of neurons) sim.stimulate(n, 10.0);
+      sim.step();
+    }
+    return sim.rasterBytes();
+  }
+
+  const single = buildAndRaster();
+  const partitioned = buildAndRaster(2);
+  assert.ok(single.length > 14, "a raster with recorded spikes must be longer than the bare header");
+  assert.deepEqual(Array.from(partitioned), Array.from(single), "threadCount 2's exported raster must reproduce threadCount 1's exactly, byte for byte");
 });
 
 // -- Phase 6 Requirement 4: probe FFI (OBS-1).
@@ -1059,6 +1079,99 @@ test("Simulation firingRate/predictionAccuracy/metricsSnapshot report real value
   const snapshot = sim.metricsSnapshot();
   assert.equal(snapshot.synapseCount, 1);
   assert.equal(snapshot.excitatoryFraction, 1.0);
+});
+
+// Phase 7 Requirement 1(d): attachProbe/readProbe, firingRate and
+// predictionAccuracy all worked in `Runtime::Single` only before this --
+// `PartitionPlan::partition_of` already deterministically routes a probe
+// to the partition that owns its neuron, and `firing_rate`/
+// `prediction_accuracy` now sum every partition's raw counts rather than
+// reporting a hardcoded `0.0`.
+
+test("Simulation.attachProbe/readProbe work in partitioned mode, routed to the partition that owns the neuron (Phase 7 Requirement 1(d))", () => {
+  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
+  const columnSize = 4;
+  const columnCount = 2;
+  const totalNeurons = columnSize * columnCount;
+  const sim = Simulation.create(lif, {
+    maxDelay: 1,
+    connectionThreshold: 0.5,
+    synapseCapPerNeuron: 1,
+    threadCount: 2,
+    totalNeurons,
+  });
+  const handles = sim.buildColumns(1n, [columnConfig({ neuronCount: columnSize, baseY: 0 }), columnConfig({ neuronCount: columnSize, baseY: 100 })]);
+  // The second column's first neuron lives in partition 1 under
+  // `PartitionPlan::contiguous` -- attaching a probe here specifically
+  // exercises routing to a *non-zero* partition, not just the trivially
+  // correct partition 0 case.
+  const target = handles[1]!.start;
+
+  sim.attachProbe(target, { capacity: 10, recordMembrane: true, recordSegments: false, weightSynapses: [] });
+  sim.stimulate(target, 10.0);
+  sim.step();
+
+  const data = sim.readProbe(target);
+  assert.notEqual(data, undefined, "a probe attached to a neuron in a non-zero partition must still be readable");
+  assert.deepEqual(data!.spikeTimes, [0]);
+  assert.equal(data!.membraneTrace!.length, 1);
+
+  sim.detachProbe(target);
+  assert.equal(sim.readProbe(target), undefined, "a detached probe must no longer be readable in partitioned mode either");
+});
+
+test("Simulation.firingRate sums raw spike counts across partitions rather than averaging their rates (Phase 7 Requirement 1(d))", () => {
+  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
+  // Deliberately asymmetric: a 1-neuron column that fires every tick and a
+  // 9-neuron column that never does. Averaging each partition's own rate
+  // would give (1.0 + 0.0) / 2 = 0.5; correctly summing raw counts before
+  // dividing by the total population gives 1 spike/tick over 10 neurons =
+  // 0.1 -- these are different enough that a regression to the old
+  // hardcoded-`0.0`, or to a naive average, cannot pass both this and the
+  // "always 0 before any ticks" assertion below.
+  const totalNeurons = 10;
+  const sim = Simulation.create(lif, { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1, threadCount: 2, totalNeurons });
+  const handles = sim.buildColumns(1n, [columnConfig({ neuronCount: 1, baseY: 0 }), columnConfig({ neuronCount: 9, baseY: 100 })]);
+
+  assert.equal(sim.firingRate(), 0, "no partition runtime has run a tick yet");
+
+  const alwaysFires = handles[0]!.start;
+  for (let tick = 0; tick < 10; tick++) {
+    sim.stimulate(alwaysFires, 10.0);
+    sim.step();
+  }
+
+  const rate = sim.firingRate();
+  assert.ok(Math.abs(rate - 0.1) < 1e-9, `expected the correctly-summed combined rate 0.1, got ${rate} (0.5 would indicate averaging per-partition rates instead)`);
+});
+
+test("Simulation.predictionAccuracy reproduces threadCount 1's value exactly under partitioning, with real dendritic prediction engaged (Phase 7 Requirement 1(d))", () => {
+  function buildAndRunAccuracy(threadCount?: number): number {
+    const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.3 };
+    const columnSize = 3;
+    const columnCount = 2;
+    const totalNeurons = columnSize * columnCount;
+    const sim = Simulation.create(lif, {
+      maxDelay: 2,
+      connectionThreshold: 0.5,
+      synapseCapPerNeuron: 4,
+      segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1 },
+      ...(threadCount !== undefined ? { threadCount, totalNeurons } : {}),
+    });
+    const columns = Array.from({ length: columnCount }, (_, i) =>
+      columnConfig({ neuronCount: columnSize, baseY: i * 100, segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1 } }),
+    );
+    const handles = sim.buildColumns(2n, columns);
+    for (let tick = 0; tick < 30; tick++) {
+      for (const h of handles) sim.stimulate(h.start, 10.0);
+      sim.step();
+    }
+    return sim.predictionAccuracy();
+  }
+
+  const single = buildAndRunAccuracy();
+  const partitioned = buildAndRunAccuracy(2);
+  assert.equal(partitioned, single, "threadCount 2's combined predictionAccuracy must exactly reproduce threadCount 1's, not merely be close to it");
 });
 
 test("TypeScript strict mode is enabled and the FFI surface names no `any` (Requirement 1.5)", () => {

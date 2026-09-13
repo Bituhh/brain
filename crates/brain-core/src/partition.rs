@@ -492,6 +492,25 @@ impl PartitionRuntime {
         self.schedulers.len()
     }
 
+    /// Partition `partition_id`'s own `Scheduler` (Phase 7 Requirement
+    /// 1(d)): the accessor a caller needs to route a per-neuron operation
+    /// (a probe, say) to the one partition that actually owns that neuron,
+    /// via [`PartitionPlan::partition_of`] -- `schedulers` itself is
+    /// private so cross-partition invariants (the boundary table, pending
+    /// post-spike queues) can only ever be touched through `step()`, not
+    /// bypassed by a caller reaching in directly; a single partition's own
+    /// state (its probes, its metrics meters) has no such invariant to
+    /// protect.
+    pub fn scheduler(&self, partition_id: usize) -> &Scheduler {
+        &self.schedulers[partition_id]
+    }
+
+    /// As [`Self::scheduler`], mutably -- needed for `attach_probe`/
+    /// `detach_probe`, which are `&mut self` on `Scheduler`.
+    pub fn scheduler_mut(&mut self, partition_id: usize) -> &mut Scheduler {
+        &mut self.schedulers[partition_id]
+    }
+
     /// Delivers `current` directly to `neuron_index` on the next call to
     /// [`Self::step`], routed to whichever partition owns it -- the
     /// partitioned equivalent of [`Scheduler::stimulate`].
@@ -781,6 +800,19 @@ impl PartitionRuntime {
         for &idx in &self.boundary_neurons {
             let owner = self.plan.partition_of(idx);
             self.boundary_table.set(idx, Self::local(&neuron_views[owner], idx));
+        }
+
+        // Phase 7 Requirement 1(d): feed each partition's own probes/
+        // firing_rate/prediction_accuracy from its own report and view --
+        // `Scheduler::record_tick_observables`'s own doc comment explains
+        // why this call did not exist before Phase 7 (this method calls
+        // `deliver`/`evaluate_and_resolve` directly, never `Scheduler::step`
+        // itself, so nothing here ever fed them). Last use of
+        // `neuron_views`/`synapse_views` in this method, same as the
+        // boundary-table loop just above -- homeostasis/structural
+        // plasticity below still get clean whole-arena access afterward.
+        for p in 0..self.schedulers.len() {
+            self.schedulers[p].record_tick_observables(&reports[p], &neuron_views[p], &synapse_views[p]);
         }
 
         // Phase 5 Requirement 9.2/9.6: always-on homeostasis/structural

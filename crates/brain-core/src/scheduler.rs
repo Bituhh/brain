@@ -390,6 +390,22 @@ impl Scheduler {
         self.prediction_accuracy.accuracy()
     }
 
+    /// This scheduler's own firing-rate meter (Phase 7 Requirement 1(d)):
+    /// exposed so a caller with several schedulers (`PartitionRuntime`, one
+    /// per partition) can combine their raw counts into one correct
+    /// network-wide rate -- see [`FiringRateMeter::running_sum`]'s own doc
+    /// comment for why that must not be an average of each `firing_rate()`
+    /// call's own ratio.
+    pub fn firing_rate_meter(&self) -> &FiringRateMeter {
+        &self.firing_rate
+    }
+
+    /// As [`Self::firing_rate_meter`], for prediction accuracy -- see
+    /// [`PredictionAccuracyMeter::predicted_sum`]'s own doc comment.
+    pub fn prediction_accuracy_meter(&self) -> &PredictionAccuracyMeter {
+        &self.prediction_accuracy
+    }
+
     /// Enables local plasticity (Requirement 8): `rules` runs on every
     /// delivery and post-spike event, and `modulator_tau_ticks` sets each
     /// of the four neuromodulator channels' decay time constant.
@@ -945,6 +961,34 @@ impl Scheduler {
         }
     }
 
+    /// Records this tick's always-on metrics (`firing_rate`/
+    /// `prediction_accuracy`, OBS-2 Requirement 5.1) and feeds every
+    /// attached probe (Requirement 4, Phase 6) from `report` and this
+    /// tick's neuron/synapse state. Takes views rather than whole arenas
+    /// so [`crate::partition::PartitionRuntime::step`] -- which calls
+    /// [`Self::deliver`]/[`Self::evaluate_and_resolve`] directly, not this
+    /// method's own caller [`Self::step`] below, per this module's
+    /// extraction note there -- can call this once per partition with its
+    /// own partition-scoped view. **Before Phase 7 Requirement 1(d),
+    /// `PartitionRuntime` never called anything equivalent to this**,
+    /// which is why probes/`firing_rate`/`prediction_accuracy` silently
+    /// recorded nothing in partitioned mode despite Phase 6 building FFI
+    /// surface for all three.
+    pub fn record_tick_observables(&mut self, report: &StepReport, neurons: &NeuronArenaViewMut, synapses: &SynapseArenaViewMut) {
+        self.firing_rate.record(report.spiked.len() as u32);
+        self.prediction_accuracy.record(report.predicted_spikes, report.spiked.len() as u32);
+
+        // O(#probes), not O(neurons) -- a caller attaching/detaching many
+        // short-lived probes during an interactive session costs nothing
+        // for neurons no one is watching.
+        if !self.probes.is_empty() {
+            for (&neuron, probe) in self.probes.iter_mut() {
+                let i = neuron as usize;
+                probe.observe(report.tick, report.spiked.contains(&neuron), neurons.membrane[i], |syn| synapses.permanence[syn as usize]);
+            }
+        }
+    }
+
     /// Advances the simulation by exactly one tick:
     ///
     /// 1. Drains this tick's ring bucket, accumulating signed input per
@@ -999,23 +1043,7 @@ impl Scheduler {
         let (report, post_spike_outbox) = self.evaluate_and_resolve::<D>(&mut neuron_view, &mut synapse_view, params, |_| false);
         debug_assert!(post_spike_outbox.is_empty(), "an always-local is_remote_source must never produce a cross-partition message");
 
-        // OBS-2, Requirement 5.1 (Phase 6): always-on incremental metrics --
-        // cheap enough (per metrics.rs's own framing) to update every tick
-        // unconditionally, unlike MetricsSnapshot::compute's O(neurons+
-        // synapses) on-demand scan.
-        self.firing_rate.record(report.spiked.len() as u32);
-        self.prediction_accuracy.record(report.predicted_spikes, report.spiked.len() as u32);
-
-        // Requirement 4 (Phase 6): feed every attached probe once per tick.
-        // O(#probes), not O(neurons) -- a caller attaching/detaching many
-        // short-lived probes during an interactive session costs nothing
-        // for neurons no one is watching.
-        if !self.probes.is_empty() {
-            for (&neuron, probe) in self.probes.iter_mut() {
-                let i = neuron as usize;
-                probe.observe(report.tick, report.spiked.contains(&neuron), neurons.membrane[i], |syn| synapses.permanence[syn as usize]);
-            }
-        }
+        self.record_tick_observables(&report, &neuron_view, &synapse_view);
 
         // Phase 5 Requirement 9.2/9.6: always-on homeostasis/structural
         // plasticity, opt-in via with_homeostatic_scaling/

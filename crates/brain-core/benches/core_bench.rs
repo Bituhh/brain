@@ -9,7 +9,7 @@
 //! predicted in this file's comments.
 
 use brain_core::arena::NeuronArena;
-use brain_core::column::ColumnRegistry;
+use brain_core::column::{ColumnRegistry, ColumnSpec};
 use brain_core::graph::{DistancePolicy, GraphBuilder};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
@@ -19,6 +19,16 @@ use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig};
 use brain_core::synapse::SynapseArena;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::thread::available_parallelism;
+
+// Phase 7 Requirement 1(c) (`.claude/scratch/brain-engine-phase7/requirements.md`):
+// reuses Requirement 1(a)/(b)'s exact validated topology-building fixture
+// rather than a fresh one, via the same `#[path]` cross-directory-module
+// trick Rust integration tests and benches both support -- `tests/common/`
+// is a plain module, not a test binary of its own, so nothing about
+// including it here duplicates or conflicts with `cargo test`'s own use
+// of it.
+#[path = "../tests/common/mod.rs"]
+mod scale_common;
 
 fn bench_version(c: &mut Criterion) {
     c.bench_function("version", |b| b.iter(brain_core::version));
@@ -334,5 +344,147 @@ fn bench_cross_partition_fraction(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_version, rayon_vs_pinned_pool, bench_synaptic_events_per_second, bench_cross_partition_fraction);
+// Phase 7 Requirement 1(c): the throughput benchmark Phase 4 deferred,
+// finally run on a topology with genuine locality instead of
+// `tests/scale.rs`'s ring-wiring stand-in (that test's own concern, memory
+// footprint, is unaffected and unchanged).
+
+/// Matches `working_memory_at_scale.rs`/`action_selection_at_scale.rs`'s
+/// own validated values exactly -- this benchmark is Requirement 1(c),
+/// not a new experiment, so it reuses Requirement 1(a)/(b)'s findings
+/// rather than re-deriving them.
+const LOCALITY_DRIVEN_SUBSET_SIZE: u32 = 10;
+const LOCALITY_K: u32 = LOCALITY_DRIVEN_SUBSET_SIZE;
+/// 32 columns x `scale_common::SCALE_COLUMN_SIZE` (200) = 6,400 neurons --
+/// exactly double `COLUMN_COUNT * COLUMN_SIZE`'s existing 3,200-neuron
+/// benchmark, the scale README §12a item 1 flagged as too small for
+/// `PartitionRuntime`'s fixed per-tick bookkeeping to be amortised against
+/// enough real per-neuron work. `scale_common::build_scale_columns`'s
+/// per-column (not whole-network) `connect` calls keep construction cost
+/// linear in column count, so this is not the O(population^2) wall
+/// `tests/scale.rs`'s own doc comment named as the reason it uses ring
+/// wiring instead -- going meaningfully larger than 32 columns remains
+/// possible if this scale's numbers still don't separate from the
+/// existing benchmark's, a follow-up left to whoever next revisits this
+/// group with that evidence in hand.
+const LOCALITY_COLUMN_COUNT: u32 = 32;
+
+/// Bookkeeping-only `SegmentConfig` (`ColumnSpec.segments` is never read by
+/// anything that runs the simulation -- `column.rs`'s own doc comment) --
+/// Requirement 1(a)/(b)'s validated topology never attaches dendritic
+/// segments to its `Scheduler` either (no `.with_segments(...)` call
+/// anywhere in `working_memory_at_scale.rs`/`action_selection_at_scale.rs`),
+/// so this benchmark's `Scheduler`s don't either, keeping this genuinely
+/// the *same* topology those tests validated rather than a superficially
+/// similar one with dendritic prediction quietly added back in.
+fn locality_segments_disabled() -> SegmentConfig {
+    SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: u16::MAX } }
+}
+
+/// Requirement 1(a)/(b)'s exact validated topology
+/// (`scale_common::build_scale_columns`) at `LOCALITY_COLUMN_COUNT`
+/// columns instead of 1-2, plus a thin cross-column ring
+/// (`build_benchmark_network`'s own convention: each column's first 10
+/// neurons feed the next column's first 10) so partitioning has genuine
+/// cross-partition edges to route, matching that fixture's own rationale.
+fn build_locality_realistic_network() -> (NeuronArena, SynapseArena, ColumnRegistry) {
+    let (neurons, mut synapses, ranges, _inhibition) =
+        scale_common::build_scale_columns(42, LOCALITY_COLUMN_COUNT, LOCALITY_DRIVEN_SUBSET_SIZE, LOCALITY_K);
+    for col in 0..LOCALITY_COLUMN_COUNT as usize {
+        let next = (col + 1) % LOCALITY_COLUMN_COUNT as usize;
+        for i in 0..10u32 {
+            let source = ranges[col].start + i;
+            let target = ranges[next].start + i;
+            let _ = synapses.insert(source, target, 0, 2, 0.6);
+        }
+    }
+
+    let mut columns = ColumnRegistry::new();
+    for range in &ranges {
+        columns.register(ColumnSpec {
+            neuron_range: range.clone(),
+            inhibition: FixedNeighbourhoods::with_base(range.start, scale_common::SCALE_COLUMN_SIZE, LOCALITY_K),
+            segments: locality_segments_disabled(),
+        });
+    }
+    (neurons, synapses, columns)
+}
+
+/// Mirrors `build_runtime_for`'s `"columns"` case, scoped to this
+/// benchmark's own topology/constants instead of `COLUMN_SIZE`/`segments()`.
+fn build_locality_realistic_runtime(thread_count: usize, total_neurons: u32, synapses: &SynapseArena, columns: &ColumnRegistry) -> PartitionRuntime {
+    let plan = PartitionPlan::contiguous(columns, thread_count);
+    let schedulers: Vec<Scheduler> = (0..plan.partition_count())
+        .map(|p| {
+            let range = plan.range_of(p);
+            Scheduler::new(4, 0.3).with_inhibition(FixedNeighbourhoods::with_base(range.start, scale_common::SCALE_COLUMN_SIZE, LOCALITY_K))
+        })
+        .collect();
+    PartitionRuntime::new(plan, schedulers, synapses, total_neurons).with_thread_count(thread_count)
+}
+
+/// Mirrors `count_synaptic_events`'s method exactly, scoped to this
+/// benchmark's own network-building functions.
+fn count_locality_realistic_synaptic_events(total_neurons: u32) -> u64 {
+    let (mut neurons, mut synapses, columns) = build_locality_realistic_network();
+    let mut runtime = build_locality_realistic_runtime(1, total_neurons, &synapses, &columns);
+    let params = lif_params();
+    let mut total_events = 0u64;
+    for _tick in 0..TICKS_PER_ITERATION {
+        stimulate_all(&mut runtime, &neurons, total_neurons);
+        let reports = runtime.step::<Lif>(&mut neurons, &mut synapses, &params);
+        for report in &reports {
+            for &spiked in &report.spiked {
+                total_events += synapses.occupied_in_block(spiked).count() as u64;
+            }
+        }
+    }
+    total_events
+}
+
+/// Requirement 1(c): synaptic events/second/core against ENG-11's
+/// at-least-1M target, on Requirement 1(a)/(b)'s real, locality-realistic,
+/// emergent-behaviour-validated topology at `LOCALITY_COLUMN_COUNT`
+/// columns -- the throughput benchmark Phase 4 deferred and §12a item 1
+/// flagged as still open, closed here with a topology that actually has
+/// locality rather than `tests/scale.rs`'s ring-wiring memory-only stand-in.
+fn bench_locality_realistic_synaptic_events_per_second(c: &mut Criterion) {
+    let mut group = c.benchmark_group("locality_realistic_synaptic_events_per_second");
+    group.sample_size(10);
+    let total_neurons = LOCALITY_COLUMN_COUNT * scale_common::SCALE_COLUMN_SIZE;
+    let thread_counts = thread_counts_to_bench();
+    let events = count_locality_realistic_synaptic_events(total_neurons);
+
+    for &thread_count in &thread_counts {
+        let id = BenchmarkId::new("columns", thread_count);
+        group.throughput(Throughput::Elements(events));
+        group.bench_function(id, |b| {
+            b.iter_batched(
+                || {
+                    let (neurons, synapses, columns) = build_locality_realistic_network();
+                    let runtime = build_locality_realistic_runtime(thread_count, total_neurons, &synapses, &columns);
+                    (neurons, synapses, runtime)
+                },
+                |(mut neurons, mut synapses, mut runtime)| {
+                    let params = lif_params();
+                    for _tick in 0..TICKS_PER_ITERATION {
+                        stimulate_all(&mut runtime, &neurons, total_neurons);
+                        runtime.step::<Lif>(&mut neurons, &mut synapses, &params);
+                    }
+                },
+                criterion::BatchSize::LargeInput,
+            )
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_version,
+    rayon_vs_pinned_pool,
+    bench_synaptic_events_per_second,
+    bench_cross_partition_fraction,
+    bench_locality_realistic_synaptic_events_per_second
+);
 criterion_main!(benches);

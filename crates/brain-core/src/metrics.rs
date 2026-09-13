@@ -68,6 +68,28 @@ impl FiringRateMeter {
             self.mean_spikes_per_tick() / population_size as f64
         }
     }
+
+    /// The raw running sum of spikes over the current window (Phase 7
+    /// Requirement 1(d)): combined with [`Self::filled`], this is what a
+    /// caller aggregating several meters (one per `PartitionRuntime`
+    /// partition) needs to compute a correct combined rate --
+    /// `sum(running_sum) / filled / total_population`, not an average of
+    /// each partition's own `population_rate`, which would weight a small
+    /// partition equally with a large one (a Simpson's-paradox-shaped
+    /// error `crates/brain-napi` must specifically avoid).
+    pub fn running_sum(&self) -> u64 {
+        self.running_sum
+    }
+
+    /// How many ticks are currently represented in [`Self::running_sum`]
+    /// (at most `window_ticks`). Always identical across every partition's
+    /// own meter in this codebase, since `PartitionRuntime` steps every
+    /// partition in lockstep -- a caller aggregating several meters may
+    /// use any one of them for the shared tick count rather than needing
+    /// per-partition bookkeeping.
+    pub fn filled(&self) -> usize {
+        self.filled
+    }
 }
 
 /// A rolling (predicted, total) spike count over a fixed-size tick window --
@@ -122,6 +144,22 @@ impl PredictionAccuracyMeter {
         } else {
             self.predicted_sum as f64 / self.total_sum as f64
         }
+    }
+
+    /// The raw numerator/denominator behind [`Self::accuracy`] (Phase 7
+    /// Requirement 1(d)): a caller aggregating several partitions' meters
+    /// must sum these counts *before* dividing
+    /// (`sum(predicted_sum) / sum(total_sum)`), not average each
+    /// partition's own `accuracy()` ratio -- averaging ratios directly
+    /// skews the combined figure whenever partitions have different spike
+    /// counts, exactly the error this accessor exists to let
+    /// `crates/brain-napi` avoid.
+    pub fn predicted_sum(&self) -> u64 {
+        self.predicted_sum
+    }
+
+    pub fn total_sum(&self) -> u64 {
+        self.total_sum
     }
 }
 
@@ -214,6 +252,41 @@ mod tests {
         assert_eq!(meter.population_rate(0), 0.0, "must not divide by zero");
     }
 
+    /// Phase 7 Requirement 1(d): `running_sum`/`filled` must let a caller
+    /// reconstruct the same rate `population_rate` would give directly,
+    /// since `crates/brain-napi`'s partitioned-mode aggregation is built
+    /// entirely from these two accessors rather than from
+    /// `population_rate` itself.
+    #[test]
+    fn running_sum_and_filled_reconstruct_the_same_rate_population_rate_gives() {
+        let mut meter = FiringRateMeter::new(10);
+        meter.record(2);
+        meter.record(4);
+        meter.record(6);
+        let reconstructed = meter.running_sum() as f64 / meter.filled() as f64 / 100.0;
+        assert_eq!(reconstructed, meter.population_rate(100));
+    }
+
+    /// The concrete scenario `crates/brain-napi`'s `firing_rate` doc
+    /// comment names: summing two meters' raw counts before dividing must
+    /// differ from (and be more correct than) averaging their two
+    /// `population_rate` ratios when the two "partitions" have different
+    /// population sizes.
+    #[test]
+    fn summing_two_meters_raw_counts_differs_from_averaging_their_rates() {
+        let mut always_fires = FiringRateMeter::new(10);
+        let mut never_fires = FiringRateMeter::new(10);
+        for _ in 0..5 {
+            always_fires.record(1); // 1 neuron, fires every tick
+            never_fires.record(0); // 9 neurons, never fire
+        }
+        let correct_combined = (always_fires.running_sum() + never_fires.running_sum()) as f64 / always_fires.filled() as f64 / 10.0;
+        let wrong_average_of_ratios = (always_fires.population_rate(1) + never_fires.population_rate(9)) / 2.0;
+        assert_eq!(correct_combined, 0.1, "1 spike/tick over 10 total neurons is a 0.1 combined rate");
+        assert_eq!(wrong_average_of_ratios, 0.5, "naively averaging a 1.0 rate and a 0.0 rate gives 0.5, not the correct 0.1");
+        assert_ne!(correct_combined, wrong_average_of_ratios);
+    }
+
     #[test]
     fn empty_prediction_accuracy_meter_reports_zero() {
         let meter = PredictionAccuracyMeter::new(10);
@@ -243,6 +316,32 @@ mod tests {
         meter.record(5, 5);
         meter.record(0, 0); // a quiet tick
         assert_eq!(meter.accuracy(), 1.0);
+    }
+
+    /// Phase 7 Requirement 1(d): `predicted_sum`/`total_sum` must let a
+    /// caller reconstruct `accuracy()` exactly, and summing two meters'
+    /// raw counts before dividing must differ from averaging their two
+    /// `accuracy()` ratios when the two "partitions" carry different spike
+    /// totals -- the same Simpson's-paradox-shaped risk `firing_rate`'s
+    /// equivalent test names, for prediction accuracy instead.
+    #[test]
+    fn predicted_and_total_sum_reconstruct_accuracy_and_summing_beats_averaging() {
+        let mut meter = PredictionAccuracyMeter::new(10);
+        meter.record(1, 2);
+        meter.record(3, 4);
+        let reconstructed = meter.predicted_sum() as f64 / meter.total_sum() as f64;
+        assert_eq!(reconstructed, meter.accuracy());
+
+        let mut always_right = PredictionAccuracyMeter::new(10);
+        always_right.record(1, 1); // 1 spike, always correctly predicted
+        let mut always_wrong = PredictionAccuracyMeter::new(10);
+        always_wrong.record(0, 9); // 9 spikes, never predicted
+        let correct_combined =
+            (always_right.predicted_sum() + always_wrong.predicted_sum()) as f64 / (always_right.total_sum() + always_wrong.total_sum()) as f64;
+        let wrong_average_of_ratios = (always_right.accuracy() + always_wrong.accuracy()) / 2.0;
+        assert_eq!(correct_combined, 0.1, "1 of 10 total spikes predicted is a 0.1 combined accuracy");
+        assert_eq!(wrong_average_of_ratios, 0.5, "naively averaging a 1.0 ratio and a 0.0 ratio gives 0.5, not the correct 0.1");
+        assert_ne!(correct_combined, wrong_average_of_ratios);
     }
 
     fn make_neurons_with_polarity(polarities: &[i8]) -> NeuronArena {

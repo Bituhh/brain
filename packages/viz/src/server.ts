@@ -89,23 +89,24 @@ function isMutating(type: ClientMessage["type"]): boolean {
 }
 
 /**
- * Starts the visualiser server (Requirement 7). Refuses synchronously if
- * `sim` is partitioned (`threadCount > 1`) -- probes, raster export, and
- * this server's whole per-tick broadcast model all assume
- * `Runtime::Single` (design.md Design Risk 2), so failing fast here beats
- * discovering the restriction lazily the first time `rasterBytes` throws.
- * Returns a `Promise` rather than a synchronous handle because the actual
- * `port` is not known until the OS has bound the listening socket
- * (relevant for `port: 0`/ephemeral-port callers, e.g. tests).
+ * Starts the visualiser server (Requirement 7). As of Phase 7 Requirement
+ * 1(e), partitioned simulations (`threadCount > 1`) are fully supported --
+ * `rasterBytes`/`attachProbe`/`readProbe`/`firingRate`/`predictionAccuracy`
+ * were made partition-aware in `crates/brain-napi` (Requirement 1(d)), and
+ * this server's other per-tick reads (`membraneView`, `predictiveView`,
+ * `coordsView`, etc.) already operated on the shared arenas directly and
+ * were never `Runtime::Single`-gated in the first place. The computation
+ * is never scaled down to fit the visualiser (this phase's own stated
+ * decision) -- watching a real, multi-threaded, locality-realistic run
+ * live is exactly the point. `snapshotBytes`/`runConsolidation` remain
+ * `Runtime::Single`-only (a separate, still-open scope decision this
+ * change does not revisit), but neither is used by this server. Returns a
+ * `Promise` rather than a synchronous handle because the actual `port` is
+ * not known until the OS has bound the listening socket (relevant for
+ * `port: 0`/ephemeral-port callers, e.g. tests).
  */
 export function startVizServer(options: VizServerOptions): Promise<VizServer> {
   const { sim } = options;
-  if (sim.isPartitioned()) {
-    throw new Error(
-      "packages/viz's server does not support partitioned simulations (threadCount > 1): probes, raster export and this server's broadcast model all require threadCount: 1",
-    );
-  }
-
   const host = options.host ?? "127.0.0.1";
   const publicDir = options.publicDir ?? DEFAULT_PUBLIC_DIR;
   const distDir = options.distDir ?? DEFAULT_DIST_DIR;

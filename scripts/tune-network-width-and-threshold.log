@@ -1,0 +1,49 @@
+Starting joint search from width=800, targetRate=0.99.
+Width bounds [200, 6400], targetRate bounds [0.01, 0.99].
+
+
+=== Round 1: searching width (targetRate fixed at 0.9900) ===
+  [round 1 width] trial 1: width=800 targetRate=0.9900 -> mean network accuracy=17.60% (106822ms, 3 seeds)
+  [round 1 width] trial 2: width=1200 targetRate=0.9900 -> mean network accuracy=16.65% (154581ms, 3 seeds)
+  [round 1 width] trial 3: width=400 targetRate=0.9900 -> mean network accuracy=13.65% (83244ms, 3 seeds)
+    -> width: no improvement, halving step to 200
+  [round 1 width] trial 4: width=1000 targetRate=0.9900 -> mean network accuracy=16.65% (115764ms, 3 seeds)
+  [round 1 width] trial 5: width=600 targetRate=0.9900 -> mean network accuracy=13.43% (95916ms, 3 seeds)
+    -> width: no improvement, halving step to 100
+  [round 1 width] trial 6: width=900 targetRate=0.9900 -> mean network accuracy=17.18% (110090ms, 3 seeds)
+  [round 1 width] trial 7: width=700 targetRate=0.9900 -> mean network accuracy=14.05% (100659ms, 3 seeds)
+    -> width: no improvement, halving step to 50
+
+=== Round 1: searching targetRate (width fixed at 800) ===
+  [round 1 targetRate] trial 8: width=800 targetRate=0.9900 -> mean network accuracy=17.60% (105419ms, 3 seeds)
+  [round 1 targetRate] trial 9: width=800 targetRate=0.9400 -> mean network accuracy=17.10% (106358ms, 3 seeds)
+    -> targetRate: no improvement, halving step to 0.0250
+  [round 1 targetRate] trial 10: width=800 targetRate=0.9650 -> mean network accuracy=17.30% (105143ms, 3 seeds)
+    -> targetRate: no improvement, halving step to 0.0125
+  [round 1 targetRate] trial 11: width=800 targetRate=0.9775 -> mean network accuracy=17.48% (118231ms, 3 seeds)
+    -> targetRate: no improvement, halving step to 0.0063
+  [round 1 targetRate] trial 12: width=800 targetRate=0.9838 -> mean network accuracy=17.43% (118730ms, 3 seeds)
+    -> targetRate: no improvement, halving step to 0.0031
+  [round 1 targetRate] trial 13: width=800 targetRate=0.9869 -> mean network accuracy=16.78% (117850ms, 3 seeds)
+    -> targetRate: no improvement, halving step to 0.0016
+
+Round 1 result: width=800, targetRate=0.9900, score=17.60%
+Round 1 changed neither axis -- coordinate descent has converged.
+
+Search finished after 13 trials, 1438.8s.
+Best found: width=800, targetRate=0.9900
+
+Confirming with the official 5-seed protocol...
+  seed=1 network=0.1575 trigram=0.2840 samples=2000
+  seed=2 network=0.1855 trigram=0.2840 samples=2000
+  seed=3 network=0.1850 trigram=0.2840 samples=2000
+  seed=4 network=0.1740 trigram=0.2840 samples=2000
+  seed=5 network=0.1665 trigram=0.2840 samples=2000
+
+Final recommendation: width=800, targetRate=0.9900
+  mean network accuracy: 17.37%
+  range across seeds: 15.75%-18.55%
+  mean trigram accuracy: 28.40%
+  milestone met (network > trigram): false
+
+Full trial log written to C:\projects\brain\scripts\tune-network-width-and-threshold.results.md

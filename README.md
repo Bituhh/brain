@@ -658,6 +658,99 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
   - **[T]** All of the above driven through Phase 6's visualiser as the primary way of inspecting
     results, not an afterthought — the explicit reason this phase is sequenced after it.
 
+  **Status (2026-09-12): NET-12/13-at-scale and its throughput/visualiser follow-ups (Requirement 1),
+  NEU-8 self-release (Requirement 2), N-way competition (Requirement 3) and VAL-3 drift (Requirement
+  4) shipped; VAL-4 resurfaced (Requirement 5) not yet started.** Per Requirement 13.6/8's
+  honest-reporting discipline, reported by sub-part:
+  - **Attractor at scale: met.** `crates/brain-core/tests/working_memory_at_scale.rs` extends
+    `working_memory.rs`'s toy-scale (hand-isolated, `p0 = 0.0`) clique to a real
+    `benches/core_bench.rs`-scale (200-neuron) column with *functional* ambient wiring (real,
+    distance-biased, permanence above `connection_threshold`) reaching the whole column, plus a
+    real `FixedNeighbourhoods` k-WTA scheme — neither of which the toy-scale test needed. One
+    real retuning finding, recorded in the test's own module doc rather than hidden: wiring the
+    driven subset's own internal recurrence at the same sparse, locality-realistic density as the
+    ambient wiring failed outright (too few expected synapses among 10 neurons to cross threshold
+    at all); holding that variable at `working_memory.rs`'s own validated near-all-to-all density
+    and changing only the ambient wiring around it (the one variable actually under test) is what
+    made the mechanism sustain, seeds `[1,2,3,4,5]`.
+  - **Race at scale: met.** `crates/brain-core/tests/action_selection_at_scale.rs` extends the
+    validated attractor to two competing populations via `action_selection.rs`'s own toy-scale
+    suppress/hold circuit, unchanged in shape. One real retuning finding: reusing
+    `action_selection.rs`'s `INHIBITORY_SIZE = 5` unchanged left gating with no effect at all,
+    because it was tuned against a `CLIQUE_SIZE` of 5 — doubling the driven subset to 10 (this
+    phase's validated value) doubled its internal excitation without doubling suppression capacity
+    to match. Scaling `INHIBITORY_SIZE` to match `DRIVEN_SUBSET_SIZE` restored the same margin the
+    toy-scale test relied on, seeds `[1,2,3]`.
+  - **Throughput benchmark: run, target still not met, but the shape of the result changed.** See
+    §12a item 1's own new entry for the full numbers — `bench_locality_realistic_synaptic_events_per_second`
+    reuses this phase's own validated topology at 32 columns (6,400 neurons, double the existing
+    3,200-neuron benchmark) and finds throughput now *rising* with thread count up to 8 threads
+    before regressing, rather than falling almost immediately — evidence for, not proof of, Phase
+    4's "small-network artifact" explanation. ENG-11's ≥1M-events/second/core target remains
+    unmet at any thread count tried.
+  - **Partitioned visualiser support: met, and it surfaced a real, previously-invisible gap.**
+    `crates/brain-napi`'s `rasterBytes`/`attachProbe`/`readProbe`/`firingRate`/`predictionAccuracy`
+    were `Runtime::Single`-only since Phase 6; extending them surfaced that `PartitionRuntime::step`
+    (`crates/brain-core/src/partition.rs`) calls `Scheduler::deliver`/`evaluate_and_resolve`
+    *directly*, never `Scheduler::step` itself — so probes, `firing_rate` and `prediction_accuracy`
+    were never fed at all in partitioned mode, independent of any FFI gating, silently reporting
+    empty/zero regardless of real underlying activity. Fixed by extracting the metrics-recording
+    and probe-feeding logic `Scheduler::step` already had into a new
+    `Scheduler::record_tick_observables`, called once per partition from
+    `PartitionRuntime::step` too. `firing_rate`/`prediction_accuracy` aggregate by **summing each
+    partition's raw counts before dividing**, not averaging each partition's own ratio — the
+    latter would silently misweight partitions of different sizes (a Simpson's-paradox-shaped bug
+    named and tested against directly, `crates/brain-core/src/metrics.rs`'s
+    `summing_two_meters_raw_counts_differs_from_averaging_their_rates`/
+    `predicted_and_total_sum_reconstruct_accuracy_and_summing_beats_averaging`). `packages/viz`'s
+    `startVizServer` no longer refuses partitioned simulations — the computation is never scaled
+    down to fit the visualiser, per this phase's own explicit decision. Verified end-to-end (not
+    just unit-tested): `packages/viz/test/server.slow.test.ts`'s new case drives a real partitioned
+    simulation through a real server and a real WebSocket client, exercising topology, ticking,
+    probes and raster export together.
+  - **NEU-8 self-release: met, on the first parameter choice tried.** `crates/brain-core/tests/self_terminating_attractor.rs`
+    reuses Requirement 1(a)'s exact topology and sustaining permanence unchanged, adding only
+    `LifParams::with_adaptation(200.0, 0.05)` on top. An analytical estimate (working from
+    `neuron.rs`'s `target = input - adaptation` mechanism: the driven subset's own recurrent drive
+    needs accumulated adaptation past ~6.5 before a single tick's leak can no longer carry membrane
+    across threshold from reset, and a neuron firing every tick approaches that under this
+    `tau`/`increment` pair after roughly 200 ticks) put self-termination around tick 200 of a
+    500-tick post-withdrawal window; the measured result matched closely enough that no retuning
+    was needed — the attractor is still active at tick 100 and has gone fully silent by tick 400,
+    with **no cross-population inhibition or other external suppression wired at all**, across all
+    5 seeds. The ablation (adaptation left at its default, matching every other test in this
+    codebase) does not self-terminate within the same window, confirming adaptation — not floating-
+    point decay or some other artefact — is what did it.
+  - **NET-13 N-way competition: met, reusing every prior finding unchanged.**
+    `crates/brain-core/tests/action_selection_n_way.rs` extends `action_selection_at_scale.rs`'s
+    two-population circuit to three, **one population per partition** — the design decision
+    recorded ahead of time in `.claude/scratch/brain-engine-phase7/design.md` (each partition gets
+    its own `FixedNeighbourhoods` "for free," reusing Requirement 1(d)'s partitioning work rather
+    than testing the single-scheme-per-scheduler limit nobody needed to cross). Population 0 is
+    cued first, holds, and (via its own inhibitory pool, unchanged from the two-population circuit)
+    suppresses populations 1 and 2; with Requirement 2's adaptation enabled uniformly across every
+    partition, population 0 self-terminates around the same tick `self_terminating_attractor.rs`
+    found (only a *firing* population ever accumulates adaptation, so the suppressed populations
+    stay fresh) — releasing its suppression, so population 1, cued only afterward, wins and holds.
+    The ablation (adaptation disabled) has population 0 win indefinitely, so population 1's later
+    cue fails to establish anything: fatigue, not merely cross-population suppression, is what
+    lets who-wins-next change. Both cases passed on the first parameterisation tried, at every one
+    of seeds `[1,2,3]` — no retuning beyond reusing Requirements 1(a)/(b)/2's own already-validated
+    values was needed.
+  - **VAL-3 drift: met, with an honestly narrow result.** `crates/brain-core/tests/drift.rs` reuses
+    `predictive_learning.rs`'s minimal two-neuron A-then-B network, run for 100,000 ticks (an order
+    of magnitude past `homeostasis.rs`'s existing 10,000-tick soak) with `Scheduler::prediction_
+    accuracy()`'s already-on rolling-window meter sampled every 2,000 ticks rather than read once at
+    the end, both with and without `HomeostaticScaling`/`StructuralPlasticity` layered on top.
+    Measured accuracy is a flat 1.0 across the entire post-warmup run in both configurations — a
+    real regression guard (the same role VAL-7's golden rasters play), but, disclosed directly in
+    the test's own module doc rather than left implicit: this minimal network has nothing to
+    interfere with itself, so it is a narrower test of NELL-style *interference*-driven drift than
+    a network with several overlapping or context-dependent patterns (closer to `emergent.rs`'s
+    ABCD-vs-XBCY setup) would be. Building that richer version is a reasonable follow-up, not
+    attempted here per Requirement 4's own scope (reuse an existing shape, not build a new
+    mechanism).
+
 ---
 
 ## 12. Decisions taken
@@ -877,6 +970,38 @@ here.
    `DistancePolicy` is O(population²) and the ring-wiring shortcut `tests/scale.rs` uses to reach
    50M synapses cheaply produces a topology with no meaningful locality, which would make any
    partitioning-quality throughput number measured on it misleading rather than informative).
+
+   **Follow-up measured, 2026-09-12 (Phase 7, Requirement 1(c)):** the O(population²) wall above
+   applies to a single whole-network `connect` call, not to `GraphBuilder::connect`ing many columns
+   independently — each column's own wiring cost is O(column_size²) regardless of how many columns
+   exist, so a genuinely locality-realistic topology at a *larger* (if not yet the full 100k) scale
+   is cheap to build. `bench_locality_realistic_synaptic_events_per_second`
+   (`crates/brain-core/benches/core_bench.rs`) reuses Requirement 1(a)/(b)'s own validated topology
+   fixture (`tests/common/build_scale_columns`) at 32 columns × 200 neurons (6,400 neurons — double
+   the table above's 3,200), with the same thin cross-column ring `build_benchmark_network` uses and
+   no dendritic segments attached (matching Requirement 1(a)/(b)'s own validated configuration
+   exactly, not a superficially similar one). Results (thread count → events/second):
+
+   | threads | throughput      |
+   |---------|-------------------|
+   | 1       | 237.27 Kelem/s    |
+   | 2       | 360.67 Kelem/s    |
+   | 4       | 489.62 Kelem/s    |
+   | 8       | 505.94 Kelem/s    |
+   | 20      | 414.90 Kelem/s    |
+
+   Doubling network scale genuinely changes the shape of the curve, not just its absolute level:
+   throughput now *rises* from 1→2→4→8 threads (237 → 361 → 490 → 506 Kelem/s) before regressing at
+   20 threads, rather than falling almost immediately the way the 3,200-neuron column network above
+   does. Per-core throughput still degrades with thread count (8 threads: 505.94 Kelem/s ÷ 8 ≈ 63.2
+   Kelem/s/core, about a quarter of the single-core figure — the same *proportional* degradation as
+   the smaller benchmark), and the absolute numbers remain far below ENG-11's ≥1M/second/core target
+   regardless of thread count. This is evidence *for* the "small-network artifact" explanation above
+   (doubling scale measurably helps peak throughput and pushes the regression point from 4 threads
+   out to 8), not evidence the target is close to being met — the real 100k-neuron measurement
+   remains the open follow-up; 6,400 neurons is a data point on the way there, not a substitute for
+   it. `LOCALITY_COLUMN_COUNT`'s own doc comment names going further (more columns, still linear
+   construction cost) as the concrete next step if a future pass wants to press this further.
 
    **Cross-partition overhead (Requirement 10 AC4, Requirement 6 AC2).**
    `bench_cross_partition_fraction` holds the column network and total thread count (4) fixed and

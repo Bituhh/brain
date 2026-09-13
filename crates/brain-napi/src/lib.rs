@@ -1217,6 +1217,16 @@ impl NativeSimulation {
     /// concatenated in partition-id order -- `PartitionRuntime::step`'s own
     /// determinism guarantee (Requirement 8) makes that concatenation
     /// order well-defined, not an arbitrary merge.
+    ///
+    /// **Feeds `self.raster`/`self.last_spike_count` in *both* modes**
+    /// (Phase 7 Requirement 1(d)) -- previously `Runtime::Partitioned`
+    /// left both unfed, which is what made `raster_bytes`/
+    /// `metrics_snapshot` partitioned-mode-unsupported. The same
+    /// partition-id-order concatenation this method's own spike list
+    /// already relied on is reused for the raster: no new merge algorithm,
+    /// just recording what was already being computed. `run_consolidation`
+    /// remains `Runtime::Single`-only regardless (a separate, still-open
+    /// scope decision this change does not revisit).
     #[napi]
     pub fn step(&mut self) -> Vec<u32> {
         if self.is_partitioned() {
@@ -1224,15 +1234,15 @@ impl NativeSimulation {
             let Runtime::Partitioned(state) = &mut self.runtime else { unreachable!() };
             let pr = state.runtime.as_mut().expect("ensure_partition_runtime_built just built this");
             let reports = pr.step::<Lif>(&mut self.neurons, &mut self.synapses, &self.lif_params);
-            reports.into_iter().flat_map(|r| r.spiked).collect()
+            let tick = reports.first().map_or(0, |r| r.tick);
+            let spiked: Vec<u32> = reports.into_iter().flat_map(|r| r.spiked).collect();
+            self.raster.record_tick(tick, &spiked);
+            self.trim_raster();
+            self.last_spike_count = spiked.len() as u32;
+            spiked
         } else {
             let Runtime::Single(scheduler) = &mut self.runtime else { unreachable!() };
             let report = scheduler.step::<Lif>(&mut self.neurons, &mut self.synapses, &self.lif_params);
-            // Phase 5 Requirement 10.1/12: feeds `run_consolidation`'s
-            // replay source. Single mode only -- partitioned mode has no
-            // `run_consolidation` support to feed yet (see that method's
-            // own scope decision), so recording there would only cost
-            // memory for no benefit.
             self.raster.record_tick(report.tick, &report.spiked);
             self.trim_raster();
             // Requirement 5 (Phase 6): feeds `metrics_snapshot`'s on-demand
@@ -1302,28 +1312,23 @@ impl NativeSimulation {
     /// Exports `self.raster`'s current (bounded) contents via
     /// `SpikeRaster::export`'s existing binary format (OBS-3, Phase 6
     /// Requirement 3) -- reused verbatim, not a second export format.
-    /// `Runtime::Single`-only, matching `snapshot_bytes`/`run_consolidation`'s
-    /// existing partitioned-mode restriction: `self.raster` is only ever fed
-    /// in `Runtime::Single` mode today (see `step()`'s own comment).
+    /// Supported in both modes as of Phase 7 Requirement 1(d): `step()`
+    /// now feeds `self.raster` in partitioned mode too, via the same
+    /// partition-id-order concatenation its returned spike list already
+    /// used.
     #[napi]
     pub fn raster_bytes(&self) -> Result<Uint8Array> {
-        let Runtime::Single(_) = &self.runtime else {
-            return Err(Error::from_reason(
-                "rasterBytes is not supported in partitioned mode (threadCount > 1): self.raster is only fed in Runtime::Single today",
-            ));
-        };
         Ok(Uint8Array::new(self.raster.export()))
     }
 
-    /// Attaches a probe to `neuron` (OBS-1, Phase 6 Requirement 4),
-    /// `Runtime::Single`-only for the same reason `raster_bytes` is:
-    /// probes are fed inside `Scheduler::step`, which only this instance's
-    /// single scheduler runs against a whole-arena view every tick.
+    /// Attaches a probe to `neuron` (OBS-1, Phase 6 Requirement 4). As of
+    /// Phase 7 Requirement 1(d), supported in partitioned mode too: probes
+    /// are per-`Scheduler` state, and `PartitionPlan::partition_of` already
+    /// deterministically knows which partition's `Scheduler` owns any
+    /// given neuron, so this routes there instead of requiring
+    /// `Runtime::Single`.
     #[napi]
     pub fn attach_probe(&mut self, neuron: u32, options: ProbeOptionsFfi) -> Result<()> {
-        let Runtime::Single(scheduler) = &mut self.runtime else {
-            return Err(Error::from_reason("attachProbe is not supported in partitioned mode (threadCount > 1)"));
-        };
         let probe = Probe::new(
             neuron,
             ProbeOptions {
@@ -1333,27 +1338,49 @@ impl NativeSimulation {
                 record_segments: options.record_segments,
             },
         );
-        scheduler.attach_probe(neuron, probe);
+        if self.is_partitioned() {
+            self.ensure_partition_runtime_built();
+            let Runtime::Partitioned(state) = &mut self.runtime else { unreachable!() };
+            let pr = state.runtime.as_mut().expect("ensure_partition_runtime_built just built this");
+            let partition = pr.plan().partition_of(neuron);
+            pr.scheduler_mut(partition).attach_probe(neuron, probe);
+        } else {
+            let Runtime::Single(scheduler) = &mut self.runtime else { unreachable!() };
+            scheduler.attach_probe(neuron, probe);
+        }
         Ok(())
     }
 
-    /// Detaches `neuron`'s probe, if any (Phase 6 Requirement 4.4). A no-op
-    /// (not an error) in partitioned mode or if no probe was attached --
-    /// "make sure nothing is watching this neuron" should never fail.
+    /// Detaches `neuron`'s probe, if any (Phase 6 Requirement 4.4) -- a
+    /// no-op, not an error, if no probe was attached, in either mode.
+    /// Routed the same way [`Self::attach_probe`] is as of Phase 7
+    /// Requirement 1(d).
     #[napi]
     pub fn detach_probe(&mut self, neuron: u32) {
-        if let Runtime::Single(scheduler) = &mut self.runtime {
+        if self.is_partitioned() {
+            self.ensure_partition_runtime_built();
+            let Runtime::Partitioned(state) = &mut self.runtime else { unreachable!() };
+            let pr = state.runtime.as_mut().expect("ensure_partition_runtime_built just built this");
+            let partition = pr.plan().partition_of(neuron);
+            pr.scheduler_mut(partition).detach_probe(neuron);
+        } else if let Runtime::Single(scheduler) = &mut self.runtime {
             scheduler.detach_probe(neuron);
         }
     }
 
     /// Reads back `neuron`'s probe data (Phase 6 Requirement 4.3), or
-    /// `None` if no probe is attached to it. `Runtime::Single`-only,
-    /// matching `attach_probe`.
+    /// `None` if no probe is attached to it. Routed the same way
+    /// [`Self::attach_probe`] is as of Phase 7 Requirement 1(d).
     #[napi]
     pub fn read_probe(&self, neuron: u32) -> Option<ProbeDataFfi> {
-        let Runtime::Single(scheduler) = &self.runtime else { return None };
-        let probe = scheduler.probe(neuron)?;
+        let probe = if self.is_partitioned() {
+            let Runtime::Partitioned(state) = &self.runtime else { unreachable!() };
+            let pr = state.runtime.as_ref()?;
+            pr.scheduler(pr.plan().partition_of(neuron)).probe(neuron)?
+        } else {
+            let Runtime::Single(scheduler) = &self.runtime else { unreachable!() };
+            scheduler.probe(neuron)?
+        };
         Some(ProbeDataFfi {
             spike_times: probe.spike_times().copied().collect(),
             membrane_trace: probe.membrane_trace().map(|t| t.iter().map(|&v| v as f64).collect()),
@@ -1371,29 +1398,66 @@ impl NativeSimulation {
     }
 
     /// Population firing rate over the always-on window (OBS-2, Phase 6
-    /// Requirement 5.1) -- cheap enough to call every tick.
-    /// `Runtime::Single`-only: `PartitionRuntime` owns several per-partition
-    /// `Scheduler`s with no single well-defined whole-network rate to
-    /// report without a new aggregation this phase does not add (Design
-    /// Risk 2's partitioned-mode scope decision, extended to metrics);
-    /// reports `0.0` in partitioned mode rather than fabricating a
-    /// misleading aggregate.
+    /// Requirement 5.1) -- cheap enough to call every tick. As of Phase 7
+    /// Requirement 1(d), aggregates correctly across every partition in
+    /// partitioned mode: **sums each partition's raw `running_sum` before
+    /// dividing** by the shared tick count and total live population,
+    /// rather than averaging each partition's own `firing_rate()` ratio,
+    /// which would weight a small partition equally with a large one
+    /// (`FiringRateMeter::running_sum`'s own doc comment). Reports `0.0`
+    /// if no partition runtime has been built yet (no step/stimulate call
+    /// has happened) -- the same "nothing to report yet" case
+    /// `modulator_levels` already handles for the same reason.
     #[napi]
     pub fn firing_rate(&self) -> f64 {
         match &self.runtime {
             Runtime::Single(scheduler) => scheduler.firing_rate(self.neurons.live_count() as u32),
-            Runtime::Partitioned(_) => 0.0,
+            Runtime::Partitioned(state) => {
+                let Some(pr) = &state.runtime else { return 0.0 };
+                let mut spikes_sum = 0u64;
+                let mut filled = 0usize;
+                for p in 0..pr.partition_count() {
+                    let meter = pr.scheduler(p).firing_rate_meter();
+                    spikes_sum += meter.running_sum();
+                    filled = filled.max(meter.filled());
+                }
+                let population = self.neurons.live_count() as f64;
+                if filled == 0 || population == 0.0 {
+                    0.0
+                } else {
+                    spikes_sum as f64 / filled as f64 / population
+                }
+            }
         }
     }
 
     /// Prediction accuracy over the always-on window (OBS-2, Phase 6
-    /// Requirement 5.1). `Runtime::Single`-only, same rationale as
-    /// `firing_rate` above.
+    /// Requirement 5.1). As of Phase 7 Requirement 1(d), aggregates
+    /// correctly across every partition: **sums each partition's raw
+    /// `predicted_sum`/`total_sum` before dividing**, not each partition's
+    /// own `accuracy()` ratio -- the same reasoning as `firing_rate` above
+    /// (`PredictionAccuracyMeter::predicted_sum`'s own doc comment).
+    /// Reports `0.0` if no partition runtime has been built yet, same as
+    /// `firing_rate`.
     #[napi]
     pub fn prediction_accuracy(&self) -> f64 {
         match &self.runtime {
             Runtime::Single(scheduler) => scheduler.prediction_accuracy(),
-            Runtime::Partitioned(_) => 0.0,
+            Runtime::Partitioned(state) => {
+                let Some(pr) = &state.runtime else { return 0.0 };
+                let mut predicted_sum = 0u64;
+                let mut total_sum = 0u64;
+                for p in 0..pr.partition_count() {
+                    let meter = pr.scheduler(p).prediction_accuracy_meter();
+                    predicted_sum += meter.predicted_sum();
+                    total_sum += meter.total_sum();
+                }
+                if total_sum == 0 {
+                    0.0
+                } else {
+                    predicted_sum as f64 / total_sum as f64
+                }
+            }
         }
     }
 

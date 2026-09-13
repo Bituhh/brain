@@ -315,10 +315,45 @@ test("requestRaster returns the real exported raster bytes (Requirement 7, OBS-3
   });
 });
 
-test("starting a server against a partitioned simulation is refused synchronously (Requirement 3.4, Design Risk 2)", async () => {
-  const sim = Simulation.create(LIF, { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1, threadCount: 2, totalNeurons: 1 });
-  sim.allocateNeuron(0.5, 1);
-  assert.throws(() => startVizServer({ sim, port: 0 }));
+// Phase 7 Requirement 1(e): a partitioned simulation used to be refused
+// synchronously here (this same test used to assert `startVizServer`
+// *threw* -- see git history for that prior version). As of Requirement
+// 1(d)'s partition-aware `rasterBytes`/`attachProbe`/`firingRate`/
+// `predictionAccuracy`, the server serves a real, multi-threaded run
+// exactly as it does a single-threaded one -- the computation is never
+// scaled down to fit the visualiser.
+test("starting a server against a partitioned simulation now works end-to-end -- topology, ticking, probes and raster all served for real (Phase 7 Requirement 1(e))", async () => {
+  const sim = Simulation.create(LIF, { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 2, threadCount: 2, totalNeurons: 2 });
+  const a = sim.allocateNeuron(0.5, 1);
+  const b = sim.allocateNeuron(0.5, 1);
+  sim.connect(a, b, 0, 1, 0.9);
+
+  await withServer(sim, async (server) => {
+    const client = await connectTestClient(server.port);
+    try {
+      const neurons = (await client.waitFor((m) => m.type === "topologyNeurons")) as Extract<ServerMessage, { type: "topologyNeurons" }>;
+      assert.equal(neurons.coords.length, 6, "2 neurons * 3 components, served from the shared arenas exactly as in single-threaded mode");
+
+      const tick = (await client.waitFor((m) => m.type === "tick")) as Extract<ServerMessage, { type: "tick" }>;
+      assert.ok(tick.tick >= 0, "the automatic tick loop runs against a partitioned simulation too");
+
+      client.send({ type: "attachProbe", neuron: a, recordMembrane: true, recordSegments: false, capacity: 20, weightSynapseIds: [] });
+      client.send({ type: "stimulate", index: a, current: 10.0 });
+      await client.waitFor((m) => m.type === "tick");
+      await client.waitFor((m) => m.type === "tick");
+      const probeData = (await client.waitFor((m) => m.type === "probeData", 3000)) as Extract<ServerMessage, { type: "probeData" }>;
+      assert.equal(probeData.neuron, a, "a probe attached through the server works against a partitioned simulation");
+
+      client.send({ type: "requestRaster" });
+      const raster = (await client.waitFor((m) => m.type === "rasterExport")) as Extract<ServerMessage, { type: "rasterExport" }>;
+      const magic = Array.from(raster.bytes.subarray(0, 6))
+        .map((c) => String.fromCharCode(c))
+        .join("");
+      assert.equal(magic, "RASTER", "raster export works against a partitioned simulation too");
+    } finally {
+      client.close();
+    }
+  });
 });
 
 test("the server binds loopback-only (127.0.0.1) by default, never a public address (Requirement 7.6)", async () => {
