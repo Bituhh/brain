@@ -662,11 +662,13 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
 
   **Status (2026-09-13): NET-12/13-at-scale and its throughput/visualiser follow-ups (Requirement 1),
   NEU-8 self-release (Requirement 2), N-way competition (Requirement 3) and VAL-3 drift (Requirement
-  4) shipped; VAL-4 resurfaced (Requirement 5) in progress — the NET-10 growth-regression
-  investigation (§13.12 item 10) is complete (growth itself cleared of the earlier regression;
-  structural plasticity acting alone is the real cause), and the broader `segmentsPerNeuron` x
-  `targetRate` retuning search (§13.12 item 10's own Phase B) is running.** Per Requirement 13.6/8's
-  honest-reporting discipline, reported by sub-part:
+  4) shipped; VAL-4 resurfaced (Requirement 5) complete for now, milestone still not met.** The
+  NET-10 growth-regression investigation (§13.12 item 10, Phase A) diagnosed growth as inert (a
+  bootstrapping deadlock, later found to be blocked at its root by item 12) rather than harmful, and
+  the broader `segmentsPerNeuron` x `targetRate` retuning search (§13.12 item 10, Phase B) found
+  **no configuration anywhere in that search beats `DEFAULT_CONFIG`'s existing
+  `segmentsPerNeuron=2, targetRate=0.99`** — an honest confirmation of the current default, not a
+  new one. Per Requirement 13.6/8's honest-reporting discipline, reported by sub-part:
   - **Attractor at scale: met.** `crates/brain-core/tests/working_memory_at_scale.rs` extends
     `working_memory.rs`'s toy-scale (hand-isolated, `p0 = 0.0`) clique to a real
     `benches/core_bench.rs`-scale (200-neuron) column with *functional* ambient wiring (real,
@@ -2235,6 +2237,62 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     plus newborn-neuron intrinsic hyperexcitability — is closer to what NET-11 (critical periods,
     currently a deferred **could**) already names than to any of `sprout`'s own eligibility knobs;
     not attempted here, left as a scoped design decision for whoever picks NET-11 up.
+
+    **Update, same day: the "surgical option" above is not sufficient on its own — see item 12's
+    2026-09-13 finding, independently derived by a separate review of this codebase.** A one-time
+    sprout-eligibility grace would let a grown neuron *acquire* a synapse, but that synapse would
+    still start below `connection_threshold`, and a sub-threshold synapse in this engine is not
+    merely weak — `deliver` skips it with `continue` before `on_delivery` ever runs, and STDP's
+    `on_post_spike` is gated on `last_active`, a field only delivery ever writes. It is therefore
+    **invisible to every plasticity rule and can never be potentiated by activity**, because
+    `permanence` is doing two jobs at once (SYN-3's structural "is this connected" and §2.5's
+    efficacy "how strong is it") that item 12 names as a single, un-split field. The deadlock this
+    item diagnoses is real, but the fix is not a `sprout`-local eligibility patch — it is item 12's
+    `weight`/`permanence` split, which dissolves the deadlock as a side effect (a structurally-
+    connected, near-zero-*weight* synapse transmits a trickle, is visible to STDP, and is
+    potentiated or pruned on its own merits, exactly the "provisional connection" a bootstrapping
+    deadlock normally has available and this network currently does not). `PLAN.md`'s **B1** (split
+    `weight` from `permanence`) and **B2** (re-run this item's own six-condition script once B1
+    lands, to confirm the deadlock actually dissolves) scope this as ordered follow-up work; neither
+    has been started as of this entry.
+
+    **Phase B (`scripts/tune-segments-and-threshold.ts`), completed 2026-09-13: a full targetRate
+    coordinate search at each of `segmentsPerNeuron` in {1, 2, 3, 4}, official 5-seed protocol at
+    every single trial (this investigation's own explicit "time is not a constraint" scope, not
+    just the winning candidate) — 61 trials total, every one logged to
+    `scripts/tune-segments-and-threshold.results.md`.**
+
+    | segmentsPerNeuron | best targetRate found | mean network accuracy (5 seeds) |
+    |---|---|---|
+    | 1 | 0.5375 | 8.94% |
+    | **2 (today's `DEFAULT_CONFIG`)** | **0.99 (today's `DEFAULT_CONFIG`)** | **17.37%** |
+    | 3 | 0.5125 | 4.63% |
+    | 4 | 0.9750 | 15.48% |
+
+    **The honest result: nothing in this search beats what is already shipped.** `segmentsPerNeuron
+    =2, targetRate=0.99` — today's `DEFAULT_CONFIG` — is also this search's own best-found
+    configuration, reproducing item 7/8/9's own 17.37% figure exactly rather than improving on it.
+    Per this section's own Requirement 13.6 discipline, that is recorded as the honest outcome, not
+    loosened into a claimed win: `segmentsPerNeuron` had genuinely never been searched before this
+    (only guessed at `2` when item 6 fixed the single-segment collapse), and the search confirms
+    that guess was already close to optimal on this axis, at least among {1,2,3,4} — it does not
+    prove the guess was *lucky*. `DEFAULT_CONFIG` is unchanged: there is nothing better to switch to.
+
+    One shape worth naming rather than glossing over: segmentsPerNeuron=1 and =3 both converged to a
+    `targetRate` near `0.5`, from a search that only ever explored roughly `[0.45, 0.55]` for either
+    of them (every step in either direction from the neutral 0.5 starting point stopped improving
+    quickly, so the coordinate search's shrinking-step convergence criterion triggered there) —
+    unlike segmentsPerNeuron=2 and =4, both of which climbed, in many small uphill steps, all the
+    way to the `targetRate` boundary near `0.99`. A greedy coordinate search cannot discover a
+    second, better peak on the far side of a valley it never had reason to cross, so whether 1 and 3
+    also have an undiscovered high-`targetRate` peak (mirroring 2 and 4) is a real, currently
+    unanswered question, not ruled out by this search's own convergence. A follow-up coarse grid
+    check (`scripts/verify-wider-segments-fixed-rates.ts`, run one `segmentsPerNeuron` value per
+    process against four fixed `targetRate` values — 0.25, 0.5, 0.75, 0.99 — for `segmentsPerNeuron`
+    in {1, 3, 5, 6, 7, 8, 9, 10, 11, 12}) was started the same day to check both this and whether
+    `segmentsPerNeuron > 4` (outside this search's own explicitly-scoped range) ever does better;
+    results were not yet available at the time of this entry and will be recorded honestly here once
+    they land, whichever way they point.
 11. **Polarity is a first-class concept in the type system and invisible to every mechanism that
     acts on it — found 2026-09-13 during a §2-against-§3–§9-against-code review.** NEU-4 and
     invariant 3 are correctly implemented at the point of transmission

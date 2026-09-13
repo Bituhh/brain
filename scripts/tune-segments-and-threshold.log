@@ -87,3 +87,38 @@ Every trial uses the full 5-seed official protocol.
     -> improved: 0.5500 (5.39%) -> 0.6000 (7.37%), keeping step 0.05
   [segments=4] trial 44: targetRate=0.6500 -> mean network accuracy=8.68% (340456ms)
     -> improved: 0.6000 (7.37%) -> 0.6500 (8.68%), keeping step 0.05
+  [segments=4] trial 45: targetRate=0.7000 -> mean network accuracy=8.82% (179835ms)
+    -> improved: 0.6500 (8.68%) -> 0.7000 (8.82%), keeping step 0.05
+  [segments=4] trial 46: targetRate=0.7500 -> mean network accuracy=10.43% (169502ms)
+    -> improved: 0.7000 (8.82%) -> 0.7500 (10.43%), keeping step 0.05
+  [segments=4] trial 47: targetRate=0.8000 -> mean network accuracy=11.37% (167236ms)
+    -> improved: 0.7500 (10.43%) -> 0.8000 (11.37%), keeping step 0.05
+  [segments=4] trial 48: targetRate=0.8500 -> mean network accuracy=12.76% (174650ms)
+    -> improved: 0.8000 (11.37%) -> 0.8500 (12.76%), keeping step 0.05
+  [segments=4] trial 49: targetRate=0.9000 -> mean network accuracy=13.95% (188716ms)
+    -> improved: 0.8500 (12.76%) -> 0.9000 (13.95%), keeping step 0.05
+  [segments=4] trial 50: targetRate=0.9500 -> mean network accuracy=15.39% (190273ms)
+    -> improved: 0.9000 (13.95%) -> 0.9500 (15.39%), keeping step 0.05
+  [segments=4] trial 51: targetRate=0.9900 -> mean network accuracy=14.89% (189462ms)
+    -> no improvement at step 0.0500, halving to 0.0250
+  [segments=4] trial 52: targetRate=0.9750 -> mean network accuracy=15.48% (190319ms)
+  [segments=4] trial 53: targetRate=0.9250 -> mean network accuracy=12.99% (189420ms)
+    -> improved: 0.9500 (15.39%) -> 0.9750 (15.48%), keeping step 0.025
+    -> no improvement at step 0.0250, halving to 0.0125
+  [segments=4] trial 54: targetRate=0.9875 -> mean network accuracy=14.65% (189244ms)
+  [segments=4] trial 55: targetRate=0.9625 -> mean network accuracy=15.11% (189065ms)
+    -> no improvement at step 0.0125, halving to 0.0063
+  [segments=4] trial 56: targetRate=0.9812 -> mean network accuracy=15.23% (292781ms)
+  [segments=4] trial 57: targetRate=0.9688 -> mean network accuracy=15.12% (358972ms)
+    -> no improvement at step 0.0063, halving to 0.0031
+  [segments=4] trial 58: targetRate=0.9781 -> mean network accuracy=15.48% (397156ms)
+  [segments=4] trial 59: targetRate=0.9719 -> mean network accuracy=15.10% (397362ms)
+    -> no improvement at step 0.0031, halving to 0.0016
+  best for segmentsPerNeuron=4: targetRate=0.9750, mean network accuracy=15.48%
+
+All searches finished after 59 trials total, 11608.7s.
+
+Overall best: segmentsPerNeuron=2, targetRate=0.9900, mean network accuracy=17.37%
+Compare against DEFAULT_CONFIG's current segmentsPerNeuron=2, targetRate=0.99 (README §13.12 item 7/9's 17.37%).
+
+Full trial log written to C:\projects\brain\scripts\tune-segments-and-threshold.results.md
