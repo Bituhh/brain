@@ -31,7 +31,7 @@ use crate::inhibition::FixedNeighbourhoods;
 use crate::metrics::{FiringRateMeter, PredictionAccuracyMeter};
 use crate::neuromodulator::NeuromodulatorField;
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
-use crate::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, SegmentThresholdHomeostasis};
+use crate::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
 use crate::plasticity::predictive::{PredictingSegmentTracker, PredictiveLearning, PredictiveLearningParams};
 use crate::plasticity::structural::StructuralPlasticity;
 use crate::plasticity::{LocalContext, Modulators, NeuronLocal, RuleChain, SynapseMut};
@@ -313,6 +313,22 @@ pub struct Scheduler {
     /// framing -- `PartitionScheduler`'s equivalent field uses
     /// `maybe_sweep_partitioned` instead (`partition.rs`).
     structural_plasticity: Option<StructuralPlasticity>,
+    /// `None` means per-neuron intrinsic homeostasis (NEU-7) never runs
+    /// inside `step()` -- the default, and zero extra cost when never
+    /// configured, same shape as `homeostatic_scaling`/`structural_plasticity`
+    /// above. Built and unit-tested since Phase 0-3 (`homeostatic.rs`'s
+    /// `IntrinsicHomeostasis`) but never wired to a caller until the
+    /// canonical-brain-constructor review found it sitting alongside
+    /// `HomeostaticScaling`/`StructuralPlasticity` with the identical
+    /// "built, tested, reachable from no caller" shape README §13.12 item 13
+    /// already names for consolidation and three neuromodulator channels.
+    /// When attached via [`Self::with_intrinsic_homeostasis`], `step()`
+    /// drives `maybe_apply` directly against `neurons` every tick, at
+    /// whatever interval the instance was constructed with -- this is what
+    /// makes NEU-7's "threshold drifts to hold a long-run target firing
+    /// rate" true for a caller that only ever calls `step()`, mirroring
+    /// `homeostatic_scaling`'s own rationale exactly.
+    intrinsic_homeostasis: Option<IntrinsicHomeostasis>,
     /// Interactive observability (Requirement 4/6, Phase 6): keyed by
     /// neuron index, matching `Probe::new(neuron, options)`'s existing
     /// one-probe-per-neuron shape -- attaching a second probe to the same
@@ -395,6 +411,7 @@ impl Scheduler {
             predictive_scratch: Vec::new(),
             homeostatic_scaling: None,
             structural_plasticity: None,
+            intrinsic_homeostasis: None,
             probes: HashMap::new(),
             firing_rate: FiringRateMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
             prediction_accuracy: PredictionAccuracyMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
@@ -568,6 +585,19 @@ impl Scheduler {
     /// opt-in default, same "unchanged unless configured" guarantee.
     pub fn with_structural_plasticity(mut self, plasticity: StructuralPlasticity) -> Self {
         self.structural_plasticity = Some(plasticity);
+        self
+    }
+
+    /// Enables per-neuron intrinsic homeostasis (NEU-7) as an always-on,
+    /// opt-in part of `step()`, mirroring [`Self::with_homeostatic_scaling`]
+    /// exactly: `homeostasis.maybe_apply` runs at the end of every tick, at
+    /// whatever interval `homeostasis` was constructed with, drifting each
+    /// neuron's own threshold toward a long-run target firing rate. Without
+    /// this call, thresholds never move on their own -- unchanged from every
+    /// pre-existing behaviour, and still the default a caller must opt into,
+    /// not out of.
+    pub fn with_intrinsic_homeostasis(mut self, homeostasis: IntrinsicHomeostasis) -> Self {
+        self.intrinsic_homeostasis = Some(homeostasis);
         self
     }
 
@@ -1184,6 +1214,13 @@ impl Scheduler {
         if let Some(sp) = &mut self.structural_plasticity {
             sp.maybe_sweep(neurons, synapses, report.tick);
         }
+        // NEU-7: per-neuron intrinsic homeostasis, the somatic-threshold
+        // counterpart to `homeostatic_scaling`/`structural_plasticity` above
+        // -- same "reads `neurons` directly, borrow through `neuron_view`
+        // already ended" reasoning.
+        if let Some(homeostasis) = &mut self.intrinsic_homeostasis {
+            homeostasis.maybe_apply(neurons, report.tick);
+        }
         // dendritic-threshold-homeostasis spec, Requirement 1/2/6: a fifth
         // always-on, opt-in sweep alongside homeostatic_scaling/
         // structural_plasticity above. `0..segment_threshold.len()` is
@@ -1583,6 +1620,30 @@ mod tests {
         assert!(!synapses.is_occupied(weak), "structural plasticity must prune automatically inside step() with no caller-driven maybe_sweep call");
     }
 
+    #[test]
+    fn configured_intrinsic_homeostasis_runs_automatically_inside_step() {
+        let mut neurons = NeuronArena::new();
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+        // target_rate=0.0 against a neuron spiking every tick: the largest
+        // error `maybe_apply` can observe, so the threshold nudge is
+        // unambiguous rather than borderline.
+        let mut sched = Scheduler::new(2, 0.2).with_intrinsic_homeostasis(IntrinsicHomeostasis::new(0.0, 0.0, 0.2, 0.1, 1));
+        sched.stimulate(&neurons, a, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // tick 0: gate not yet due (0 < 0+1)
+        sched.stimulate(&neurons, a, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // tick 1: gate due -> fires
+
+        assert!(
+            neurons.threshold[a as usize] > 0.5,
+            "intrinsic homeostasis must raise a chronically-spiking neuron's threshold automatically inside step() with no caller-driven maybe_apply call, got {}",
+            neurons.threshold[a as usize]
+        );
+    }
+
     // -- Phase 5 Requirement 15.1/15.5: `reward` and `modulator_levels`.
 
     #[test]
@@ -1610,19 +1671,22 @@ mod tests {
     #[test]
     fn leaving_homeostasis_and_structural_plasticity_unconfigured_leaves_step_unaffected() {
         let mut neurons = NeuronArena::new();
-        let a = make_neuron(&mut neurons, 100.0, 1);
+        let a = make_neuron(&mut neurons, 0.5, 1); // low enough to spike every tick if stimulated -- would drift if intrinsic homeostasis ran
         let target = make_neuron(&mut neurons, 100.0, 1);
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(neurons.capacity_len());
         let id = synapses.insert(a, target, 0, 1, 0.02).unwrap(); // would be pruned/rescaled if either mechanism ran
 
-        let params = LifParams::new(5.0, 0.0, 0.0, 1);
-        let mut sched = Scheduler::new(2, 0.2); // neither with_homeostatic_scaling nor with_structural_plasticity called
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+        let mut sched = Scheduler::new(2, 0.2); // neither with_homeostatic_scaling, with_structural_plasticity, nor with_intrinsic_homeostasis called
+        sched.stimulate(&neurons, a, 10.0);
         sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        sched.stimulate(&neurons, a, 10.0);
         sched.step::<Lif>(&mut neurons, &mut synapses, &params);
 
         assert!(synapses.is_occupied(id));
         assert_eq!(synapses.permanence[id as usize], 0.02, "unconfigured Scheduler must leave permanence exactly as before, matching every pre-Phase-5 caller");
+        assert_eq!(neurons.threshold[a as usize], 0.5, "unconfigured Scheduler must leave threshold exactly as before, matching every pre-Phase-5 caller");
     }
 
     #[test]

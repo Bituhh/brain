@@ -24,6 +24,7 @@ import {
   type ConsolidationReportFfi,
   type HomeostaticScalingConfig,
   type StructuralPlasticityConfig,
+  type IntrinsicHomeostasisConfig,
   type SegmentThresholdHomeostasisConfig,
   type InhibitionHomeostasisConfig,
   type GrowthConfig,
@@ -49,6 +50,7 @@ export type {
   ConsolidationConfig,
   HomeostaticScalingConfig,
   StructuralPlasticityConfig,
+  IntrinsicHomeostasisConfig,
   SegmentThresholdHomeostasisConfig,
   InhibitionHomeostasisConfig,
   GrowthConfig,
@@ -113,6 +115,17 @@ export interface SimulationOptions {
    * Omit to leave `step()`'s structural sweep disabled.
    */
   structuralPlasticity?: StructuralPlasticityConfig;
+  /**
+   * Per-neuron intrinsic homeostasis (NEU-7): each neuron's own somatic
+   * threshold drifts toward a target long-run firing rate, instead of
+   * staying fixed at whatever it was allocated with. Omit to leave
+   * thresholds fixed exactly as before this existed -- built and
+   * unit-tested since Phase 0-3 but with no FFI surface at all until the
+   * canonical-brain-constructor review found it sitting alongside
+   * consolidation and three neuromodulator channels as a mechanism with
+   * zero callers (README §13.12 item 13).
+   */
+  intrinsicHomeostasis?: IntrinsicHomeostasisConfig;
   /**
    * Per-segment threshold homeostasis (dendritic-threshold-homeostasis
    * spec, Requirement 1/2): each dendritic segment adjusts its own
@@ -190,6 +203,7 @@ function hashConfig(lif: LifConfig, options: SimulationOptions): bigint {
       plasticity: options.plasticity ?? null,
       homeostaticScaling: options.homeostaticScaling ?? null,
       structuralPlasticity: options.structuralPlasticity ?? null,
+      intrinsicHomeostasis: options.intrinsicHomeostasis ?? null,
       growth: options.growth ?? null,
     },
     (_key, value) => (typeof value === "bigint" ? value.toString() : value),
@@ -397,6 +411,7 @@ export class Simulation {
         options.plasticity ?? null,
         options.homeostaticScaling ?? null,
         options.structuralPlasticity ?? null,
+        options.intrinsicHomeostasis ?? null,
         options.segmentThresholdHomeostasis ?? null,
         options.inhibitionHomeostasis ?? null,
         options.growth ?? null,
@@ -442,6 +457,7 @@ export class Simulation {
       options.plasticity ?? null,
       options.homeostaticScaling ?? null,
       options.structuralPlasticity ?? null,
+      options.intrinsicHomeostasis ?? null,
       options.segmentThresholdHomeostasis ?? null,
       options.inhibitionHomeostasis ?? null,
       options.growth ?? null,

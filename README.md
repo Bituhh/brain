@@ -839,6 +839,54 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
       `neuronsPerTrigger`, spreading the same capacity over most of the run instead of the first 10%)
       is the natural next experiment, untried as of this entry. `growth`/`structuralPlasticity` stay
       `undefined` in `DEFAULT_CONFIG` — zero behaviour change for every existing caller.
+  - **Canonical "everything on" brain constructor (PLAN.md item A1): built.**
+    `packages/io/src/canonicalBrain.ts` is the single place every mechanism `@brain/core` implements
+    is wired together, live, by default, rather than left to whichever subset one experiment happens
+    to hand-pick — the gap that let a segment-sign bug, a zero-caller consolidation path, and three
+    dead neuromodulator channels (§13.12 items 11/13) sit unnoticed in a tree with a strong test
+    suite. Modelled on `milestone/charPrediction.ts`, with every mechanism unconditional rather than
+    opt-in. Switches on: dendritic segments (NEU-5/6), local inhibition (NET-2), STDP + eligibility +
+    the three-factor rule (LRN-2/3/4), homeostatic synaptic scaling (LRN-6), per-neuron intrinsic
+    homeostasis (NEU-7), per-segment threshold homeostasis, structural plasticity (LRN-7),
+    saturation-driven growth (NET-10), spike-frequency adaptation (NEU-8), predictive learning
+    (LRN-8), and one attached probe (OBS-1); OBS-2/OBS-3 need no construction-time toggle and are
+    read back by the standing test instead. `excitatoryFraction` stays `1.0` — see the module's own
+    doc comment: PLAN.md's dependency chart gates a genuine 80:20 population behind A2 (the
+    segment-sign fix, item 11) and D1-D3 in that order, and turning it on here first would just
+    rediscover item 11 by accident rather than by A2's own dedicated design, and would make every
+    fix in PLAN.md's closing window (§1: "those fixes produce no golden-raster churn *only* while
+    every network runs `excitatoryFraction: 1.0`") expensive for no benefit.
+    `packages/io/test/canonicalBrain.test.ts` is the standing test (fast tier, ~170ms total across
+    three cases): it asserts only what is true today — sparsity stays generously bounded, not tightly
+    converged; permanence stays in [0,1]; no panic; a mid-run snapshot round-trips and the restored
+    simulation keeps stepping; determinism holds across repeated runs of the same seed — not anything
+    items 11-14's known, open defects would fail.
+
+    **What this found, beyond what was already known:** per-neuron intrinsic homeostasis (NEU-7) is a
+    *fourth* instance of item 13's "built, tested, reachable from no caller" shape, not previously
+    named there. `plasticity/homeostatic.rs`'s `IntrinsicHomeostasis` existed and was unit-tested
+    since Phase 0-3, but `Scheduler` never called `maybe_apply` and `crates/brain-napi` exposed no
+    FFI surface for it at all — so "intrinsic homeostasis (NEU-7)", named directly in this
+    constructor's own remit, could not be switched on from TypeScript before this item. Closed here,
+    not deferred: `Scheduler::with_intrinsic_homeostasis` (`scheduler.rs`), `IntrinsicHomeostasisConfig`
+    (`crates/brain-napi`), and `SimulationOptions.intrinsicHomeostasis` (`packages/brain`) wire it in
+    as a ninth always-on, opt-in sweep alongside `homeostatic_scaling`/`structural_plasticity`, with
+    two new `Scheduler` unit tests covering the configured and unconfigured paths. No snapshot format
+    change was needed: `threshold`/`rate_estimate` already round-trip unconditionally as base
+    `NeuronArena` fields, and — matching `InhibitionHomeostasis`'s own documented precedent — the
+    mechanism's own `last_applied_at` sweep-interval counter does not round-trip, an accepted,
+    pre-existing gap shared by every homeostasis-style sweep in this tree, not a new one.
+
+    Everything else in scope ran cleanly on the first configuration tried. Growth genuinely fires
+    within the standing test's run (confirmed, not assumed: `growthEventCount() > 0` is asserted, and
+    the synthetic collision signal's hit rate was tuned above `collisionThreshold` empirically before
+    writing that assertion) and stays within its configured ceiling; structural plasticity, both
+    homeostasis sweeps, and predictive learning all ran without needing any fix. `runConsolidation`
+    (LRN-10) and `injectModulator` for the three non-dopamine channels are each exercised once inside
+    the standing test, closing the trivial "these FFI paths are reachable at all" part of item 13's
+    finding — driving consolidation automatically from a streaming loop (C1) and deriving a real
+    noradrenaline signal from prediction error (C2) remain separate, out-of-scope items, exactly as
+    PLAN.md schedules them.
 
 ---
 
@@ -2410,25 +2458,43 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     findings that currently blocks a stated architectural invariant rather than degrading a
     measured number.
 
-13. **Three mechanisms are built, tested and reachable from no caller — found 2026-09-13, same
-    review.** Phase 8's own Requirement 1 already names this shape for NET-10 growth ("fully built
-    and tested in isolation, with zero callers anywhere"); it is not a one-off.
+13. **Four mechanisms are built, tested and reachable from no caller — found 2026-09-13, same
+    review; a fourth added 2026-09-13 by PLAN.md item A1's own canonical-constructor review.**
+    Phase 8's own Requirement 1 already names this shape for NET-10 growth ("fully built and
+    tested in isolation, with zero callers anywhere"); it is not a one-off.
 
     - **Consolidation never runs.** `run_consolidation` and the `runConsolidation` FFI surface
       have no callers outside their own tests. §2.9 calls an offline phase "a required operating
       state, not an optimisation", and VAL-4's streaming run — the longest-running experiment in
       the repository, and the one §13.12 item 5's drift risk applies to — never sleeps. It is also
-      `Runtime::Single`-only, so it cannot run on the partitioned path at all.
+      `Runtime::Single`-only, so it cannot run on the partitioned path at all. PLAN.md item A1's
+      standing test (`packages/io/test/canonicalBrain.test.ts`) now calls it once, closing the
+      "reachable from no caller at all" part of this finding without closing the larger one:
+      wiring it into an always-on streaming loop is PLAN.md's dedicated C1 item.
     - **Three of four neuromodulator channels are dead.** Only `DOPAMINE` is ever injected or
       read; `ACETYLCHOLINE`, `NORADRENALINE` and `SEROTONIN` are declared constants with no
       producer and no consumer. LRN-5 lists four channels and the substrate honestly has one.
       Worth recording because a producer for one of them already exists and is being discarded:
       `plasticity/predictive.rs` classifies every dirty neuron per tick into correct prediction /
       false positive / unpredicted spike, which is a locally-computable surprise signal of exactly
-      the kind §2.5 assigns to noradrenaline, aggregated nowhere.
+      the kind §2.5 assigns to noradrenaline, aggregated nowhere. PLAN.md item A1's standing test
+      now calls `injectModulator` for the three dead channels once each and reads `modulatorLevels`
+      back — the FFI round-trip is reachable and well-formed, but this is not a producer: deriving
+      a real noradrenaline signal from prediction error stays PLAN.md's dedicated C2 item.
     - **`ColumnSpec::inhibition`/`segments` configure nothing.** Recorded here rather than only in
       `column.rs`'s own doc comment because it changes what NET-4's headline claim means — see
       item 14.
+    - **Per-neuron intrinsic homeostasis (NEU-7) had no FFI surface at all — found and closed
+      2026-09-13, PLAN.md item A1.** `plasticity/homeostatic.rs`'s `IntrinsicHomeostasis` existed
+      and was unit-tested since Phase 0-3, but unlike the three findings above (which have Rust-side
+      callers in their own tests and are missing only an FFI surface, or missing only a caller),
+      `Scheduler` itself never called `maybe_apply` — the gap was one level deeper, inside
+      `brain-core`, not only at the FFI boundary. Closed as part of building
+      `packages/io/src/canonicalBrain.ts` (the constructor A1 names NEU-7 as in scope for): see
+      §11's Phase 7 status entry for the fix (`Scheduler::with_intrinsic_homeostasis`,
+      `IntrinsicHomeostasisConfig`, `SimulationOptions.intrinsicHomeostasis`) and two new `Scheduler`
+      unit tests. Unlike consolidation/neuromodulators above, this one is now fully wired end to
+      end, not merely reachable.
 
 14. **Four requirements have no implementation, and one claim is true only because the thing it
     claims about does not exist — found 2026-09-13, same review.** Stated together because the

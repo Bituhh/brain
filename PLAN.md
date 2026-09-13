@@ -931,7 +931,7 @@ what it is and is not expected to buy.
 
 | ID | Status | Notes |
 |---|---|---|
-| A1 | not started | |
+| A1 | done | `packages/io/src/canonicalBrain.ts` + `canonicalBrain.test.ts`; found & closed NEU-7's missing FFI surface along the way — see README §11 Phase 7 status and §13.12 item 13 |
 | A2 | not started | |
 | A3 | not started | |
 | B1 | not started | critical path |

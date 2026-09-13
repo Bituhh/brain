@@ -15,7 +15,7 @@ use brain_core::growth::OverlapSaturation;
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
-use brain_core::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, SegmentThresholdHomeostasis};
+use brain_core::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
 use brain_core::plasticity::predictive::PredictiveLearningParams;
 use brain_core::plasticity::stdp::StdpParams;
 use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams};
@@ -279,6 +279,25 @@ impl PredictiveLearningConfig {
 #[napi(object)]
 pub struct HomeostaticScalingConfig {
     pub target_total_permanence: f64,
+    pub interval_ticks: u32,
+}
+
+/// Per-neuron intrinsic homeostasis (NEU-7) -- `IntrinsicHomeostasis`'s
+/// FFI-layer mirror, same shape as `SegmentThresholdHomeostasisConfig`
+/// below (both drift a threshold toward a target activity rate; this one
+/// addresses a neuron's own somatic threshold rather than one dendritic
+/// segment's coincidence threshold). Omit to leave thresholds fixed exactly
+/// as set at construction, matching every pre-existing caller -- this
+/// mechanism was built and unit-tested since Phase 0-3 but had no FFI
+/// surface at all until the canonical-brain-constructor review found it
+/// sitting alongside consolidation and three neuromodulator channels as a
+/// mechanism with zero callers (README §13.12 item 13).
+#[napi(object)]
+pub struct IntrinsicHomeostasisConfig {
+    pub target_rate: f64,
+    pub smoothing: f64,
+    pub adjustment_rate: f64,
+    pub min_threshold: f64,
     pub interval_ticks: u32,
 }
 
@@ -611,6 +630,7 @@ struct SchedulerConfig {
     plasticity: Option<ResolvedPlasticity>,
     homeostatic_scaling: Option<HomeostaticScalingConfig>,
     structural_plasticity: Option<StructuralPlasticityConfig>,
+    intrinsic_homeostasis: Option<IntrinsicHomeostasisConfig>,
     segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
     inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
     growth: Option<GrowthConfig>,
@@ -648,6 +668,15 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
             max_sprout_source_index: cfg.max_sprout_source_index,
         };
         scheduler = scheduler.with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k)));
+    }
+    if let Some(cfg) = &config.intrinsic_homeostasis {
+        scheduler = scheduler.with_intrinsic_homeostasis(IntrinsicHomeostasis::new(
+            cfg.target_rate as f32,
+            cfg.smoothing as f32,
+            cfg.adjustment_rate as f32,
+            cfg.min_threshold as f32,
+            cfg.interval_ticks.max(1),
+        ));
     }
     if let Some(cfg) = &config.segment_threshold_homeostasis {
         scheduler = scheduler.with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(
@@ -863,6 +892,7 @@ impl NativeSimulation {
         plasticity: Option<PlasticityConfig>,
         homeostatic_scaling: Option<HomeostaticScalingConfig>,
         structural_plasticity: Option<StructuralPlasticityConfig>,
+        intrinsic_homeostasis: Option<IntrinsicHomeostasisConfig>,
         segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
         inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
         growth: Option<GrowthConfig>,
@@ -888,6 +918,7 @@ impl NativeSimulation {
             plasticity,
             homeostatic_scaling,
             structural_plasticity,
+            intrinsic_homeostasis,
             segment_threshold_homeostasis,
             inhibition_homeostasis,
             growth,
@@ -1694,6 +1725,7 @@ impl NativeSimulation {
         plasticity: Option<PlasticityConfig>,
         homeostatic_scaling: Option<HomeostaticScalingConfig>,
         structural_plasticity: Option<StructuralPlasticityConfig>,
+        intrinsic_homeostasis: Option<IntrinsicHomeostasisConfig>,
         segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
         inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
         growth: Option<GrowthConfig>,
@@ -1741,6 +1773,20 @@ impl NativeSimulation {
                 max_sprout_source_index: cfg.max_sprout_source_index,
             };
             scheduler = scheduler.with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k)));
+        }
+        // NEU-7: like `segment_threshold_homeostasis`/`inhibition_homeostasis`
+        // below, this mechanism's own tuning state (`last_applied_at`) is not
+        // part of the snapshot payload -- the quantity it actually adjusts
+        // (`neurons.threshold`) is genuine simulation state and already
+        // round-trips via `snapshot::read` above, unconditionally.
+        if let Some(cfg) = &intrinsic_homeostasis {
+            scheduler = scheduler.with_intrinsic_homeostasis(IntrinsicHomeostasis::new(
+                cfg.target_rate as f32,
+                cfg.smoothing as f32,
+                cfg.adjustment_rate as f32,
+                cfg.min_threshold as f32,
+                cfg.interval_ticks.max(1),
+            ));
         }
         if let Some(cfg) = &segment_threshold_homeostasis {
             scheduler = scheduler.with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(
