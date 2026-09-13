@@ -49,6 +49,7 @@ graph TD
     A1["A1 · Canonical brain constructor<br/><i>1 session</i>"]
     A2["A2 · Segment sign fix + property test<br/><i>1 session</i>"]
     A3["A3 · Traceability over README requirement IDs<br/><i>1 session</i>"]
+    A4["A4 · Snapshot sweep state + golden coverage<br/><i>1 session</i>"]
 
     B1["B1 · Split weight from permanence<br/><i>2–4 sessions · heavy review</i>"]
     B2["B2 · Verify growth deadlock dissolved<br/><i>1 session + runs</i>"]
@@ -69,10 +70,15 @@ graph TD
     F5["F5 · Delay plasticity<br/><i>2 sessions</i>"]
     F6["F6 · Laminar column structure<br/><i>1–2 weeks</i>"]
 
+    G1["G1 · Small correctness issues<br/><i>1 session</i>"]
+    G2["G2 · Sweeps in multi-threaded mode<br/><i>1–2 sessions</i>"]
+
     A1 --> A2
     A1 --> B1
     A2 --> B1
     A3 -.-> B1
+    A1 --> A4
+    A4 --> B1
     B1 --> B2
     B1 --> C1
     B1 --> D1
@@ -88,6 +94,10 @@ graph TD
     B1 --> F2
     D3 -.-> F4
     F1 -.-> F5
+    A3 --> G1
+    G1 -.-> D3
+    A4 --> G2
+    B1 --> G2
 
     classDef gate fill:#b45309,stroke:#78350f,color:#fff,stroke-width:2px
     classDef risk fill:#9f1239,stroke:#4c0519,color:#fff,stroke-width:2px
@@ -99,6 +109,14 @@ graph TD
 
 **B1 is the critical path.** It gates VAL-4 re-baselining, NET-10 (invariant 10), consolidation's
 downscale semantics, and the `cap_per_neuron` work. Nothing downstream of it is worth starting first.
+
+**A4 sits directly in front of B1** (added 2026-09-13 after verifying A1–A3). B1's own "done when"
+requires snapshot continuation to stay bit-identical, and that does not hold today once periodic
+sweeps are live — so without A4, B1 cannot tell its own bugs from a pre-existing one.
+
+**Phase G is housekeeping** found during the same verification. G1 needs only A3 and is best done
+before D3, which is when vetoed segments first become visible. G2 waits for A4 and B1, because both
+change the sweeps it has to wire up.
 
 **D3 and F2 are the two risk items.** D3 because its cost is tuning, not code. F2 because it is a
 wide change to the arena addressing scheme that cross-partition routing depends on.
@@ -112,7 +130,8 @@ wide change to the arena addressing scheme that cross-partition routing depends 
 | **A1** | Canonical "everything on" brain constructor | — | 1 session | — |
 | **A2** | Segment sign fix + segment-configured Dale property test | A1 | 1 session | 1 design call |
 | **A3** | Traceability check over README requirement IDs | — | 1 session | — |
-| **B1** | Split `weight` from `permanence` | A1, A2 | 2–4 sessions | **heavy review** |
+| **A4** | Snapshot every sweep's state (RUN-9a) + a golden scenario that can see the engine | A1 | 1 session | — |
+| **B1** | Split `weight` from `permanence` | A1, A2, A4 | 2–4 sessions | **heavy review** |
 | **B2** | Verify the NET-10 growth deadlock is dissolved | B1 | 1 session | ~1 hour of runs |
 | **C1** | Wire `runConsolidation` into the streaming loop | B1 | 1 session | hours of runs |
 | **C2** | Drive noradrenaline from prediction error | A1 | 1–2 sessions | 1 design call |
@@ -126,9 +145,11 @@ wide change to the arena addressing scheme that cross-partition routing depends 
 | **F4** | NET-6 top-down feedback carrying predictions | D3 (pref.) | 3–4 sessions | experiments |
 | **F5** | Delay plasticity | F1 (pref.) | 2 sessions | experiments |
 | **F6** | Laminar column structure | — | 1–2 weeks | experiments |
+| **G1** | Small correctness issues: ENG-5 false gap, stale deferrals, vetoed segments invisible | A3 | 1 session | — |
+| **G2** | Periodic sweeps silently inert in multi-threaded mode | A4, B1 | 1–2 sessions | — |
 
-**Phase totals:** A ≈ 1 day · B ≈ 3–5 days · C ≈ 1–2 days · D ≈ 1 week code + 1–3 weeks calendar ·
-E+F ≈ 3–4 weeks code + 2+ months calendar.
+**Phase totals:** A ≈ 1–1.5 days · B ≈ 3–5 days · C ≈ 1–2 days · D ≈ 1 week code + 1–3 weeks
+calendar · E+F ≈ 3–4 weeks code + 2+ months calendar · G ≈ 1–2 days.
 
 ---
 
@@ -284,6 +305,92 @@ corrected the README where it is wrong), and `npm run test:slow` is green.
 
 ---
 
+### A4 — Snapshot every sweep's state (RUN-9a) + a golden scenario that can see the engine
+
+```
+Read README.md RUN-9, RUN-9a, RUN-9c, VAL-7, §10 invariant 9, and §11 Phase 7 status's A1 entry
+(the paragraph ending "an accepted, pre-existing gap shared by every homeostasis-style sweep in this
+tree"). Then PLAN.md §4.
+
+THE FINDING (verification of A1–A3, 2026-09-13). RUN-9a says a run that is snapshotted, restored and
+continued must be bit-identical to an uninterrupted run. That does NOT hold once periodic sweeps are
+live. Measured on the canonical brain (packages/io/src/canonicalBrain.ts, seed 1n, the same
+stimulation loop as packages/io/test/canonicalBrain.test.ts including recordGrowthActivation),
+comparing each tick's sorted spiked set over 400 ticks:
+
+  two uninterrupted runs     -> identical (so this is not a determinism failure)
+  snapshot at 50, 100, 200   -> identical for all 400 ticks
+  snapshot at 137            -> diverges at tick 352 (14 of 263 post-restore ticks differ)
+  snapshot at 263            -> diverges at tick 376 (7 of 137 post-restore ticks differ)
+
+The canonical brain's sweep intervals are 50 (homeostatic scaling, intrinsic homeostasis, structural
+plasticity) and 100 (segment threshold homeostasis). Snapshots on a multiple of both resume exactly;
+snapshots between them do not.
+
+THE CAUSE. Every periodic sweep keeps its own scheduling state, and none of it is in the snapshot:
+- crates/brain-core/src/plasticity/homeostatic.rs: `last_applied_at` on HomeostaticScaling
+  (~line 27), IntrinsicHomeostasis (~119), SegmentThresholdHomeostasis (~189) and
+  InhibitionHomeostasis (~270), plus InhibitionHomeostasis's own rate and k estimates.
+- crates/brain-core/src/plasticity/structural.rs: `last_swept_at` (~line 75) and the per-neuron
+  `activity_streak` (~line 79).
+On restore these reset to zero, so the `tick < last + interval` gate fires on the first tick after
+restore instead of at the scheduled boundary, and the schedule's phase stays shifted for the rest of
+the run. Treat this list as a starting point: audit everything the Scheduler owns for state that
+changes between ticks, and do not assume the list is complete.
+
+WHY NOBODY CAUGHT IT.
+- The restore path documents the omission as deliberate (crates/brain-napi/src/lib.rs ~lines 1777
+  and 1800), and A1 recorded it in README §11 as "accepted". No README decision accepts it, and
+  invariant 9 says anything unserialisable in the simulation is a design defect.
+- The canonical brain's snapshot test (canonicalBrain.test.ts ~line 129) snapshots at tick 50,
+  exactly on a sweep boundary, and only checks tick and neuron count after restore, never
+  continuation.
+- The golden raster suite (crates/brain-core/tests/golden.rs) has ONE scenario: a small hand-wired
+  network with no segments, plasticity, homeostasis or structural plasticity. It cannot see this, and
+  it will not be able to see B1's changes either.
+
+THE TASK. Three parts, one session.
+
+1. Serialise every sweep's scheduling state. Bump FORMAT_VERSION 7 -> 8 in
+   crates/brain-core/src/snapshot.rs, following the six prior bumps' migration pattern and the
+   versioned fixture convention under crates/brain-core/tests/fixtures/. For a v7 snapshot, the best
+   available migration is probably to reconstruct each `last_applied_at` as the most recent multiple
+   of its interval at or below the snapshot tick — but verify that against the gate rather than
+   trusting it, and note it is WRONG for any run that called runConsolidation, because
+   `StructuralPlasticity::force_sweep` advances `last_swept_at` off-schedule. State plainly which
+   state cannot be reconstructed (activity streaks, estimates) and what the migration does instead.
+   Correct the "not part of the snapshot payload" comments in lib.rs's restore path.
+
+2. Add tests that would have caught it, and prove they do:
+   - In canonicalBrain.test.ts, beside the existing tick-50 test (keep it), snapshot at ticks that
+     are NOT multiples of any sweep interval (e.g. 137 and 263), restore, continue, and assert the
+     per-tick sorted spiked set matches an uninterrupted run on every remaining tick.
+   - In crates/brain-core/tests/invariants.rs, extend
+     `snapshot_round_trip_is_the_identity_function_on_state` (~line 209), or add a sibling, to cover
+     continuation with sweeps configured and the snapshot tick drawn by the generator.
+   - Run both against the UNFIXED code first and confirm they fail. A test that has never been seen
+     to fail has not been shown to detect anything.
+
+3. Add a second golden scenario to crates/brain-core/tests/golden.rs that exercises segments, STDP,
+   homeostatic scaling, intrinsic and segment threshold homeostasis, and structural plasticity:
+   all-excitatory, deterministic, small enough to store. Generating a NEW fixture is a legitimate use
+   of `npm run test:golden:regen` — say so in the commit, and confirm the existing scenario's fixture
+   is byte-for-byte unchanged.
+
+CONSTRAINTS. Determinism (RUN-3). Snapshot size tracks live structure (RUN-9c): per-neuron
+`activity_streak` is fine, scratch buffers are not state and must not be serialised. Partitioned mode
+refuses to snapshot today (lib.rs `snapshot_bytes`), so this item is single-threaded only — do not
+attempt partitioned snapshots. char-prediction.slow.test.ts is a VAL-4 test; if you are unsure
+whether VAL-4 tuning is still in progress, ask before running it.
+
+DONE WHEN. Off-boundary continuation is bit-identical in both the TypeScript and Rust tests (and both
+were seen to fail before the fix), v7 snapshots still restore, the second golden scenario exists, the
+fast and slow tiers are green, and README's §11 A1 note and RUN-9a's status say the gap is closed
+rather than accepted.
+```
+
+---
+
 ### B1 — Split `weight` from `permanence` ⚠️ critical path
 
 ```
@@ -324,8 +431,8 @@ Surface to touch (grep before assuming this list is complete):
   `connection_threshold` gate still reads permanence
 - crates/brain-core/src/plasticity/ — homeostatic.rs scales WEIGHT; structural.rs prunes/sprouts on
   PERMANENCE; three_factor.rs and predictive.rs need an explicit decision (below)
-- crates/brain-core/src/snapshot.rs — FORMAT_VERSION is currently 7; bump to 8 with a migration that
-  restores a v7 snapshot by deriving weight from permanence. There are six prior format bumps in
+- crates/brain-core/src/snapshot.rs — FORMAT_VERSION is 8 after A4; bump to 9 with a migration that
+  restores older snapshots by deriving weight from permanence. There are seven prior format bumps in
   that file to copy the pattern from, and a versioned golden fixture convention under tests/fixtures/
 - crates/brain-napi/src/lib.rs + index.d.ts — FFI surface
 - packages/brain, packages/io, packages/viz — anything reading permanence as a strength
@@ -335,12 +442,20 @@ both on different timescales? The biologically motivated answer is weight fast (
 spike-pair) and permanence slow (structural consolidation, following sustained weight). Propose your
 answer with reasoning BEFORE implementing, and record it in README §12 as a numbered decision.
 
+KNOW BEFORE YOU START (from verifying A1–A3).
+- Use A4's second golden scenario as your behavioural evidence. The original three-neuron scenario
+  has no segments, plasticity or homeostasis, so "it didn't move" tells you nothing about this change.
+- With threadCount > 1, homeostatic scaling and every other periodic sweep currently never runs
+  (PLAN.md G2). A partitioned test passing is NOT evidence your scaling change is correct — verify
+  scaling single-threaded.
+
 CONSTRAINTS. Memory cost is +4 bytes/synapse — at the 50M-synapse target that is ~+200MB on the
 measured ~1.46GB (README §12a item 1); state the new figure. Determinism must hold (RUN-3) and
-snapshot round-trip must stay bit-identical (RUN-9a). Golden rasters WILL change — regenerate them
-only with a written explanation of why the behaviour legitimately differs.
+snapshot continuation must stay bit-identical (RUN-9a), including A4's off-boundary tests. Golden
+rasters WILL change — regenerate them only with a written explanation of why the behaviour
+legitimately differs.
 
-DONE WHEN. Both fields exist and are independently exercised, v7 snapshots still restore, the full
+DONE WHEN. Both fields exist and are independently exercised, v7 and v8 snapshots still restore, the full
 fast and slow tiers pass, VAL-4 is re-measured on the 5-seed protocol and the new number reported
 honestly whether it improved or not, and README §13.12 item 12 plus §11's phase status record the
 outcome.
@@ -635,7 +750,7 @@ THE TASK.
    process, feed more, and assert prior learning survived. An in-process round-trip does not
    demonstrate invariant 9.
 5. Decide where snapshots live on disk and how versions are handled when FORMAT_VERSION bumps again
-   (it is at 7 today and B1 takes it to 8). A brain meant to outlive the code needs a migration
+   (A4 takes it to 8 and B1 to 9). A brain meant to outlive the code needs a migration
    story, not just a version check.
 
 WORTH FLAGGING. Once state is carried forward permanently, every future change becomes a MIGRATION
@@ -675,7 +790,7 @@ THE TASK.
    the arena, following B1's precedent for widening the synapse representation.
 2. Apply them in `deliver` (crates/brain-core/src/scheduler.rs) so transmitted current reflects
    recent presynaptic history.
-3. Bump FORMAT_VERSION with a migration (there will be seven prior bumps in snapshot.rs to copy).
+3. Bump FORMAT_VERSION with a migration (there will be at least eight prior bumps in snapshot.rs to copy).
 4. Keep it OFF by default initially, exactly as NEU-8's adaptation was introduced
    (`LifParams::new` vs `with_adaptation` in crates/brain-core/src/neuron.rs is the pattern) — so
    existing runs are bit-identical until a caller opts in.
@@ -927,6 +1042,116 @@ what it is and is not expected to buy.
 
 ---
 
+### G1 — Small correctness issues from the A1–A3 verification
+
+```
+Read README.md ENG-5, IO-2, VAL-10, VIZ-3, §13.12 item 15, and PLAN.md §4.
+
+THREE SMALL, INDEPENDENT ISSUES, found while verifying A1–A3 on 2026-09-13. None blocks anything;
+each makes a report or a view quietly wrong. One session, one commit per issue.
+
+1. ENG-5 IS A FALSE GAP IN THE REQUIREMENT COVERAGE REPORT.
+   scripts/check-requirement-coverage.mjs lists ENG-5 in DEFERRED because "no test asserts it". That
+   is wrong: crates/brain-core/tests/workspace_policy.rs's
+   `no_manifest_names_a_forbidden_ai_ml_dependency` (~line 73) asserts exactly ENG-5, across both
+   Cargo and npm manifests. It cites the spec criterion "Requirement 1.3" rather than the README id,
+   so the checker cannot connect the two. README §13.12 item 15 (~line 2587) repeats the error.
+   - Cite ENG-5 in that test and remove ENG-5 from DEFERRED.
+   - Close the test's own hole while you are there: it checks the root package.json and
+     packages/io/package.json but not packages/brain/package.json or packages/viz/package.json. Find
+     manifests by walking the tree instead of listing them, so a new package cannot slip past.
+   - IO-2 is deferred with the same reason. The forbidden list includes "tokenizer" and
+     "embedding-model", which covers part of IO-2. Decide honestly whether that is enough to cite it,
+     and record the reasoning either way. Do not cite it just to shorten the list.
+   - Correct README §13.12 item 15.
+
+2. THE OLD TRACEABILITY CHECKER REPORTS STALE DEFERRALS — CHECK EACH BEFORE REMOVING IT.
+   `npm run check:traceability` prints: "deferred criteria now have a citing test -- remove from
+   DEFERRED: 5.2, 7.1, 7.2, 7.3, 7.4, 7.5, 8.1, 8.2, 8.3". Do NOT just remove them.
+   scripts/check-traceability.mjs's own header explains that the Phase 0-3 and Phase 5 specs both
+   number requirements from 1, so a bare "Requirement 7.1" cannot say which phase it means, and a
+   citation for one phase's 7.1 can mask the other's. 5.2 is especially suspicious: it is the twin of
+   RUN-1a, which A3 deliberately deferred as unmet.
+   For each of the nine: find the citing test, read what it actually demonstrates, and work out which
+   phase's criterion it covers. Remove only the genuinely satisfied ones; record the rest as
+   collisions. If collisions keep producing false signals like this, say so — a phase-qualified
+   citation form may be the real fix, but scope it rather than build it here.
+
+3. THE VISUALISER CANNOT SHOW A VETOED DENDRITIC SEGMENT.
+   Since A2, an inhibitory delivery subtracts from a segment's coincidence count, so the count can go
+   negative. crates/brain-core/src/scheduler.rs (~line 1385) records it for the probe as
+   `active.round() as u16`, which saturates negatives to 0 — a vetoed segment looks identical to an
+   untouched one in VIZ-3's drill-down. The simulation is unaffected (this value is observational
+   only), but it matters as soon as D3 turns inhibition on, which is exactly when someone will want
+   to see vetoes. Carry the signed value through crates/brain-core/src/probe.rs, the probe FFI
+   surface in crates/brain-napi, the segment-sample encoding in packages/viz/src/protocol.ts (version
+   the protocol if it is versioned, and extend its existing round-trip tests), and the client's
+   rendering.
+
+CONSTRAINTS. No behavioural change to the simulation: fast and slow tiers green, golden rasters
+byte-for-byte unchanged.
+
+DONE WHEN. ENG-5 is cited and off DEFERRED with the manifest walk in place, each of the nine old
+deferrals is either removed with evidence or recorded as a collision, vetoed segments are visible in
+probe data and the visualiser, and README §13.12 item 15 is corrected.
+```
+
+---
+
+### G2 — Periodic sweeps silently do nothing in multi-threaded mode
+
+```
+Read README.md RUN-3, RUN-4, RUN-5, RUN-8, LRN-6, LRN-7, NEU-7, §11 Phase 7 status's "Partitioned
+visualiser support" entry, and PLAN.md §4. Assumes A4 and B1 have landed.
+
+THE FINDING (verification of A1–A3, 2026-09-13). Through the FFI with threadCount > 1, every
+periodic sweep is accepted as configuration and then never runs: homeostaticScaling,
+structuralPlasticity, intrinsicHomeostasis, segmentThresholdHomeostasis and inhibitionHomeostasis.
+
+How it happens:
+- crates/brain-napi/src/lib.rs's `build_scheduler` (~line 639) attaches every configured sweep to a
+  Scheduler, and `ensure_partition_runtime_built` (~line 958) calls it once per partition.
+- `PartitionRuntime::step` (crates/brain-core/src/partition.rs ~line 592) calls
+  `Scheduler::deliver`/`evaluate_and_resolve` directly and never `Scheduler::step`. The sweeps only
+  run inside `Scheduler::step` (scheduler.rs ~line 1237 onward).
+- PartitionRuntime does have its own `homeostatic_scaling`/`structural_plasticity` fields, run at
+  partition.rs ~line 829, but nothing in lib.rs ever calls `PartitionRuntime::with_homeostatic_scaling`
+  or `with_structural_plasticity`, and there is no equivalent at all for the other three.
+
+This is the same failure shape Phase 7 already hit once: probes, firing_rate and prediction_accuracy
+were silently empty in partitioned mode for exactly this reason, fixed by extracting
+`record_tick_observables` so both step paths call it (README §11 Phase 7, "Partitioned visualiser
+support"). Nothing run today is affected — the canonical brain and charPrediction.ts are
+single-threaded, because growth forces it — which is why it went unnoticed.
+
+THE TASK.
+1. Make every sweep either run correctly in partitioned mode or be rejected at construction with a
+   clear error, the way growth already is (lib.rs ~line 908). Silent acceptance is the defect; the
+   minimum acceptable outcome is that no configuration is quietly ignored.
+2. Decide per sweep, and record why:
+   - Whole-arena sweeps (homeostatic scaling, intrinsic homeostasis, structural plasticity) fit
+     PartitionRuntime's existing runtime-level pattern — wire them through from lib.rs.
+   - Sweeps with per-scheduler state (segment threshold homeostasis, inhibition homeostasis) need
+     care. Single-threaded mode has ONE inhibition k and one estimate for the whole network, so
+     independent per-partition estimates would diverge from threadCount 1. Work out what
+     bit-identical behaviour actually requires before choosing.
+3. Prove it: extend crates/brain-core/tests/partitioning_reference.rs (single vs partitioned, every
+   tick, every thread count) with each supported sweep enabled, and add a matching case through the
+   real napi boundary in packages/brain/test/boundary.test.ts.
+4. Consider a structural guard so the next sweep cannot repeat this — for example one method both
+   step paths must call for periodic work, the way `record_tick_observables` now is for metrics.
+
+CONSTRAINTS. RUN-3 and RUN-8: partitioned results must match single-threaded results exactly.
+Partitioned snapshots are refused today and A4 left it that way — do not change that here.
+
+DONE WHEN. No sweep is silently ignored at any thread count, every supported sweep is bit-identical
+to threadCount 1 in both the Rust reference test and the napi boundary test, unsupported ones fail
+loudly at construction, and README §11 plus the relevant requirement rows record what now works
+partitioned.
+```
+
+---
+
 ## Status
 
 | ID | Status | Completed | Duration | Notes |
@@ -934,6 +1159,7 @@ what it is and is not expected to buy.
 | A1 | done | 2026-09-13 20:10 +0100 | ~19 min* | `packages/io/src/canonicalBrain.ts` + `canonicalBrain.test.ts`; found & closed NEU-7's missing FFI surface along the way — see README §11 Phase 7 status and §13.12 item 13 |
 | A2 | done | 2026-09-13 20:29 +0100 | ~16 min† | `scheduler.rs`'s `apply_local_effect` (`signed_current.signum()`), new `tests/invariants.rs` property test, README §13.12 item 11(a)/(b) updated — see README for the two design calls recorded there |
 | A3 | done | 2026-09-13 21:05 +0100 | ~22 min‡ | `scripts/check-requirement-coverage.mjs` (sibling script, README ids), wired into `npm run test:slow`; RUN-9b annotated plus ~15 other genuine test citations added; 27-entry `DEFERRED` list records every real gap the sweep found — see README §13.12 item 15 |
+| A4 | not started | | | added after verifying A1–A3; blocks B1 |
 | B1 | not started | | | critical path |
 | B2 | not started | | | |
 | C1 | not started | | | |
@@ -948,6 +1174,8 @@ what it is and is not expected to buy.
 | F4 | not started | | | |
 | F5 | not started | | | |
 | F6 | not started | | | |
+| G1 | not started | | | best before D3 |
+| G2 | not started | | | |
 
 *A1's duration is measured from its first file edit (19:51 +0100) to the completing commit (20:10 +0100) — this session has no independently logged start time, so it excludes the research/reading phase (README, PLAN.md, `charPrediction.ts`, `scheduler.rs`/`lib.rs`) that preceded that first edit, and understates the real total. Future items should log a start timestamp here (or in the item's own commit trail) when work begins, so this column can be a real measurement rather than a partial one.
 
