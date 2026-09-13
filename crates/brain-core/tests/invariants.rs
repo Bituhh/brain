@@ -19,6 +19,7 @@ use brain_core::plasticity::stdp::StdpParams;
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::{LocalContext, NeuronLocal, RuleChain, SynapseMut, DOPAMINE, NUM_MODULATORS};
 use brain_core::scheduler::Scheduler;
+use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig};
 use brain_core::snapshot;
 use brain_core::synapse::SynapseArena;
 use proptest::prelude::*;
@@ -131,6 +132,47 @@ proptest! {
             prop_assert!(neurons.membrane[b as usize] > 0.0, "excitatory source must deliver positive current");
         } else {
             prop_assert!(neurons.membrane[b as usize] < 0.0, "inhibitory source must deliver negative current");
+        }
+    }
+
+    /// README §13.12 item 11a/11b: the dendritic path must not drop the
+    /// source's sign the way the somatic path's sibling test above already
+    /// proves it doesn't. Routes through a non-zero `target_segment`
+    /// (`with_segments` configured) specifically because the pre-fix defect
+    /// was invisible on `target_segment = 0`/no-`with_segments` -- see this
+    /// suite's module doc and README §13.12 item 11b on why the old test
+    /// alone could not have caught this.
+    #[test]
+    fn synapse_sign_reaches_the_dendritic_segment_it_targets(
+        source_polarity in prop_oneof![Just(1i8), Just(-1i8)],
+        current in 1.0f32..50.0,
+        permanence in 0.5f32..1.0,
+    ) {
+        let mut neurons = NeuronArena::new();
+        let a = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: source_polarity, coords: [0.0; 3] }).index;
+        let b = neurons.allocate(NeuronSpec { threshold: 1000.0, polarity: 1, coords: [0.0; 3] }).index; // never spikes itself
+        let mut synapses = SynapseArena::new(2);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        let segments_per_neuron = 2u32;
+        let target_segment = 1u32; // non-zero: exercises real composite addressing, not just index 0
+        synapses.insert(a, b, target_segment, 1, permanence).unwrap();
+
+        // Threshold set far out of reach: this test reads the raw
+        // coincidence count directly, not whether it crosses a threshold.
+        let mut sched = Scheduler::new(2, 0.4)
+            .with_segments(SegmentConfig { segments_per_neuron, params: BinaryCoincidenceParams { threshold: 1000 } });
+        let params = LifParams::new(5.0, 0.0, 0.0, 0);
+        sched.stimulate(&neurons, a, current);
+        let report0 = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        prop_assume!(report0.spiked.contains(&a));
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // delivery lands on b's segment `target_segment`
+
+        let composite = b as usize * segments_per_neuron as usize + target_segment as usize;
+        let (counts, _) = sched.segment_coincidence_raw_state();
+        if source_polarity > 0 {
+            prop_assert!(counts[composite] > 0.0, "excitatory source must raise the segment's coincidence count");
+        } else {
+            prop_assert!(counts[composite] < 0.0, "inhibitory source must lower (veto) the segment's coincidence count, not raise it");
         }
     }
 

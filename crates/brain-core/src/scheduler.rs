@@ -917,13 +917,36 @@ impl Scheduler {
 
     /// Applies one delivery's non-plasticity effect (Requirement 10's
     /// dendritic-vs-feedforward branch), for a neuron this scheduler owns.
-    /// `signed_current` is ignored on the dendritic path (a segment counts
-    /// coincidences, not weighted current), matching the pre-partitioning
-    /// behaviour exactly. Never called directly by [`Self::deliver`] --
-    /// only via [`Self::apply_delivery_effects`], so every effect (whether
-    /// it originated on this scheduler's own ring or another partition's)
-    /// is applied in the same globally-canonical order (see that method's
-    /// doc comment for why this matters).
+    /// On the feedforward path `signed_current`'s full magnitude reaches
+    /// `input_accum`. On the dendritic path only its *sign* is used, as a
+    /// fixed +-1.0 step -- README §13.12 item 11's fix. Two design calls,
+    /// recorded there and in README §13.13(a):
+    ///
+    ///  - An inhibitory source (`signed_current < 0`) *subtracts* from the
+    ///    segment's coincidence count instead of the pre-fix behaviour of
+    ///    ignoring sign entirely (which let inhibition raise a segment's
+    ///    depolarisation). Subtracting is the dendritic-veto reading closest
+    ///    to the SST-interneuron biology §13.13(a) names, and is exactly as
+    ///    cheap as routing inhibitory deliveries into a separate channel the
+    ///    segment model would then also have to consult.
+    ///  - The step stays a fixed 1.0 magnitude (HTM's binary coincidence
+    ///    reading) rather than being scaled by `signed_current`'s permanence
+    ///    magnitude: `BinaryCoincidenceParams::threshold` was tuned as a
+    ///    count of coincident synapses, not a sum of permanences, and every
+    ///    network in this repository today is 100% excitatory
+    ///    (`excitatoryFraction: 1.0`), where permanence-weighting would
+    ///    silently change every existing threshold's meaning and every
+    ///    golden raster along with it. Using `signum` instead of `1.0`
+    ///    reproduces the exact pre-fix count on that all-excitatory
+    ///    population (permanence is always positive whenever a delivery
+    ///    reaches here, so `signum` is always `+1.0`) while giving inhibition
+    ///    the opposite, equally-binary step.
+    ///
+    /// Never called directly by [`Self::deliver`] -- only via
+    /// [`Self::apply_delivery_effects`], so every effect (whether it
+    /// originated on this scheduler's own ring or another partition's) is
+    /// applied in the same globally-canonical order (see that method's doc
+    /// comment for why this matters).
     fn apply_local_effect(&mut self, target: u32, target_segment: u32, signed_current: f32) {
         let is_dendritic = self.segments.is_some() && target_segment != FEEDFORWARD_SEGMENT;
         if is_dendritic {
@@ -959,7 +982,10 @@ impl Scheduler {
                 self.segment_touched.push(composite as u32);
                 self.segment_last_touched_tick[composite] = self.tick;
             }
-            self.segment_counts[composite] += 1.0;
+            // README §13.12 item 11a: signum, not the raw current -- see
+            // this method's doc comment for why the magnitude stays fixed
+            // at 1.0 while the sign now reaches the segment.
+            self.segment_counts[composite] += signed_current.signum();
         } else {
             self.input_accum[target as usize] += signed_current;
             self.dirty.insert(target);

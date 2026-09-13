@@ -932,7 +932,7 @@ what it is and is not expected to buy.
 | ID | Status | Completed | Duration | Notes |
 |---|---|---|---|---|
 | A1 | done | 2026-09-13 20:10 +0100 | ~19 min* | `packages/io/src/canonicalBrain.ts` + `canonicalBrain.test.ts`; found & closed NEU-7's missing FFI surface along the way — see README §11 Phase 7 status and §13.12 item 13 |
-| A2 | not started | | | |
+| A2 | done | 2026-09-13 20:22 +0100 | not logged | `scheduler.rs`'s `apply_local_effect` (`signed_current.signum()`), new `tests/invariants.rs` property test, README §13.12 item 11(a)/(b) updated — see README for the two design calls recorded there |
 | A3 | not started | | | |
 | B1 | not started | | | critical path |
 | B2 | not started | | | |

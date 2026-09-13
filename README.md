@@ -2385,19 +2385,44 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     `tests/invariants.rs`'s `synapse_sign_always_matches_its_source_neurons_polarity` pins it).
     Everywhere else, the sign is dropped. Four faces of one defect:
 
-    **(a) A dendritic segment counts an inhibitory synapse as evidence *for* a prediction.**
-    `Scheduler::apply_local_effect` receives `signed_current` and, on the dendritic branch, does
-    `self.segment_counts[composite] += 1.0` — the sign (and the magnitude) never reach the
-    coincidence count. An inhibitory presynaptic neuron therefore *raises* a segment's
-    depolarisation and makes the target cell more likely to fire. §13.13(a) names the biology this
-    inverts: SST interneurons target distal dendrites specifically to veto dendritic spikes, and
-    dendritic inhibition is one of the best-established motifs in cortex. This is the single
-    clearest invariant-3 violation in the tree, and it is on the dendritic path only.
+    **(a) A dendritic segment counts an inhibitory synapse as evidence *for* a prediction —
+    fixed 2026-09-13.** `Scheduler::apply_local_effect` received `signed_current` and, on the
+    dendritic branch, did `self.segment_counts[composite] += 1.0` — the sign (and the magnitude)
+    never reached the coincidence count. An inhibitory presynaptic neuron therefore *raised* a
+    segment's depolarisation and made the target cell more likely to fire. §13.13(a) names the
+    biology this inverted: SST interneurons target distal dendrites specifically to veto dendritic
+    spikes, and dendritic inhibition is one of the best-established motifs in cortex. This was the
+    single clearest invariant-3 violation in the tree, and it was on the dendritic path only.
 
-    **(b) VAL-8 cannot catch (a).** The Dale property test above allocates its synapse with
-    `target_segment = 0` and never calls `with_segments`, so it exercises the somatic path
-    exclusively. The property "a synapse's effect on its target always carries the sign of its
-    source" is asserted only where it already holds.
+    The fix is `self.segment_counts[composite] += signed_current.signum()`, with two design calls
+    recorded at the fix site (`scheduler.rs`'s `apply_local_effect` doc comment):
+      - **Subtract, don't route to a separate channel.** An inhibitory delivery now *subtracts*
+        from the segment's coincidence count — the dendritic-veto reading closest to the SST
+        biology §13.13(a) describes — rather than accumulating into a second, inhibitory-only
+        channel the segment model would then also have to consult. Both are equally cheap
+        (`segment_counts` was already a decaying `f32` accumulator, §12a item 6); subtracting needed
+        no new field and no snapshot format change.
+      - **Binary, not permanence-weighted.** The count still moves by a fixed 1.0 (via `signum`,
+        not the raw `signed_current`), not by `signed_current`'s magnitude. `permanence` already
+        means "graded current" at the soma and would have meant something different again here if
+        weighted in — `BinaryCoincidenceParams::threshold` was tuned as a *count of coincident
+        synapses*, HTM's original reading, not a sum of permanences, and weighting it would have
+        silently redefined every existing threshold. Concretely, this also kept the fix a no-op on
+        every network this repository actually runs: `excitatoryFraction: 1.0` everywhere ((d) below)
+        means `signum` reproduces the exact pre-fix `+= 1.0` on every delivery that exists today,
+        and no golden raster moved. This is a real trade-off, not a free win — a
+        near-threshold synapse and a barely-connected one now count identically — and is left as
+        the obvious next step if segment behaviour ever needs that resolution.
+
+    **(b) VAL-8 could not catch (a) — fixed 2026-09-13.** The Dale property test above allocates
+    its synapse with `target_segment = 0` and never calls `with_segments`, so it exercised the
+    somatic path exclusively. The property "a synapse's effect on its target always carries the
+    sign of its source" was asserted only where it already held. `tests/invariants.rs` now also has
+    `synapse_sign_reaches_the_dendritic_segment_it_targets`: same shape as the somatic property test,
+    but configured with `with_segments` and routed through a non-zero `target_segment`, reading
+    `Scheduler::segment_coincidence_raw_state()` to assert the sign lands on the composite the
+    delivery actually targeted. Confirmed to fail against the pre-fix code (reverting the `signum`
+    to `1.0` reproduces exactly the failure (a) describes) before being left in place, passing.
 
     **(c) No plasticity rule reads `polarity`.** `ThreeFactorStdp` applies the excitatory STDP
     kernel to inhibitory synapses unchanged, and `HomeostaticScaling::rescale_one` sums excitatory
