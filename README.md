@@ -5,7 +5,9 @@ No layers. No backpropagation. No global loss. No AI/ML libraries.
 
 **Rust simulation core, TypeScript shell.**
 
-**Status:** design v0.3 — 2026-09-09. Pre-implementation; no code yet.
+**Status:** design v0.4 — 2026-09-13. Phases 0–6 shipped, Phase 7 in progress, Phase 8 specified.
+VAL-4 (the acceptance milestone, §13.12 item 1) is honestly unmet. Per-phase status, including
+what is *not* working, is recorded inline in §11; found-in-code defects are §13.12 items 6–14.
 
 ---
 
@@ -658,9 +660,12 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
   - **[T]** All of the above driven through Phase 6's visualiser as the primary way of inspecting
     results, not an afterthought — the explicit reason this phase is sequenced after it.
 
-  **Status (2026-09-12): NET-12/13-at-scale and its throughput/visualiser follow-ups (Requirement 1),
+  **Status (2026-09-13): NET-12/13-at-scale and its throughput/visualiser follow-ups (Requirement 1),
   NEU-8 self-release (Requirement 2), N-way competition (Requirement 3) and VAL-3 drift (Requirement
-  4) shipped; VAL-4 resurfaced (Requirement 5) not yet started.** Per Requirement 13.6/8's
+  4) shipped; VAL-4 resurfaced (Requirement 5) in progress — the NET-10 growth-regression
+  investigation (§13.12 item 10) is complete (growth itself cleared of the earlier regression;
+  structural plasticity acting alone is the real cause), and the broader `segmentsPerNeuron` x
+  `targetRate` retuning search (§13.12 item 10's own Phase B) is running.** Per Requirement 13.6/8's
   honest-reporting discipline, reported by sub-part:
   - **Attractor at scale: met.** `crates/brain-core/tests/working_memory_at_scale.rs` extends
     `working_memory.rs`'s toy-scale (hand-isolated, `p0 = 0.0`) clique to a real
@@ -1767,8 +1772,21 @@ Three claims, in decreasing order of confidence that they are unprecedented.
    literature has beaten an n-gram on natural text, and a character trigram on a few hundred KB
    of English is a strong baseline. HTM's published advantages — multiple simultaneous
    predictions, rapid adaptation to stream changes — are worth least in exactly this regime.
-   Open: whether VAL-2(b)/(c) should be the architectural acceptance bar with VAL-4 demoted to a
-   stretch milestone.
+   ~~Open: whether VAL-2(b)/(c) should be the architectural acceptance bar with VAL-4 demoted to a
+   stretch milestone.~~
+
+   **Resolved 2026-09-13: VAL-4 stays a *must*, and stays the acceptance bar. Not demoted.** The
+   argument for demotion was that no local-learning system has done it, which is evidence about
+   the literature rather than about the task. The task itself is demonstrably within reach of the
+   substrate being modelled: a human memorises text to a real if limited degree, and therefore
+   predicts the next character of familiar English well above chance using the mechanisms §2
+   describes and nothing else. That makes VAL-4 improbable but *possible* — which is exactly the
+   kind of bar this document should be held to, since a target chosen for being achievable by the
+   current implementation would stop measuring the gap it exists to measure. VAL-2(b)/(c) remain
+   the architectural acceptance criteria they always were; they are not a substitute for VAL-4,
+   and reaching them is not evidence that VAL-4 is reachable. The risk this item names is
+   unchanged and still real — what changed is that the risk is accepted rather than engineered
+   around.
 2. **The interaction of §4's rules is the hard part, not any individual rule.** SORN's positive
    result was about the combination; it is also where simulator projects historically lose months
    to instability. Adding growth (NET-10) to that set makes it worse, not better: neurogenesis,
@@ -2052,6 +2070,445 @@ Three claims, in decreasing order of confidence that they are unprecedented.
    `char-prediction-smoke.test.ts`), and available for a population whose natural activity
    actually does drift from a hand-picked `k` over the network's life (invariant 10, NET-7/NET-10)
    — this specific, currently-static VAL-4 configuration simply is not that case yet.
+10. **NET-10 growth-regression investigation, Phase A (`scripts/investigate-growth-regression.ts`):
+    growth itself is not the cause — every configuration tried, at every pace, with or without a
+    new sprout-source restriction, produced an accuracy trajectory *identical to structural
+    plasticity acting alone* — measured 2026-09-13.** §11 Phase 7 status's "Wired into VAL-4 on
+    request and retested" entry reported a real, severe regression (18.33% → 4.91%, 3-seed
+    protocol) when growth and structural plasticity were enabled together, with the working
+    hypothesis being that growth firing too fast (400 neurons within the first 10% of the run)
+    destabilised `segmentThresholdHomeostasis`'s narrow equilibrium — but flagged a real gap in
+    that story: accuracy collapsed roughly 1,500 characters *after* growth had already stopped
+    (population static, no more growth events), which points more toward something that keeps
+    happening after growth stops than to the abruptness of growth's burst itself.
+
+    **A specific, cheap-to-check alternative hypothesis, tested directly.** Grown neurons are, by
+    `charPrediction.ts`'s own design, never externally stimulated and never decoded — hidden,
+    internal-only capacity. But `StructuralPlasticity::sprout` wires purely on co-activity and has
+    no notion of "internal-only". If sprouting wired a grown neuron's activity *onto* one of the
+    original 800 neurons' dendritic segments, that grown neuron becomes a noise source injected
+    directly into the exact predictive signal `decode()` depends on, with zero relationship to
+    which character actually occurred — a plausible explanation for the lag (a few sprout cycles
+    to accumulate) that would not obviously be fixed by slowing growth down. A minimal, narrowly
+    scoped Rust change tests this directly: `StructuralPlasticityParams::max_sprout_source_index`
+    (`crates/brain-core/src/plasticity/structural.rs`) excludes neuron indices past a caller-
+    supplied cutoff from ever being chosen as a sprout *source* in `sprout`'s two nested candidate
+    loops, while leaving them fully eligible as sprout *targets* — plumbed through
+    `crates/brain-napi`'s `StructuralPlasticityConfig.maxSproutSourceIndex` (`Option<u32>`,
+    `undefined` imposes no restriction, matching every caller before this field existed) with no
+    other behavioural change to any existing caller. Unit-tested directly
+    (`max_sprout_source_index_excludes_high_indices_as_sources_but_not_as_targets`): a neuron past
+    the cutoff never appears as a sprout source, but is still reachable as a target from an
+    allowed source.
+
+    **Six conditions, one script, the identical protocol (5 seeds, 15,000-character corpus slice,
+    same `NETWORK_WIDTH = 800`/`targetRate = 0.99` baseline items 7–9 use):**
+
+    | condition | mean network accuracy | range across seeds |
+    |---|---|---|
+    | A: baseline (no growth, no structural plasticity) | 17.37% | 15.75%–18.55% |
+    | B: growth + structural plasticity, original (burst) pace | 13.04% | 5.20%–16.65% |
+    | C: structural plasticity alone, no growth | 13.04% | 5.20%–16.65% |
+    | D: growth + structural plasticity, burst pace, sprout-source-restricted | 13.04% | 5.20%–16.65% |
+    | E: growth alone at a gentle pace + structural plasticity, unrestricted | 13.04% | 5.20%–16.65% |
+    | F: growth at a gentle pace + structural plasticity, sprout-source-restricted | 13.04% | 5.20%–16.65% |
+
+    Honest caveat before the finding: the exact growth/structural-plasticity parameters behind the
+    original 4.91% figure were not preserved in this repo (that retest ran from an uncommitted
+    scratch script). Condition B is a best-effort reconstruction from what §11 Phase 7 status does
+    record precisely (`ceiling = width + 400`, sprout `neighbourhoodSize: 100, k: 10`, "~400
+    neurons within the first 10% of the run") — a qualitative sanity check, not a bit-exact replay.
+
+    **Conditions B, C, D, E and F are not merely close — they are bit-for-bit identical**, down to
+    the per-seed range. Per-window instrumentation (seed 1, sampled every 1,500 characters,
+    `metricsSnapshot()`/`liveNeuronCount()`/`growthEventCount()`) makes this airtight rather than
+    coincidental: conditions B and D produce the exact same accuracy at every sampled checkpoint
+    despite D's sprout-source restriction being live throughout, and condition E — which reaches
+    the same +400-neuron ceiling gradually (`liveNeuronCount` climbing 840 → 900 → 960 → … → 1200
+    across the run, instead of B/D's near-immediate jump to 1200 by character 3,000) — produces an
+    accuracy trajectory identical to B/D's at every single checkpoint regardless. Neither the pace
+    of growth nor the sprout-source restriction moves the number by a single sample point.
+
+    **Diagnosed, not merely observed: a bootstrapping deadlock, structurally identical to the one
+    `columnConfig`'s own `initialPermanence` comment already named for the original population.**
+    `StructuralPlasticity::sprout` requires *both* candidates in a pair to have fired for
+    `min_activity_streak` (3) consecutive sweeps before either may be a source or a target
+    (`activity_streak` is driven by `NeuronArena::last_spike`, updated only from real spikes). A
+    neuron `apply_growth` just allocated has **zero synapses** by NET-10's own explicit design — so
+    it can never receive current, so it can never spike, so its streak can never leave `0`, so it
+    can never clear the eligibility bar as *either* role. This holds regardless of
+    `min_activity_streak`'s value (as long as it is `>= 1`) and regardless of growth's pace or the
+    sprout-source restriction — a grown neuron is invisible to the one mechanism (LRN-7) that is
+    supposed to wire it into anything, which is exactly what conditions B/C/D/E/F's identical
+    numbers show empirically. The original noise-injection hypothesis this item set out to test is
+    therefore very likely **wrong, not merely unconfirmed**: there is no plausible path for a grown
+    neuron to inject noise into the decoded population when it can never acquire a synapse in
+    either direction.
+
+    **Independently re-derived from the code on 2026-09-13 by a separate review, which confirmed
+    the deadlock and sharpened it in three ways this item had understated.** Recorded here rather
+    than as a new item, because all three change the *scope* and *cost* of the diagnosis above
+    rather than adding a separate finding.
+
+    - **There are two wiring mechanisms, not one, and both are gated identically.** The paragraph
+      above says "the one mechanism (LRN-7) that is supposed to wire it into anything". LRN-8's
+      burst-sprout path (`plasticity/predictive.rs`'s `reinforce_or_sprout_burst`) is a second
+      one, and it is closed to a grown neuron for the same reason: a sprout *source* there must be
+      `recently_active` (also derived from `NeuronArena::last_spike`), and the sprout *target* is
+      by construction the neuron that just fired an unpredicted spike. A grown neuron can be
+      neither. There is no alternative escape hatch anywhere in the core — the deadlock is total
+      across both of the mechanisms that create synapses at runtime, not specific to LRN-7.
+    - **The deadlock is not inert; it consumes the very capacity it fails to provide.**
+      `StructuralPlasticity::reclaim_unused_neurons` explicitly *exempts* neurons that have never
+      fired (`last_spike == u32::MAX` → `continue`, per that parameter's own doc comment), so a
+      grown neuron is never reclaimed either — it is permanently immortal dead weight. Meanwhile
+      `apply_growth` calls `synapses.reserve_for_neurons(neurons.capacity_len())`, reserving a
+      full `cap_per_neuron` synapse block per grown neuron. Each inert neuron therefore costs a
+      slot against `growth.ceiling`, a count in `PopulationStats::live_count` (which feeds the
+      *next* growth decision), and a permanently-empty synapse block. In condition B/D's
+      configuration that is 400 reserved blocks that can never be filled. NET-10's ceiling is
+      being spent on capacity that cannot participate.
+    - **NEU-7 cannot rescue it, despite appearances.** `IntrinsicHomeostasis` drives an
+      under-firing neuron's threshold *down* toward `min_threshold`, which looks like the natural
+      correction for a neuron that never fires. It is not: threshold reduction does nothing when
+      input current is identically zero, which is exactly a grown neuron's situation. No
+      homeostatic mechanism in the tree closes this loop, because every one of them acts on a
+      neuron's *responsiveness* and none of them can manufacture the *input* that is missing.
+
+    **The obvious fix is itself blocked, by item 12.** The standard remedy for a bootstrapping
+    deadlock is a provisional connection — a sub-threshold synapse that transmits a little current
+    and is potentiated into a real one by activity. That path does not exist here, and §12a item
+    5(c) already established why from the other direction: `deliver` skips synapses below
+    `connection_threshold` with `continue` *before* calling `on_delivery`, and `on_post_spike`'s
+    STDP contribution is gated on `last_active != u32::MAX`, which only delivery ever writes. A
+    sub-threshold synapse is therefore not merely weak — it is **invisible to plasticity and can
+    never be potentiated by activity at all**. Structural plasticity's own sprouts have exactly
+    this problem today, which is why `tests/emergent.rs` works around it by drawing initial
+    permanences mostly above threshold.
+
+    The root cause is item 12: because `permanence` is simultaneously the structural gate and the
+    synaptic weight, "below `connection_threshold`" is forced to mean both "not connected" *and*
+    "contributes nothing, and is not observable by any learning rule". Separating the two
+    dissolves this deadlock as a side effect rather than as a special case — a grown neuron can
+    then be sprouted synapses that are structurally *connected* (permanence above threshold) at
+    near-zero *weight*, which transmit a trickle, participate in STDP, and are potentiated or
+    pruned on their own merits. That is also what the biology does, and it is what this item's own
+    closing paragraph below already reaches for under NET-11: exuberant, activity-*independent*
+    initial synaptogenesis followed by activity-dependent pruning.
+
+    **Consequence for sequencing.** Item 12 was recorded as a correctness defect with a plausible
+    VAL-4 payoff. It is also the unblocker for NET-10 and therefore for invariant 10: until weight
+    and permanence are separate fields, developmental growth cannot add functional capacity to
+    this network by any route, and no amount of tuning growth's pace, ceiling, or sprout
+    restrictions will change that. A one-time sprout-eligibility grace (the surgical option this
+    item's closing paragraph considers) would work around the deadlock without addressing why
+    every provisional synapse in the system is inert.
+
+    **What actually causes the regression, then: structural plasticity acting on the original
+    800-neuron population by itself** (condition C, growth entirely absent, reproduces B/D/E/F's
+    13.04% exactly). This is a real, if considerably milder, negative result than items 6/7's own
+    segment-collapse finding — and its *shape* over time is honestly different from the original
+    18.33%→4.91% report: instrumentation shows no "fine, then sudden collapse" pattern at all.
+    Accuracy starts measurably below baseline within the first 1,500 characters (9.73% vs.
+    baseline's comparable early window) and stays in a noisy 10–15% band for the rest of the run,
+    settling in the 13–15% range by the end — a steady, moderate drag, not a stable plateau
+    followed by a cliff. The most likely reason the original report found a much sharper 3.7×
+    collapse is that its (unpreserved) structural-plasticity parameters were more aggressive than
+    this reconstruction's plain defaults (`pruneFloor: 0.05, sproutPermanence: 0.1,
+    minActivityStreak: 3, sweepIntervalTicks: 200, neighbourhoodSize: 100, k: 10`) — a real
+    difference worth naming rather than glossing over, but one that does not change *which*
+    mechanism is responsible: every condition that included structural plasticity regressed by
+    comparable amounts regardless of whether growth was present, at any pace, restricted or not.
+
+    **Consequence for Phase B (the broader retuning search, `scripts/tune-segments-and-
+    threshold.ts`): growth is left out of that search entirely**, per this investigation's own
+    scope — no configuration of growth's pace or sprout-source eligibility found here changes its
+    outcome, because grown neurons cannot be reached by structural plasticity's co-activity-only
+    sprouting at all. `growth`/`structuralPlasticity` stay `undefined` in `DEFAULT_CONFIG` — zero
+    behaviour change for every existing caller. Fixing the deadlock itself (so growth's capacity
+    could ever actually be used) is a distinct, not-yet-scoped follow-up — the most surgical option
+    considered is a one-time sprout-*target* eligibility grace for a neuron with zero synapses and
+    no prior spike (mirroring the original population's own `initialPermanence`-above-threshold
+    bootstrap fix), rather than weakening `min_activity_streak` globally or giving `apply_growth` an
+    opinion on wiring policy it does not otherwise have. The biologically closer analogue —
+    exuberant, activity-independent initial synaptogenesis followed by activity-dependent pruning,
+    plus newborn-neuron intrinsic hyperexcitability — is closer to what NET-11 (critical periods,
+    currently a deferred **could**) already names than to any of `sprout`'s own eligibility knobs;
+    not attempted here, left as a scoped design decision for whoever picks NET-11 up.
+11. **Polarity is a first-class concept in the type system and invisible to every mechanism that
+    acts on it — found 2026-09-13 during a §2-against-§3–§9-against-code review.** NEU-4 and
+    invariant 3 are correctly implemented at the point of transmission
+    (`scheduler.rs`'s `deliver`: `signed_current = sign * permanence`, and
+    `tests/invariants.rs`'s `synapse_sign_always_matches_its_source_neurons_polarity` pins it).
+    Everywhere else, the sign is dropped. Four faces of one defect:
+
+    **(a) A dendritic segment counts an inhibitory synapse as evidence *for* a prediction.**
+    `Scheduler::apply_local_effect` receives `signed_current` and, on the dendritic branch, does
+    `self.segment_counts[composite] += 1.0` — the sign (and the magnitude) never reach the
+    coincidence count. An inhibitory presynaptic neuron therefore *raises* a segment's
+    depolarisation and makes the target cell more likely to fire. §13.13(a) names the biology this
+    inverts: SST interneurons target distal dendrites specifically to veto dendritic spikes, and
+    dendritic inhibition is one of the best-established motifs in cortex. This is the single
+    clearest invariant-3 violation in the tree, and it is on the dendritic path only.
+
+    **(b) VAL-8 cannot catch (a).** The Dale property test above allocates its synapse with
+    `target_segment = 0` and never calls `with_segments`, so it exercises the somatic path
+    exclusively. The property "a synapse's effect on its target always carries the sign of its
+    source" is asserted only where it already holds.
+
+    **(c) No plasticity rule reads `polarity`.** `ThreeFactorStdp` applies the excitatory STDP
+    kernel to inhibitory synapses unchanged, and `HomeostaticScaling::rescale_one` sums excitatory
+    and inhibitory incoming permanence into one "total" it renormalises toward a positive target —
+    so with a mixed population, adding inhibition to a neuron makes homeostasis *scale up* its
+    excitation. LRN-2/LRN-6 are written as if every synapse were excitatory.
+
+    **(d) Nothing in this repository has ever run a mixed population.** Every experiment, every
+    TypeScript test and all but four Rust tests set `excitatoryFraction`/`excitatory_fraction` to
+    `1.0`; the exceptions (`action_selection*.rs`, `partitioning_reference.rs`, one boundary test)
+    hand-wire single inhibitory gate neurons for NET-13 and never exercise the 80:20 default.
+    NEU-4 is therefore a correctly-implemented invariant with no experiment behind it, and §2.4's
+    control system — the thing that *produces* sparsity and holds the network in a critical
+    regime — is supplied in practice by `FixedNeighbourhoods`' sort over contiguous index ranges
+    rather than by a circuit. (a)–(c) are latent precisely because of (d), and all three bite on
+    the first run that turns the ratio on.
+
+    The consequence worth stating plainly: this project cannot currently produce the E/I balance
+    §2.4 describes, and would produce something incorrect if asked to. §13.13(a) names inhibitory
+    plasticity (Vogels et al., 2011) as the missing requirement.
+
+12. **`permanence` is simultaneously the structural variable and the synaptic weight, and the
+    README does not say so — found 2026-09-13, same review.** SYN-1 lists "weight/permanence" as
+    one field and that is what shipped: `SynapseArena` has no `weight`, and transmission is
+    `sign * permanence`. SYN-3's permanence is a *structural* quantity (is this spine connected)
+    while §2.5's weight is an *efficacy* (how much current does it pass); the code aliases them
+    onto one `f32`, which produces three effects nothing currently accounts for:
+
+    - A synapse just above `connection_threshold` transmits at roughly half the current of a
+      saturated one. There is no way to express "firmly connected but weak", or "tentative but
+      strong", and structural plasticity's deliberately sub-threshold sprouts are inert for
+      exactly the reason §12a item 5(c) already documented from the other direction.
+    - **`HomeostaticScaling` silently performs structural plasticity.**
+      `rescale_one` multiplies every incoming permanence by `target_total / total` and clamps to
+      `[0,1]`, with no awareness of `connection_threshold`. A downscaling sweep therefore
+      *disconnects* synapses wholesale and an upscaling sweep *connects* previously-potential
+      ones. LRN-6, SYN-3 and LRN-7 are not three feedback loops on the same quantity in the loose
+      sense item 2 means — they are three writers of the same variable.
+    - Consolidation's global downscale (LRN-10, §2.9) is the same operation at a stricter target,
+      so "sleep" prunes structurally as a side effect of restoring dynamic range, rather than by
+      the selective down-selection §13.13(h) describes.
+
+    This is a live candidate explanation for item 10's finding that structural plasticity acting
+    alone is what regresses VAL-4, and it should be checked directly before further tuning: a
+    scaling sweep and a pruning sweep are currently competing to define the same number.
+
+    **It is also what blocks NET-10 outright — see item 10's own 2026-09-13 addendum.** A
+    sub-threshold synapse is not merely weak: `deliver` skips it with `continue` *before*
+    `on_delivery` runs, and `on_post_spike`'s STDP is gated on `last_active`, which only delivery
+    ever writes — so it is invisible to every plasticity rule and can never be potentiated by
+    activity. That removes the one remedy a bootstrapping deadlock normally has (a provisional
+    connection that grows into a real one), which is why a neuron added by growth can never
+    acquire a synapse in either direction and developmental growth currently adds no functional
+    capacity at all. Splitting the two fields dissolves that deadlock as a side effect: a
+    structurally-connected, near-zero-*weight* synapse transmits a trickle, is visible to STDP,
+    and survives or is pruned on its own merits. **This raises item 12 from a correctness defect
+    with a plausible VAL-4 payoff to the prerequisite for invariant 10** — the only one of these
+    findings that currently blocks a stated architectural invariant rather than degrading a
+    measured number.
+
+13. **Three mechanisms are built, tested and reachable from no caller — found 2026-09-13, same
+    review.** Phase 8's own Requirement 1 already names this shape for NET-10 growth ("fully built
+    and tested in isolation, with zero callers anywhere"); it is not a one-off.
+
+    - **Consolidation never runs.** `run_consolidation` and the `runConsolidation` FFI surface
+      have no callers outside their own tests. §2.9 calls an offline phase "a required operating
+      state, not an optimisation", and VAL-4's streaming run — the longest-running experiment in
+      the repository, and the one §13.12 item 5's drift risk applies to — never sleeps. It is also
+      `Runtime::Single`-only, so it cannot run on the partitioned path at all.
+    - **Three of four neuromodulator channels are dead.** Only `DOPAMINE` is ever injected or
+      read; `ACETYLCHOLINE`, `NORADRENALINE` and `SEROTONIN` are declared constants with no
+      producer and no consumer. LRN-5 lists four channels and the substrate honestly has one.
+      Worth recording because a producer for one of them already exists and is being discarded:
+      `plasticity/predictive.rs` classifies every dirty neuron per tick into correct prediction /
+      false positive / unpredicted spike, which is a locally-computable surprise signal of exactly
+      the kind §2.5 assigns to noradrenaline, aggregated nowhere.
+    - **`ColumnSpec::inhibition`/`segments` configure nothing.** Recorded here rather than only in
+      `column.rs`'s own doc comment because it changes what NET-4's headline claim means — see
+      item 14.
+
+14. **Four requirements have no implementation, and one claim is true only because the thing it
+    claims about does not exist — found 2026-09-13, same review.** Stated together because the
+    honest-reporting discipline (Requirement 13.6/8) applies to unbuilt requirements as much as to
+    measured ones, and a reader currently has to grep to discover which is which.
+
+    - **NET-6 (feedback carries predictions, *should*): nothing.** No implementation, no test, and
+      no mention of the requirement ID anywhere in `crates/` or `packages/`. `connect_between`
+      makes a top-down projection *topologically* expressible, but nothing distinguishes a
+      descending synapse from any other, and §2.7's "feedforward carries what was not predicted"
+      has no counterpart in the delivery path. §13.13(b) is the relevant literature.
+    - **NET-8 (oscillations, *could*) and NET-11 (critical periods, *could*): nothing.** Expected
+      for a *could*, but item 4 already rates NET-11's absence as high-consequence rather than
+      low-priority, and item 10's own closing paragraph reaches for NET-11 as the right home for a
+      fix it declined to make.
+    - **LRN-12 (fast one-shot binding, *should*): interfaces prepared, mechanism absent.** §12a
+      item 5 did the expensive part — `ReplaySource` is abstract, so this is an added `impl`
+      rather than a breaking change — and left the mechanism open. §13.13(d) proposes BTSP
+      (Bittner et al., 2017) as the candidate that reuses LRN-3's existing seconds-scale
+      eligibility trace and NEU-6's dendritic event, and item 5(d)'s `cap_per_neuron` constraint
+      remains the real blocker.
+    - **RUN-9b is met but untraceable.** `tests/structural_and_growth.rs`'s
+      `a_restored_network_can_grow_and_keep_learning_without_discarding_prior_learning` is exactly
+      RUN-9b and cites no requirement ID, so VAL-10's traceability check would score a *must* as
+      unimplemented. A grep for requirement IDs across the tree is a cheap standing check that
+      does not currently exist.
+    - **"Every column runs the identical algorithm" (NET-4) is presently true for an
+      uninteresting reason: there is no per-column algorithm.** A `Scheduler` holds at most one
+      `FixedNeighbourhoods` and one `SegmentConfig` for every neuron it owns; a column is a
+      contiguous index range plus a distance policy, and `ColumnSpec`'s own copies are identity
+      data (item 13). Relatedly, `connect_lateral_voting` wires every neuron of one column to
+      every neuron of another — lateral excitation, not voting between object representations,
+      because no object representation exists to vote with. §13.13(f) sets out what the cited
+      column model (Hawkins et al., 2019) actually specifies: an input layer, an output layer, and
+      voting between *output* layers. NET-5 as built is a reasonable first step toward that and
+      should not be read as having reached it.
+
+### 13.13 Mechanisms the evidence base names but §3–§9 does not specify
+
+Added 2026-09-13 after a review of §2 against §3–§9 and against the shipped core. §13.1–§13.10
+survey work that maps onto requirements this document *already has*. This subsection is the
+complement: published, well-replicated mechanisms that §2's own evidence base leans on, that no
+numbered requirement currently covers, and that a reader could otherwise mistake for deliberate
+non-goals rather than for gaps. Each is stated with what it would actually change here, because
+several are cheap against structures the core already has.
+
+**(a) Inhibition is a plastic circuit, not a sorting function** — NET-2, NEU-4, invariants 3 and 4.
+
+- **Vogels, Sprekeler, Zenke, Clopath & Gerstner (2011).** Inhibitory STDP — a symmetric, local
+  rule at *inhibitory* synapses — is what establishes and maintains detailed E/I balance. Their
+  networks self-organise into asynchronous irregular states and can hold memories that are
+  indistinguishable from background until cued. Sparsity, in this account, is the *consequence*
+  of a learned inhibitory circuit, not of an imposed competition.
+- **Beggs & Plenz (2003)** and the criticality literature since. Neuronal avalanches with
+  power-law size distributions require an E/I balance; the critical regime §2.4 invokes is a
+  measurable property (avalanche exponents), not a metaphor — and therefore a candidate VAL test.
+- **PV / SST / VIP interneuron classes.** The three best-characterised cortical interneuron types
+  are not interchangeable: PV targets the soma and sets gain and sparsity, SST targets *distal
+  dendrites* and vetoes dendritic spikes, and VIP inhibits SST — a disinhibitory gate that
+  top-down signals use to release dendritic prediction. That is a three-way map onto mechanisms
+  already in this repository: PV ≈ NET-2's k-WTA, SST ≈ a *signed* dendritic path (which the core
+  does not currently have — see §2.3 and NEU-5), VIP ≈ NET-6's top-down feedback.
+- **Consequence here.** NET-2 is implemented as an algorithmic k-WTA over contiguous index
+  ranges, and no plasticity rule reads `polarity`. Together with the fact that every network
+  actually run in this repository sets `excitatoryFraction: 1.0`, NEU-4 is at present a
+  correctly-implemented invariant with no experiment behind it, and §2.4's control system is
+  supplied by a sort rather than by a circuit. Inhibitory plasticity is the missing requirement;
+  it is also how the biology solves §13.12 item 2's "three feedback loops on the same quantity".
+
+**(b) The pyramidal neuron has two input streams, not one** — NEU-5, NEU-6, NEU-6a, NET-6.
+
+- **Larkum (2013), and Larkum, Zhu & Sakmann (1999) before it.** BAC firing: a basal/somatic
+  input and an *apical tuft* input arriving within ~30 ms produce a calcium plateau and a burst
+  that neither produces alone. The apical tuft is where top-down and associative input lands; the
+  basal tree is where feedforward and lateral context land. §2.3's "distal dendritic segments act
+  as independent coincidence detectors" is the basal half of this story only.
+- **Sacramento, Costa, Bengio & Senn (2018)** and **Payeur, Guerguiev, Zenke, Richards & Naud
+  (2021).** Both build learning rules on that two-compartment split — the first has apical
+  dendrites carry a prediction error computed against lateral interneuron input, the second makes
+  *burst* rate a second, multiplexed channel that coordinates plasticity at lower levels. The
+  caveat §13.3 applies to e-prop applies here too, and harder: both explicitly aim at
+  approximating backpropagation, which invariant 2 forbids. What is borrowable is the
+  *architecture* — segments typed by where their input comes from — not the credit assignment.
+- **Consequence here.** `segment.rs` has exactly one segment type plus a reserved
+  `FEEDFORWARD_SEGMENT`; a segment does not know whether its synapses came from within the
+  column, from a voting peer, or from a top-down projection, and NET-6 has no implementation at
+  all. A segment-role tag is the cheap version of this and needs no second compartment model.
+
+**(c) Synapses have their own fast dynamics** — SYN-1, SYN-4, NET-12.
+
+- **Tsodyks & Markram (1997).** Short-term depression and facilitation, with a release-probability
+  parameter that continuously trades rate coding against coincidence coding. Their point is that
+  the *same* presynaptic spike train means different things at synapses with different recovery
+  dynamics — temporal filtering that a static weight cannot express at any value.
+- **Mongillo, Barak & Tsodyks (2008).** Working memory carried by calcium-mediated presynaptic
+  facilitation rather than by persistent spiking: metabolically cheap, robust to interruption,
+  refreshable at a low rate. This is the "activity-silent" account, and the main published
+  alternative to the persistent-attractor route NET-12 took.
+- **Consequence here.** A synapse currently holds a permanence, a delay, an eligibility trace and
+  a last-active tick — no per-synapse recovery state, so a burst and an isolated spike of the
+  same total count are indistinguishable downstream. NET-12's attractor works, but §11 Phase 7's
+  own status records how narrow the parameter window was; the synaptic route is cheaper to hold
+  stable and would compose with, not replace, the attractor.
+
+**(d) One-shot binding already has a well-characterised biological rule** — LRN-12, LRN-3.
+
+- **Bittner, Milstein, Grienberger, Romani & Magee (2017).** Behavioural timescale synaptic
+  plasticity: a single dendritic plateau potential potentiates inputs that arrived *seconds*
+  before and after it — not coincident, not Hebbian, and a complete place field formed in one
+  trial. The eligibility window is seconds wide, which is exactly LRN-3's stated τ.
+- **A simple model for BTSP with binary synapses (Nature Communications, 2025).** Shows the rule
+  yields content-addressable memory with one-shot learning and *binary* synapses.
+- **Consequence here.** §12a item 5 left LRN-12's mechanism open while settling its interfaces.
+  BTSP is a strong candidate answer that reuses what already exists: an eligibility trace on a
+  seconds timescale (LRN-3), a dendritic event as the trigger (NEU-6), and a direct permanence
+  write outside the rule interface (the `predictive.rs` precedent item 5(b) already established).
+  Item 5(c)'s finding that a one-shot write to permanence 1.0 is legal makes the binary-synapse
+  result directly relevant; item 5(d)'s `cap_per_neuron` problem remains the real blocker.
+
+**(e) Conduction delay is itself plastic** — SYN-2, NET-8.
+
+- **Fields (2015)**, **Pajevic, Basser & Fields (2014)**, and the activity-dependent-myelination
+  work since (PNAS, 2020). Myelination adjusts conduction velocity on a learning timescale;
+  sub-millisecond changes in arrival time measurably shift oscillatory coupling and
+  synchronisation, and the effect is now treated as a plasticity mechanism in its own right
+  rather than as developmental wiring.
+- **Consequence here.** SYN-2 makes delay a first-class computational resource and then freezes
+  it at construction: `delay` is drawn once from `DistancePolicy` and never changes again. Given
+  that the coincidence window (§12a item 6) is the mechanism segments depend on, a delay that can
+  adapt *toward* coincidence is a plasticity dimension the core already has the field for and no
+  rule for. It is also the most direct route to NET-8 that does not require an explicit pacemaker.
+
+**(f) The column model this document cites specifies layers** — NET-4, NET-5, NET-9.
+
+- **Hawkins, Lewis, Klukas, Purdy & Ahmad (2019).** The companion paper to the Thousand Brains
+  Theory, and the one that specifies the mechanism: grid-cell-derived location signals in *every*
+  column, an input layer representing feature-at-location, an output layer pooling over movements
+  into a stable object representation, and voting between the *output* layers specifically. The
+  voting §2.6 describes is between object-layer representations, not between whole columns.
+- **Whittington, Muller, Barry & Behrens (2020), the Tolman-Eichenbaum Machine.** Factorises
+  structure from content and reproduces grid, band, border and object-vector cells plus remapping
+  place cells — the strongest published account of what NET-9's "grid-cell-like location signal"
+  would have to *be* in order to generalise rather than memorise.
+- **Consequence here.** `column.rs` is a contiguous neuron-index range plus a distance policy;
+  `ColumnSpec`'s own `inhibition`/`segments` are, by its own doc comment, identity data rather
+  than live per-column configuration, and `connect_lateral_voting` wires every neuron of one
+  column to every neuron of another. "Every column runs the identical algorithm" is currently
+  true because there is no per-column algorithm for two columns to differ on. NET-9's location
+  signal lives in `packages/io` (TypeScript), not in the core — defensible under invariant 8
+  while it is scaffolding, but the cited model puts it *inside* the column.
+
+**(g) Structure that is not learned at all** — NET-3, and invariant 10's framing.
+
+- **Zador (2019), "A critique of pure learning."** Most animal capability is not learned; it is
+  specified by a genome far too small to enumerate a wiring diagram, and therefore compressed
+  into rules that *generate* connectivity. Rapid learning is what that innate structure buys.
+- **Consequence here.** This is one the design already gets right and does not claim credit for:
+  NET-3's connectivity policies are precisely a genomic bottleneck — a handful of parameters
+  generating a graph — and §13.11's list of novel claims omits it. Worth stating, because it is
+  also the honest answer to "why is topology generated rather than learned from scratch".
+
+**(h) Sleep does more than one thing** — LRN-10, NET-8, §2.9.
+
+- **Tononi & Cirelli (2020), "Sleep and synaptic down-selection."** The synaptic homeostasis
+  hypothesis with its current ultrastructural evidence, plus the causal role of cortical slow
+  waves and hippocampal sharp-wave ripples in down-selection specifically. Downscaling is not
+  uniform: it is selective, and what survives is what was replayed.
+- **Lisman & Jensen (2013), "The theta-gamma neural code."** Ordered items occupy distinct gamma
+  subcycles within a theta cycle — the slot structure NET-8 names, and the mechanism by which
+  replay preserves *order* rather than merely co-activation.
+- **Consequence here.** `consolidation.rs` implements replay-then-downscale faithfully, and
+  `ReplaySource` is correctly abstracted (§12a item 5(a)). Two gaps remain: the downscale is
+  uniform (`HomeostaticScaling::force_apply` at a stricter target) rather than selective, and no
+  experiment in this repository ever calls `runConsolidation` — §2.9 calls an offline phase a
+  required operating state, and VAL-4's streaming run never sleeps.
 
 ---
 
@@ -2099,3 +2556,27 @@ Prior art (§13):
 - [Never-Ending Learning — Mitchell et al., CACM 2018](https://dl.acm.org/doi/10.1145/3191513)
 - [Perceiver IO: A General Architecture for Structured Inputs & Outputs](https://arxiv.org/abs/2107.14795)
 - [Randomness in NEST simulations — reproducibility and virtual processes](https://nest-simulator.readthedocs.io/en/stable/nest_behavior/random_numbers.html)
+
+Mechanisms §3–§9 does not yet specify (§13.13, added 2026-09-13):
+
+- [Inhibitory Plasticity Balances Excitation and Inhibition in Sensory Pathways and Memory Networks — Vogels, Sprekeler, Zenke, Clopath & Gerstner, Science 2011](https://www.science.org/doi/10.1126/science.1211095)
+- [Neuronal Avalanches in Neocortical Circuits — Beggs & Plenz, J. Neurosci. 2003](https://www.jneurosci.org/content/23/35/11167)
+- [Inhibitory stabilization and visual coding in cortical circuits with multiple interneuron subtypes — Litwin-Kumar et al. 2016](https://pubmed.ncbi.nlm.nih.gov/26740531/)
+- [Inhibitory and disinhibitory VIP interneuron-mediated circuits in neocortex (2025)](https://www.biorxiv.org/content/10.1101/2025.02.26.640383v1.full)
+- [A cellular mechanism for cortical associations: an organizing principle for the cerebral cortex — Larkum, Trends Neurosci. 2013](https://www.sciencedirect.com/science/article/abs/pii/S0166223612002032)
+- [A new cellular mechanism for coupling inputs arriving at different cortical layers — Larkum, Zhu & Sakmann, Nature 1999](https://www.nature.com/articles/18686)
+- [Dendritic cortical microcircuits approximate the backpropagation algorithm — Sacramento, Costa, Bengio & Senn, NeurIPS 2018](https://proceedings.neurips.cc/paper/2018/file/1dc3a89d0d440ba31729b0ba74b93a33-Paper.pdf)
+- [Burst-dependent synaptic plasticity can coordinate learning in hierarchical circuits — Payeur, Guerguiev, Zenke, Richards & Naud, Nat. Neurosci. 2021](https://www.nature.com/articles/s41593-021-00857-x)
+- [The neural code between neocortical pyramidal neurons depends on neurotransmitter release probability — Tsodyks & Markram, PNAS 1997](https://www.pnas.org/doi/10.1073/pnas.94.2.719)
+- [Synaptic Theory of Working Memory — Mongillo, Barak & Tsodyks, Science 2008](https://www.science.org/doi/10.1126/science.1150769)
+- [Behavioral time scale synaptic plasticity underlies CA1 place fields — Bittner, Milstein, Grienberger, Romani & Magee, Science 2017](https://www.science.org/doi/10.1126/science.aan3846)
+- [A simple model for Behavioral Time Scale Synaptic Plasticity (BTSP) provides content addressable memory with binary synapses and one-shot learning — Nat. Commun. 2025](https://www.nature.com/articles/s41467-024-55563-6)
+- [A new mechanism of nervous system plasticity: activity-dependent myelination — Fields, Nat. Rev. Neurosci. 2015](https://www.nature.com/articles/nrn4023)
+- [Role of myelin plasticity in oscillations and synchrony of neuronal activity — Pajevic, Basser & Fields, Neuroscience 2014](https://pubmed.ncbi.nlm.nih.gov/24291730/)
+- [Activity-dependent myelination: a glial mechanism of oscillatory self-organization in large-scale brain networks — PNAS 2020](https://www.pnas.org/doi/10.1073/pnas.1916646117)
+- [A Framework for Intelligence and Cortical Function Based on Grid Cells in the Neocortex — Hawkins, Lewis, Klukas, Purdy & Ahmad, Front. Neural Circuits 2019](https://www.frontiersin.org/journals/neural-circuits/articles/10.3389/fncir.2018.00121/full)
+- [The Tolman-Eichenbaum Machine: Unifying Space and Relational Memory through Generalization in the Hippocampal Formation — Whittington, Muller, Barry & Behrens, Cell 2020](https://www.cell.com/cell/fulltext/S0092-8674(20)31388-X)
+- [A critique of pure learning and what artificial neural networks can learn from animal brains — Zador, Nat. Commun. 2019](https://www.nature.com/articles/s41467-019-11786-6)
+- [Sleep and synaptic down-selection — Tononi & Cirelli, Eur. J. Neurosci. 2020](https://onlinelibrary.wiley.com/doi/abs/10.1111/ejn.14335)
+- [The Theta-Gamma Neural Code — Lisman & Jensen, Neuron 2013](https://www.sciencedirect.com/science/article/pii/S0896627313002316)
+- [EchoSpike Predictive Plasticity: An Online Local Learning Rule for Spiking Neural Networks (2024)](https://arxiv.org/abs/2405.13976)
