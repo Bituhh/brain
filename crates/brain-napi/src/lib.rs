@@ -240,6 +240,12 @@ pub struct PredictiveLearningConfig {
     pub burst_target_segment: u32,
     pub burst_sprout_permanence: f64,
     pub recently_active_window_ticks: u32,
+    /// Which neuromodulator channel scales reinforce/punish deltas (LRN-4/
+    /// LRN-5) -- `0` is `DOPAMINE`, matching `modulatorLevels`' channel
+    /// order and `PlasticityConfig.modulatorChannel`'s own convention.
+    /// Omit to leave reinforce/punish at their fixed amounts, matching
+    /// every pre-existing caller's behaviour exactly.
+    pub modulator_index: Option<u32>,
     /// Neighbourhood `size`/`k` used only by Requirement 12.1's
     /// unpredicted-spike burst path to find "recently active" neighbours
     /// to reinforce or sprout onto -- independent of the scheduler's own
@@ -258,6 +264,7 @@ impl PredictiveLearningConfig {
             burst_target_segment: self.burst_target_segment,
             burst_sprout_permanence: self.burst_sprout_permanence as f32,
             recently_active_window_ticks: self.recently_active_window_ticks,
+            modulator_index: self.modulator_index.map(|v| v as usize),
         }
     }
 }

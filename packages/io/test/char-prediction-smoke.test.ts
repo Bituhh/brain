@@ -21,3 +21,22 @@ test("runCharPredictionTrial runs end to end on a small corpus slice and returns
   assert.ok(Number.isFinite(result.trigramAccuracy) && result.trigramAccuracy >= 0 && result.trigramAccuracy <= 1);
   assert.ok(result.sampleCount > 0);
 });
+
+// predictive-learning-neuromodulation spec, Requirement 2: `rewardSignal`
+// omitted (the default) must leave today's behaviour bit-for-bit
+// unaffected -- no `sim.reward()` call is ever made -- while
+// `rewardSignal: "correctness"` must produce a real, measurably different
+// result on the identical corpus/seed/config otherwise. Confirmed
+// empirically before writing this assertion (not hand-derived): on this
+// fixture slice/seed, the omitted path is deterministic across repeated
+// runs (RUN-3) and the configured path measurably diverges from it.
+test("rewardSignal omitted leaves the network deterministic (RUN-3) across repeated runs, and 'correctness' measurably changes it", () => {
+  const config = { ...DEFAULT_CONFIG, slidingWindow: 100 };
+  const baselineA = runCharPredictionTrial(corpus, 1n, config);
+  const baselineB = runCharPredictionTrial(corpus, 1n, config);
+  assert.deepEqual(baselineB, baselineA, "the unconfigured (rewardSignal omitted) path must be bit-identical across repeated runs of the same seed/config");
+
+  const rewarded = runCharPredictionTrial(corpus, 1n, { ...config, rewardSignal: "correctness" });
+  assert.ok(Number.isFinite(rewarded.networkAccuracy) && rewarded.networkAccuracy >= 0 && rewarded.networkAccuracy <= 1);
+  assert.notDeepEqual(rewarded, baselineA, "configuring rewardSignal: 'correctness' must produce a measurably different result from the unconfigured baseline");
+});

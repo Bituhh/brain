@@ -30,6 +30,7 @@ fn correct_prediction_proportion_rises_across_exposures_to_a_repeating_sequence(
         burst_target_segment: 0,
         burst_sprout_permanence: 0.1,
         recently_active_window_ticks: 20,
+        modulator_index: None,
     };
     let mut sched = Scheduler::new(4, 0.3)
         .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } })
@@ -97,6 +98,7 @@ fn no_label_or_external_error_signal_is_needed_anywhere_in_this_path() {
         burst_target_segment: 0,
         burst_sprout_permanence: 0.1,
         recently_active_window_ticks: 20,
+        modulator_index: None,
     };
     let mut sched = Scheduler::new(4, 0.3)
         .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } })

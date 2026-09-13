@@ -1209,7 +1209,8 @@ impl Scheduler {
                 if let Some(pl) = &self.predictive_learning {
                     let predictive_after = neurons.predictive[i];
                     if pl.prediction_expired(predictive_before, predictive_after) {
-                        pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, false, self.tick, neurons.capacity_len() as u32);
+                        let modulators = self.modulators.levels_at(self.tick);
+                        pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, false, self.tick, neurons.capacity_len() as u32, modulators);
                     }
                 }
             }
@@ -1293,8 +1294,9 @@ impl Scheduler {
                 // significant, unpredicted/burst (12.1) otherwise.
                 if let Some(pl) = &self.predictive_learning {
                     let predictive_before = self.predictive_scratch[i];
+                    let modulators = self.modulators.levels_at(self.tick);
                     let outcome =
-                        pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, true, self.tick, neurons.capacity_len() as u32);
+                        pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, true, self.tick, neurons.capacity_len() as u32, modulators);
                     if outcome == crate::plasticity::predictive::PredictionOutcome::CorrectPrediction {
                         predicted_spikes += 1;
                     }
@@ -1315,7 +1317,8 @@ impl Scheduler {
                 // `predictive` to decay below significance.
                 if let Some(pl) = &self.predictive_learning {
                     let predictive_before = self.predictive_scratch[i];
-                    pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, false, self.tick, neurons.capacity_len() as u32);
+                    let modulators = self.modulators.levels_at(self.tick);
+                    pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, false, self.tick, neurons.capacity_len() as u32, modulators);
                 }
             }
         }
@@ -1903,6 +1906,7 @@ mod tests {
             burst_target_segment: 0,
             burst_sprout_permanence: 0.1,
             recently_active_window_ticks: 20,
+            modulator_index: None,
         }
     }
 

@@ -63,6 +63,15 @@ pub struct PredictiveLearningParams {
     /// to count as "recently active" and be a source candidate for a
     /// burst's reinforcement/sprouting (12.1).
     pub recently_active_window_ticks: u32,
+    /// Which of `Modulators`' four channels scales reinforce/punish deltas
+    /// (LRN-4/LRN-5), mirroring `ThreeFactorParams.modulator_index`'s
+    /// shape exactly. `None` -- the only value every pre-existing caller
+    /// passes -- means "scale by 1.0": today's fixed-amount arithmetic,
+    /// computed with no read of `NeuromodulatorField` at all. `Some(idx)`
+    /// multiplies the delta by `modulators[idx]`. Deliberately not applied
+    /// to `burst_sprout_permanence` (a structural, one-time value, not a
+    /// reinforcement event -- see `reinforce_or_sprout_burst`).
+    pub modulator_index: Option<usize>,
 }
 
 /// Tracks per-neuron "which segment most recently fired" -- the
@@ -122,7 +131,18 @@ pub struct PredictiveLearning {
 
 impl PredictiveLearning {
     pub fn new(params: PredictiveLearningParams, neighbourhoods: FixedNeighbourhoods) -> Self {
+        debug_assert!(
+            params.modulator_index.is_none_or(|i| i < crate::plasticity::NUM_MODULATORS),
+            "modulator_index must be a valid channel index"
+        );
         Self { params, neighbourhoods }
+    }
+
+    /// `Requirement 1 AC1/AC2`: `None` leaves reinforce/punish deltas at
+    /// today's fixed amount (no `NeuromodulatorField` read at all);
+    /// `Some(idx)` scales by the ambient level at that channel.
+    fn modulator_scale(&self, modulators: crate::plasticity::Modulators) -> f32 {
+        self.params.modulator_index.map_or(1.0, |i| modulators[i])
     }
 
     /// Requirement 12.2/12.3's reinforce/punish. `synapses.incoming(neuron)`
@@ -165,7 +185,15 @@ impl PredictiveLearning {
         start..(start + size).min(neuron_count)
     }
 
-    fn reinforce_or_sprout_burst(&self, neurons: &NeuronArenaViewMut, synapses: &mut SynapseArenaViewMut, neuron: u32, tick: u32, neuron_count: u32) {
+    fn reinforce_or_sprout_burst(
+        &self,
+        neurons: &NeuronArenaViewMut,
+        synapses: &mut SynapseArenaViewMut,
+        neuron: u32,
+        tick: u32,
+        neuron_count: u32,
+        modulators: crate::plasticity::Modulators,
+    ) {
         let segment = self.params.burst_target_segment;
         for source in self.neighbourhood_range(neuron, neuron_count) {
             if source == neuron || !neurons.owns(source) || !synapses.owns_source(source) {
@@ -189,9 +217,11 @@ impl PredictiveLearning {
             match existing {
                 Some(id) => {
                     let p = &mut synapses.permanence[id as usize];
-                    *p = (*p + self.params.reinforce_amount).clamp(0.0, 1.0);
+                    *p = (*p + self.params.reinforce_amount * self.modulator_scale(modulators)).clamp(0.0, 1.0);
                 }
                 None => {
+                    // Structural, one-time value -- not a reinforcement
+                    // event, so not modulator-scaled (Requirement 1 AC2).
                     let _ = synapses.insert(source, neuron, segment, 1, self.params.burst_sprout_permanence);
                     // BlockFull is a legitimate, expected outcome
                     // (Requirement 11.3), matching structural.rs's
@@ -223,27 +253,28 @@ impl PredictiveLearning {
         committed: bool,
         tick: u32,
         neuron_count: u32,
+        modulators: crate::plasticity::Modulators,
     ) -> PredictionOutcome {
         let was_predicted = predictive_now >= self.params.significance_threshold;
         match (was_predicted, committed) {
             (true, true) => {
                 // 12.3: correct prediction -- reinforce.
                 if let Some(segment) = tracker.get(neuron) {
-                    self.adjust_segment_permanence(synapses, neuron, segment, self.params.reinforce_amount);
+                    self.adjust_segment_permanence(synapses, neuron, segment, self.params.reinforce_amount * self.modulator_scale(modulators));
                 }
                 PredictionOutcome::CorrectPrediction
             }
             (true, false) => {
                 // 12.2: false positive -- punish.
                 if let Some(segment) = tracker.get(neuron) {
-                    self.adjust_segment_permanence(synapses, neuron, segment, -self.params.punish_amount);
+                    self.adjust_segment_permanence(synapses, neuron, segment, -self.params.punish_amount * self.modulator_scale(modulators));
                 }
                 PredictionOutcome::FalsePositive
             }
             (false, true) => {
                 // 12.1: unpredicted spike / burst -- reinforce or sprout
                 // from other recently-active neighbours.
-                self.reinforce_or_sprout_burst(neurons, synapses, neuron, tick, neuron_count);
+                self.reinforce_or_sprout_burst(neurons, synapses, neuron, tick, neuron_count, modulators);
                 PredictionOutcome::UnpredictedSpike
             }
             (false, false) => {
@@ -276,8 +307,11 @@ mod tests {
             burst_target_segment: 0,
             burst_sprout_permanence: 0.1,
             recently_active_window_ticks: 20,
+            modulator_index: None,
         }
     }
+
+    const NEUTRAL_MODULATORS: crate::plasticity::Modulators = [1.0; crate::plasticity::NUM_MODULATORS];
 
     #[test]
     fn correct_prediction_reinforces_the_responsible_segment() {
@@ -290,7 +324,7 @@ mod tests {
         tracker.record_fired(1, 0); // segment 0 fired for neuron 1
 
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.9, true, 10, 2);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.9, true, 10, 2, NEUTRAL_MODULATORS);
 
         assert!((synapses.permanence[syn as usize] - 0.4).abs() < 1e-6, "correct prediction must reinforce by reinforce_amount");
     }
@@ -306,7 +340,7 @@ mod tests {
         tracker.record_fired(1, 0);
 
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.9, false, 10, 2);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.9, false, 10, 2, NEUTRAL_MODULATORS);
 
         assert!((synapses.permanence[syn as usize] - 0.2).abs() < 1e-6, "false positive must punish by punish_amount");
     }
@@ -323,7 +357,7 @@ mod tests {
         tracker.record_fired(1, 0);
 
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.9, true, 10, 2);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.9, true, 10, 2, NEUTRAL_MODULATORS);
 
         assert!(synapses.permanence[responsible as usize] > 0.3);
         assert_eq!(synapses.permanence[other_segment as usize], 0.3, "an uninvolved segment's synapses must not be touched");
@@ -339,7 +373,7 @@ mod tests {
 
         let tracker = PredictingSegmentTracker::new(); // nothing predicted
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 2, 0.0, true, 10, 3);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 2, 0.0, true, 10, 3, NEUTRAL_MODULATORS);
 
         assert!((synapses.permanence[syn as usize] - 0.4).abs() < 1e-6, "an existing synapse from a recently-active source must be reinforced");
     }
@@ -353,7 +387,7 @@ mod tests {
 
         let tracker = PredictingSegmentTracker::new();
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.0, true, 10, 2);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.0, true, 10, 2, NEUTRAL_MODULATORS);
 
         let sprouted = synapses.occupied_in_block(0).find(|&id| synapses.target_neuron[id as usize] == 1);
         assert!(sprouted.is_some(), "must sprout a new synapse from the recently-active neighbour");
@@ -369,7 +403,7 @@ mod tests {
 
         let tracker = PredictingSegmentTracker::new();
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.0, true, 10, 2);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.0, true, 10, 2, NEUTRAL_MODULATORS);
 
         assert_eq!(synapses.occupied_in_block(0).count(), 0, "a neuron that never fired must not become a burst source");
     }
@@ -383,7 +417,7 @@ mod tests {
 
         let tracker = PredictingSegmentTracker::new();
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.0, false, 10, 2);
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.0, false, 10, 2, NEUTRAL_MODULATORS);
 
         assert_eq!(synapses.permanence[syn as usize], 0.3);
     }
@@ -392,5 +426,89 @@ mod tests {
     fn tracker_returns_none_for_a_neuron_with_no_recorded_segment() {
         let tracker = PredictingSegmentTracker::new();
         assert_eq!(tracker.get(5), None);
+    }
+
+    /// Requirement 1 AC1: with `modulator_index: Some(idx)`, a correct
+    /// prediction's reinforcement is proportional to the ambient level at
+    /// that channel, not the fixed `reinforce_amount`.
+    #[test]
+    fn modulator_index_some_scales_reinforcement_proportionally_to_channel_level() {
+        let params_at = |modulator_index| PredictiveLearningParams { modulator_index, ..default_params() };
+
+        let reinforced_delta = |level: f32| {
+            let mut neurons = make_neurons(2);
+            let mut synapses = SynapseArena::new(4);
+            synapses.reserve_for_neurons(2);
+            let syn = synapses.insert(0, 1, 0, 1, 0.3).unwrap();
+            let mut tracker = PredictingSegmentTracker::new();
+            tracker.record_fired(1, 0);
+
+            let pl = PredictiveLearning::new(params_at(Some(0)), FixedNeighbourhoods::new(10, 1));
+            let mut modulators = [0.0; crate::plasticity::NUM_MODULATORS];
+            modulators[0] = level;
+            pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.9, true, 10, 2, modulators);
+            synapses.permanence[syn as usize] - 0.3
+        };
+
+        let at_half = reinforced_delta(0.5);
+        let at_unity = reinforced_delta(1.0);
+        let at_double = reinforced_delta(2.0);
+        let at_zero = reinforced_delta(0.0);
+
+        assert!((at_zero).abs() < 1e-6, "zero modulator must produce zero reinforcement despite a nonzero reinforce_amount, got {at_zero}");
+        assert!((at_half - 0.05).abs() < 1e-6, "0.5x modulator must halve reinforce_amount (0.1), got {at_half}");
+        assert!((at_unity - 0.1).abs() < 1e-6, "1.0x modulator must reproduce the unscaled reinforce_amount, got {at_unity}");
+        assert!((at_double - 0.2).abs() < 1e-6, "2.0x modulator must double reinforce_amount, got {at_double}");
+    }
+
+    /// Requirement 1 AC1, punish side: same proportional scaling, mirrored
+    /// for the false-positive path.
+    #[test]
+    fn modulator_index_some_scales_punishment_proportionally_to_channel_level() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let syn = synapses.insert(0, 1, 0, 1, 0.3).unwrap();
+        let mut tracker = PredictingSegmentTracker::new();
+        tracker.record_fired(1, 0);
+
+        let params = PredictiveLearningParams { modulator_index: Some(0), ..default_params() };
+        let pl = PredictiveLearning::new(params, FixedNeighbourhoods::new(10, 1));
+        let mut modulators = [0.0; crate::plasticity::NUM_MODULATORS];
+        modulators[0] = 2.0;
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.9, false, 10, 2, modulators);
+
+        assert!(
+            (synapses.permanence[syn as usize] - (0.3 - 0.2)).abs() < 1e-6,
+            "2.0x modulator must double punish_amount (0.1 -> 0.2), got {}",
+            synapses.permanence[syn as usize]
+        );
+    }
+
+    /// Requirement 1 AC2: a burst-sprouted synapse's starting permanence is
+    /// a structural, one-time value, not a reinforcement -- it must be
+    /// identical regardless of modulator level, including at 0.0.
+    #[test]
+    fn burst_sprout_permanence_is_unaffected_by_modulator_level() {
+        for level in [0.0, 0.5, 1.0, 2.0] {
+            let mut neurons = make_neurons(2);
+            let mut synapses = SynapseArena::new(4);
+            synapses.reserve_for_neurons(2);
+            neurons.last_spike[0] = 9;
+
+            let params = PredictiveLearningParams { modulator_index: Some(0), ..default_params() };
+            let tracker = PredictingSegmentTracker::new();
+            let pl = PredictiveLearning::new(params, FixedNeighbourhoods::new(10, 1));
+            let mut modulators = [0.0; crate::plasticity::NUM_MODULATORS];
+            modulators[0] = level;
+            pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.0, true, 10, 2, modulators);
+
+            let sprouted = synapses.occupied_in_block(0).find(|&id| synapses.target_neuron[id as usize] == 1);
+            assert_eq!(
+                synapses.permanence[sprouted.unwrap() as usize],
+                0.1,
+                "burst_sprout_permanence must be exactly 0.1 regardless of modulator level {level}"
+            );
+        }
     }
 }

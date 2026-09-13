@@ -126,6 +126,7 @@ fn predictive_learning_params() -> PredictiveLearningParams {
         burst_target_segment: 0,
         burst_sprout_permanence: 0.15,
         recently_active_window_ticks: 10,
+        modulator_index: None,
     }
 }
 

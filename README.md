@@ -1872,6 +1872,31 @@ Three claims, in decreasing order of confidence that they are unprecedented.
    Further joint tuning of both axes is deferred to Phase 7's own resurfaced-VAL-4 item below,
    which is explicitly scoped to retune informed by whatever that phase's larger-scale NET-12/13
    work finds about the shared predictive substrate, rather than continuing ad hoc here.
+8. **Neuromodulator-routed predictive learning (predictive-learning-neuromodulation spec,
+   Requirement 1/2): reward = correctness slightly regresses this network's accuracy, not
+   improves it — measured 2026-09-13.** `PredictiveLearning` (`plasticity/predictive.rs`)
+   previously ignored the neuromodulator field entirely, unlike `ThreeFactorStdp`; it now
+   optionally scales reinforce/punish deltas by an ambient channel level
+   (`modulator_index: Option<usize>`, `None` by default and bit-identical to the old fixed-amount
+   behaviour, mirroring `ThreeFactorParams`'s existing shape exactly), and `charPrediction.ts`
+   gained a `rewardSignal: "correctness"` config that calls `sim.reward(hit ? 1.0 : 0.0)` on the
+   dopamine channel after every character — closing the separate "never calls `reward()` at all"
+   gap the spec's own research found, without which the mechanism would have been wired but inert.
+   Run against the identical protocol item 7 above uses (5 seeds, 15,000 characters, the same
+   corpus slice, `NETWORK_WIDTH = 800`, `targetRate = 0.99` segment-threshold homeostasis):
+   the unconfigured baseline reproduces item 7's own 17.37% exactly (**17.37%**, range
+   15.75–18.55% across seeds); with `rewardSignal: "correctness"` enabled, mean network accuracy
+   is **16.50%** (range 15.80–16.90%) — a real regression of 0.87 points, not an improvement.
+   One incidental observation, not investigated further here: the reward-scaled run's seed-to-seed
+   range is visibly tighter (1.10 points) than the baseline's (2.80 points), suggesting the signal
+   may damp run-to-run variance even as it lowers the mean — worth a closer look if this mechanism
+   is revisited, not claimed as a finding on its own. VAL-4 remains **not met** either way (network
+   mean 16.50–17.37% vs. trigram's unchanged 28.40%). Per Requirement 2 AC4 and Requirement 13.6's
+   own discipline: recorded honestly as a negative result, not tuned further to find a more
+   favourable configuration. `design.md`'s own Design Risks section flagged this possibility in
+   advance ("does scaling reinforcement by 'was the network right recently' actually help... or
+   does it create a destabilizing feedback loop") — the empirical answer, at least for this
+   specific reward mapping on this specific network, leans toward measurable harm, not help.
 
 ---
 

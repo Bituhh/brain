@@ -167,6 +167,7 @@ fn run(with_homeostasis: bool) -> RunResult {
         burst_target_segment: 0,
         burst_sprout_permanence: 0.1,
         recently_active_window_ticks: 10,
+        modulator_index: None,
     };
     let structural_params = StructuralPlasticityParams {
         prune_floor: PRUNE_FLOOR,

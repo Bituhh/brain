@@ -68,6 +68,32 @@ export interface CharPredictionConfig {
    * best-known value from README §13.12 item 7's tuning table.
    */
   readonly segmentThresholdHomeostasis?: SegmentThresholdHomeostasisConfig;
+  /**
+   * Neuromodulator-routed predictive learning (predictive-learning-
+   * neuromodulation spec, Requirement 2): `undefined` (default) preserves
+   * today's behaviour exactly -- no `sim.reward()` call is ever made, and
+   * `predictiveLearning.modulatorIndex` is left unset, so
+   * `PredictiveLearning` scales every reinforce/punish delta by 1.0 (the
+   * fixed-amount arithmetic it has always used).
+   *
+   * `"correctness"` is the one signal implemented: after each character's
+   * prediction is scored against the actual next character (the same
+   * comparison already made for `networkAcc.record` below), call
+   * `sim.reward(hit ? 1.0 : 0.0)` on the dopamine channel. Chosen (per
+   * Requirement 2 AC1's documented-decision discipline) as the most
+   * direct, least speculative mapping of LRN-11's reward API to this task
+   * -- it reuses the exact boolean this harness already computes, needs no
+   * new comparison logic, and scores the *network's own* prediction
+   * rather than some external label. A named alternative considered and
+   * deliberately not built here: a separate uncertainty/surprise channel
+   * (acetylcholine/noradrenaline) scaling the punish half differently from
+   * the reinforce half -- `PredictiveLearningParams` has a single
+   * `modulator_index` applying to both uniformly, so that would need a
+   * second `Option<usize>` field on the Rust side. Deferred because it is
+   * a real design fork, not resolved by this spec, and the single-channel
+   * version is what mirrors `ThreeFactorParams`'s own precedent.
+   */
+  readonly rewardSignal?: "correctness";
 }
 
 export const DEFAULT_CONFIG: CharPredictionConfig = {
@@ -144,6 +170,7 @@ export function buildNetwork(
   seed: bigint,
   width: number,
   segmentThresholdHomeostasis: SegmentThresholdHomeostasisConfig | undefined = DEFAULT_CONFIG.segmentThresholdHomeostasis,
+  rewardSignal: CharPredictionConfig["rewardSignal"] = DEFAULT_CONFIG.rewardSignal,
 ): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 };
   const options: SimulationOptions = {
@@ -214,6 +241,15 @@ export function buildNetwork(
       // examples/high-order-sequence.ts already uses for the same reason.
       neighbourhoodSize: 1,
       neighbourhoodK: 1,
+      // Requirement 2: `undefined` (default) omits this field entirely --
+      // `exactOptionalPropertyTypes`'s spread-only-if-defined convention,
+      // same as `segmentThresholdHomeostasis` above -- leaving
+      // `PredictiveLearning` at its fixed-amount arithmetic. `"correctness"`
+      // sets it to the dopamine channel, matching `PlasticityConfig`'s own
+      // `modulatorChannel: 0, // DOPAMINE` convention elsewhere in this
+      // codebase (no named channel constant is exported across the FFI
+      // boundary).
+      ...(rewardSignal !== undefined && { modulatorIndex: 0 /* DOPAMINE */ }),
     },
   };
   const sim = Simulation.create(lif, options);
@@ -252,7 +288,7 @@ export interface TrialResult {
 export function runCharPredictionTrial(corpus: string, seed: bigint, config: CharPredictionConfig = DEFAULT_CONFIG): TrialResult {
   const encoderConfig = charEncoderConfig(config.width, config.density);
   const candidates = buildCandidates(encoderConfig);
-  const { sim, column } = buildNetwork(seed, config.width, config.segmentThresholdHomeostasis);
+  const { sim, column } = buildNetwork(seed, config.width, config.segmentThresholdHomeostasis, config.rewardSignal);
   const trigram = new TrigramModel();
   const networkAcc = new SlidingWindowAccuracy(config.slidingWindow);
   const trigramAcc = new SlidingWindowAccuracy(config.slidingWindow);
@@ -271,7 +307,14 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
     stimulateCurrent: config.stimulateCurrent,
     minConfidence: config.minConfidence,
   })) {
-    networkAcc.record(step.predicted?.label === step.actual);
+    const hit = step.predicted?.label === step.actual;
+    networkAcc.record(hit);
+    // Requirement 2 AC2: closes the "never called at all" gap found during
+    // this spec's own research -- `undefined` (default) skips this
+    // entirely, matching today's behaviour exactly.
+    if (config.rewardSignal === "correctness") {
+      sim.reward(hit ? 1.0 : 0.0);
+    }
     const trigramPrediction = trigram.predict(context);
     if (trigramPrediction !== undefined) {
       trigramAcc.record(trigramPrediction === step.actual);
