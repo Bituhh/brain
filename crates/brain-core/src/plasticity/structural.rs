@@ -253,6 +253,44 @@ impl StructuralPlasticity {
 
         StructuralSweepReport { pruned, sprouted, reclaimed_neurons }
     }
+
+    /// This sweep's own scheduling clock (RUN-9a, PLAN.md item A4). Note
+    /// this is *not* always on `sweep_interval_ticks`'s grid: consolidation's
+    /// aggressive pruning pass (LRN-10) calls [`Self::force_sweep`] directly,
+    /// which advances this to whatever tick it was called at, off-schedule --
+    /// a real value nonetheless, just not one a `tick / interval * interval`
+    /// reconstruction could ever recover for a run that used it.
+    pub fn last_swept_at(&self) -> u32 {
+        self.last_swept_at
+    }
+
+    /// This sweep's configured interval, exposed for a caller reconstructing
+    /// [`Self::last_swept_at`] from a pre-version-8 snapshot (see
+    /// `Scheduler::restore_sweep_scheduling_state`).
+    pub fn sweep_interval_ticks(&self) -> u32 {
+        self.params.sweep_interval_ticks
+    }
+
+    /// Each live neuron's current consecutive-sweep activity streak (RUN-9a,
+    /// PLAN.md item A4) -- the other half of this sweep's genuinely
+    /// cross-tick state, addressed by neuron index exactly like
+    /// `update_activity_streaks` writes it.
+    pub fn activity_streak(&self) -> &[u32] {
+        &self.activity_streak
+    }
+
+    /// Overlays a snapshotted (or migration-reconstructed) scheduling clock
+    /// and activity-streak vector onto a freshly-constructed instance -- the
+    /// counterpart to [`Self::last_swept_at`]/[`Self::activity_streak`].
+    /// `activity_streak` may be shorter than this instance will eventually
+    /// need (e.g. empty, for a pre-version-8 migration, which cannot
+    /// reconstruct per-neuron history at all) -- [`Self::ensure_streak_capacity`]
+    /// already lazily grows it on first use, so a short vector here is
+    /// exactly as safe as a fresh instance's empty one.
+    pub fn restore_sweep_state(&mut self, last_swept_at: u32, activity_streak: Vec<u32>) {
+        self.last_swept_at = last_swept_at;
+        self.activity_streak = activity_streak;
+    }
 }
 
 /// `NeuronArena` does not expose its generation array publicly by index --

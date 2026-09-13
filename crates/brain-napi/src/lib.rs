@@ -1774,11 +1774,15 @@ impl NativeSimulation {
             };
             scheduler = scheduler.with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k)));
         }
-        // NEU-7: like `segment_threshold_homeostasis`/`inhibition_homeostasis`
-        // below, this mechanism's own tuning state (`last_applied_at`) is not
-        // part of the snapshot payload -- the quantity it actually adjusts
-        // (`neurons.threshold`) is genuine simulation state and already
-        // round-trips via `snapshot::read` above, unconditionally.
+        // NEU-7: this mechanism's own tuning state (`last_applied_at`) now
+        // round-trips too (snapshot format version 8, PLAN.md item A4) --
+        // see `restore_sweep_scheduling_state` below. Before that fix, a
+        // snapshot taken between two sweep-interval boundaries silently
+        // reset this to zero on restore and shifted the schedule's phase
+        // for the rest of the run (RUN-9a); the quantity this mechanism
+        // actually adjusts (`neurons.threshold`) was never the problem,
+        // since it already round-trips via `snapshot::read` above,
+        // unconditionally.
         if let Some(cfg) = &intrinsic_homeostasis {
             scheduler = scheduler.with_intrinsic_homeostasis(IntrinsicHomeostasis::new(
                 cfg.target_rate as f32,
@@ -1797,13 +1801,16 @@ impl NativeSimulation {
                 cfg.interval_ticks.max(1),
             ));
         }
-        // inhibition-homeostasis spec, Requirement 1: like
-        // segment_threshold_homeostasis above, this mechanism's own tuning
-        // state (rate_estimate/k_estimate/last_applied_at) is not part of
-        // the snapshot payload -- only `inhibition`'s live `k` is genuine
-        // simulation state, and that already round-trips via `inhibition`
-        // itself above. Requires `inhibition` too, same reason as
-        // `build_scheduler`'s own guard.
+        // inhibition-homeostasis spec, Requirement 1: this mechanism's own
+        // tuning state (rate_estimate/k_estimate/last_applied_at) now
+        // round-trips too (snapshot format version 8, PLAN.md item A4),
+        // including resyncing `inhibition`'s *live* `k` to the restored
+        // `k_estimate` -- see `restore_sweep_scheduling_state` below.
+        // `inhib.k` supplied here is only the pre-homeostasis starting
+        // point the caller's own config carries; a snapshot whose `k` had
+        // since drifted overwrites it after construction, once
+        // `restore_sweep_scheduling_state` runs. Requires `inhibition` too,
+        // same reason as `build_scheduler`'s own guard.
         if let (Some(cfg), Some(inhib)) = (&inhibition_homeostasis, &inhibition) {
             scheduler = scheduler.with_inhibition_homeostasis(InhibitionHomeostasis::new(
                 cfg.target_rate as f32,
@@ -1846,6 +1853,16 @@ impl NativeSimulation {
         if let Some(state) = restored.growth_state {
             scheduler.restore_growth_raw_state(state);
         }
+        // RUN-9a, PLAN.md item A4: every periodic sweep's own scheduling
+        // bookkeeping (format version 8) -- see `restore_sweep_scheduling_
+        // state`'s own doc comment for the finding this closes and, for a
+        // pre-version-8 snapshot (`restored.sweep_scheduling` is `None`),
+        // the documented best-effort reconstruction it falls back to
+        // instead of silently resetting every sweep's `last_applied_at` to
+        // zero. Must run after every `with_*` call above -- the `None`
+        // branch reads each mechanism's own already-configured interval to
+        // reconstruct its `last_applied_at`.
+        scheduler.restore_sweep_scheduling_state(restored.sweep_scheduling, restored.tick);
 
         Ok(Self {
             neurons: restored.neurons,

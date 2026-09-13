@@ -158,6 +158,76 @@ test("the canonical brain's snapshot round-trips mid-run (RUN-9/RUN-9a)", async 
   }
 });
 
+test("the canonical brain's snapshot restores and continues bit-identically off a sweep-interval boundary (RUN-9a, PLAN.md item A4)", async () => {
+  // PLAN.md item A4's own finding: this constructor's two sweep intervals
+  // are 50 (homeostaticScaling/intrinsicHomeostasis/structuralPlasticity)
+  // and 100 (segmentThresholdHomeostasis). The test above snapshots at
+  // tick 50 -- a multiple of both -- which restores correctly even with
+  // the bug this item fixes, because every sweep's `last_applied_at`
+  // silently resetting to zero on restore happens to be the *correct*
+  // value on a boundary (zero is a multiple of everything). 137 and 263
+  // are neither, so they are the cases that actually exercise the fix:
+  // verified to fail before it (`Scheduler::restore_sweep_scheduling_state`
+  // temporarily reverted to a no-op), matching `invariants.rs`'s Rust
+  // sibling property test.
+  const OFF_BOUNDARY_SNAPSHOT_TICKS = [137, 263];
+  const TOTAL_TICKS = 400;
+
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  function sortedSpikes(spiked: number[]): number[] {
+    return [...spiked].sort((a, b) => a - b);
+  }
+
+  function runUninterrupted(): number[][] {
+    const { sim, column } = buildCanonicalBrain(SEED);
+    const trace: number[][] = [];
+    for (let i = 0; i < TOTAL_TICKS; i++) {
+      column.stimulateSdr(sim, PATTERNS[i % PATTERNS.length]!, 10.0);
+      const spiked = sim.step();
+      sim.recordGrowthActivation(i % 3 === 0);
+      trace.push(sortedSpikes(spiked));
+    }
+    return trace;
+  }
+
+  const uninterrupted = runUninterrupted();
+
+  for (const snapshotTick of OFF_BOUNDARY_SNAPSHOT_TICKS) {
+    assert.notEqual(snapshotTick % 50, 0, `${snapshotTick} must not be a multiple of the 50-tick sweep interval, or this test would not exercise the off-boundary case`);
+    assert.notEqual(snapshotTick % 100, 0, `${snapshotTick} must not be a multiple of the 100-tick sweep interval, or this test would not exercise the off-boundary case`);
+
+    const dir = mkdtempSync(join(tmpdir(), "brain-canonical-off-boundary-snapshot-test-"));
+    try {
+      const { sim, column } = buildCanonicalBrain(SEED);
+      const path = join(dir, `snapshot-${snapshotTick}.bin`);
+      for (let i = 0; i <= snapshotTick; i++) {
+        column.stimulateSdr(sim, PATTERNS[i % PATTERNS.length]!, 10.0);
+        const spiked = sim.step();
+        sim.recordGrowthActivation(i % 3 === 0);
+        assert.deepEqual(sortedSpikes(spiked), uninterrupted[i], `sanity: the live run must match the uninterrupted trace before any restore happens, tick ${i}`);
+      }
+      sim.snapshot(path);
+
+      const restored = Simulation.restore(path, canonicalLifConfig, canonicalSimulationOptions(SEED));
+      for (let i = snapshotTick + 1; i < TOTAL_TICKS; i++) {
+        column.stimulateSdr(restored, PATTERNS[i % PATTERNS.length]!, 10.0);
+        const spiked = restored.step();
+        restored.recordGrowthActivation(i % 3 === 0);
+        assert.deepEqual(
+          sortedSpikes(spiked),
+          uninterrupted[i],
+          `restored continuation diverged from the uninterrupted run at tick ${i} (snapshot taken at ${snapshotTick}, an off-sweep-boundary tick)`,
+        );
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
 test("the canonical brain is deterministic across repeated runs of the same seed (RUN-3)", () => {
   function run(): { spikeCounts: number[]; liveCount: number } {
     const { sim, column } = buildCanonicalBrain(SEED);

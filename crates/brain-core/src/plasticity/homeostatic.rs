@@ -64,6 +64,21 @@ impl HomeostaticScaling {
         }
     }
 
+    /// This sweep's own scheduling clock (RUN-9a, PLAN.md item A4): when it
+    /// last actually ran, in ticks. Exposed so a snapshot can capture it --
+    /// see `Scheduler::sweep_scheduling_raw_state`'s doc comment for why
+    /// this was omitted for six format versions.
+    pub fn last_applied_at(&self) -> u32 {
+        self.last_applied_at
+    }
+
+    /// Overlays a snapshotted (or migration-reconstructed) scheduling clock
+    /// onto a freshly-constructed instance -- the counterpart to
+    /// [`Self::last_applied_at`].
+    pub fn restore_last_applied_at(&mut self, last_applied_at: u32) {
+        self.last_applied_at = last_applied_at;
+    }
+
     fn rescale_one(&mut self, synapses: &mut SynapseArena, target: u32) {
         self.incoming_scratch.clear();
         self.incoming_scratch.extend(synapses.incoming(target));
@@ -150,6 +165,18 @@ impl IntrinsicHomeostasis {
         }
         true
     }
+
+    /// This sweep's own scheduling clock (RUN-9a, PLAN.md item A4) -- see
+    /// [`HomeostaticScaling::last_applied_at`]'s doc comment.
+    pub fn last_applied_at(&self) -> u32 {
+        self.last_applied_at
+    }
+
+    /// The counterpart to [`Self::last_applied_at`], see
+    /// [`HomeostaticScaling::restore_last_applied_at`].
+    pub fn restore_last_applied_at(&mut self, last_applied_at: u32) {
+        self.last_applied_at = last_applied_at;
+    }
 }
 
 /// Homeostasis for a dendritic segment's own coincidence threshold
@@ -220,6 +247,18 @@ impl SegmentThresholdHomeostasis {
             threshold[i] = (threshold[i] + self.adjustment_rate * error).max(self.min_threshold);
         }
         true
+    }
+
+    /// This sweep's own scheduling clock (RUN-9a, PLAN.md item A4) -- see
+    /// [`HomeostaticScaling::last_applied_at`]'s doc comment.
+    pub fn last_applied_at(&self) -> u32 {
+        self.last_applied_at
+    }
+
+    /// The counterpart to [`Self::last_applied_at`], see
+    /// [`HomeostaticScaling::restore_last_applied_at`].
+    pub fn restore_last_applied_at(&mut self, last_applied_at: u32) {
+        self.last_applied_at = last_applied_at;
     }
 }
 
@@ -305,6 +344,41 @@ impl InhibitionHomeostasis {
         // relative to threshold.
         self.k_estimate = (self.k_estimate - self.adjustment_rate * error).max(self.min_k);
         Some(self.k_estimate.round().max(1.0) as u32)
+    }
+
+    /// This sweep's full scheduling/estimator state (RUN-9a, PLAN.md item
+    /// A4): `(last_applied_at, rate_estimate, k_estimate)`. Unlike its three
+    /// siblings above, `k_estimate`/`rate_estimate` are genuinely evolving
+    /// estimators, not just a scheduling clock -- omitting them (as every
+    /// format version before 8 did) does not just shift the schedule's
+    /// phase, it also silently resets the live `k` a caller sees after
+    /// restore to whatever `initial_k` its `with_inhibition_homeostasis`
+    /// call happened to supply.
+    pub fn raw_state(&self) -> (u32, f32, f32) {
+        (self.last_applied_at, self.rate_estimate, self.k_estimate)
+    }
+
+    /// Overlays a full snapshotted state onto a freshly-constructed
+    /// instance -- the counterpart to [`Self::raw_state`]. Does not by
+    /// itself resync the live `FixedNeighbourhoods::k` this mechanism
+    /// adjusts -- see `Scheduler::restore_sweep_scheduling_state`, which
+    /// calls this and then derives the live `k` from the restored
+    /// `k_estimate` using the same formula [`Self::maybe_apply`] does.
+    pub fn restore_raw_state(&mut self, last_applied_at: u32, rate_estimate: f32, k_estimate: f32) {
+        self.last_applied_at = last_applied_at;
+        self.rate_estimate = rate_estimate;
+        self.k_estimate = k_estimate;
+    }
+
+    /// Migration-only counterpart to [`Self::restore_raw_state`]: overlays
+    /// just the scheduling clock, leaving `rate_estimate`/`k_estimate` at
+    /// whatever `new` constructed them with. Used for a pre-version-8
+    /// snapshot, which has no record of the real estimators at all (RUN-9a,
+    /// PLAN.md item A4) -- restarting them at their fresh-instance defaults
+    /// is a bounded, honest gap rather than a guess dressed up as a real
+    /// value.
+    pub fn restore_last_applied_at(&mut self, last_applied_at: u32) {
+        self.last_applied_at = last_applied_at;
     }
 }
 

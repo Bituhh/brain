@@ -874,8 +874,56 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     two new `Scheduler` unit tests covering the configured and unconfigured paths. No snapshot format
     change was needed: `threshold`/`rate_estimate` already round-trip unconditionally as base
     `NeuronArena` fields, and — matching `InhibitionHomeostasis`'s own documented precedent — the
-    mechanism's own `last_applied_at` sweep-interval counter does not round-trip, an accepted,
-    pre-existing gap shared by every homeostasis-style sweep in this tree, not a new one.
+    mechanism's own `last_applied_at` sweep-interval counter did not round-trip at the time, treated
+    then as an accepted, pre-existing gap shared by every homeostasis-style sweep in this tree, not a
+    new one.
+
+    **That acceptance was wrong — closed 2026-09-13, PLAN.md item A4.** Verifying A1–A3 found that the
+    gap breaks RUN-9a for real, not just in principle, once periodic sweeps are live: no README
+    decision ever sanctioned it, and invariant 9 calls anything unserialisable in the simulation a
+    design defect outright. Measured on the canonical brain (seed 1n, the same 400-tick stimulation
+    loop `canonicalBrain.test.ts` already used, including `recordGrowthActivation`), comparing each
+    tick's sorted spiked set between an uninterrupted run and a snapshot/restore/continue split:
+    snapshots taken at ticks 50, 100 and 200 — each a multiple of both this constructor's sweep
+    intervals (50 and 100) — restored and continued bit-identically, but a snapshot at tick 137
+    diverged at tick 352 (14 of the 263 post-restore ticks differed) and one at tick 263 diverged at
+    tick 376 (7 of 137). This is exactly why the gap went unnoticed: the standing snapshot test above
+    snapshots at tick 50, a boundary for every sweep, so `last_applied_at` resetting to zero on restore
+    happened to be the *correct* value by coincidence. The cause was every periodic sweep keeping its
+    own scheduling state outside the snapshot payload — `HomeostaticScaling`/`IntrinsicHomeostasis`/
+    `SegmentThresholdHomeostasis`'s `last_applied_at`, `InhibitionHomeostasis`'s `last_applied_at` plus
+    its own `rate_estimate`/`k_estimate`, and `StructuralPlasticity`'s `last_swept_at` plus its
+    per-neuron `activity_streak` — all silently resetting to zero on restore and shifting each
+    mechanism's schedule for the rest of the run.
+
+    Fixed by a new snapshot format version (`crates/brain-core/src/snapshot.rs`, `FORMAT_VERSION`
+    7 → 8) carrying all of it, with a documented, honestly-imperfect migration for older snapshots:
+    `Scheduler::restore_sweep_scheduling_state` reconstructs each mechanism's `last_applied_at` as the
+    most recent multiple of its own configured interval at or below the snapshot tick, which resumes
+    the schedule on-grid for the common case but is explicitly wrong for any run that ever called
+    `StructuralPlasticity::force_sweep` (consolidation's aggressive pruning pass, LRN-10) off-schedule
+    — a v7 snapshot has no way to distinguish that from an on-schedule sweep. `InhibitionHomeostasis`'s
+    `rate_estimate` and `StructuralPlasticity`'s `activity_streak` cannot be reconstructed from the
+    tick alone at all and restart at their fresh-instance defaults, a bounded and now-documented gap
+    rather than a silent one. `InhibitionHomeostasis`'s restored `k_estimate` also now resyncs
+    `inhibition`'s *live* `k` on restore — a second, related gap this same audit found: the live `k`
+    a caller actually competes against was never snapshotted at all, so it silently reverted to
+    whatever the restoring caller's own config supplied, ignoring however far homeostasis had already
+    nudged it.
+
+    `canonicalBrain.test.ts` gained a fourth test snapshotting at ticks 137 and 263 specifically
+    (off every sweep boundary) and asserting bit-identical continuation on every remaining tick;
+    `crates/brain-core/tests/invariants.rs` gained a property-based sibling covering the same property
+    with all five sweeps configured at once, mutually non-aligned intervals, and the snapshot tick
+    drawn by the generator. Both were confirmed to fail against the pre-fix code (`Scheduler::
+    restore_sweep_scheduling_state` temporarily reverted to a no-op) before landing it — a test that
+    has never been seen to fail has not been shown to detect anything. A second golden scenario
+    (`crates/brain-core/tests/golden.rs`, `engine_mechanisms_all_excitatory`) now exercises segments,
+    STDP, homeostatic scaling, both threshold-homeostasis sweeps and structural plasticity together,
+    all-excitatory and deterministic — closing this item's own other finding, that the golden suite's
+    one existing scenario has no segments, plasticity, homeostasis or structural plasticity and so
+    could not have seen this class of regression, or B1's. The original scenario's fixture is
+    byte-for-byte unchanged; only the new one was added.
 
     Everything else in scope ran cleanly on the first configuration tried. Growth genuinely fires
     within the standing test's run (confirmed, not assumed: `growthEventCount() > 0` is asserted, and

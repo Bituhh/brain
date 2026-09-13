@@ -15,7 +15,9 @@ use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::column::ColumnRegistry;
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
+use brain_core::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
 use brain_core::plasticity::stdp::StdpParams;
+use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::{LocalContext, NeuronLocal, RuleChain, SynapseMut, DOPAMINE, NUM_MODULATORS};
 use brain_core::scheduler::Scheduler;
@@ -252,5 +254,144 @@ proptest! {
             );
         }
         prop_assert_eq!(restored.dirty_members, sched.dirty_members());
+    }
+}
+
+fn make_engine_scheduler() -> Scheduler {
+    Scheduler::new(4, 0.3)
+        .with_inhibition(FixedNeighbourhoods::new(8, 4))
+        .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 2 } })
+        .with_plasticity(make_chain(), [500.0; NUM_MODULATORS])
+        // Deliberately mutually non-aligned intervals -- a snapshot tick
+        // drawn from a wide range then lands off *every* mechanism's
+        // boundary far more often than not, matching PLAN.md item A4's own
+        // finding that only a boundary-aligned snapshot (its worked example:
+        // 50/100) happened to restore correctly before this fix.
+        .with_homeostatic_scaling(HomeostaticScaling::new(2.0, 50))
+        .with_intrinsic_homeostasis(IntrinsicHomeostasis::new(0.1, 0.9, 0.05, 0.1, 41))
+        .with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(0.1, 0.9, 0.1, 1.0, 47))
+        .with_inhibition_homeostasis(InhibitionHomeostasis::new(0.1, 0.9, 0.1, 1.0, 59, 4.0))
+        .with_structural_plasticity(StructuralPlasticity::new(
+            StructuralPlasticityParams {
+                prune_floor: 0.05,
+                sprout_permanence: 0.1,
+                min_activity_streak: 2,
+                sweep_interval_ticks: 33,
+                unused_ticks_before_reclaim: 1_000_000,
+                min_cross_partition_delay: 2,
+                max_sprout_source_index: None,
+            },
+            FixedNeighbourhoods::new(8, 8),
+        ))
+}
+
+fn make_engine_network() -> (NeuronArena, SynapseArena, Vec<u32>) {
+    let mut neurons = NeuronArena::new();
+    let mut ids = Vec::new();
+    for i in 0..8u32 {
+        let polarity = if i == 7 { -1 } else { 1 }; // one inhibitory neuron, matching golden.rs's own precedent
+        ids.push(neurons.allocate(NeuronSpec { threshold: 0.6, polarity, coords: [i as f32, 0.0, 0.0] }).index);
+    }
+    let mut synapses = SynapseArena::new(8);
+    synapses.reserve_for_neurons(neurons.capacity_len());
+    for &source in &ids[0..4] {
+        for &target in &ids[4..8] {
+            let segment = if (source + target) % 2 == 0 { 0 } else { 1 };
+            let delay = 1 + ((source + target) % 3) as u16;
+            let _ = synapses.insert(source, target, segment, delay, 0.5); // BlockFull is a legitimate, ignorable outcome
+        }
+    }
+    (neurons, synapses, ids)
+}
+
+fn stimulate_engine_network(sched: &mut Scheduler, neurons: &NeuronArena, ids: &[u32], tick: u32) {
+    if tick.is_multiple_of(5) {
+        sched.stimulate(neurons, ids[0], 3.0);
+    }
+    if tick.is_multiple_of(7) {
+        sched.stimulate(neurons, ids[1], 2.5);
+    }
+    if tick.is_multiple_of(9) {
+        sched.stimulate(neurons, ids[2], 2.0);
+    }
+    if tick.is_multiple_of(13) {
+        sched.stimulate(neurons, ids[3], 2.0);
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(20))]
+
+    /// PLAN.md item A4 / RUN-9a: verification of A1-A3 found that a
+    /// snapshot taken between two sweep-interval boundaries does not
+    /// restore and continue bit-identically to an uninterrupted run once
+    /// periodic sweeps are live -- homeostatic scaling, intrinsic
+    /// homeostasis, segment-threshold homeostasis, inhibition homeostasis
+    /// and structural plasticity each keep their own scheduling clock, and
+    /// none of it survived a restore before `snapshot.rs` format version 8.
+    /// `snapshot_tick` drawn from a wide range, against
+    /// `make_engine_scheduler`'s mutually non-aligned intervals, makes an
+    /// off-boundary snapshot the overwhelmingly common case -- generalising
+    /// `canonicalBrain.test.ts`'s hand-picked 137/263 example rather than
+    /// repeating it. Fails against the pre-format-8 code (verified by
+    /// temporarily reverting `Scheduler::restore_sweep_scheduling_state`'s
+    /// call site before landing this fix).
+    #[test]
+    fn snapshot_round_trip_with_every_sweep_configured_is_bit_identical_to_uninterrupted_continuation(
+        snapshot_tick in 10u32..390,
+    ) {
+        let params = LifParams::new(6.0, 0.0, 0.0, 2);
+        const TOTAL_TICKS: u32 = 400;
+
+        // Uninterrupted.
+        let (mut neurons_u, mut synapses_u, ids_u) = make_engine_network();
+        let mut sched_u = make_engine_scheduler();
+        sched_u.inject_modulator(DOPAMINE, 1.0);
+        let mut uninterrupted: Vec<Vec<u32>> = Vec::with_capacity(TOTAL_TICKS as usize);
+        for tick in 0..TOTAL_TICKS {
+            stimulate_engine_network(&mut sched_u, &neurons_u, &ids_u, tick);
+            let report = sched_u.step::<Lif>(&mut neurons_u, &mut synapses_u, &params);
+            let mut spiked = report.spiked.clone();
+            spiked.sort_unstable();
+            uninterrupted.push(spiked);
+        }
+
+        // Interrupted: identical setup, snapshot taken after processing
+        // `snapshot_tick` (so the restored continuation resumes at
+        // `snapshot_tick + 1`, matching `snapshot.rs`'s own
+        // `round_trip_through_the_scheduler_is_bit_identical_to_uninterrupted_run`
+        // convention).
+        let (mut neurons_i, mut synapses_i, ids_i) = make_engine_network();
+        let mut sched_i = make_engine_scheduler();
+        sched_i.inject_modulator(DOPAMINE, 1.0);
+        let mut snapshot_bytes = None;
+        for tick in 0..TOTAL_TICKS {
+            stimulate_engine_network(&mut sched_i, &neurons_i, &ids_i, tick);
+            let report = sched_i.step::<Lif>(&mut neurons_i, &mut synapses_i, &params);
+            let mut spiked = report.spiked.clone();
+            spiked.sort_unstable();
+            prop_assert_eq!(&spiked, &uninterrupted[tick as usize], "sanity: interrupted run's own live trace must match uninterrupted before any restore happens, tick {}", tick);
+            if tick == snapshot_tick {
+                snapshot_bytes = Some(snapshot::write(&neurons_i, &synapses_i, &sched_i, &ColumnRegistry::new(), neurons_i.capacity_len() as u32, 42));
+            }
+        }
+
+        let restored = snapshot::read(&snapshot_bytes.unwrap(), 42).unwrap();
+        let mut neurons_r = restored.neurons;
+        let mut synapses_r = restored.synapses;
+        let mut sched_r = make_engine_scheduler();
+        sched_r.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
+        sched_r.restore_modulator_state(restored.modulator_levels, restored.modulator_last_updated_at);
+        sched_r.restore_segment_coincidence_state(restored.segment_counts, restored.segment_last_touched_tick);
+        sched_r.restore_segment_threshold_state(restored.segment_threshold, restored.segment_rate_estimate, restored.segment_last_depolarised_tick);
+        sched_r.restore_sweep_scheduling_state(restored.sweep_scheduling, restored.tick);
+
+        for tick in (snapshot_tick + 1)..TOTAL_TICKS {
+            stimulate_engine_network(&mut sched_r, &neurons_r, &ids_i, tick);
+            let report = sched_r.step::<Lif>(&mut neurons_r, &mut synapses_r, &params);
+            let mut spiked = report.spiked.clone();
+            spiked.sort_unstable();
+            prop_assert_eq!(&spiked, &uninterrupted[tick as usize], "restored continuation diverged at tick {} (snapshot taken at {})", tick, snapshot_tick);
+        }
     }
 }

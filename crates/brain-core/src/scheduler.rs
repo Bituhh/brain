@@ -378,6 +378,42 @@ struct GrowthState {
     seed: u64,
 }
 
+/// Every periodic sweep's own scheduling bookkeeping (RUN-9a, PLAN.md item
+/// A4, `snapshot.rs` format version 8): `HomeostaticScaling`/
+/// `IntrinsicHomeostasis`/`SegmentThresholdHomeostasis`'s `last_applied_at`,
+/// `InhibitionHomeostasis`'s full `(last_applied_at, rate_estimate,
+/// k_estimate)`, and `StructuralPlasticity`'s `(last_swept_at,
+/// activity_streak)`. Each field is `None`/empty exactly when its mechanism
+/// was never configured on the scheduler it was read from, matching every
+/// other raw-state accessor's "a caller that never opts in loses nothing"
+/// precedent.
+///
+/// **This is the fix for the finding verifying PLAN.md items A1-A3
+/// surfaced**: none of this round-tripped through any format version up to
+/// and including 7. On restore, every mechanism's `last_applied_at` silently
+/// reset to `0`, so `tick < last_applied_at + interval_ticks` evaluated
+/// against the wrong baseline on the first tick after restore -- a snapshot
+/// taken exactly on a sweep-interval boundary happened to reset to the
+/// *correct* value by coincidence (`0` is a multiple of everything), which
+/// is why the gap went unnoticed: every existing snapshot test snapshotted
+/// on a boundary. A snapshot taken between two boundaries resumed the
+/// schedule shifted for the rest of the run, which is a real, observable
+/// RUN-9a violation -- see `canonicalBrain.test.ts`'s off-boundary
+/// continuation tests and this crate's `invariants.rs` sibling property
+/// test, both of which fail against the pre-fix code.
+#[derive(Default, Clone, Debug)]
+pub struct SweepSchedulingRawState {
+    pub homeostatic_scaling_last_applied_at: Option<u32>,
+    pub intrinsic_homeostasis_last_applied_at: Option<u32>,
+    pub segment_threshold_homeostasis_last_applied_at: Option<u32>,
+    /// `(last_applied_at, rate_estimate, k_estimate)` -- see
+    /// `InhibitionHomeostasis::raw_state`.
+    pub inhibition_homeostasis: Option<(u32, f32, f32)>,
+    pub structural_plasticity_last_swept_at: Option<u32>,
+    /// Empty unless `structural_plasticity_last_swept_at` is also `Some`.
+    pub structural_plasticity_activity_streak: Vec<u32>,
+}
+
 impl Scheduler {
     /// `max_delay` must be at least the largest axonal delay any synapse
     /// will ever carry; delays beyond it cannot be scheduled correctly.
@@ -802,6 +838,116 @@ impl Scheduler {
         self.segment_threshold = threshold;
         self.segment_rate_estimate = rate_estimate;
         self.segment_last_depolarised_tick = last_depolarised_tick;
+    }
+
+    /// Reads every configured sweep's own scheduling state -- see
+    /// [`SweepSchedulingRawState`]'s doc comment for the finding this
+    /// closes.
+    pub fn sweep_scheduling_raw_state(&self) -> SweepSchedulingRawState {
+        SweepSchedulingRawState {
+            homeostatic_scaling_last_applied_at: self.homeostatic_scaling.as_ref().map(|s| s.last_applied_at()),
+            intrinsic_homeostasis_last_applied_at: self.intrinsic_homeostasis.as_ref().map(|s| s.last_applied_at()),
+            segment_threshold_homeostasis_last_applied_at: self.segment_threshold_homeostasis.as_ref().map(|s| s.last_applied_at()),
+            inhibition_homeostasis: self.inhibition_homeostasis.as_ref().map(|s| s.raw_state()),
+            structural_plasticity_last_swept_at: self.structural_plasticity.as_ref().map(|s| s.last_swept_at()),
+            structural_plasticity_activity_streak: self.structural_plasticity.as_ref().map(|s| s.activity_streak().to_vec()).unwrap_or_default(),
+        }
+    }
+
+    /// Overlays snapshotted sweep-scheduling state onto a freshly-configured
+    /// `Scheduler` (built with the same `with_homeostatic_scaling`/
+    /// `with_intrinsic_homeostasis`/`with_segment_threshold_homeostasis`/
+    /// `with_inhibition_homeostasis`/`with_structural_plasticity`
+    /// configuration the snapshot's config hash was checked against) -- the
+    /// sweep-scheduling counterpart to `restore_segment_threshold_state`.
+    ///
+    /// `state: None` means the snapshot predates this section (format
+    /// version <= 7, `snapshot.rs`'s own migration dispatch supplies this).
+    /// The best available migration reconstructs each mechanism's own
+    /// `last_applied_at` as the most recent multiple of *its own configured*
+    /// `interval_ticks`/`sweep_interval_ticks` at or below `tick` -- this
+    /// resumes the schedule on-grid for a mechanism whose `last_applied_at`
+    /// has only ever been advanced by its own online `maybe_apply`/
+    /// `maybe_sweep` path. Two things this reconstruction cannot get right,
+    /// stated here rather than left implicit:
+    /// - It is WRONG for any run that ever called
+    ///   `StructuralPlasticity::force_sweep` (consolidation's aggressive
+    ///   pruning pass, LRN-10): `force_sweep` advances `last_swept_at` to
+    ///   whatever tick it was called at, off the `sweep_interval_ticks`
+    ///   grid, and a `tick / interval * interval` reconstruction has no way
+    ///   to know that happened.
+    /// - `InhibitionHomeostasis`'s `rate_estimate` and
+    ///   `StructuralPlasticity`'s per-neuron `activity_streak` cannot be
+    ///   reconstructed from `tick` alone at all -- both restart at their
+    ///   fresh-instance defaults (`0.0` / empty, lazily zero-filled), which
+    ///   understates any real history but is a bounded, honest gap (RUN-9c:
+    ///   nothing grows unboundedly to compensate) rather than a silent
+    ///   misreconstruction. `InhibitionHomeostasis`'s `k_estimate` is left at
+    ///   whatever `initial_k` the restoring caller's own
+    ///   `with_inhibition_homeostasis` call supplied, for the same reason.
+    pub fn restore_sweep_scheduling_state(&mut self, state: Option<SweepSchedulingRawState>, tick: u32) {
+        match state {
+            Some(s) => {
+                if let (Some(scaling), Some(v)) = (&mut self.homeostatic_scaling, s.homeostatic_scaling_last_applied_at) {
+                    scaling.restore_last_applied_at(v);
+                }
+                if let (Some(ih), Some(v)) = (&mut self.intrinsic_homeostasis, s.intrinsic_homeostasis_last_applied_at) {
+                    ih.restore_last_applied_at(v);
+                }
+                if let (Some(sth), Some(v)) = (&mut self.segment_threshold_homeostasis, s.segment_threshold_homeostasis_last_applied_at) {
+                    sth.restore_last_applied_at(v);
+                }
+                if let (Some(ihom), Some((last, rate, k))) = (&mut self.inhibition_homeostasis, s.inhibition_homeostasis) {
+                    ihom.restore_raw_state(last, rate, k);
+                }
+                if let (Some(_), Some((_, _, k))) = (&self.inhibition_homeostasis, s.inhibition_homeostasis) {
+                    Self::resync_inhibition_k(&mut self.inhibition, k);
+                }
+                if let (Some(sp), Some(v)) = (&mut self.structural_plasticity, s.structural_plasticity_last_swept_at) {
+                    sp.restore_sweep_state(v, s.structural_plasticity_activity_streak);
+                }
+            }
+            None => {
+                if let Some(scaling) = &mut self.homeostatic_scaling {
+                    let interval = scaling.interval_ticks.max(1);
+                    scaling.restore_last_applied_at((tick / interval) * interval);
+                }
+                if let Some(ih) = &mut self.intrinsic_homeostasis {
+                    let interval = ih.interval_ticks.max(1);
+                    ih.restore_last_applied_at((tick / interval) * interval);
+                }
+                if let Some(sth) = &mut self.segment_threshold_homeostasis {
+                    let interval = sth.interval_ticks.max(1);
+                    sth.restore_last_applied_at((tick / interval) * interval);
+                }
+                if let Some(ihom) = &mut self.inhibition_homeostasis {
+                    let interval = ihom.interval_ticks.max(1);
+                    ihom.restore_last_applied_at((tick / interval) * interval);
+                }
+                if let Some(sp) = &mut self.structural_plasticity {
+                    let interval = sp.sweep_interval_ticks().max(1);
+                    sp.restore_sweep_state((tick / interval) * interval, Vec::new());
+                }
+            }
+        }
+    }
+
+    /// `InhibitionHomeostasis::k_estimate` is the mechanism's own tuned
+    /// target; the *live* `k` a caller actually competes against sits on
+    /// `self.inhibition` (`FixedNeighbourhoods`), set by `step()`'s own
+    /// `k_estimate.round().max(1.0).min(size).max(1)` formula (see `step`'s
+    /// `inhibition_homeostasis` block) exactly when a sweep fires -- and
+    /// left untouched between sweeps, same as this reconstruction assumes.
+    /// Reapplying that identical formula here keeps a restored `inhibition`
+    /// consistent with a restored `k_estimate`, closing the other half of
+    /// the gap `restore_raw_state` alone would leave (a live `k` frozen at
+    /// whatever the caller's fresh config supplied, ignoring however far
+    /// homeostasis had actually nudged it by snapshot time).
+    fn resync_inhibition_k(inhibition: &mut Option<FixedNeighbourhoods>, k_estimate: f32) {
+        if let Some(old) = inhibition {
+            let clamped_k = (k_estimate.round().max(1.0) as u32).min(old.size()).max(1);
+            *inhibition = Some(FixedNeighbourhoods::with_base(old.base(), old.size(), clamped_k));
+        }
     }
 
     /// Commits a spike for neuron `idx` at `tick`: sets its dynamics state
@@ -1668,6 +1814,81 @@ mod tests {
             "intrinsic homeostasis must raise a chronically-spiking neuron's threshold automatically inside step() with no caller-driven maybe_apply call, got {}",
             neurons.threshold[a as usize]
         );
+    }
+
+    // -- Sweep-scheduling state (RUN-9a, PLAN.md item A4).
+
+    /// The pre-version-8 migration path, verified against the actual gate
+    /// (`maybe_apply`/`maybe_sweep`) rather than just the raw reconstructed
+    /// number -- a test that only checked the number could pass even if the
+    /// gate's own `<` vs `<=` boundary were off by one. Tick 137 matches
+    /// PLAN.md item A4's own worked example.
+    #[test]
+    fn restore_sweep_scheduling_state_with_no_section_reconstructs_last_applied_at_on_each_mechanisms_own_interval() {
+        let mut sched = Scheduler::new(2, 0.2)
+            .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } })
+            .with_homeostatic_scaling(HomeostaticScaling::new(1.0, 50))
+            .with_intrinsic_homeostasis(IntrinsicHomeostasis::new(0.1, 0.9, 0.05, 0.1, 30))
+            .with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(0.1, 0.9, 0.1, 1.0, 40))
+            .with_structural_plasticity(StructuralPlasticity::new(
+                StructuralPlasticityParams {
+                    prune_floor: 0.05,
+                    sprout_permanence: 0.1,
+                    min_activity_streak: 2,
+                    sweep_interval_ticks: 25,
+                    unused_ticks_before_reclaim: 1_000_000,
+                    min_cross_partition_delay: 2,
+                    max_sprout_source_index: None,
+                },
+                FixedNeighbourhoods::new(4, 2),
+            ));
+
+        sched.restore_sweep_scheduling_state(None, 137);
+
+        assert_eq!(sched.homeostatic_scaling.as_ref().unwrap().last_applied_at(), 100, "137 / 50 * 50 = 100");
+        assert_eq!(sched.intrinsic_homeostasis.as_ref().unwrap().last_applied_at(), 120, "137 / 30 * 30 = 120");
+        assert_eq!(sched.segment_threshold_homeostasis.as_ref().unwrap().last_applied_at(), 120, "137 / 40 * 40 = 120");
+        assert_eq!(sched.structural_plasticity.as_ref().unwrap().last_swept_at(), 125, "137 / 25 * 25 = 125");
+
+        let mut neurons = NeuronArena::new();
+        neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] });
+        let mut synapses = SynapseArena::new(2);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+
+        assert!(!sched.homeostatic_scaling.as_mut().unwrap().maybe_apply(&neurons, &mut synapses, 149), "gate must still be closed one tick before 100+50");
+        assert!(sched.homeostatic_scaling.as_mut().unwrap().maybe_apply(&neurons, &mut synapses, 150), "gate must open exactly at 100+50");
+
+        assert!(!sched.intrinsic_homeostasis.as_mut().unwrap().maybe_apply(&mut neurons, 149), "gate must still be closed one tick before 120+30");
+        assert!(sched.intrinsic_homeostasis.as_mut().unwrap().maybe_apply(&mut neurons, 150), "gate must open exactly at 120+30");
+
+        assert!(!sched.segment_threshold_homeostasis.as_mut().unwrap().maybe_apply(&mut [], &mut [], &[], &[], 159), "gate must still be closed one tick before 120+40");
+        assert!(sched.segment_threshold_homeostasis.as_mut().unwrap().maybe_apply(&mut [], &mut [], &[], &[], 160), "gate must open exactly at 120+40");
+
+        assert!(sched.structural_plasticity.as_mut().unwrap().maybe_sweep(&mut neurons, &mut synapses, 149).is_none(), "gate must still be closed one tick before 125+25");
+        assert!(sched.structural_plasticity.as_mut().unwrap().maybe_sweep(&mut neurons, &mut synapses, 150).is_some(), "gate must open exactly at 125+25");
+    }
+
+    /// The version-8 (real-section) restore path: every mechanism's
+    /// bookkeeping restores exactly as given, and `InhibitionHomeostasis`'s
+    /// restored `k_estimate` resyncs `inhibition`'s *live* `k` -- not just
+    /// `InhibitionHomeostasis`'s own internal estimator -- since that live
+    /// `k` is what a caller's own `with_inhibition(..., k)` config would
+    /// otherwise silently leave frozen at its pre-homeostasis starting
+    /// value after a restore.
+    #[test]
+    fn restore_sweep_scheduling_state_with_a_section_resyncs_inhibitions_live_k_from_the_restored_k_estimate() {
+        let mut sched = Scheduler::new(2, 0.2)
+            .with_inhibition(FixedNeighbourhoods::new(10, 5)) // caller's fresh config: k=5
+            .with_inhibition_homeostasis(InhibitionHomeostasis::new(0.1, 0.9, 0.1, 1.0, 100, 5.0));
+
+        let state = SweepSchedulingRawState {
+            inhibition_homeostasis: Some((80, 0.4, 3.0)), // k_estimate had drifted to 3.0 by snapshot time
+            ..Default::default()
+        };
+        sched.restore_sweep_scheduling_state(Some(state), 137);
+
+        assert_eq!(sched.inhibition_homeostasis.as_ref().unwrap().raw_state(), (80, 0.4, 3.0));
+        assert_eq!(sched.inhibition_k(), Some(3), "inhibition's live k must resync to the restored k_estimate, not stay at the caller's fresh with_inhibition(..., 5) value");
     }
 
     // -- Phase 5 Requirement 15.1/15.5: `reward` and `modulator_levels`.

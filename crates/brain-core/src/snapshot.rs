@@ -51,11 +51,29 @@ use crate::column::{ColumnRegistry, ColumnSpec};
 use crate::growth::GrowthRawState;
 use crate::inhibition::FixedNeighbourhoods;
 use crate::plasticity::{Modulators, NUM_MODULATORS};
-use crate::scheduler::Scheduler;
+use crate::scheduler::{Scheduler, SweepSchedulingRawState};
 use crate::segment::{BinaryCoincidenceParams, SegmentConfig};
 use crate::synapse::SynapseArena;
 
 const MAGIC: [u8; 6] = *b"BRAIN\0";
+/// Bumped 7 -> 8 (RUN-9a, PLAN.md item A4) to add a sweep-scheduling-state
+/// section: every periodic sweep's own scheduling bookkeeping --
+/// `HomeostaticScaling`/`IntrinsicHomeostasis`/`SegmentThresholdHomeostasis`'s
+/// `last_applied_at`, `InhibitionHomeostasis`'s full `(last_applied_at,
+/// rate_estimate, k_estimate)`, and `StructuralPlasticity`'s
+/// `(last_swept_at, activity_streak)` -- see
+/// [`crate::scheduler::SweepSchedulingRawState`]'s doc comment for the full
+/// finding. **This closes a real, pre-existing gap**, not just an addition,
+/// following version 3's neuromodulator-state precedent exactly: RUN-9a
+/// already claimed a snapshotted-and-restored run continues bit-identically
+/// to an uninterrupted one, but every version through 7 silently reset each
+/// sweep's `last_applied_at` to zero on restore, so a snapshot taken between
+/// two sweep-interval boundaries resumed the schedule on the wrong phase for
+/// the rest of the run. Absent from a version 1-7 payload; `read`'s version
+/// dispatch supplies `None`, and `Scheduler::restore_sweep_scheduling_state`
+/// reconstructs a best-effort (documented-imperfect) `last_applied_at` for
+/// that case instead of leaving it at zero.
+///
 /// Bumped 6 -> 7 (NET-10 saturation-driven growth, invariant 10) to add a
 /// growth-policy-state section: `GrowthPolicy::raw_state()`'s `hits`/
 /// `total`/`last_grown_at`, the module doc's own §12 decision 7 comment
@@ -127,7 +145,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// schema migration, partial loading, compatibility guarantees -- from
 /// Phase 0-3 to Phase 4; the round-trip mechanism itself (this module) was
 /// already in scope then and is unchanged in its v1 shape.
-pub const FORMAT_VERSION: u32 = 7;
+pub const FORMAT_VERSION: u32 = 8;
 /// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
 /// concrete and falsifiable: `read` migrates any snapshot from this
 /// version through `FORMAT_VERSION`. Widen this only alongside an actual
@@ -514,6 +532,88 @@ fn read_growth_state(r: &mut Reader<'_>) -> Result<Option<GrowthRawState>, Snaps
     Ok(Some(GrowthRawState { hits, total, last_grown_at }))
 }
 
+/// New in format version 8 (RUN-9a, PLAN.md item A4) -- see
+/// `FORMAT_VERSION`'s doc comment for the finding. Each of the five
+/// mechanisms is independently flagged present/absent (a caller may
+/// configure any subset), following `write_growth_state`'s single-flag
+/// precedent five times over rather than one fixed-size block.
+fn write_sweep_scheduling_state(w: &mut Writer, state: &SweepSchedulingRawState) {
+    match state.homeostatic_scaling_last_applied_at {
+        Some(v) => {
+            w.u8(1);
+            w.u32(v);
+        }
+        None => w.u8(0),
+    }
+    match state.intrinsic_homeostasis_last_applied_at {
+        Some(v) => {
+            w.u8(1);
+            w.u32(v);
+        }
+        None => w.u8(0),
+    }
+    match state.segment_threshold_homeostasis_last_applied_at {
+        Some(v) => {
+            w.u8(1);
+            w.u32(v);
+        }
+        None => w.u8(0),
+    }
+    match state.inhibition_homeostasis {
+        Some((last_applied_at, rate_estimate, k_estimate)) => {
+            w.u8(1);
+            w.u32(last_applied_at);
+            w.f32(rate_estimate);
+            w.f32(k_estimate);
+        }
+        None => w.u8(0),
+    }
+    match state.structural_plasticity_last_swept_at {
+        Some(last_swept_at) => {
+            w.u8(1);
+            w.u32(last_swept_at);
+            w.u32(state.structural_plasticity_activity_streak.len() as u32);
+            for &v in &state.structural_plasticity_activity_streak {
+                w.u32(v);
+            }
+        }
+        None => w.u8(0),
+    }
+}
+
+fn read_sweep_scheduling_state(r: &mut Reader<'_>) -> Result<SweepSchedulingRawState, SnapshotError> {
+    let homeostatic_scaling_last_applied_at = if r.u8()? == 1 { Some(r.u32()?) } else { None };
+    let intrinsic_homeostasis_last_applied_at = if r.u8()? == 1 { Some(r.u32()?) } else { None };
+    let segment_threshold_homeostasis_last_applied_at = if r.u8()? == 1 { Some(r.u32()?) } else { None };
+    let inhibition_homeostasis = if r.u8()? == 1 {
+        let last_applied_at = r.u32()?;
+        let rate_estimate = r.f32()?;
+        let k_estimate = r.f32()?;
+        Some((last_applied_at, rate_estimate, k_estimate))
+    } else {
+        None
+    };
+    let (structural_plasticity_last_swept_at, structural_plasticity_activity_streak) = if r.u8()? == 1 {
+        let last_swept_at = r.u32()?;
+        let len = r.u32()? as usize;
+        let mut streak = Vec::with_capacity(len);
+        for _ in 0..len {
+            streak.push(r.u32()?);
+        }
+        (Some(last_swept_at), streak)
+    } else {
+        (None, Vec::new())
+    };
+    Ok(SweepSchedulingRawState {
+        homeostatic_scaling_last_applied_at,
+        intrinsic_homeostasis_last_applied_at,
+        segment_threshold_homeostasis_last_applied_at,
+        inhibition_homeostasis,
+        structural_plasticity_last_swept_at,
+        structural_plasticity_activity_streak,
+    })
+}
+
 fn write_synapses(w: &mut Writer, synapses: &SynapseArena, neuron_count: u32) {
     w.u32(synapses.cap_per_neuron());
     w.u32(neuron_count);
@@ -671,6 +771,8 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
 
     write_growth_state(&mut w, scheduler.growth_raw_state());
 
+    write_sweep_scheduling_state(&mut w, &scheduler.sweep_scheduling_raw_state());
+
     w.buf
 }
 
@@ -714,6 +816,12 @@ pub struct Restored {
     /// scheduler itself has growth configured (that call is already a
     /// no-op otherwise).
     pub growth_state: Option<GrowthRawState>,
+    /// New in format version 8 (RUN-9a, PLAN.md item A4). `None` when
+    /// restoring a version 1-7 snapshot -- apply via
+    /// `Scheduler::restore_sweep_scheduling_state`, which supplies its own
+    /// documented best-effort reconstruction for exactly that case rather
+    /// than requiring the caller to special-case it.
+    pub sweep_scheduling: Option<SweepSchedulingRawState>,
 }
 
 /// Restores a snapshot written by [`write`]. `expected_config_hash` must
@@ -801,6 +909,13 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
     // call already starts with (NET-10).
     let growth_state = if header.version >= 7 { read_growth_state(&mut r)? } else { None };
 
+    // Format versions 1-7 have no sweep-scheduling section -- the only
+    // sound migration is "None," which `Scheduler::restore_sweep_scheduling_
+    // state` turns into its own documented best-effort reconstruction
+    // (RUN-9a, PLAN.md item A4) rather than the pre-version-8 behaviour of
+    // silently resetting every sweep's `last_applied_at` to zero.
+    let sweep_scheduling = if header.version >= 8 { Some(read_sweep_scheduling_state(&mut r)?) } else { None };
+
     Ok(Restored {
         neurons,
         synapses,
@@ -816,6 +931,7 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
         segment_rate_estimate,
         segment_last_depolarised_tick,
         growth_state,
+        sweep_scheduling,
     })
 }
 
@@ -1283,6 +1399,96 @@ mod tests {
         assert!(restored.segment_threshold.is_empty(), "a version-5 snapshot has no segment-threshold section, so it must restore to an empty one");
         assert!(restored.segment_rate_estimate.is_empty());
         assert!(restored.segment_last_depolarised_tick.is_empty());
+    }
+
+    // -- Sweep-scheduling state (RUN-9a, PLAN.md item A4, format version 8).
+
+    /// Every configured sweep's own scheduling state round-trips exactly --
+    /// the fix for the finding verifying PLAN.md items A1-A3 surfaced (see
+    /// `FORMAT_VERSION`'s doc comment). Values are set directly via each
+    /// mechanism's own `restore_*` method rather than by running a real
+    /// simulation long enough to reach them organically -- this test's job
+    /// is only to prove the *bytes* round-trip, which
+    /// `round_trip_through_the_scheduler_is_bit_identical_to_uninterrupted_run`-
+    /// style tests in `invariants.rs`/`canonicalBrain.test.ts` already cover
+    /// end to end.
+    #[test]
+    fn round_trips_sweep_scheduling_state_exactly() {
+        use crate::inhibition::FixedNeighbourhoods as FN;
+        use crate::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis};
+        use crate::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams};
+        use crate::scheduler::SweepSchedulingRawState;
+
+        let (neurons, synapses, _) = sample_network();
+        let mut sched = Scheduler::new(4, 0.3)
+            .with_inhibition(FN::new(4, 2))
+            .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } })
+            .with_homeostatic_scaling(HomeostaticScaling::new(1.0, 50))
+            .with_intrinsic_homeostasis(IntrinsicHomeostasis::new(0.1, 0.9, 0.05, 0.1, 50))
+            .with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(0.1, 0.9, 0.1, 1.0, 100))
+            .with_inhibition_homeostasis(InhibitionHomeostasis::new(0.1, 0.9, 0.1, 1.0, 100, 2.0))
+            .with_structural_plasticity(StructuralPlasticity::new(
+                StructuralPlasticityParams {
+                    prune_floor: 0.05,
+                    sprout_permanence: 0.1,
+                    min_activity_streak: 2,
+                    sweep_interval_ticks: 50,
+                    unused_ticks_before_reclaim: 1_000_000,
+                    min_cross_partition_delay: 2,
+                    max_sprout_source_index: None,
+                },
+                FN::new(4, 2),
+            ));
+
+        // Seed every mechanism's own scheduling state directly, via the
+        // exact production `restore_sweep_scheduling_state` path a real
+        // restore uses -- this test's only job is proving the *bytes*
+        // round-trip through `write`/`read`; `restore_sweep_scheduling_state`
+        // itself (including its pre-version-8 migration branch) is exercised
+        // by `scheduler.rs`'s own unit tests, and full end-to-end
+        // bit-identical continuation by `invariants.rs`/
+        // `canonicalBrain.test.ts`.
+        let seeded = SweepSchedulingRawState {
+            homeostatic_scaling_last_applied_at: Some(37),
+            intrinsic_homeostasis_last_applied_at: Some(41),
+            segment_threshold_homeostasis_last_applied_at: Some(83),
+            inhibition_homeostasis: Some((29, 0.35, 3.0)),
+            structural_plasticity_last_swept_at: Some(19),
+            structural_plasticity_activity_streak: vec![1, 2, 0, 4],
+        };
+        sched.restore_sweep_scheduling_state(Some(seeded.clone()), 100);
+
+        let bytes = write(&neurons, &synapses, &sched, &ColumnRegistry::new(), 2, 1);
+        let restored = read(&bytes, 1).unwrap();
+        let after = restored.sweep_scheduling.expect("a version-8 snapshot must carry a sweep-scheduling section");
+
+        assert_eq!(after.homeostatic_scaling_last_applied_at, seeded.homeostatic_scaling_last_applied_at);
+        assert_eq!(after.intrinsic_homeostasis_last_applied_at, seeded.intrinsic_homeostasis_last_applied_at);
+        assert_eq!(after.segment_threshold_homeostasis_last_applied_at, seeded.segment_threshold_homeostasis_last_applied_at);
+        assert_eq!(after.inhibition_homeostasis, seeded.inhibition_homeostasis);
+        assert_eq!(after.structural_plasticity_last_swept_at, seeded.structural_plasticity_last_swept_at);
+        assert_eq!(after.structural_plasticity_activity_streak, seeded.structural_plasticity_activity_streak);
+    }
+
+    /// A version-7 (pre-this-fix) payload has no sweep-scheduling section at
+    /// all -- `read` must supply `None`, which
+    /// `Scheduler::restore_sweep_scheduling_state` (exercised directly in
+    /// `scheduler.rs`'s own unit tests) turns into its documented
+    /// best-effort reconstruction rather than this module inventing one
+    /// itself.
+    #[test]
+    fn a_version_7_snapshot_restores_with_no_sweep_scheduling_section() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
+        // `sample_network`'s scheduler configures none of the five
+        // mechanisms, so the trailing section this test needs to strip is
+        // exactly five zero-flag bytes (see `write_sweep_scheduling_state`).
+        let truncated_len = bytes.len() - 5;
+        let mut truncated = bytes[..truncated_len].to_vec();
+        truncated[6..10].copy_from_slice(&7u32.to_le_bytes());
+
+        let restored = read(&truncated, 7).unwrap();
+        assert!(restored.sweep_scheduling.is_none(), "a version-7 snapshot has no sweep-scheduling section, so it must restore to None");
     }
 
     #[test]
