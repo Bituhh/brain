@@ -94,6 +94,23 @@ fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
+/// Derives one neuron's polarity (NEU-4's Dale's-principle sign) from a
+/// seed and its own index, via the same `derive_stream`-keyed-by-index
+/// scheme `allocate_population` uses -- deterministic regardless of
+/// allocation order or of what else has already been allocated (RUN-3).
+/// Extracted as its own function so a second, later caller (`growth.rs`'s
+/// saturation-driven growth, NET-10) can assign newly grown neurons'
+/// polarity identically without duplicating this logic or depending on a
+/// `GraphBuilder` instance.
+pub fn derive_polarity(seed: u64, index: u32, excitatory_fraction: f32) -> i8 {
+    let mut rng = derive_stream(seed, index, purpose::POLARITY, 0);
+    if rng.next_f32() < excitatory_fraction {
+        1
+    } else {
+        -1
+    }
+}
+
 /// Builds networks from connectivity policies (NET-1, NET-3).
 pub struct GraphBuilder {
     seed: u64,
@@ -121,8 +138,7 @@ impl GraphBuilder {
             .iter()
             .enumerate()
             .map(|(i, &c)| {
-                let mut rng = derive_stream(self.seed, i as u32, purpose::POLARITY, 0);
-                let polarity: i8 = if rng.next_f32() < excitatory_fraction { 1 } else { -1 };
+                let polarity = derive_polarity(self.seed, i as u32, excitatory_fraction);
                 neurons.allocate(NeuronSpec { threshold, polarity, coords: c }).index
             })
             .collect()

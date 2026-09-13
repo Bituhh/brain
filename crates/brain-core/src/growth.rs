@@ -31,8 +31,43 @@ pub struct PopulationStats {
 /// `apply_growth`'s job, parameterised over a `NeuronSpec` factory so a
 /// policy stays independent of population-specific concerns like
 /// threshold or coordinate placement).
-pub trait GrowthPolicy {
+///
+/// `Send + Sync` (matching `plasticity::PlasticityRule`'s own supertraits,
+/// for the same reason: a `Box<dyn GrowthPolicy>` lives inside `Scheduler`,
+/// and `Scheduler` must remain `Send` for `PartitionRuntime`/rayon to move
+/// it across threads, even though this spec's own integration only drives
+/// growth in single-scheduler mode -- see `scheduler.rs`'s growth wiring).
+pub trait GrowthPolicy: Send + Sync {
     fn should_grow(&mut self, stats: &PopulationStats, seed: u64) -> u32;
+
+    /// Records one activation event as a collision or not. Default no-op:
+    /// a policy that doesn't need this signal (e.g. `FixedSchedule`) simply
+    /// ignores every call rather than every caller needing to know which
+    /// policies care.
+    fn record_activation(&mut self, _was_collision: bool) {}
+
+    /// This policy's own accumulated state, for snapshotting (RUN-9a).
+    /// Default is the all-zero state, correct for a policy with nothing to
+    /// persist (`FixedSchedule` only overrides `last_grown_at`).
+    fn raw_state(&self) -> GrowthRawState {
+        GrowthRawState::default()
+    }
+
+    /// Overlays snapshotted state (the counterpart to `raw_state`). Default
+    /// no-op, correct for a policy with nothing to restore.
+    fn restore_raw_state(&mut self, _state: GrowthRawState) {}
+}
+
+/// A `GrowthPolicy`'s accumulated counters, snapshotted so a restored run's
+/// growth behaviour matches an uninterrupted one bit-for-bit (RUN-9a).
+/// Deliberately one small plain struct rather than per-composite arrays
+/// (contrast `Scheduler::segment_threshold_raw_state`): this state lives on
+/// the policy object itself, not addressed by neuron/segment index.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GrowthRawState {
+    pub hits: u32,
+    pub total: u32,
+    pub last_grown_at: u32,
 }
 
 /// The certain, always-available fallback (design.md's growth risk #1):
@@ -61,6 +96,14 @@ impl GrowthPolicy for FixedSchedule {
         }
         self.last_grown_at = stats.tick;
         self.neurons_per_interval
+    }
+
+    fn raw_state(&self) -> GrowthRawState {
+        GrowthRawState { hits: 0, total: 0, last_grown_at: self.last_grown_at }
+    }
+
+    fn restore_raw_state(&mut self, state: GrowthRawState) {
+        self.last_grown_at = state.last_grown_at;
     }
 }
 
@@ -99,26 +142,6 @@ impl OverlapSaturation {
         }
     }
 
-    /// Records one activation event as either a "collision" (representing
-    /// something already-represented, i.e. interference) or not.
-    /// `should_grow` reads the resulting rolling rate; the caller decides
-    /// what counts as a collision for its own encoding, which this module
-    /// deliberately has no opinion on.
-    pub fn record_activation(&mut self, was_collision: bool) {
-        if self.total >= self.window {
-            // Simple reset rather than a true sliding window -- a
-            // decaying-average alternative is a reasonable refinement,
-            // not attempted here without evidence this coarser version is
-            // actually a problem in practice.
-            self.hits = 0;
-            self.total = 0;
-        }
-        self.total += 1;
-        if was_collision {
-            self.hits += 1;
-        }
-    }
-
     fn collision_rate(&self) -> f32 {
         if self.total == 0 {
             0.0
@@ -140,6 +163,36 @@ impl GrowthPolicy for OverlapSaturation {
         self.hits = 0;
         self.total = 0;
         self.neurons_per_trigger
+    }
+
+    /// Records one activation event as either a "collision" (representing
+    /// something already-represented, i.e. interference) or not.
+    /// `should_grow` reads the resulting rolling rate; the caller decides
+    /// what counts as a collision for its own encoding, which this module
+    /// deliberately has no opinion on.
+    fn record_activation(&mut self, was_collision: bool) {
+        if self.total >= self.window {
+            // Simple reset rather than a true sliding window -- a
+            // decaying-average alternative is a reasonable refinement,
+            // not attempted here without evidence this coarser version is
+            // actually a problem in practice.
+            self.hits = 0;
+            self.total = 0;
+        }
+        self.total += 1;
+        if was_collision {
+            self.hits += 1;
+        }
+    }
+
+    fn raw_state(&self) -> GrowthRawState {
+        GrowthRawState { hits: self.hits, total: self.total, last_grown_at: self.last_grown_at }
+    }
+
+    fn restore_raw_state(&mut self, state: GrowthRawState) {
+        self.hits = state.hits;
+        self.total = state.total;
+        self.last_grown_at = state.last_grown_at;
     }
 }
 
@@ -262,5 +315,43 @@ mod tests {
         }
         assert_eq!(policy.should_grow(&PopulationStats { live_count: 0, tick: 150 }, 1), 0, "must not trigger again before another full min_ticks_between_growth");
         assert_eq!(policy.should_grow(&PopulationStats { live_count: 0, tick: 200 }, 1), 5, "must trigger again once the interval has fully elapsed");
+    }
+
+    #[test]
+    fn fixed_schedule_no_ops_on_record_activation() {
+        // FixedSchedule has no saturation signal at all -- record_activation
+        // must be a harmless no-op inherited from the trait default, not a
+        // compile error or a behavior change to should_grow.
+        let mut policy = FixedSchedule::new(3, 100);
+        policy.record_activation(true);
+        policy.record_activation(false);
+        assert_eq!(policy.should_grow(&PopulationStats { live_count: 0, tick: 100 }, 1), 3);
+    }
+
+    #[test]
+    fn overlap_saturation_raw_state_round_trips_should_grow_behavior() {
+        // RUN-9a: a policy restored from raw state must behave identically
+        // to one that accumulated the same history directly, not merely
+        // report the same fields back.
+        let mut original = OverlapSaturation::new(0.5, 10, 5, 10);
+        for _ in 0..8 {
+            original.record_activation(true);
+        }
+        for _ in 0..1 {
+            original.record_activation(false);
+        }
+        let state = original.raw_state();
+        assert_eq!(state, GrowthRawState { hits: 8, total: 9, last_grown_at: 0 });
+
+        let mut restored = OverlapSaturation::new(0.5, 10, 5, 10);
+        restored.restore_raw_state(state);
+        // One more activation should push both over the window/threshold
+        // identically to continuing on `original` directly.
+        original.record_activation(true);
+        restored.record_activation(true);
+        assert_eq!(
+            restored.should_grow(&PopulationStats { live_count: 0, tick: 1000 }, 1),
+            original.should_grow(&PopulationStats { live_count: 0, tick: 1000 }, 1)
+        );
     }
 }

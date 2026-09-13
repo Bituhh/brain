@@ -48,6 +48,7 @@
 
 use crate::arena::NeuronArena;
 use crate::column::{ColumnRegistry, ColumnSpec};
+use crate::growth::GrowthRawState;
 use crate::inhibition::FixedNeighbourhoods;
 use crate::plasticity::{Modulators, NUM_MODULATORS};
 use crate::scheduler::Scheduler;
@@ -55,6 +56,18 @@ use crate::segment::{BinaryCoincidenceParams, SegmentConfig};
 use crate::synapse::SynapseArena;
 
 const MAGIC: [u8; 6] = *b"BRAIN\0";
+/// Bumped 6 -> 7 (NET-10 saturation-driven growth, invariant 10) to add a
+/// growth-policy-state section: `GrowthPolicy::raw_state()`'s `hits`/
+/// `total`/`last_grown_at`, the module doc's own §12 decision 7 comment
+/// anticipated ("if a future component... introduces a genuinely
+/// persistent generator, its state will need a section here"). Unlike
+/// every prior bump, this state is not addressed by neuron/segment index --
+/// it lives on the policy object itself -- so it is one small fixed-size
+/// record (like the modulator-state section), not a per-composite array
+/// (like the segment-threshold-homeostasis section). Absent from a version
+/// 1-6 payload; `read`'s version dispatch supplies `None`, exactly what a
+/// scheduler with no `with_growth` call already starts with.
+///
 /// Bumped 5 -> 6 (dendritic-threshold-homeostasis spec, Requirement 7) to
 /// add a per-segment threshold homeostasis section: `segment_threshold`,
 /// `segment_rate_estimate`, and `segment_last_depolarised_tick`, the live
@@ -114,7 +127,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// schema migration, partial loading, compatibility guarantees -- from
 /// Phase 0-3 to Phase 4; the round-trip mechanism itself (this module) was
 /// already in scope then and is unchanged in its v1 shape.
-pub const FORMAT_VERSION: u32 = 6;
+pub const FORMAT_VERSION: u32 = 7;
 /// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
 /// concrete and falsifiable: `read` migrates any snapshot from this
 /// version through `FORMAT_VERSION`. Widen this only alongside an actual
@@ -474,6 +487,33 @@ fn read_segment_threshold_state(r: &mut Reader<'_>) -> Result<SegmentThresholdSt
     Ok((threshold, rate_estimate, last_depolarised_tick))
 }
 
+/// New in format version 7 (NET-10 saturation-driven growth). Persisted
+/// unconditionally, same "no special case for the default/disabled
+/// configuration" precedent as the sections above: a caller who never calls
+/// `with_growth` writes a `false` presence flag and nothing else, costing
+/// one byte.
+fn write_growth_state(w: &mut Writer, state: Option<GrowthRawState>) {
+    match state {
+        Some(s) => {
+            w.u8(1);
+            w.u32(s.hits);
+            w.u32(s.total);
+            w.u32(s.last_grown_at);
+        }
+        None => w.u8(0),
+    }
+}
+
+fn read_growth_state(r: &mut Reader<'_>) -> Result<Option<GrowthRawState>, SnapshotError> {
+    if r.u8()? == 0 {
+        return Ok(None);
+    }
+    let hits = r.u32()?;
+    let total = r.u32()?;
+    let last_grown_at = r.u32()?;
+    Ok(Some(GrowthRawState { hits, total, last_grown_at }))
+}
+
 fn write_synapses(w: &mut Writer, synapses: &SynapseArena, neuron_count: u32) {
     w.u32(synapses.cap_per_neuron());
     w.u32(neuron_count);
@@ -629,6 +669,8 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
     let (segment_threshold, segment_rate_estimate, segment_last_depolarised_tick) = scheduler.segment_threshold_raw_state();
     write_segment_threshold_state(&mut w, segment_threshold, segment_rate_estimate, segment_last_depolarised_tick);
 
+    write_growth_state(&mut w, scheduler.growth_raw_state());
+
     w.buf
 }
 
@@ -665,6 +707,13 @@ pub struct Restored {
     pub segment_threshold: Vec<f32>,
     pub segment_rate_estimate: Vec<f32>,
     pub segment_last_depolarised_tick: Vec<u32>,
+    /// New in format version 7 (NET-10 saturation-driven growth). `None`
+    /// both when restoring a version 1-6 snapshot and when this snapshot's
+    /// own scheduler never called `with_growth` -- either way, apply via
+    /// `Scheduler::restore_growth_raw_state` only if the restoring
+    /// scheduler itself has growth configured (that call is already a
+    /// no-op otherwise).
+    pub growth_state: Option<GrowthRawState>,
 }
 
 /// Restores a snapshot written by [`write`]. `expected_config_hash` must
@@ -747,6 +796,11 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
     let (segment_threshold, segment_rate_estimate, segment_last_depolarised_tick) =
         if header.version >= 6 { read_segment_threshold_state(&mut r)? } else { (Vec::new(), Vec::new(), Vec::new()) };
 
+    // Format versions 1-6 have no growth-state section -- the only sound
+    // migration is "None," exactly what a scheduler with no `with_growth`
+    // call already starts with (NET-10).
+    let growth_state = if header.version >= 7 { read_growth_state(&mut r)? } else { None };
+
     Ok(Restored {
         neurons,
         synapses,
@@ -761,6 +815,7 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
         segment_threshold,
         segment_rate_estimate,
         segment_last_depolarised_tick,
+        growth_state,
     })
 }
 

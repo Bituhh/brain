@@ -11,6 +11,7 @@ use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::column::ColumnRegistry;
 use brain_core::consolidation::ConsolidationParams;
 use brain_core::graph::{DistancePolicy, GraphBuilder};
+use brain_core::growth::OverlapSaturation;
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
@@ -337,6 +338,35 @@ pub struct StructuralPlasticityConfig {
     pub k: u32,
 }
 
+/// Saturation-driven growth (NET-10, invariant 10) -- `OverlapSaturation`'s
+/// FFI-layer mirror, plus a fixed neuron-construction template
+/// (`threshold`/`excitatory_fraction`/`coords_origin_x/y/z`) and a caller-
+/// enforced `ceiling`, since neither `OverlapSaturation` nor `apply_growth`
+/// enforce one themselves. `threshold`/`excitatoryFraction` mirror
+/// `ColumnConfig`'s own field names -- growth reuses the exact same
+/// deterministic polarity-assignment template `GraphBuilder::allocate_population`
+/// already uses at construction time (`graph::derive_polarity`), rather than
+/// a bespoke per-index scheme. Omit to leave `step()`'s population size
+/// fixed exactly as before this existed, matching every pre-existing caller.
+/// **Not supported together with `threadCount > 1`** -- see `NativeSimulation::new`'s
+/// doc comment: every partition would run an independent copy of the policy,
+/// corrupting `PartitionPlan::extend_last`'s "only the last partition can
+/// grow" invariant.
+#[napi(object)]
+pub struct GrowthConfig {
+    pub collision_threshold: f64,
+    pub window: u32,
+    pub neurons_per_trigger: u32,
+    pub min_ticks_between_growth: u32,
+    pub ceiling: u32,
+    pub threshold: f64,
+    pub excitatory_fraction: f64,
+    pub coords_origin_x: f64,
+    pub coords_origin_y: f64,
+    pub coords_origin_z: f64,
+    pub seed: BigInt,
+}
+
 /// The STDP timing kernel's parameters (`stdp.rs`'s `StdpParams`), as a
 /// plain JS object.
 #[napi(object)]
@@ -542,6 +572,12 @@ pub struct NativeSimulation {
     /// value this module already has fresh from the caller (see
     /// `SegmentsConfig`'s doc comment for why this validation exists at all).
     scheduler_segments: SegmentsConfig,
+    /// Count of growth triggers observed so far (NET-10, Requirement 2.2)
+    /// -- incremented in `step()` (`Runtime::Single` only, matching growth's
+    /// overall scope) whenever `StepReport::grown` is non-empty. Exposed via
+    /// `growth_event_count()` so a caller can tell "did anything grow since
+    /// I last checked" without polling `live_neuron_count()` every tick.
+    growth_event_count: u32,
 }
 
 /// A generous cap, not a tuned one: bounds `NativeSimulation.raster`'s
@@ -568,6 +604,7 @@ struct SchedulerConfig {
     structural_plasticity: Option<StructuralPlasticityConfig>,
     segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
     inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
+    growth: Option<GrowthConfig>,
 }
 
 fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
@@ -623,6 +660,16 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
             cfg.interval_ticks.max(1),
             inhibition.k as f32,
         ));
+    }
+    if let Some(cfg) = &config.growth {
+        scheduler = scheduler.with_growth(
+            Box::new(OverlapSaturation::new(cfg.collision_threshold as f32, cfg.window, cfg.neurons_per_trigger, cfg.min_ticks_between_growth)),
+            cfg.ceiling,
+            cfg.threshold as f32,
+            cfg.excitatory_fraction as f32,
+            [cfg.coords_origin_x as f32, cfg.coords_origin_y as f32, cfg.coords_origin_z as f32],
+            cfg.seed.get_u64().1,
+        );
     }
     scheduler
 }
@@ -808,10 +855,18 @@ impl NativeSimulation {
         structural_plasticity: Option<StructuralPlasticityConfig>,
         segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
         inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
+        growth: Option<GrowthConfig>,
         thread_count: Option<u32>,
         total_neurons: Option<u32>,
     ) -> Result<Self> {
         let thread_count = thread_count.unwrap_or(1).max(1) as usize;
+        // NET-10: partitioned mode is not supported (see `GrowthConfig`'s own
+        // doc comment) -- every partition would run an independent copy of
+        // `OverlapSaturation`, each free to grow past `PartitionPlan::extend_last`'s
+        // "only the last partition" invariant with no coordination between them.
+        if growth.is_some() && thread_count > 1 {
+            return Err(Error::from_reason("growth is not supported together with threadCount > 1 (partitioned mode) -- see GrowthConfig's doc comment"));
+        }
         let plasticity = plasticity.map(|cfg| cfg.resolve()).transpose()?;
         let scheduler_segments = segments.unwrap_or(SegmentsConfig::NONE);
         let config = SchedulerConfig {
@@ -825,6 +880,7 @@ impl NativeSimulation {
             structural_plasticity,
             segment_threshold_homeostasis,
             inhibition_homeostasis,
+            growth,
         };
         let runtime = if thread_count > 1 {
             let total_neurons = total_neurons.ok_or_else(|| {
@@ -843,6 +899,7 @@ impl NativeSimulation {
             raster: SpikeRaster::new(),
             last_spike_count: 0,
             scheduler_segments,
+            growth_event_count: 0,
         })
     }
 
@@ -1292,8 +1349,56 @@ impl NativeSimulation {
             // Requirement 5 (Phase 6): feeds `metrics_snapshot`'s on-demand
             // scan, so that call needs no parameter the caller must track.
             self.last_spike_count = report.spiked.len() as u32;
+            // NET-10, Requirement 2.2: a growth event is observable here,
+            // the same tick it happened, with no separate poll. A
+            // column-backed network must also widen its last column's own
+            // range (`column.rs`'s `ColumnRegistry::extend_last`) right
+            // away, or that column's `neuron_range` would silently exclude
+            // its own newly grown neurons (breaking `column_of`, snapshot
+            // identity, and any SDR-relative-index mapping a caller does
+            // through a `ColumnHandleFfi.end`).
+            if !report.grown.is_empty() {
+                self.growth_event_count += 1;
+                if !self.columns.is_empty() {
+                    self.columns.extend_last(report.grown.len() as u32);
+                }
+            }
             report.spiked
         }
+    }
+
+    /// Current live neuron count (NET-10, Requirement 2.2) -- exposed so a
+    /// caller can observe saturation-driven growth's effect without any
+    /// other accessor already reporting it (`metricsSnapshot` does not
+    /// carry a neuron count).
+    #[napi]
+    pub fn live_neuron_count(&self) -> u32 {
+        self.neurons.live_count() as u32
+    }
+
+    /// Count of growth triggers observed so far (NET-10, Requirement 2.2).
+    /// Zero for a simulation with no `growth` configured, or one that has
+    /// not triggered yet.
+    #[napi]
+    pub fn growth_event_count(&self) -> u32 {
+        self.growth_event_count
+    }
+
+    /// Feeds one activation event to the growth policy's collision signal
+    /// (NET-10, Requirement 2's FFI counterpart to
+    /// `Scheduler::record_growth_activation`): the caller decides what
+    /// counts as a collision for its own encoding. `Runtime::Single` only --
+    /// consistent with `growth` being rejected together with
+    /// `threadCount > 1` at construction (see `GrowthConfig`'s doc comment) --
+    /// but returns a clean error rather than relying on that guard alone,
+    /// since a future refactor could otherwise silently reintroduce the gap.
+    #[napi]
+    pub fn record_growth_activation(&mut self, was_collision: bool) -> Result<()> {
+        let Runtime::Single(scheduler) = &mut self.runtime else {
+            return Err(Error::from_reason("recordGrowthActivation is not supported in partitioned mode (threadCount > 1)"));
+        };
+        scheduler.record_growth_activation(was_collision);
+        Ok(())
     }
 
     #[napi]
@@ -1581,6 +1686,7 @@ impl NativeSimulation {
         structural_plasticity: Option<StructuralPlasticityConfig>,
         segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
         inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
+        growth: Option<GrowthConfig>,
     ) -> Result<Self> {
         // Note: no `synapse_cap_per_neuron` parameter here -- the snapshot
         // payload already carries it (`write_synapses` stores it, and
@@ -1651,6 +1757,16 @@ impl NativeSimulation {
                 inhib.k as f32,
             ));
         }
+        if let Some(cfg) = &growth {
+            scheduler = scheduler.with_growth(
+                Box::new(OverlapSaturation::new(cfg.collision_threshold as f32, cfg.window, cfg.neurons_per_trigger, cfg.min_ticks_between_growth)),
+                cfg.ceiling,
+                cfg.threshold as f32,
+                cfg.excitatory_fraction as f32,
+                [cfg.coords_origin_x as f32, cfg.coords_origin_y as f32, cfg.coords_origin_z as f32],
+                cfg.seed.get_u64().1,
+            );
+        }
         scheduler.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
         // Phase 5 Requirement 15.6: must run *after* with_plasticity above,
         // which resets the neuromodulator field to a fresh, zeroed one as a
@@ -1667,6 +1783,12 @@ impl NativeSimulation {
         // reads these arrays in that case, same precedent as the
         // coincidence-window state immediately above.
         scheduler.restore_segment_threshold_state(restored.segment_threshold, restored.segment_rate_estimate, restored.segment_last_depolarised_tick);
+        // NET-10, RUN-9a: growth-policy state (format version 7). A no-op if
+        // this restoring scheduler has no `growth` configured, matching
+        // every other `restore_*` call's "safe to call regardless" precedent.
+        if let Some(state) = restored.growth_state {
+            scheduler.restore_growth_raw_state(state);
+        }
 
         Ok(Self {
             neurons: restored.neurons,
@@ -1687,6 +1809,7 @@ impl NativeSimulation {
             raster: SpikeRaster::new(),
             last_spike_count: 0,
             scheduler_segments: segments.unwrap_or(SegmentsConfig::NONE),
+            growth_event_count: 0,
         })
     }
 

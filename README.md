@@ -750,6 +750,47 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     ABCD-vs-XBCY setup) would be. Building that richer version is a reasonable follow-up, not
     attempted here per Requirement 4's own scope (reuse an existing shape, not build a new
     mechanism).
+  - **NET-10 wired live: met, invariant 10 is now actually true for neuron count.**
+    `.claude/scratch/saturation-driven-growth/` — `growth.rs`'s `OverlapSaturation`/`apply_growth`
+    were fully built and tested in isolation since Phase 4 but had zero callers anywhere in the
+    running simulation; `Scheduler::step` now runs growth as an eighth always-on, opt-in sweep
+    (`with_growth`), alongside homeostatic scaling/structural plasticity/segment-threshold and
+    inhibition homeostasis. Reported by sub-part, per this project's own honest-reporting
+    discipline:
+    - **The collision signal is a self-contained test-bed** (`crates/brain-core/tests/saturation_driven_growth.rs`),
+      not a wire-up to `packages/io`/`charPrediction.ts`: two labels drive an overlapping,
+      deliberately undersized k-WTA neighbourhood, reproducing `emergent.rs`'s own documented
+      representational-collision phenomenon by construction rather than by chance. Deliberately not
+      `charPrediction.ts` — that pipeline has had multiple independently-discovered bugs across
+      Phases 5 and 7 (§11's own entries), and coupling a still-unvalidated growth metric to it would
+      make failures hard to attribute. `Scheduler::record_growth_activation` and the FFI's
+      `recordGrowthActivation` still let a future TS experiment drive growth from a real encoding;
+      this decision only scopes what this spec's own acceptance tests exercise.
+    - **The "fits new patterns measurably better" claim (Requirement 1 Acceptance Criterion 6) is
+      real but modest, and is reported as measured, not rounded up.** In the hand-constructed
+      test-bed, two labels' winner sets share a forced 50% overlap while the population stays at
+      its initial size; after growth (triggered automatically, reaching population 14 from 10),
+      the same overlap fraction measures **0.4** — each label gained one winner in a newly formed,
+      independent k-WTA neighbourhood that the other cannot possibly share, diluting but not
+      eliminating the original crowded neighbourhood's interference. This is the mechanism NET-10
+      describes (added capacity relieves saturation, it does not retroactively undo it), not a
+      dramatic before/after — a stronger effect would need candidates drawn to make fuller use of
+      newly grown capacity, which this test's fixed, hand-picked candidate indices deliberately do
+      not attempt.
+    - **Partitioned mode (`threadCount > 1`) is explicitly rejected, not silently unsupported.**
+      `PartitionPlan::extend_last` already existed (cited only in its own doc comment before this
+      work, never called) but its own doc comment discloses a real, unclosed gap:
+      `PartitionRuntime::boundary_neurons` is computed once at construction and never recomputed, so
+      a grown neuron that becomes a new cross-partition synapse endpoint would not be recognized as
+      one. Every partition would also run an independent, uncoordinated copy of the policy.
+      `NativeSimulation::new` returns a clear error rather than building on top of that gap.
+    - **FFI surface**: `SimulationOptions.growth` (`GrowthConfig` — `OverlapSaturation`'s parameters
+      plus a caller-enforced `ceiling` and a fixed neuron-construction template reusing
+      `graph::derive_polarity`, the same deterministic polarity assignment `GraphBuilder::allocate_population`
+      already uses, rather than a bespoke per-index scheme), `liveNeuronCount()`, `growthEventCount()`,
+      `recordGrowthActivation()`. Growth-policy state (`hits`/`total`/`last_grown_at`) round-trips
+      through snapshot/restore (format version 7, `RUN-9a`) — resolved now rather than left an
+      unstated gap, since the state involved is three `u32`s.
 
 ---
 
@@ -896,6 +937,36 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     than a literal biological claim: real dendritic coincidence thresholds are mostly fixed by
     receptor biophysics, unlike the somatic excitability `IntrinsicHomeostasis` already models,
     which *is* documented to adapt.
+
+    **A second application, built 2026-09-13: `inhibition.rs`'s `FixedNeighbourhoods` k-WTA
+    scheme.** Its `size`/`k` were the other hardcoded, scale-dependent value this decision names —
+    fixed once at construction (e.g. `charPrediction.ts`'s `k = round(width * NETWORK_DENSITY)`,
+    computed once and never revisited) with no adjustment path at all. `InhibitionHomeostasis`
+    (`plasticity/homeostatic.rs`, third copy of this template) nudges `k` toward a target
+    population activity rate — the same quantity OBS-2/`MetricsSnapshot::compute` call
+    "sparsity" — gated behind `Scheduler::with_inhibition_homeostasis`, bit-identical to today
+    when not configured. One correction found re-verifying `.claude/scratch/
+    inhibition-homeostasis/design.md` against the current code before building it: its proposed
+    integration site (inside `evaluate_and_resolve`, reading `neurons.live_count()`) does not
+    compile there — `neurons` is a `NeuronArenaViewMut` in that method, and `live_count()` exists
+    only on the owning `NeuronArena`. Moved to `Scheduler::step`, after `evaluate_and_resolve`
+    returns, using `StepReport::spiked.len()` and the real `neurons.live_count()` — the same site
+    every other periodic homeostatic sweep in this file already uses, and for the same reason
+    (the view's borrow has ended by then). The sign-flip design.md flagged (`k` must *decrease*,
+    not increase, when activity is too high — inverted from threshold homeostasis) was verified
+    correct. Requirement 1 AC5's ablation (a fixed `k=10/size=50` overdriven population, pinned at
+    sparsity 0.2, corrected toward `target_rate=0.06` only when enabled) is in
+    `tests/inhibition_homeostasis.rs`. Scoped to single-threaded `Scheduler` only, matching
+    `SegmentThresholdHomeostasis`'s own existing scope — `PartitionRuntime` wires neither
+    mechanism today, a pre-existing gap this change does not close.
+
+    **FFI exposure, same day, once VAL-4 itself needed it**: threaded through
+    `crates/brain-napi` as `InhibitionHomeostasisConfig`/`SimulationOptions.inhibitionHomeostasis`
+    and into `charPrediction.ts`'s `buildNetwork`, following `SegmentThresholdHomeostasisConfig`'s
+    exact shape. Proven to actually reach the native scheduler (not just typecheck) by
+    `char-prediction-smoke.test.ts`'s new determinism/divergence pair. See §13.12 item 9 for the
+    honest, measured verdict against VAL-4 itself: no improvement at this network's own
+    already-tuned `k`/`size` ratio, a regression at every other `targetRate` tried.
 
 ## 12a. Open questions
 
@@ -1897,6 +1968,49 @@ Three claims, in decreasing order of confidence that they are unprecedented.
    advance ("does scaling reinforcement by 'was the network right recently' actually help... or
    does it create a destabilizing feedback loop") — the empirical answer, at least for this
    specific reward mapping on this specific network, leans toward measurable harm, not help.
+9. **Self-tuning k-WTA sparsity (inhibition-homeostasis spec, Requirement 1): no effect at
+   today's operating point, and a real regression everywhere else tried — measured 2026-09-13.**
+   `inhibition.rs`'s `FixedNeighbourhoods` (`size`/`k`) was the other hardcoded, scale-dependent
+   value README §12 decision 10 names — fixed once at construction
+   (`k = round(width * NETWORK_DENSITY)`) with no adjustment path. `InhibitionHomeostasis`
+   (`plasticity/homeostatic.rs`, third copy of `IntrinsicHomeostasis`/
+   `SegmentThresholdHomeostasis`'s template) nudges `k` toward a target population activity rate
+   instead, threaded all the way through `crates/brain-napi`'s FFI as
+   `InhibitionHomeostasisConfig`/`SimulationOptions.inhibitionHomeostasis`, and `charPrediction.ts`
+   gained a matching `inhibitionHomeostasis` config field. Measured with `scripts/
+   tune-inhibition-homeostasis.ts` against the identical protocol items 7/8 use (5 seeds, 15,000
+   characters, the same corpus slice, `NETWORK_WIDTH = 800`, `targetRate = 0.99` segment-threshold
+   homeostasis), a grid over `targetRate` centred on `NETWORK_DENSITY` (0.08, today's fixed
+   `k`/`size` ratio) so "disabled" and "enabled at today's own ratio" are directly comparable:
+
+   | targetRate                                          | smoothing | adjustmentRate | minK | intervalTicks | seeds | mean network accuracy | range across seeds |
+   | -----------------------------------------------------| -----------| ----------------| ------| ---------------| -------| -----------------------| --------------------|
+   | *(mechanism disabled — item 8's 17.37% baseline)*    | —         | —              | —    | —             | 5     | 17.37%                | —                   |
+   | 0.08 (== `NETWORK_DENSITY`, today's fixed ratio)     | 0.9       | 4.0            | 1    | 200           | 3     | 17.60%                | 15.75–18.55%        |
+   | 0.04                                                 | 0.9       | 4.0            | 1    | 200           | 3     | 1.98%                 | 1.90–2.10%          |
+   | 0.06                                                 | 0.9       | 4.0            | 1    | 200           | 3     | 14.57%                | 14.10–15.00%        |
+   | 0.12                                                 | 0.9       | 4.0            | 1    | 200           | 3     | 16.82%                | 16.60–17.10%        |
+   | 0.16                                                 | 0.9       | 4.0            | 1    | 200           | 3     | 16.65%                | 16.65–16.65%        |
+
+   `targetRate = 0.08` reproduces the disabled baseline's 3-seed measurement **bit-for-bit**
+   (17.60%, identical 15.75–18.55% range) — expected, not a bug: this network's live `k` (64,
+   `round(800 * 0.08)`) already sits almost exactly at that target, so the EMA's error stays near
+   zero and `k_estimate` never rounds to a different integer. Every other `targetRate` tried
+   (0.04, 0.06, 0.12, 0.16) measurably *underperforms* the baseline, most severely the furthest
+   below today's ratio (0.04 → 1.98%, a >8× drop) — consistent with `NETWORK_WIDTH`/
+   `NETWORK_DENSITY` (item 7's second axis) already having been manually tuned to a good fixed
+   operating point for this specific wiring, so self-tuning either reproduces that point exactly
+   (no benefit) or drifts away from it (real harm). No candidate beat the baseline even in the
+   3-seed search, so — per this project's own honest-negative-result discipline — the official
+   5-seed confirmation was run on the baseline only, reproducing item 7/8's own 17.37% exactly.
+   `DEFAULT_CONFIG.inhibitionHomeostasis` stays `undefined` (disabled). VAL-4 remains **not met**.
+   Unlike item 8's finding, this is not evidence the *mechanism* is harmful in general — only that
+   *this* network's `k`/`size` ratio was already a well-fitted constant for *this* corpus/topology,
+   so there was no scale-dependent drift for a self-tuning rate to correct. The Rust-core mechanism
+   and its full FFI path are real, tested (`tests/inhibition_homeostasis.rs`,
+   `char-prediction-smoke.test.ts`), and available for a population whose natural activity
+   actually does drift from a hand-picked `k` over the network's life (invariant 10, NET-7/NET-10)
+   — this specific, currently-static VAL-4 configuration simply is not that case yet.
 
 ---
 

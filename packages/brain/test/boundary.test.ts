@@ -628,6 +628,74 @@ test("Simulation structuralPlasticity prunes a weak synapse through the real com
   assert.equal(probe.includes(post), false, "the weak synapse must have been pruned automatically inside step(), so post never receives a's delivery");
 });
 
+// -- NET-10: saturation-driven growth, wired live.
+
+test("Simulation.growth allocates neurons automatically through the real compiled addon, with no caller-driven apply_growth call (Requirement 1 AC1, Requirement 2)", () => {
+  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
+  const options: SimulationOptions = {
+    maxDelay: 2,
+    connectionThreshold: 0.2,
+    synapseCapPerNeuron: 1,
+    growth: {
+      collisionThreshold: 0.5,
+      window: 2,
+      neuronsPerTrigger: 2,
+      minTicksBetweenGrowth: 1,
+      ceiling: 20,
+      threshold: 0.5,
+      excitatoryFraction: 1.0,
+      coordsOriginX: 0,
+      coordsOriginY: 0,
+      coordsOriginZ: 0,
+      seed: 1n,
+    },
+  };
+  const sim = Simulation.create(lif, options);
+  for (let i = 0; i < 10; i++) {
+    sim.allocateNeuron(0.5, 1);
+  }
+  assert.equal(sim.liveNeuronCount(), 10);
+  assert.equal(sim.growthEventCount(), 0);
+
+  // recordGrowthActivation alone drives should_grow -- no stimulation is
+  // needed to exercise the growth wiring itself, matching the Rust suite's
+  // own separation between the mechanism (this test) and a real collision
+  // signal (crates/brain-core/tests/saturation_driven_growth.rs).
+  for (let i = 0; i < 4; i++) {
+    sim.step(); // the same automatic sweep that was previously never called
+    sim.recordGrowthActivation(true);
+  }
+  sim.step();
+
+  assert.ok(sim.liveNeuronCount() > 10, "sustained collisions must have triggered automatic growth inside step(), with no separate apply_growth call");
+  assert.ok(sim.growthEventCount() >= 1, "a growth event must be observable via growthEventCount()");
+});
+
+test("Simulation.create rejects growth configured together with threadCount > 1 (NET-10 partitioned-mode restriction)", () => {
+  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
+  const options: SimulationOptions = {
+    maxDelay: 2,
+    connectionThreshold: 0.2,
+    synapseCapPerNeuron: 1,
+    threadCount: 2,
+    totalNeurons: 4,
+    growth: {
+      collisionThreshold: 0.5,
+      window: 2,
+      neuronsPerTrigger: 2,
+      minTicksBetweenGrowth: 1,
+      ceiling: 20,
+      threshold: 0.5,
+      excitatoryFraction: 1.0,
+      coordsOriginX: 0,
+      coordsOriginY: 0,
+      coordsOriginZ: 0,
+      seed: 1n,
+    },
+  };
+  assert.throws(() => Simulation.create(lif, options), /growth is not supported together with threadCount/);
+});
+
 // -- Phase 5 Requirement 15: reward API and neuromodulator control surface.
 
 test("Simulation.reward measurably changes a plasticity outcome through the real compiled addon (Requirement 15.1, 15.2)", () => {

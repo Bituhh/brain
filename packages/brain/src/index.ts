@@ -26,6 +26,7 @@ import {
   type StructuralPlasticityConfig,
   type SegmentThresholdHomeostasisConfig,
   type InhibitionHomeostasisConfig,
+  type GrowthConfig,
   type ProbeOptionsFfi,
   type ProbeDataFfi,
   type SegmentSampleFfi,
@@ -50,6 +51,7 @@ export type {
   StructuralPlasticityConfig,
   SegmentThresholdHomeostasisConfig,
   InhibitionHomeostasisConfig,
+  GrowthConfig,
 };
 
 /** A probe's configuration (OBS-1, Phase 6 Requirement 4). */
@@ -133,6 +135,16 @@ export interface SimulationOptions {
    */
   inhibitionHomeostasis?: InhibitionHomeostasisConfig;
   /**
+   * Saturation-driven growth (NET-10, invariant 10): new neurons are
+   * allocated automatically inside `step()` once the configured collision
+   * rate saturates, up to `ceiling`. Omit to leave population size fixed
+   * exactly as before this existed. **Not supported together with
+   * `threadCount > 1`** -- the native constructor rejects that combination
+   * (every partition would run an independent, uncoordinated copy of the
+   * growth policy).
+   */
+  growth?: GrowthConfig;
+  /**
    * Number of native threads `PartitionRuntime` should use (Requirement 7
    * AC1, Phase 4 RUN-4). Omit or pass 1 for today's exact single-threaded
    * behaviour -- the default, and the only mode `snapshot()`/`restore()`
@@ -159,20 +171,29 @@ export interface SimulationOptions {
  * "configuration" -- validated, not round-tripped; see snapshot.rs's
  * module docs for why). FNV-1a over the JSON form: small, deterministic,
  * and needs no dependency (ENG-6), which is all this needs to be.
+ *
+ * `growth.seed` is a `bigint` (napi's `BigInt` binding for a Rust `u64`),
+ * which `JSON.stringify` cannot serialise on its own -- the replacer below
+ * turns any `bigint` into its decimal string form for hashing purposes
+ * only, which is all a config-mismatch check needs.
  */
 function hashConfig(lif: LifConfig, options: SimulationOptions): bigint {
-  const json = JSON.stringify({
-    lif,
-    maxDelay: options.maxDelay,
-    connectionThreshold: options.connectionThreshold,
-    synapseCapPerNeuron: options.synapseCapPerNeuron,
-    inhibition: options.inhibition ?? null,
-    segments: options.segments ?? null,
-    predictiveLearning: options.predictiveLearning ?? null,
-    plasticity: options.plasticity ?? null,
-    homeostaticScaling: options.homeostaticScaling ?? null,
-    structuralPlasticity: options.structuralPlasticity ?? null,
-  });
+  const json = JSON.stringify(
+    {
+      lif,
+      maxDelay: options.maxDelay,
+      connectionThreshold: options.connectionThreshold,
+      synapseCapPerNeuron: options.synapseCapPerNeuron,
+      inhibition: options.inhibition ?? null,
+      segments: options.segments ?? null,
+      predictiveLearning: options.predictiveLearning ?? null,
+      plasticity: options.plasticity ?? null,
+      homeostaticScaling: options.homeostaticScaling ?? null,
+      structuralPlasticity: options.structuralPlasticity ?? null,
+      growth: options.growth ?? null,
+    },
+    (_key, value) => (typeof value === "bigint" ? value.toString() : value),
+  );
   const prime = 0x100000001b3n;
   const mask = 0xffffffffffffffffn;
   let hash = 0xcbf29ce484222325n;
@@ -378,6 +399,7 @@ export class Simulation {
         options.structuralPlasticity ?? null,
         options.segmentThresholdHomeostasis ?? null,
         options.inhibitionHomeostasis ?? null,
+        options.growth ?? null,
         options.threadCount ?? null,
         options.totalNeurons ?? null,
       ),
@@ -422,6 +444,7 @@ export class Simulation {
       options.structuralPlasticity ?? null,
       options.segmentThresholdHomeostasis ?? null,
       options.inhibitionHomeostasis ?? null,
+      options.growth ?? null,
     );
     return new Simulation(native, lif, options);
   }
@@ -749,5 +772,35 @@ export class Simulation {
    */
   metricsSnapshot(): MetricsSnapshot {
     return this.#native.metricsSnapshot();
+  }
+
+  /**
+   * Current live neuron count (NET-10, Requirement 2.2) -- the only place
+   * to observe saturation-driven growth's effect on population size;
+   * `metricsSnapshot()` does not carry a neuron count.
+   */
+  liveNeuronCount(): number {
+    return this.#native.liveNeuronCount();
+  }
+
+  /**
+   * Count of growth triggers observed so far (NET-10, Requirement 2.2).
+   * Zero for a simulation with no `growth` configured, or one that has not
+   * triggered yet.
+   */
+  growthEventCount(): number {
+    return this.#native.growthEventCount();
+  }
+
+  /**
+   * Feeds one activation event to the growth policy's collision signal
+   * (NET-10, Requirement 2): the caller decides what counts as a collision
+   * for its own encoding -- `options.growth`'s own `OverlapSaturation`
+   * parameters have no opinion on this. Call once per relevant event (e.g.
+   * once per decoded candidate), typically right after `step()`. Throws if
+   * `options.threadCount` was greater than 1 (partitioned mode).
+   */
+  recordGrowthActivation(wasCollision: boolean): void {
+    this.#native.recordGrowthActivation(wasCollision);
   }
 }

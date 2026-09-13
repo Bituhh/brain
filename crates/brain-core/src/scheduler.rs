@@ -25,7 +25,8 @@
 
 use std::collections::HashMap;
 
-use crate::arena::{NeuronArena, NeuronArenaViewMut};
+use crate::arena::{NeuronArena, NeuronArenaViewMut, NeuronSpec};
+use crate::growth::{apply_growth, GrowthPolicy, GrowthRawState, PopulationStats};
 use crate::inhibition::FixedNeighbourhoods;
 use crate::metrics::{FiringRateMeter, PredictionAccuracyMeter};
 use crate::neuromodulator::NeuromodulatorField;
@@ -134,6 +135,11 @@ pub struct StepReport {
     /// metric) without that meter needing its own copy of the
     /// significance-threshold comparison.
     pub predicted_spikes: u32,
+    /// Neuron indices allocated by saturation-driven growth (NET-10) this
+    /// tick, if any -- empty whenever growth is not configured or did not
+    /// trigger. Lets a caller (FFI, tests) observe a growth event without
+    /// polling `NeuronArena::live_count()` every tick.
+    pub grown: Vec<u32>,
 }
 
 /// A spike-delivery effect owed to a neuron owned by another partition
@@ -326,6 +332,34 @@ pub struct Scheduler {
     /// `inhibition`'s `k` toward a target population activity rate instead
     /// of it staying whatever a human picked at construction time.
     inhibition_homeostasis: Option<InhibitionHomeostasis>,
+    /// `None` means saturation-driven growth (NET-10, invariant 10) never
+    /// runs inside `step()` -- the default, and zero extra cost when never
+    /// configured, same shape as every other always-on/opt-in sweep above.
+    /// When attached via [`Self::with_growth`], `step()` checks the policy
+    /// every tick and allocates new neurons via [`apply_growth`] the moment
+    /// it fires, with no human-issued command for any individual event.
+    growth: Option<GrowthState>,
+}
+
+/// Everything `step()` needs to grow this scheduler's population
+/// automatically: the policy deciding *when*/*how many* (`GrowthPolicy`,
+/// e.g. `OverlapSaturation`), a caller-enforced `ceiling` (growth.rs cannot
+/// enforce one itself -- it has no concept of "the population" across
+/// multiple pools), and a fixed construction template for new neurons
+/// (`threshold`/`excitatory_fraction`/`coords_origin`/`seed`) reusing
+/// `graph::derive_polarity`'s exact RUN-3-deterministic polarity derivation
+/// `GraphBuilder::allocate_population` already uses at construction time --
+/// this sidesteps needing a boxed closure (which could not cross the
+/// `napi-rs` FFI boundary this state is configured through) for what is
+/// otherwise the same "assign polarity by fraction" template every other
+/// population in this codebase already uses.
+struct GrowthState {
+    policy: Box<dyn GrowthPolicy>,
+    ceiling: u32,
+    threshold: f32,
+    excitatory_fraction: f32,
+    coords_origin: [f32; 3],
+    seed: u64,
 }
 
 impl Scheduler {
@@ -365,6 +399,7 @@ impl Scheduler {
             firing_rate: FiringRateMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
             prediction_accuracy: PredictionAccuracyMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
             inhibition_homeostasis: None,
+            growth: None,
         }
     }
 
@@ -548,6 +583,63 @@ impl Scheduler {
     pub fn with_inhibition_homeostasis(mut self, ih: InhibitionHomeostasis) -> Self {
         self.inhibition_homeostasis = Some(ih);
         self
+    }
+
+    /// Enables saturation-driven growth (NET-10, invariant 10) as an
+    /// always-on, opt-in part of `step()`, mirroring every sweep above:
+    /// `policy.should_grow` is checked every tick, and the moment it
+    /// returns non-zero, `apply_growth` allocates that many neurons (capped
+    /// by `ceiling`, since `apply_growth`/`GrowthPolicy` cannot enforce one
+    /// themselves) constructed via `threshold`/`excitatory_fraction` at
+    /// `coords_origin`, using `graph::derive_polarity(seed, ..)` for each
+    /// new neuron's polarity -- the same deterministic template
+    /// `GraphBuilder::allocate_population` already uses, so RUN-3 holds for
+    /// grown neurons exactly as it does for ones allocated at construction.
+    /// Without this call, `step()` never touches population size at all --
+    /// unchanged from every pre-existing behaviour, and still the default a
+    /// caller must opt into, not out of.
+    pub fn with_growth(
+        mut self,
+        policy: Box<dyn GrowthPolicy>,
+        ceiling: u32,
+        threshold: f32,
+        excitatory_fraction: f32,
+        coords_origin: [f32; 3],
+        seed: u64,
+    ) -> Self {
+        self.growth = Some(GrowthState { policy, ceiling, threshold, excitatory_fraction, coords_origin, seed });
+        self
+    }
+
+    /// Feeds one activation event to the growth policy's collision signal
+    /// (Requirement 1 AC2): the caller decides what counts as a collision
+    /// for its own encoding, matching `OverlapSaturation::record_activation`'s
+    /// own stated design -- this module has no opinion on it. A no-op if
+    /// growth is not configured.
+    pub fn record_growth_activation(&mut self, was_collision: bool) {
+        if let Some(growth) = &mut self.growth {
+            growth.policy.record_activation(was_collision);
+        }
+    }
+
+    /// The growth policy's own accumulated state (RUN-9a), or `None` if
+    /// growth is not configured -- the growth counterpart to
+    /// [`Self::modulator_raw_state`], one small plain struct rather than
+    /// per-composite arrays, since this state lives on the policy object
+    /// itself, not addressed by neuron/segment index.
+    pub fn growth_raw_state(&self) -> Option<GrowthRawState> {
+        self.growth.as_ref().map(|g| g.policy.raw_state())
+    }
+
+    /// Overlays snapshotted growth-policy state onto a freshly-constructed
+    /// `Scheduler` (built with the same `with_growth` configuration the
+    /// snapshot's config hash was checked against). A no-op if growth is
+    /// not configured on this scheduler -- safe to call regardless, matching
+    /// `restore_segment_coincidence_state`'s own precedent.
+    pub fn restore_growth_raw_state(&mut self, state: GrowthRawState) {
+        if let Some(growth) = &mut self.growth {
+            growth.policy.restore_raw_state(state);
+        }
     }
 
     /// Disables inhibition (Requirement 7.5's ablation path): every
@@ -1069,7 +1161,7 @@ impl Scheduler {
         // share one accumulation order by construction, not coincidence.
         effects.sort_by_key(|e| (e.source_index, e.synapse_id));
         self.apply_delivery_effects(neuron_view.capacity_len(), &effects);
-        let (report, post_spike_outbox) = self.evaluate_and_resolve::<D>(&mut neuron_view, &mut synapse_view, params, |_| false);
+        let (mut report, post_spike_outbox) = self.evaluate_and_resolve::<D>(&mut neuron_view, &mut synapse_view, params, |_| false);
         debug_assert!(post_spike_outbox.is_empty(), "an always-local is_remote_source must never produce a cross-partition message");
 
         self.record_tick_observables(&report, &neuron_view, &synapse_view);
@@ -1121,6 +1213,40 @@ impl Scheduler {
                 if let Some(new_k) = ih.maybe_apply(report.tick) {
                     let clamped_k = new_k.min(old.size()).max(1);
                     self.inhibition = Some(FixedNeighbourhoods::with_base(old.base(), old.size(), clamped_k));
+                }
+            }
+        }
+
+        // NET-10, invariant 10: an eighth always-on, opt-in sweep -- unlike
+        // the seven above, this one can change `neurons.live_count()`
+        // itself, which is exactly the point (README §10's "capacity is
+        // grown, not configured"). Deliberately last: growth is the
+        // response when the mechanisms above were not enough to
+        // accommodate new input, not a substitute for them.
+        if let Some(growth) = &mut self.growth {
+            let live = neurons.live_count() as u32;
+            if live < growth.ceiling {
+                let stats = PopulationStats { live_count: live, tick: report.tick };
+                let count = growth.policy.should_grow(&stats, growth.seed).min(growth.ceiling - live);
+                if count > 0 {
+                    // Keyed by each new neuron's own final arena index
+                    // (not a batch-local 0..count index): this stays
+                    // RUN-3-correct regardless of how many growth events
+                    // already happened or how large they were, unlike
+                    // `allocate_population`'s coords-slice-local indexing,
+                    // which is only safe because it runs once, at
+                    // construction, over a whole population in one call.
+                    let base_index = neurons.capacity_len() as u32;
+                    let threshold = growth.threshold;
+                    let excitatory_fraction = growth.excitatory_fraction;
+                    let coords_origin = growth.coords_origin;
+                    let seed = growth.seed;
+                    let added = apply_growth(neurons, synapses, count, |i| NeuronSpec {
+                        threshold,
+                        polarity: crate::graph::derive_polarity(seed, base_index + i, excitatory_fraction),
+                        coords: coords_origin,
+                    });
+                    report.grown = added.into_iter().map(|id| id.index).collect();
                 }
             }
         }
@@ -1389,7 +1515,7 @@ impl Scheduler {
         // still_active was true) and committed spikes still in refractory.
         self.dirty = next_dirty;
 
-        let report = StepReport { tick: self.tick, spiked, vetoed, predicted_spikes };
+        let report = StepReport { tick: self.tick, spiked, vetoed, predicted_spikes, grown: Vec::new() };
         self.tick += 1;
         (report, post_spike_outbox)
     }
