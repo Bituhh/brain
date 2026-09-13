@@ -389,6 +389,7 @@ fn structural_plasticity() -> StructuralPlasticity {
         sweep_interval_ticks: 20,
         unused_ticks_before_reclaim: 10_000,
         min_cross_partition_delay: 2,
+        max_sprout_source_index: None,
     };
     StructuralPlasticity::new(params, FixedNeighbourhoods::new(COLUMN_SIZE, 2))
 }

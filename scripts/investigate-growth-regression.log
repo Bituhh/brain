@@ -1,0 +1,78 @@
+
+=== A: baseline (no growth, no structural plasticity) ===
+The control every other row compares against -- identical to DEFAULT_CONFIG.
+  mean network accuracy: 17.37% (range 15.75%-18.55%)
+  mean trigram accuracy: 28.40%
+  wall-clock: 175.9s
+
+=== B: growth + structural plasticity, original (burst) pace ===
+Reproduces the known regression as a sanity check the harness matches the prior session's (README §11 Phase 7 status: 18.33% -> 4.91%).
+  mean network accuracy: 13.04% (range 5.20%-16.65%)
+  mean trigram accuracy: 28.40%
+  wall-clock: 699.3s
+
+=== C: structural plasticity alone, no growth ===
+Isolates whether sprouting/pruning by itself destabilises this network at this scale, independent of growth adding any neurons.
+  mean network accuracy: 13.04% (range 5.20%-16.65%)
+  mean trigram accuracy: 28.40%
+  wall-clock: 696.9s
+
+=== D: growth + structural plasticity, burst pace, sprout-source-restricted ===
+Same as B, but grown neurons (index >= 800) are excluded from ever being a sprout *source* -- directly tests the noise-injection hypothesis.
+  mean network accuracy: 13.04% (range 5.20%-16.65%)
+  mean trigram accuracy: 28.40%
+  wall-clock: 706.2s
+
+=== E: growth alone at a gentle pace + structural plasticity, unrestricted ===
+Same +400 capacity spread over most of the run instead of the first 10% -- checks whether pacing alone (with the noise-injection variable NOT controlled for) fixes anything.
+  mean network accuracy: 13.04% (range 5.20%-16.65%)
+  mean trigram accuracy: 28.40%
+  wall-clock: 729.7s
+
+=== F: growth at a gentle pace + structural plasticity, sprout-source-restricted ===
+Combines E's gentle pace with D's sprout-source restriction -- checks whether pacing matters once the noise-injection variable is controlled for.
+  mean network accuracy: 13.04% (range 5.20%-16.65%)
+  mean trigram accuracy: 28.40%
+  wall-clock: 737.0s
+
+=== Instrumenting: B: growth + structural plasticity, original (burst) pace (seed 1 only) ===
+    char 1500: acc=9.73% liveNeurons=1160 growthEvents=9 synapses=76877 meanPermanence=0.1969 sparsity=5.52%
+    char 3000: acc=10.75% liveNeurons=1200 growthEvents=10 synapses=74389 meanPermanence=0.1732 sparsity=5.33%
+    char 4500: acc=13.70% liveNeurons=1200 growthEvents=10 synapses=70424 meanPermanence=0.1701 sparsity=5.33%
+    char 6000: acc=12.05% liveNeurons=1200 growthEvents=10 synapses=71289 meanPermanence=0.1653 sparsity=5.33%
+    char 7500: acc=12.25% liveNeurons=1200 growthEvents=10 synapses=73040 meanPermanence=0.1608 sparsity=5.33%
+    char 9000: acc=15.50% liveNeurons=1200 growthEvents=10 synapses=71841 meanPermanence=0.1616 sparsity=5.33%
+    char 10500: acc=13.95% liveNeurons=1200 growthEvents=10 synapses=68908 meanPermanence=0.1698 sparsity=5.33%
+    char 12000: acc=14.30% liveNeurons=1200 growthEvents=10 synapses=71941 meanPermanence=0.1634 sparsity=5.33%
+    char 13500: acc=14.20% liveNeurons=1200 growthEvents=10 synapses=70694 meanPermanence=0.1697 sparsity=5.33%
+    char 14999: acc=14.75% liveNeurons=1200 growthEvents=10 synapses=72122 meanPermanence=0.1638 sparsity=5.33%
+  instrumentation wall-clock: 145.3s
+
+=== Instrumenting: D: growth + structural plasticity, burst pace, sprout-source-restricted (seed 1 only) ===
+    char 1500: acc=9.73% liveNeurons=1160 growthEvents=9 synapses=76877 meanPermanence=0.1969 sparsity=5.52%
+    char 3000: acc=10.75% liveNeurons=1200 growthEvents=10 synapses=74389 meanPermanence=0.1732 sparsity=5.33%
+    char 4500: acc=13.70% liveNeurons=1200 growthEvents=10 synapses=70424 meanPermanence=0.1701 sparsity=5.33%
+    char 6000: acc=12.05% liveNeurons=1200 growthEvents=10 synapses=71289 meanPermanence=0.1653 sparsity=5.33%
+    char 7500: acc=12.25% liveNeurons=1200 growthEvents=10 synapses=73040 meanPermanence=0.1608 sparsity=5.33%
+    char 9000: acc=15.50% liveNeurons=1200 growthEvents=10 synapses=71841 meanPermanence=0.1616 sparsity=5.33%
+    char 10500: acc=13.95% liveNeurons=1200 growthEvents=10 synapses=68908 meanPermanence=0.1698 sparsity=5.33%
+    char 12000: acc=14.30% liveNeurons=1200 growthEvents=10 synapses=71941 meanPermanence=0.1634 sparsity=5.33%
+    char 13500: acc=14.20% liveNeurons=1200 growthEvents=10 synapses=70694 meanPermanence=0.1697 sparsity=5.33%
+    char 14999: acc=14.75% liveNeurons=1200 growthEvents=10 synapses=72122 meanPermanence=0.1638 sparsity=5.33%
+  instrumentation wall-clock: 145.0s
+
+=== Instrumenting: E: growth alone at a gentle pace + structural plasticity, unrestricted (seed 1 only) ===
+    char 1500: acc=9.73% liveNeurons=840 growthEvents=2 synapses=76877 meanPermanence=0.1969 sparsity=7.62%
+    char 3000: acc=10.75% liveNeurons=900 growthEvents=5 synapses=74389 meanPermanence=0.1732 sparsity=7.11%
+    char 4500: acc=13.70% liveNeurons=960 growthEvents=8 synapses=70424 meanPermanence=0.1701 sparsity=6.67%
+    char 6000: acc=12.05% liveNeurons=1020 growthEvents=11 synapses=71289 meanPermanence=0.1653 sparsity=6.27%
+    char 7500: acc=12.25% liveNeurons=1080 growthEvents=14 synapses=73040 meanPermanence=0.1608 sparsity=5.93%
+    char 9000: acc=15.50% liveNeurons=1140 growthEvents=17 synapses=71841 meanPermanence=0.1616 sparsity=5.61%
+    char 10500: acc=13.95% liveNeurons=1200 growthEvents=20 synapses=68908 meanPermanence=0.1698 sparsity=5.33%
+    char 12000: acc=14.30% liveNeurons=1200 growthEvents=20 synapses=71941 meanPermanence=0.1634 sparsity=5.33%
+    char 13500: acc=14.20% liveNeurons=1200 growthEvents=20 synapses=70694 meanPermanence=0.1697 sparsity=5.33%
+    char 14999: acc=14.75% liveNeurons=1200 growthEvents=20 synapses=72122 meanPermanence=0.1638 sparsity=5.33%
+  instrumentation wall-clock: 144.8s
+
+Results written to C:\projects\brain\scripts\investigate-growth-regression.results.md
+Per-window samples written to C:\projects\brain\scripts\investigate-growth-regression.samples.md

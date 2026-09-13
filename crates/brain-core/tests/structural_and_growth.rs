@@ -57,6 +57,7 @@ fn structural_changes_continue_without_a_rebuild() {
             sweep_interval_ticks: 10,
             unused_ticks_before_reclaim: 100_000,
             min_cross_partition_delay: 2,
+            max_sprout_source_index: None,
         },
         brain_core::inhibition::FixedNeighbourhoods::new(10, 5),
     );
@@ -118,6 +119,7 @@ fn structural_and_growth_changes_are_deterministic() {
                 sweep_interval_ticks: 10,
                 unused_ticks_before_reclaim: 100_000,
                 min_cross_partition_delay: 2,
+                max_sprout_source_index: None,
             },
             brain_core::inhibition::FixedNeighbourhoods::new(10, 5),
         );
@@ -154,6 +156,7 @@ fn snapshot_survives_a_real_structural_sweep_and_growth() {
             sweep_interval_ticks: 1,
             unused_ticks_before_reclaim: 100_000,
             min_cross_partition_delay: 2,
+            max_sprout_source_index: None,
         },
         brain_core::inhibition::FixedNeighbourhoods::new(10, 5),
     );

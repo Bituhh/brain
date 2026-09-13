@@ -336,6 +336,15 @@ pub struct StructuralPlasticityConfig {
     /// `PredictiveLearningConfig`'s neighbourhood fields.
     pub neighbourhood_size: u32,
     pub k: u32,
+    /// `StructuralPlasticityParams::max_sprout_source_index`'s FFI mirror --
+    /// excludes neuron indices past this from ever being chosen as a sprout
+    /// *source* (still eligible as a sprout target). `undefined`/`None`
+    /// (default) imposes no restriction, matching every caller before this
+    /// field existed. Added for the NET-10 growth-regression investigation
+    /// (README §13.12): lets a caller test whether grown, never-stimulated,
+    /// never-decoded neurons wiring themselves *onto* the original,
+    /// decoded population is a source of decode-time noise.
+    pub max_sprout_source_index: Option<u32>,
 }
 
 /// Saturation-driven growth (NET-10, invariant 10) -- `OverlapSaturation`'s
@@ -636,6 +645,7 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
             sweep_interval_ticks: cfg.sweep_interval_ticks.max(1),
             unused_ticks_before_reclaim: cfg.unused_ticks_before_reclaim,
             min_cross_partition_delay: cfg.min_cross_partition_delay.min(u16::MAX as u32) as u16,
+            max_sprout_source_index: cfg.max_sprout_source_index,
         };
         scheduler = scheduler.with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k)));
     }
@@ -1728,6 +1738,7 @@ impl NativeSimulation {
                 sweep_interval_ticks: cfg.sweep_interval_ticks.max(1),
                 unused_ticks_before_reclaim: cfg.unused_ticks_before_reclaim,
                 min_cross_partition_delay: cfg.min_cross_partition_delay.min(u16::MAX as u32) as u16,
+                max_sprout_source_index: cfg.max_sprout_source_index,
             };
             scheduler = scheduler.with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k)));
         }

@@ -194,6 +194,7 @@ impl Scheduler {
             sweep_interval_ticks: 1,
             unused_ticks_before_reclaim: params.unused_ticks_before_reclaim,
             min_cross_partition_delay: 1,
+            max_sprout_source_index: None,
         };
         let mut sp = StructuralPlasticity::new(sp_params, FixedNeighbourhoods::new(1, 1));
         let report = sp.force_sweep(neurons, synapses, self.tick(), |_| 0);

@@ -46,6 +46,27 @@ pub struct StructuralPlasticityParams {
     /// sprout (or any sprout via plain [`Self::maybe_sweep`]) still gets
     /// delay 1, unchanged.
     pub min_cross_partition_delay: u16,
+    /// Excludes neuron indices greater than this from ever being chosen as
+    /// a sprout *source* (candidate `a` in [`Self::sprout`]) -- they remain
+    /// eligible as sprout *targets* (`b`). `None` (default) imposes no
+    /// restriction, matching every caller before this field existed.
+    ///
+    /// Added for the NET-10 growth-regression investigation (README
+    /// §13.12, saturation-driven-growth retest): grown neurons are, by a
+    /// caller's own design (`charPrediction.ts`'s `growth` doc comment),
+    /// never externally stimulated or decoded -- they are internal-only
+    /// capacity with no relationship to which symbol actually occurred.
+    /// `sprout` itself wires purely on co-activity and has no notion of
+    /// "internal-only", so nothing stopped it from wiring a grown neuron's
+    /// activity *onto* an original, decoded neuron's dendritic segment --
+    /// turning that grown neuron into a noise source injected directly into
+    /// the exact predictive signal decoding depends on. This field lets a
+    /// caller that knows where the "hidden capacity" boundary lies (the
+    /// population width at the time structural plasticity was configured)
+    /// test that hypothesis directly, without giving this module itself any
+    /// opinion on which neurons are "real" -- it only ever sees a plain
+    /// index cutoff supplied from outside.
+    pub max_sprout_source_index: Option<u32>,
 }
 
 pub struct StructuralPlasticity {
@@ -123,6 +144,11 @@ impl StructuralPlasticity {
             for a in neighbourhood_start..neighbourhood_end {
                 if self.activity_streak[a as usize] < self.params.min_activity_streak {
                     continue;
+                }
+                if let Some(max_source) = self.params.max_sprout_source_index {
+                    if a > max_source {
+                        continue;
+                    }
                 }
                 for b in neighbourhood_start..neighbourhood_end {
                     if a == b || self.activity_streak[b as usize] < self.params.min_activity_streak {
@@ -257,6 +283,7 @@ mod tests {
             sweep_interval_ticks: 100,
             unused_ticks_before_reclaim: 1000,
             min_cross_partition_delay: 2,
+            max_sprout_source_index: None,
         }
     }
 
@@ -427,6 +454,32 @@ mod tests {
         let report = sp.maybe_sweep(&mut neurons, &mut synapses, 10).unwrap();
         // 0->1 should fail (budget full), 1->0 should succeed.
         assert_eq!(report.sprouted, 1);
+    }
+
+    /// Growth-regression investigation hypothesis test: a neuron past
+    /// `max_sprout_source_index` must never be chosen as a sprout source,
+    /// even though it is otherwise a perfectly eligible candidate (fires,
+    /// unconnected, in the same neighbourhood) -- but it must still be
+    /// chosen as a sprout *target* from an allowed source.
+    #[test]
+    fn max_sprout_source_index_excludes_high_indices_as_sources_but_not_as_targets() {
+        let mut neurons = make_neurons(3); // 0, 1 allowed sources; 2 is past the cutoff
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(3);
+        let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, max_sprout_source_index: Some(1), ..default_params() };
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
+
+        neurons.last_spike[0] = 5;
+        neurons.last_spike[1] = 6;
+        neurons.last_spike[2] = 7;
+
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 10).unwrap();
+        // Eligible ordered pairs among {0,1,2} are 6; excluding 2 as a
+        // source removes 2->0 and 2->1, leaving 4: 0->1, 0->2, 1->0, 1->2.
+        assert_eq!(report.sprouted, 4);
+        assert!(synapses.occupied_in_block(2).next().is_none(), "neuron 2 must never be a sprout source once past max_sprout_source_index");
+        assert!(synapses.occupied_in_block(0).any(|id| synapses.target_neuron[id as usize] == 2), "neuron 2 must still be reachable as a sprout target");
+        assert!(synapses.occupied_in_block(1).any(|id| synapses.target_neuron[id as usize] == 2), "neuron 2 must still be reachable as a sprout target from every allowed source");
     }
 
     #[test]

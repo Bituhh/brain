@@ -160,6 +160,19 @@ export interface CharPredictionConfig {
    * when `growth` is configured; `undefined` defaults to `0.1`.
    */
   readonly collisionMargin?: number;
+  /**
+   * Dendritic segments per neuron (NEU-5), threaded into *both*
+   * `columnConfig`'s own `segments` and `buildNetwork`'s scheduler-wide
+   * `SimulationOptions.segments` identically -- `NativeSimulation.
+   * buildColumns` refuses to build if the two disagree (see `buildNetwork`'s
+   * own doc comment on the `segments` option below for why that check
+   * exists). Added for README §13.12's Phase 7 VAL-4 retuning pass: prior
+   * to this field, `segmentsPerNeuron` was hardcoded at `2` in both places
+   * and had never itself been searched, only guessed at when §13.12 item 6
+   * fixed the single-segment collapse. `undefined` defaults to `2`,
+   * matching every existing caller's behaviour exactly.
+   */
+  readonly segmentsPerNeuron?: number;
 }
 
 const DEFAULT_COLLISION_MARGIN = 0.1;
@@ -199,7 +212,9 @@ function buildCandidates(config: CharEncoderConfig): Candidate<string>[] {
   return SUPPORTED_ALPHABET.map((char) => ({ label: char, sdr: encodeChar(config, char) }));
 }
 
-export function columnConfig(width: number): ColumnConfig {
+const DEFAULT_SEGMENTS_PER_NEURON = 2;
+
+export function columnConfig(width: number, segmentsPerNeuron: number = DEFAULT_SEGMENTS_PER_NEURON): ColumnConfig {
   return {
     neuronCount: width,
     threshold: 0.5,
@@ -225,7 +240,7 @@ export function columnConfig(width: number): ColumnConfig {
     internalPolicy: { p0: 0.05, lengthScale: 100_000, delayMin: 1, delayMax: 1, initialPermanence: 0.4 },
     neighbourhoodSize: width,
     k: Math.max(1, Math.round(width * NETWORK_DENSITY)),
-    segments: { segmentsPerNeuron: 2, coincidenceThreshold: 3 },
+    segments: { segmentsPerNeuron, coincidenceThreshold: 3 },
   };
 }
 
@@ -244,6 +259,7 @@ export function buildNetwork(
   inhibitionHomeostasis: InhibitionHomeostasisConfig | undefined = DEFAULT_CONFIG.inhibitionHomeostasis,
   growth: GrowthConfig | undefined = DEFAULT_CONFIG.growth,
   structuralPlasticity: StructuralPlasticityConfig | undefined = DEFAULT_CONFIG.structuralPlasticity,
+  segmentsPerNeuron: number = DEFAULT_CONFIG.segmentsPerNeuron ?? DEFAULT_SEGMENTS_PER_NEURON,
 ): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 };
   const options: SimulationOptions = {
@@ -279,7 +295,7 @@ export function buildNetwork(
     // dendritic prediction never ran at all. `NativeSimulation.buildColumns`
     // now refuses to build when this and `columnConfig`'s `segments`
     // disagree, which is what caught this omission.
-    segments: { segmentsPerNeuron: 2, coincidenceThreshold: 3 },
+    segments: { segmentsPerNeuron, coincidenceThreshold: 3 },
     // dendritic-threshold-homeostasis spec (README §13.12 items 6/7):
     // fixing the segment-0 collapse bug and letting both real segments
     // receive distinct wiring made accuracy *worse*, 13.22% -> 3.23%, and
@@ -340,7 +356,7 @@ export function buildNetwork(
     },
   };
   const sim = Simulation.create(lif, options);
-  const [handle] = sim.buildColumns(seed, [columnConfig(width)]);
+  const [handle] = sim.buildColumns(seed, [columnConfig(width, segmentsPerNeuron)]);
   const [column] = wrapColumnHandles([handle!]);
   return { sim, column: column! };
 }
@@ -383,6 +399,7 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
     config.inhibitionHomeostasis,
     config.growth,
     config.structuralPlasticity,
+    config.segmentsPerNeuron ?? DEFAULT_SEGMENTS_PER_NEURON,
   );
   const collisionMargin = config.collisionMargin ?? DEFAULT_COLLISION_MARGIN;
   const trigram = new TrigramModel();

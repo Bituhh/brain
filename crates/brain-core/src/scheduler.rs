@@ -1574,6 +1574,7 @@ mod tests {
             sweep_interval_ticks: 1,
             unused_ticks_before_reclaim: 1000,
             min_cross_partition_delay: 2,
+            max_sprout_source_index: None,
         };
         let mut sched = Scheduler::new(2, 0.2).with_structural_plasticity(StructuralPlasticity::new(sp_params, FixedNeighbourhoods::new(10, 1)));
         sched.step::<Lif>(&mut neurons, &mut synapses, &params); // tick 0: gate not yet due

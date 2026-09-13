@@ -1,0 +1,89 @@
+Searching segmentsPerNeuron in {1, 2, 3, 4}, each with its own targetRate coordinate search from 0.5, bounds [0.01, 0.99].
+Every trial uses the full 5-seed official protocol.
+
+
+=== segmentsPerNeuron = 1 ===
+  [segments=1] trial 1: targetRate=0.5000 -> mean network accuracy=8.05% (161291ms)
+  [segments=1] trial 2: targetRate=0.5500 -> mean network accuracy=7.85% (158353ms)
+  [segments=1] trial 3: targetRate=0.4500 -> mean network accuracy=7.99% (154530ms)
+    -> no improvement at step 0.0500, halving to 0.0250
+  [segments=1] trial 4: targetRate=0.5250 -> mean network accuracy=8.71% (157352ms)
+  [segments=1] trial 5: targetRate=0.4750 -> mean network accuracy=8.28% (154640ms)
+    -> improved: 0.5000 (8.05%) -> 0.5250 (8.71%), keeping step 0.025
+    -> no improvement at step 0.0250, halving to 0.0125
+  [segments=1] trial 6: targetRate=0.5375 -> mean network accuracy=8.94% (156541ms)
+  [segments=1] trial 7: targetRate=0.5125 -> mean network accuracy=8.46% (158002ms)
+    -> improved: 0.5250 (8.71%) -> 0.5375 (8.94%), keeping step 0.0125
+    -> no improvement at step 0.0125, halving to 0.0063
+  [segments=1] trial 8: targetRate=0.5437 -> mean network accuracy=8.05% (156597ms)
+  [segments=1] trial 9: targetRate=0.5313 -> mean network accuracy=8.39% (156862ms)
+    -> no improvement at step 0.0063, halving to 0.0031
+  [segments=1] trial 10: targetRate=0.5406 -> mean network accuracy=8.47% (158805ms)
+  [segments=1] trial 11: targetRate=0.5344 -> mean network accuracy=8.37% (158099ms)
+    -> no improvement at step 0.0031, halving to 0.0016
+  best for segmentsPerNeuron=1: targetRate=0.5375, mean network accuracy=8.94%
+
+=== segmentsPerNeuron = 2 ===
+  [segments=2] trial 12: targetRate=0.5000 -> mean network accuracy=6.47% (169464ms)
+  [segments=2] trial 13: targetRate=0.5500 -> mean network accuracy=6.66% (181049ms)
+  [segments=2] trial 14: targetRate=0.4500 -> mean network accuracy=5.72% (174762ms)
+    -> improved: 0.5000 (6.47%) -> 0.5500 (6.66%), keeping step 0.05
+  [segments=2] trial 15: targetRate=0.6000 -> mean network accuracy=7.03% (179865ms)
+    -> improved: 0.5500 (6.66%) -> 0.6000 (7.03%), keeping step 0.05
+  [segments=2] trial 16: targetRate=0.6500 -> mean network accuracy=7.94% (180068ms)
+    -> improved: 0.6000 (7.03%) -> 0.6500 (7.94%), keeping step 0.05
+  [segments=2] trial 17: targetRate=0.7000 -> mean network accuracy=8.11% (181838ms)
+    -> improved: 0.6500 (7.94%) -> 0.7000 (8.11%), keeping step 0.05
+  [segments=2] trial 18: targetRate=0.7500 -> mean network accuracy=8.42% (307821ms)
+    -> improved: 0.7000 (8.11%) -> 0.7500 (8.42%), keeping step 0.05
+  [segments=2] trial 19: targetRate=0.8000 -> mean network accuracy=9.61% (249794ms)
+    -> improved: 0.7500 (8.42%) -> 0.8000 (9.61%), keeping step 0.05
+  [segments=2] trial 20: targetRate=0.8500 -> mean network accuracy=10.37% (174975ms)
+    -> improved: 0.8000 (9.61%) -> 0.8500 (10.37%), keeping step 0.05
+  [segments=2] trial 21: targetRate=0.9000 -> mean network accuracy=12.77% (190351ms)
+    -> improved: 0.8500 (10.37%) -> 0.9000 (12.77%), keeping step 0.05
+  [segments=2] trial 22: targetRate=0.9500 -> mean network accuracy=17.13% (185715ms)
+    -> improved: 0.9000 (12.77%) -> 0.9500 (17.13%), keeping step 0.05
+  [segments=2] trial 23: targetRate=0.9900 -> mean network accuracy=17.37% (178312ms)
+    -> improved: 0.9500 (17.13%) -> 0.9900 (17.37%), keeping step 0.05
+  [segments=2] trial 24: targetRate=0.9400 -> mean network accuracy=16.94% (191847ms)
+    -> no improvement at step 0.0500, halving to 0.0250
+  [segments=2] trial 25: targetRate=0.9650 -> mean network accuracy=17.19% (192398ms)
+    -> no improvement at step 0.0250, halving to 0.0125
+  [segments=2] trial 26: targetRate=0.9775 -> mean network accuracy=17.28% (192789ms)
+    -> no improvement at step 0.0125, halving to 0.0063
+  [segments=2] trial 27: targetRate=0.9838 -> mean network accuracy=17.27% (192338ms)
+    -> no improvement at step 0.0063, halving to 0.0031
+  [segments=2] trial 28: targetRate=0.9869 -> mean network accuracy=16.90% (192240ms)
+    -> no improvement at step 0.0031, halving to 0.0016
+  best for segmentsPerNeuron=2: targetRate=0.9900, mean network accuracy=17.37%
+
+=== segmentsPerNeuron = 3 ===
+  [segments=3] trial 29: targetRate=0.5000 -> mean network accuracy=4.43% (182335ms)
+  [segments=3] trial 30: targetRate=0.5500 -> mean network accuracy=4.18% (184996ms)
+  [segments=3] trial 31: targetRate=0.4500 -> mean network accuracy=3.76% (180160ms)
+    -> no improvement at step 0.0500, halving to 0.0250
+  [segments=3] trial 32: targetRate=0.5250 -> mean network accuracy=4.28% (183668ms)
+  [segments=3] trial 33: targetRate=0.4750 -> mean network accuracy=4.27% (180193ms)
+    -> no improvement at step 0.0250, halving to 0.0125
+  [segments=3] trial 34: targetRate=0.5125 -> mean network accuracy=4.63% (182288ms)
+  [segments=3] trial 35: targetRate=0.4875 -> mean network accuracy=4.17% (182423ms)
+    -> improved: 0.5000 (4.43%) -> 0.5125 (4.63%), keeping step 0.0125
+    -> no improvement at step 0.0125, halving to 0.0063
+  [segments=3] trial 36: targetRate=0.5188 -> mean network accuracy=4.36% (183033ms)
+  [segments=3] trial 37: targetRate=0.5062 -> mean network accuracy=3.76% (183451ms)
+    -> no improvement at step 0.0063, halving to 0.0031
+  [segments=3] trial 38: targetRate=0.5156 -> mean network accuracy=4.17% (184909ms)
+  [segments=3] trial 39: targetRate=0.5094 -> mean network accuracy=3.92% (184755ms)
+    -> no improvement at step 0.0031, halving to 0.0016
+  best for segmentsPerNeuron=3: targetRate=0.5125, mean network accuracy=4.63%
+
+=== segmentsPerNeuron = 4 ===
+  [segments=4] trial 40: targetRate=0.5000 -> mean network accuracy=5.30% (186313ms)
+  [segments=4] trial 41: targetRate=0.5500 -> mean network accuracy=5.39% (188663ms)
+  [segments=4] trial 42: targetRate=0.4500 -> mean network accuracy=5.01% (182627ms)
+    -> improved: 0.5000 (5.30%) -> 0.5500 (5.39%), keeping step 0.05
+  [segments=4] trial 43: targetRate=0.6000 -> mean network accuracy=7.37% (187738ms)
+    -> improved: 0.5500 (5.39%) -> 0.6000 (7.37%), keeping step 0.05
+  [segments=4] trial 44: targetRate=0.6500 -> mean network accuracy=8.68% (340456ms)
+    -> improved: 0.6000 (7.37%) -> 0.6500 (8.68%), keeping step 0.05

@@ -176,6 +176,7 @@ fn run(with_homeostasis: bool) -> RunResult {
         sweep_interval_ticks: 25,
         unused_ticks_before_reclaim: 1_000_000, // this test is not about reclamation
         min_cross_partition_delay: 1,
+        max_sprout_source_index: None,
     };
 
     // One neighbourhood (size 8, k 7) covering sources[0..6]+target+rival:
