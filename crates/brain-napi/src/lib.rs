@@ -14,7 +14,7 @@ use brain_core::graph::{DistancePolicy, GraphBuilder};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
-use brain_core::plasticity::homeostatic::{HomeostaticScaling, SegmentThresholdHomeostasis};
+use brain_core::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, SegmentThresholdHomeostasis};
 use brain_core::plasticity::predictive::PredictiveLearningParams;
 use brain_core::plasticity::stdp::StdpParams;
 use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams};
@@ -298,6 +298,27 @@ pub struct SegmentThresholdHomeostasisConfig {
     pub interval_ticks: u32,
 }
 
+/// Self-tuning k-WTA sparsity (inhibition-homeostasis spec, Requirement 1)
+/// -- `InhibitionHomeostasis`'s FFI-layer mirror, same shape as
+/// `SegmentThresholdHomeostasisConfig` above except `minK` in place of
+/// `minThreshold` (the tuned quantity is a neighbourhood winner count, not
+/// a threshold) and no `initialK` field: the scheme's starting `k` is
+/// already known from the scheduler's own `InhibitionConfig.k`, so
+/// `build_scheduler` reads it from there rather than asking the caller to
+/// repeat it. Omit to leave `inhibition`'s `k` fixed exactly as before this
+/// existed, matching every pre-existing caller. Meaningless without
+/// `inhibition` also configured (there is no `k` to adjust), but this is
+/// not validated here, matching `SegmentThresholdHomeostasisConfig`'s own
+/// stated precedent.
+#[napi(object)]
+pub struct InhibitionHomeostasisConfig {
+    pub target_rate: f64,
+    pub smoothing: f64,
+    pub adjustment_rate: f64,
+    pub min_k: f64,
+    pub interval_ticks: u32,
+}
+
 /// Structural plasticity (LRN-7, Phase 5 Requirement 9.2/9.6) -- the
 /// `HomeostaticScalingConfig` companion. Omit to leave `step()`'s
 /// structural sweep disabled, matching every pre-Phase-5 caller.
@@ -546,6 +567,7 @@ struct SchedulerConfig {
     homeostatic_scaling: Option<HomeostaticScalingConfig>,
     structural_plasticity: Option<StructuralPlasticityConfig>,
     segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
+    inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
 }
 
 fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
@@ -587,6 +609,19 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
             cfg.adjustment_rate as f32,
             cfg.min_threshold as f32,
             cfg.interval_ticks.max(1),
+        ));
+    }
+    // Requires `config.inhibition` too (there is no `k` to adjust otherwise)
+    // -- `initial_k` is read from it rather than duplicated onto
+    // `InhibitionHomeostasisConfig`, see that type's own doc comment.
+    if let (Some(cfg), Some(inhibition)) = (&config.inhibition_homeostasis, &config.inhibition) {
+        scheduler = scheduler.with_inhibition_homeostasis(InhibitionHomeostasis::new(
+            cfg.target_rate as f32,
+            cfg.smoothing as f32,
+            cfg.adjustment_rate as f32,
+            cfg.min_k as f32,
+            cfg.interval_ticks.max(1),
+            inhibition.k as f32,
         ));
     }
     scheduler
@@ -772,6 +807,7 @@ impl NativeSimulation {
         homeostatic_scaling: Option<HomeostaticScalingConfig>,
         structural_plasticity: Option<StructuralPlasticityConfig>,
         segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
+        inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
         thread_count: Option<u32>,
         total_neurons: Option<u32>,
     ) -> Result<Self> {
@@ -788,6 +824,7 @@ impl NativeSimulation {
             homeostatic_scaling,
             structural_plasticity,
             segment_threshold_homeostasis,
+            inhibition_homeostasis,
         };
         let runtime = if thread_count > 1 {
             let total_neurons = total_neurons.ok_or_else(|| {
@@ -1543,6 +1580,7 @@ impl NativeSimulation {
         homeostatic_scaling: Option<HomeostaticScalingConfig>,
         structural_plasticity: Option<StructuralPlasticityConfig>,
         segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
+        inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
     ) -> Result<Self> {
         // Note: no `synapse_cap_per_neuron` parameter here -- the snapshot
         // payload already carries it (`write_synapses` stores it, and
@@ -1594,6 +1632,23 @@ impl NativeSimulation {
                 cfg.adjustment_rate as f32,
                 cfg.min_threshold as f32,
                 cfg.interval_ticks.max(1),
+            ));
+        }
+        // inhibition-homeostasis spec, Requirement 1: like
+        // segment_threshold_homeostasis above, this mechanism's own tuning
+        // state (rate_estimate/k_estimate/last_applied_at) is not part of
+        // the snapshot payload -- only `inhibition`'s live `k` is genuine
+        // simulation state, and that already round-trips via `inhibition`
+        // itself above. Requires `inhibition` too, same reason as
+        // `build_scheduler`'s own guard.
+        if let (Some(cfg), Some(inhib)) = (&inhibition_homeostasis, &inhibition) {
+            scheduler = scheduler.with_inhibition_homeostasis(InhibitionHomeostasis::new(
+                cfg.target_rate as f32,
+                cfg.smoothing as f32,
+                cfg.adjustment_rate as f32,
+                cfg.min_k as f32,
+                cfg.interval_ticks.max(1),
+                inhib.k as f32,
             ));
         }
         scheduler.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);

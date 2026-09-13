@@ -40,3 +40,23 @@ test("rewardSignal omitted leaves the network deterministic (RUN-3) across repea
   assert.ok(Number.isFinite(rewarded.networkAccuracy) && rewarded.networkAccuracy >= 0 && rewarded.networkAccuracy <= 1);
   assert.notDeepEqual(rewarded, baselineA, "configuring rewardSignal: 'correctness' must produce a measurably different result from the unconfigured baseline");
 });
+
+// inhibition-homeostasis spec, Requirement 1: `inhibitionHomeostasis`
+// omitted (the default) must leave today's behaviour bit-for-bit
+// unaffected, mirroring the `rewardSignal` test above -- proves the new
+// FFI parameter (added across brain-napi/lib.rs, packages/brain, and this
+// harness) actually reaches the native scheduler and does something, not
+// just that it typechecks.
+test("inhibitionHomeostasis omitted leaves the network deterministic (RUN-3) across repeated runs, and a configured target measurably changes it", () => {
+  const config = { ...DEFAULT_CONFIG, slidingWindow: 100 };
+  const baselineA = runCharPredictionTrial(corpus, 1n, config);
+  const baselineB = runCharPredictionTrial(corpus, 1n, config);
+  assert.deepEqual(baselineB, baselineA, "the unconfigured (inhibitionHomeostasis omitted) path must be bit-identical across repeated runs of the same seed/config");
+
+  const tuned = runCharPredictionTrial(corpus, 1n, {
+    ...config,
+    inhibitionHomeostasis: { targetRate: 0.02, smoothing: 0.9, adjustmentRate: 4.0, minK: 1, intervalTicks: 20 },
+  });
+  assert.ok(Number.isFinite(tuned.networkAccuracy) && tuned.networkAccuracy >= 0 && tuned.networkAccuracy <= 1);
+  assert.notDeepEqual(tuned, baselineA, "configuring inhibitionHomeostasis with a target far from today's fixed k/size ratio must produce a measurably different result from the unconfigured baseline");
+});

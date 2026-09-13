@@ -38,7 +38,7 @@
 // candidate set or redefining "accuracy" -- see `runCharPredictionTrial`
 // below, which reports the real, comparable numbers either way.
 
-import { Simulation, type LifConfig, type SimulationOptions, type ColumnConfig, type SegmentThresholdHomeostasisConfig } from "@brain/core";
+import { Simulation, type LifConfig, type SimulationOptions, type ColumnConfig, type SegmentThresholdHomeostasisConfig, type InhibitionHomeostasisConfig } from "@brain/core";
 import { wrapColumnHandles, type ColumnHandle } from "../columns.ts";
 import { encodeChar, SUPPORTED_ALPHABET, type CharEncoderConfig } from "../encoders/text.ts";
 import { decode, type Candidate } from "../decoders/overlap.ts";
@@ -94,6 +94,18 @@ export interface CharPredictionConfig {
    * version is what mirrors `ThreeFactorParams`'s own precedent.
    */
   readonly rewardSignal?: "correctness";
+  /**
+   * Self-tuning k-WTA sparsity (inhibition-homeostasis spec, Requirement
+   * 1) -- a field on this config, matching `segmentThresholdHomeostasis`'s
+   * own rationale above, so a tuning script can vary it per trial. Targets
+   * `buildNetwork`'s top-level scheduler `inhibition` (the k-WTA that caps
+   * how many neurons commit a spike per tick), not `columnConfig`'s own
+   * `k` (that one feeds a column's dendritic/predictive-learning
+   * neighbourhood, a different, unaffected quantity). `undefined` disables
+   * the mechanism entirely, leaving `inhibition.k` fixed at
+   * `round(width * density)` exactly as before this existed.
+   */
+  readonly inhibitionHomeostasis?: InhibitionHomeostasisConfig;
 }
 
 export const DEFAULT_CONFIG: CharPredictionConfig = {
@@ -171,6 +183,7 @@ export function buildNetwork(
   width: number,
   segmentThresholdHomeostasis: SegmentThresholdHomeostasisConfig | undefined = DEFAULT_CONFIG.segmentThresholdHomeostasis,
   rewardSignal: CharPredictionConfig["rewardSignal"] = DEFAULT_CONFIG.rewardSignal,
+  inhibitionHomeostasis: InhibitionHomeostasisConfig | undefined = DEFAULT_CONFIG.inhibitionHomeostasis,
 ): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 };
   const options: SimulationOptions = {
@@ -188,6 +201,13 @@ export function buildNetwork(
     // overlap against the observed activity, and decode() stops
     // discriminating between them at all.
     inhibition: { neighbourhoodSize: width, k: Math.max(1, Math.round(width * NETWORK_DENSITY)) },
+    // inhibition-homeostasis spec, Requirement 1: self-tunes the k above
+    // toward a target population activity rate instead of it staying
+    // fixed at `round(width * density)` for the network's whole lifetime
+    // (README §12 decision 10). Spread rather than assigned directly, same
+    // `exactOptionalPropertyTypes` reasoning as `segmentThresholdHomeostasis`
+    // below.
+    ...(inhibitionHomeostasis !== undefined && { inhibitionHomeostasis }),
     // Found 2026-09-11 (README §11 Phase 5 status, §12a item 6's
     // neighbour finding): this line was missing entirely. `columnConfig`
     // below sets a `segments` value on the *column*, but a column's own
@@ -288,7 +308,7 @@ export interface TrialResult {
 export function runCharPredictionTrial(corpus: string, seed: bigint, config: CharPredictionConfig = DEFAULT_CONFIG): TrialResult {
   const encoderConfig = charEncoderConfig(config.width, config.density);
   const candidates = buildCandidates(encoderConfig);
-  const { sim, column } = buildNetwork(seed, config.width, config.segmentThresholdHomeostasis, config.rewardSignal);
+  const { sim, column } = buildNetwork(seed, config.width, config.segmentThresholdHomeostasis, config.rewardSignal, config.inhibitionHomeostasis);
   const trigram = new TrigramModel();
   const networkAcc = new SlidingWindowAccuracy(config.slidingWindow);
   const trigramAcc = new SlidingWindowAccuracy(config.slidingWindow);

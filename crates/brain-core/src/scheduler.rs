@@ -30,7 +30,7 @@ use crate::inhibition::FixedNeighbourhoods;
 use crate::metrics::{FiringRateMeter, PredictionAccuracyMeter};
 use crate::neuromodulator::NeuromodulatorField;
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
-use crate::plasticity::homeostatic::{HomeostaticScaling, SegmentThresholdHomeostasis};
+use crate::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, SegmentThresholdHomeostasis};
 use crate::plasticity::predictive::{PredictingSegmentTracker, PredictiveLearning, PredictiveLearningParams};
 use crate::plasticity::structural::StructuralPlasticity;
 use crate::plasticity::{LocalContext, Modulators, NeuronLocal, RuleChain, SynapseMut};
@@ -319,6 +319,13 @@ pub struct Scheduler {
     firing_rate: FiringRateMeter,
     /// Always-on prediction accuracy (OBS-2, Requirement 5.1, Phase 6).
     prediction_accuracy: PredictionAccuracyMeter,
+    /// `None` means `inhibition`'s `k` never adjusts itself (README §12
+    /// decision 10) -- the default, and zero extra cost when never
+    /// configured, same shape as `segment_threshold_homeostasis`. When
+    /// attached via [`Self::with_inhibition_homeostasis`], `step()` nudges
+    /// `inhibition`'s `k` toward a target population activity rate instead
+    /// of it staying whatever a human picked at construction time.
+    inhibition_homeostasis: Option<InhibitionHomeostasis>,
 }
 
 impl Scheduler {
@@ -357,6 +364,7 @@ impl Scheduler {
             probes: HashMap::new(),
             firing_rate: FiringRateMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
             prediction_accuracy: PredictionAccuracyMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
+            inhibition_homeostasis: None,
         }
     }
 
@@ -528,6 +536,20 @@ impl Scheduler {
         self
     }
 
+    /// Enables self-tuning k-WTA sparsity (inhibition-homeostasis spec,
+    /// Requirement 1) as an always-on, opt-in part of `step()`, mirroring
+    /// [`Self::with_segment_threshold_homeostasis`] exactly: `ih`'s sweep
+    /// runs at the end of every tick, at whatever interval it was
+    /// constructed with, nudging `inhibition`'s `k` toward a target
+    /// population activity rate instead of it staying fixed forever.
+    /// Meaningless without `with_inhibition` also configured (there is no
+    /// `k` to adjust), but this does not enforce that ordering, matching
+    /// `with_segment_threshold_homeostasis`'s own stated precedent.
+    pub fn with_inhibition_homeostasis(mut self, ih: InhibitionHomeostasis) -> Self {
+        self.inhibition_homeostasis = Some(ih);
+        self
+    }
+
     /// Disables inhibition (Requirement 7.5's ablation path): every
     /// threshold crossing becomes an official spike unconditionally.
     pub fn disable_inhibition(&mut self) {
@@ -536,6 +558,13 @@ impl Scheduler {
 
     pub fn inhibition_enabled(&self) -> bool {
         self.inhibition.is_some()
+    }
+
+    /// The live `k` of the current inhibition scheme, if any -- exposed for
+    /// tests observing `with_inhibition_homeostasis`'s effect, mirroring
+    /// `segment_threshold_raw_state`'s own "expose for tests" precedent.
+    pub fn inhibition_k(&self) -> Option<u32> {
+        self.inhibition.as_ref().map(|i| i.k())
     }
 
     pub fn tick(&self) -> u32 {
@@ -1074,6 +1103,26 @@ impl Scheduler {
         if let Some(homeostasis) = &mut self.segment_threshold_homeostasis {
             let touched: Vec<u32> = (0..self.segment_threshold.len() as u32).collect();
             homeostasis.maybe_apply(&mut self.segment_threshold, &mut self.segment_rate_estimate, &self.segment_last_depolarised_tick, &touched, report.tick);
+        }
+        // inhibition-homeostasis spec, Requirement 1: a sixth always-on,
+        // opt-in sweep alongside the five above. Gated on `self.inhibition`
+        // also being `Some` -- if inhibition was never configured there is
+        // no `k` to adjust, and feeding a bogus `observed = 0` (since
+        // nothing ever competes without a scheme) into the EMA for that
+        // degenerate combination would be meaningless. Reads `neurons`
+        // directly (the owning arena, not a view) for the same reason
+        // `homeostatic_scaling`/`structural_plasticity` do above: their
+        // borrow through `neuron_view`/`synapse_view` has already ended.
+        if let Some(ih) = &mut self.inhibition_homeostasis {
+            if let Some(old) = &self.inhibition {
+                let live_count = neurons.live_count();
+                let observed = if live_count == 0 { 0.0 } else { report.spiked.len() as f32 / live_count as f32 };
+                ih.record_activity(observed);
+                if let Some(new_k) = ih.maybe_apply(report.tick) {
+                    let clamped_k = new_k.min(old.size()).max(1);
+                    self.inhibition = Some(FixedNeighbourhoods::with_base(old.base(), old.size(), clamped_k));
+                }
+            }
         }
 
         report

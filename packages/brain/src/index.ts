@@ -25,6 +25,7 @@ import {
   type HomeostaticScalingConfig,
   type StructuralPlasticityConfig,
   type SegmentThresholdHomeostasisConfig,
+  type InhibitionHomeostasisConfig,
   type ProbeOptionsFfi,
   type ProbeDataFfi,
   type SegmentSampleFfi,
@@ -48,6 +49,7 @@ export type {
   HomeostaticScalingConfig,
   StructuralPlasticityConfig,
   SegmentThresholdHomeostasisConfig,
+  InhibitionHomeostasisConfig,
 };
 
 /** A probe's configuration (OBS-1, Phase 6 Requirement 4). */
@@ -120,6 +122,16 @@ export interface SimulationOptions {
    * at this boundary (matches `predictiveLearning`'s own precedent).
    */
   segmentThresholdHomeostasis?: SegmentThresholdHomeostasisConfig;
+  /**
+   * Self-tuning k-WTA sparsity (inhibition-homeostasis spec, Requirement
+   * 1): `inhibition`'s `k` adjusts toward a target population activity
+   * rate instead of staying fixed at whatever was passed to `inhibition`
+   * for the network's whole lifetime. Omit to leave `inhibition.k` fixed
+   * exactly as before this existed -- meaningless without `inhibition`
+   * also configured (there is no `k` to adjust), but not validated at this
+   * boundary, matching `segmentThresholdHomeostasis`'s own precedent.
+   */
+  inhibitionHomeostasis?: InhibitionHomeostasisConfig;
   /**
    * Number of native threads `PartitionRuntime` should use (Requirement 7
    * AC1, Phase 4 RUN-4). Omit or pass 1 for today's exact single-threaded
@@ -365,6 +377,7 @@ export class Simulation {
         options.homeostaticScaling ?? null,
         options.structuralPlasticity ?? null,
         options.segmentThresholdHomeostasis ?? null,
+        options.inhibitionHomeostasis ?? null,
         options.threadCount ?? null,
         options.totalNeurons ?? null,
       ),
@@ -408,6 +421,7 @@ export class Simulation {
       options.homeostaticScaling ?? null,
       options.structuralPlasticity ?? null,
       options.segmentThresholdHomeostasis ?? null,
+      options.inhibitionHomeostasis ?? null,
     );
     return new Simulation(native, lif, options);
   }
