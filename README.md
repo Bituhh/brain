@@ -2278,21 +2278,58 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     that guess was already close to optimal on this axis, at least among {1,2,3,4} — it does not
     prove the guess was *lucky*. `DEFAULT_CONFIG` is unchanged: there is nothing better to switch to.
 
-    One shape worth naming rather than glossing over: segmentsPerNeuron=1 and =3 both converged to a
-    `targetRate` near `0.5`, from a search that only ever explored roughly `[0.45, 0.55]` for either
-    of them (every step in either direction from the neutral 0.5 starting point stopped improving
-    quickly, so the coordinate search's shrinking-step convergence criterion triggered there) —
-    unlike segmentsPerNeuron=2 and =4, both of which climbed, in many small uphill steps, all the
-    way to the `targetRate` boundary near `0.99`. A greedy coordinate search cannot discover a
-    second, better peak on the far side of a valley it never had reason to cross, so whether 1 and 3
-    also have an undiscovered high-`targetRate` peak (mirroring 2 and 4) is a real, currently
-    unanswered question, not ruled out by this search's own convergence. A follow-up coarse grid
-    check (`scripts/verify-wider-segments-fixed-rates.ts`, run one `segmentsPerNeuron` value per
-    process against four fixed `targetRate` values — 0.25, 0.5, 0.75, 0.99 — for `segmentsPerNeuron`
-    in {1, 3, 5, 6, 7, 8, 9, 10, 11, 12}) was started the same day to check both this and whether
-    `segmentsPerNeuron > 4` (outside this search's own explicitly-scoped range) ever does better;
-    results were not yet available at the time of this entry and will be recorded honestly here once
-    they land, whichever way they point.
+    **Correction, same day: the table above understates segmentsPerNeuron=1 and =3 by a wide
+    margin — both entries were a local optimum, not the best this search space actually holds.**
+    segmentsPerNeuron=1 and =3 both converged to a `targetRate` near `0.5`, from a coordinate
+    search that only ever explored roughly `[0.45, 0.55]` for either of them (every step in either
+    direction from the neutral 0.5 starting point stopped improving quickly, so the search's
+    shrinking-step convergence criterion triggered there) — unlike segmentsPerNeuron=2 and =4, both
+    of which climbed, in many small uphill steps, all the way to the `targetRate` boundary near
+    `0.99`. A greedy coordinate search cannot discover a second, better peak on the far side of a
+    valley it never had reason to cross, and that is exactly what happened here, confirmed rather
+    than merely suspected: `scripts/verify-wider-segments-fixed-rates.ts`, a coarse fixed-grid
+    check (four `targetRate` values — 0.25, 0.5, 0.75, 0.99 — one `segmentsPerNeuron` value per
+    process, run for `segmentsPerNeuron` in {1, 3, 5, 6, 7, 8, 9, 10, 11, 12}) found:
+
+    | segmentsPerNeuron | accuracy at targetRate=0.99 | vs. this table's original "best" |
+    |---|---|---|
+    | 1 | **16.65%** | 8.94% — the coordinate search missed a 7.7-point-better peak |
+    | 3 | **15.27%** | 4.63% — the coordinate search missed a 10.6-point-better peak |
+    | 5 | 15.71% | (not searched by the coordinate search) |
+    | 6 | 15.42% | (not searched by the coordinate search) |
+    | 7 | 15.29% | (not searched by the coordinate search) |
+    | 8 | 13.62% | (not searched by the coordinate search) |
+    | 9 | 11.38% | (not searched by the coordinate search) |
+    | 10 | 11.49% | (not searched by the coordinate search) |
+    | 11 | 12.68% | (not searched by the coordinate search) |
+    | 12 | 12.41% | (not searched by the coordinate search) |
+
+    Full per-value trial data (all four fixed `targetRate` points, 5 seeds each) is in
+    `scripts/verify-wider-segments-fixed-rates.segments-*.results.md`, one file per
+    `segmentsPerNeuron` value.
+
+    **What this changes, and what it does not.** `segmentsPerNeuron=2, targetRate=0.99` — today's
+    `DEFAULT_CONFIG` — is still the best configuration found anywhere across both passes (17.37%,
+    ahead of segmentsPerNeuron=1's corrected 16.65%), so `DEFAULT_CONFIG` remains unchanged. What
+    does change is the *shape* of the story: segmentsPerNeuron=1 and =3 are not fundamentally worse
+    architectures that happen to peak low — they were simply under-explored by a search whose
+    starting point cost it the real peak, and their true optimum (only checked at four points here,
+    not searched to convergence) may sit higher still than the 16.65%/15.27% now recorded. This is a
+    real methodological gap worth naming for future coordinate searches in this codebase, not
+    specific to this one: starting from a single neutral midpoint is cheap but can silently strand a
+    search on the wrong side of a valley, and a boundary spot-check (as done here, after the fact)
+    is a cheap insurance policy a search could just as easily run up front. Going *wider* than the
+    original {1,2,3,4} range, by contrast, is not where the gap was — every value from 5 through 12
+    tops out below segmentsPerNeuron=2's 17.37%, with a generally declining trend (noisy in the
+    8–12 range, where per-seed spread is wide enough — e.g. segmentsPerNeuron=9's 8.00%–15.95% — that
+    the exact ordering among those four should not be over-read).
+
+    One measurement worth flagging rather than quietly accepting: segmentsPerNeuron=1 at
+    `targetRate=0.99` returned the *identical* 16.65% on all 5 seeds — no spread at all, unlike
+    every other row measured in this entire investigation. Not yet explained; recorded honestly as
+    an open observation rather than papered over, in case it turns out to matter (e.g. a saturation
+    regime at this specific combination of extreme settings that happens to be seed-insensitive, as
+    opposed to a measurement artefact).
 11. **Polarity is a first-class concept in the type system and invisible to every mechanism that
     acts on it — found 2026-09-13 during a §2-against-§3–§9-against-code review.** NEU-4 and
     invariant 3 are correctly implemented at the point of transmission

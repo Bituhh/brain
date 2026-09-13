@@ -1,0 +1,7 @@
+segmentsPerNeuron=9: checking targetRate in {0.25, 0.5, 0.75, 0.99} (fixed-grid verification, not a search)
+  targetRate=0.2500 -> mean network accuracy=2.51% (range 2.20%-2.95%, 562168ms)
+  targetRate=0.5000 -> mean network accuracy=11.36% (range 9.20%-13.05%, 605607ms)
+  targetRate=0.7500 -> mean network accuracy=12.37% (range 10.10%-14.75%, 596380ms)
+  targetRate=0.9900 -> mean network accuracy=11.38% (range 8.00%-15.95%, 367462ms)
+
+Done. Results written to C:\projects\brain\scripts\verify-wider-segments-fixed-rates.segments-9.results.md
