@@ -18,6 +18,16 @@ export interface StreamStep<T, L> {
   readonly input: T;
   readonly predicted: DecodeResult<L> | undefined;
   readonly actual: L;
+  /**
+   * The primary column's observed activity this step was decoded from, or
+   * `undefined` when no primary column exists. Exposed so a caller can run
+   * its own analysis beyond `decode`'s single winning candidate -- e.g.
+   * `rankByOverlapFraction` (`decoders/overlap.ts`) for a representational-
+   * collision signal (NET-10) -- without this harness needing to know
+   * about that caller's own purpose. Already computed internally to
+   * produce `predicted`; this just stops discarding it.
+   */
+  readonly observed: Sdr | undefined;
 }
 
 export interface StreamThroughOptions<T, L> {
@@ -68,7 +78,8 @@ export function* streamThrough<T, L>(options: StreamThroughOptions<T, L>): Gener
     for (let tick = 0; tick < ticksPerInput; tick++) {
       spiked = sim.step();
     }
-    const predicted = primary ? decode(primary.observedSdr(spiked), candidates, minConfidence) : undefined;
-    yield { input, predicted, actual: actualLabelOf(input) };
+    const observed = primary ? primary.observedSdr(spiked) : undefined;
+    const predicted = observed ? decode(observed, candidates, minConfidence) : undefined;
+    yield { input, predicted, actual: actualLabelOf(input), observed };
   }
 }

@@ -791,6 +791,47 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
       `recordGrowthActivation()`. Growth-policy state (`hits`/`total`/`last_grown_at`) round-trips
       through snapshot/restore (format version 7, `RUN-9a`) — resolved now rather than left an
       unstated gap, since the state involved is three `u32`s.
+    - **Wired into VAL-4 on request and retested — a real, honest regression, not an improvement.**
+      `packages/io/src/milestone/charPrediction.ts` gained `growth`/`structuralPlasticity` config
+      fields (structural plasticity is not optional here — `apply_growth` wires zero synapses for a
+      new neuron, so without sprouting a grown neuron never receives input and never fires; growth
+      alone is inert). Grown neurons land past `columnConfig`'s own `width` (800), never directly
+      stimulated or decoded (`ColumnHandle`'s range is fixed at construction, and re-encoding
+      `buildCandidates` at a wider space after growth would scramble every candidate's hash-derived
+      bit pattern) — they are hidden/internal capacity only, which structural plasticity's sprouting
+      is meant to wire into the visible population's dendritic segments. The collision signal
+      (Requirement 1 Acceptance Criterion 2) is a genuine SDR-overlap margin, not a proxy: a new
+      `rankByOverlapFraction` (`packages/io/src/decoders/overlap.ts`) and an `observed: Sdr` field
+      added to `StreamStep` (`packages/io/src/harness/stream.ts`) let `runCharPredictionTrial` feed
+      `sim.recordGrowthActivation` from "does the top candidate's overlap fraction beat the
+      runner-up's by less than `collisionMargin`," which is what Requirement 1 AC2 actually asked
+      for. Measured on the same protocol as every VAL-4 number above (15,000-character slice, this
+      run's own fresh baseline for a fair same-run comparison, seeds `[1,2,3]`, `ceiling = width +
+      400`, structural-plasticity sprout `neighbourhoodSize: 100, k: 10`): **mean network accuracy
+      falls from 18.33% (baseline, no growth) to 4.91%** — roughly a 3.7× regression, not an
+      improvement, with one seed landing at 0.13%, below chance (1/97 ≈ 1.03%). Trigram is unaffected
+      (29.07% both runs, as expected). Runtime also regressed 7.2× (768s vs. 106s for the 3-seed
+      batch). VAL-4 remains **not met** either way. (The 18.33% fresh baseline is itself higher than
+      the historical 3.23% figure earlier in this section — that older number predates
+      `DEFAULT_CONFIG`'s current `segmentThresholdHomeostasis` tuning, so it is not the number this
+      comparison is against; growth vs. no-growth was measured in the same run, same code, for a fair
+      comparison.) **Diagnosed, not merely hypothesised**: instrumenting a single full-length run
+      (sampling `metricsSnapshot()`/`liveNeuronCount()`/`growthEventCount()` every 1,500 characters)
+      shows growth reaching its configured `ceiling` almost immediately — 400 neurons added within
+      the first 10% of the run (`collisionThreshold: 0.5`/`minTicksBetweenGrowth: 100` were far too
+      permissive for how often this network's tick-2 representation is ambiguous). Accuracy is still
+      fine at the exact tick the ceiling is reached (17.60%, matching the no-growth baseline) —
+      **immediately after, it collapses to 1.6–5% and never recovers** for the remaining ~78% of the
+      run, while synapse count and mean permanence settle into a flat steady-state at the same point
+      (structural plasticity reaches equilibrium, but a bad one). This narrows the original hypothesis:
+      it is not that sprouting is inherently disruptive — accuracy held up fine while growth was still
+      ramping up — it is that **growth firing too fast, all at once, produced a burst of structural
+      churn that knocked `segmentThresholdHomeostasis`'s already-narrow-tolerance dendritic thresholds
+      out of their converged equilibrium, with no time left in the run to re-stabilise**. A gentler
+      growth pace (higher `collisionThreshold`, longer `minTicksBetweenGrowth`, smaller
+      `neuronsPerTrigger`, spreading the same capacity over most of the run instead of the first 10%)
+      is the natural next experiment, untried as of this entry. `growth`/`structuralPlasticity` stay
+      `undefined` in `DEFAULT_CONFIG` — zero behaviour change for every existing caller.
 
 ---
 

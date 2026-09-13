@@ -38,10 +38,19 @@
 // candidate set or redefining "accuracy" -- see `runCharPredictionTrial`
 // below, which reports the real, comparable numbers either way.
 
-import { Simulation, type LifConfig, type SimulationOptions, type ColumnConfig, type SegmentThresholdHomeostasisConfig, type InhibitionHomeostasisConfig } from "@brain/core";
+import {
+  Simulation,
+  type LifConfig,
+  type SimulationOptions,
+  type ColumnConfig,
+  type SegmentThresholdHomeostasisConfig,
+  type InhibitionHomeostasisConfig,
+  type GrowthConfig,
+  type StructuralPlasticityConfig,
+} from "@brain/core";
 import { wrapColumnHandles, type ColumnHandle } from "../columns.ts";
 import { encodeChar, SUPPORTED_ALPHABET, type CharEncoderConfig } from "../encoders/text.ts";
-import { decode, type Candidate } from "../decoders/overlap.ts";
+import { decode, rankByOverlapFraction, type Candidate } from "../decoders/overlap.ts";
 import { streamThrough } from "../harness/stream.ts";
 import { SlidingWindowAccuracy } from "../metrics.ts";
 import { TrigramModel } from "../baseline/trigram.ts";
@@ -106,7 +115,56 @@ export interface CharPredictionConfig {
    * `round(width * density)` exactly as before this existed.
    */
   readonly inhibitionHomeostasis?: InhibitionHomeostasisConfig;
+  /**
+   * Saturation-driven growth (NET-10, invariant 10). `undefined` (default)
+   * leaves population size fixed at `width` exactly as before this
+   * existed. **Only meaningful together with `structuralPlasticity`
+   * below** -- `apply_growth` wires zero synapses for a newly grown
+   * neuron (by design, NET-10's own Out of Scope), so without structural
+   * plasticity's sprouting a grown neuron never receives input and never
+   * fires: pure inert capacity, not a real experiment. Grown neurons land
+   * at indices `>= width`, past `columnConfig`'s own `neighbourhoodSize`/
+   * candidate-addressable range -- they are *hidden* capacity only, never
+   * directly stimulated (`ColumnHandle.stimulateSdr`) or directly decoded
+   * (`ColumnHandle.observedSdr`), both of which stay scoped to the
+   * original `[0, width)` column range for the lifetime of a
+   * `Simulation` (re-encoding `buildCandidates` at a wider space on every
+   * growth event would scramble every candidate's bit pattern via
+   * `encodeChar`'s hash-based encoding, silently discarding whatever the
+   * network had already learned about the old ones). This tests whether
+   * *internal* capacity for `structuralPlasticity` to wire into the
+   * visible population's dendritic segments helps discriminate 97
+   * candidates more distinctly -- not whether a bigger visible/decoded
+   * population would.
+   */
+  readonly growth?: GrowthConfig;
+  /**
+   * Structural plasticity (LRN-7) -- see `growth`'s doc comment above for
+   * why this is the mechanism that actually makes growth do anything here.
+   * `undefined` (default) leaves `step()`'s structural sweep disabled,
+   * exactly as before this existed (no synapse is ever pruned or sprouted
+   * automatically).
+   */
+  readonly structuralPlasticity?: StructuralPlasticityConfig;
+  /**
+   * The growth-policy collision signal (Requirement 1 AC2 of the
+   * saturation-driven-growth spec): after each character, the top two
+   * candidates' overlap-fraction margin (`rankByOverlapFraction`) is
+   * compared against this threshold -- a margin *below* it means the
+   * network's tick-2 representation does not clearly separate its best
+   * guess from the runner-up, which is NET-10's own definition of
+   * saturation ("unable to represent new input without unacceptable
+   * interference with what it already holds"). A tick with essentially no
+   * activity (top fraction ~0) is excluded -- that is "nothing fired," a
+   * different failure mode, not representational collision. Only read
+   * when `growth` is configured; `undefined` defaults to `0.1`.
+   */
+  readonly collisionMargin?: number;
 }
+
+const DEFAULT_COLLISION_MARGIN = 0.1;
+/** Below this, a tick's best-candidate overlap fraction is treated as "no real activity" rather than a collision, regardless of margin. */
+const MIN_ACTIVITY_FRACTION_FOR_COLLISION = 0.05;
 
 export const DEFAULT_CONFIG: CharPredictionConfig = {
   width: NETWORK_WIDTH,
@@ -184,6 +242,8 @@ export function buildNetwork(
   segmentThresholdHomeostasis: SegmentThresholdHomeostasisConfig | undefined = DEFAULT_CONFIG.segmentThresholdHomeostasis,
   rewardSignal: CharPredictionConfig["rewardSignal"] = DEFAULT_CONFIG.rewardSignal,
   inhibitionHomeostasis: InhibitionHomeostasisConfig | undefined = DEFAULT_CONFIG.inhibitionHomeostasis,
+  growth: GrowthConfig | undefined = DEFAULT_CONFIG.growth,
+  structuralPlasticity: StructuralPlasticityConfig | undefined = DEFAULT_CONFIG.structuralPlasticity,
 ): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 };
   const options: SimulationOptions = {
@@ -238,6 +298,13 @@ export function buildNetwork(
     // `undefined`", and `SimulationOptions.segmentThresholdHomeostasis`'s
     // `undefined` case (mechanism disabled) must omit the field entirely.
     ...(segmentThresholdHomeostasis !== undefined && { segmentThresholdHomeostasis }),
+    // NET-10 / LRN-7: see `CharPredictionConfig.growth`'s doc comment for
+    // why these two are spread together rather than independently --
+    // growth without structural plasticity would allocate neurons no
+    // synapse ever reaches. Same `exactOptionalPropertyTypes` spread-only-
+    // if-defined convention as every optional mechanism above.
+    ...(growth !== undefined && { growth }),
+    ...(structuralPlasticity !== undefined && { structuralPlasticity }),
     predictiveLearning: {
       significanceThreshold: 0.5,
       reinforceAmount: 0.08,
@@ -308,7 +375,16 @@ export interface TrialResult {
 export function runCharPredictionTrial(corpus: string, seed: bigint, config: CharPredictionConfig = DEFAULT_CONFIG): TrialResult {
   const encoderConfig = charEncoderConfig(config.width, config.density);
   const candidates = buildCandidates(encoderConfig);
-  const { sim, column } = buildNetwork(seed, config.width, config.segmentThresholdHomeostasis, config.rewardSignal, config.inhibitionHomeostasis);
+  const { sim, column } = buildNetwork(
+    seed,
+    config.width,
+    config.segmentThresholdHomeostasis,
+    config.rewardSignal,
+    config.inhibitionHomeostasis,
+    config.growth,
+    config.structuralPlasticity,
+  );
+  const collisionMargin = config.collisionMargin ?? DEFAULT_COLLISION_MARGIN;
   const trigram = new TrigramModel();
   const networkAcc = new SlidingWindowAccuracy(config.slidingWindow);
   const trigramAcc = new SlidingWindowAccuracy(config.slidingWindow);
@@ -334,6 +410,20 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
     // entirely, matching today's behaviour exactly.
     if (config.rewardSignal === "correctness") {
       sim.reward(hit ? 1.0 : 0.0);
+    }
+    // NET-10's collision signal (`CharPredictionConfig.collisionMargin`'s
+    // doc comment): a no-op call when `growth` is not configured --
+    // `Simulation.recordGrowthActivation` is a harmless forward whether or
+    // not anything is listening, matching `sim.reward`'s own precedent
+    // just above. Guarded on `step.observed` existing (always true here,
+    // one primary column) purely to satisfy the type -- `undefined` only
+    // happens with zero columns, which this harness never has.
+    if (config.growth !== undefined && step.observed !== undefined) {
+      const ranked = rankByOverlapFraction(step.observed, candidates);
+      const top = ranked[0]?.fraction ?? 0;
+      const runnerUp = ranked[1]?.fraction ?? 0;
+      const wasCollision = top >= MIN_ACTIVITY_FRACTION_FOR_COLLISION && top - runnerUp < collisionMargin;
+      sim.recordGrowthActivation(wasCollision);
     }
     const trigramPrediction = trigram.predict(context);
     if (trigramPrediction !== undefined) {

@@ -53,3 +53,18 @@ export function decode<L>(observed: Sdr, candidates: ReadonlyArray<Candidate<L>>
   }
   return { label: candidates[bestIndex]!.label, overlap: bestOverlap, confident: true };
 }
+
+/**
+ * Every candidate's overlap fraction against `observed`, sorted descending
+ * (ties keep `candidates`' own order -- `Array.prototype.sort` is stable).
+ * `decode` above deliberately only ever returns the single winner; a caller
+ * that needs to know *how much better* the winner is than the runner-up --
+ * e.g. NET-10's saturation-driven growth, which treats a narrow margin
+ * between the top two candidates as a representational-collision signal --
+ * needs the full ranking, not just the best match. Purely a function of
+ * `observed` and `candidates`, same as `decode` (Requirement 7.4): no
+ * weight, no gradient, no error signal of any kind is read or written.
+ */
+export function rankByOverlapFraction<L>(observed: Sdr, candidates: ReadonlyArray<Candidate<L>>): Array<{ label: L; fraction: number }> {
+  return candidates.map((candidate) => ({ label: candidate.label, fraction: overlapFraction(observed, candidate.sdr) })).sort((a, b) => b.fraction - a.fraction);
+}
