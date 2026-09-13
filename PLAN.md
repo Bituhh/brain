@@ -932,7 +932,7 @@ what it is and is not expected to buy.
 | ID | Status | Completed | Duration | Notes |
 |---|---|---|---|---|
 | A1 | done | 2026-09-13 20:10 +0100 | ~19 min* | `packages/io/src/canonicalBrain.ts` + `canonicalBrain.test.ts`; found & closed NEU-7's missing FFI surface along the way — see README §11 Phase 7 status and §13.12 item 13 |
-| A2 | done | 2026-09-13 20:22 +0100 | not logged | `scheduler.rs`'s `apply_local_effect` (`signed_current.signum()`), new `tests/invariants.rs` property test, README §13.12 item 11(a)/(b) updated — see README for the two design calls recorded there |
+| A2 | done | 2026-09-13 20:29 +0100 | ~47 min† | `scheduler.rs`'s `apply_local_effect` (`signed_current.signum()`), new `tests/invariants.rs` property test, README §13.12 item 11(a)/(b) updated — see README for the two design calls recorded there |
 | A3 | not started | | | |
 | B1 | not started | | | critical path |
 | B2 | not started | | | |
@@ -950,3 +950,5 @@ what it is and is not expected to buy.
 | F6 | not started | | | |
 
 *A1's duration is measured from its first file edit (19:51 +0100) to the completing commit (20:10 +0100) — this session has no independently logged start time, so it excludes the research/reading phase (README, PLAN.md, `charPrediction.ts`, `scheduler.rs`/`lib.rs`) that preceded that first edit, and understates the real total. Future items should log a start timestamp here (or in the item's own commit trail) when work begins, so this column can be a real measurement rather than a partial one.
+
+†A2's duration is measured from this session's own start (its working-directory's creation timestamp, 19:43:15 +0100 — the session opened immediately after A1's completing commit, per the prompt's own house-rules read-first step) to the completing commit (`bab577d`, 20:29:51 +0100). Unlike A1's figure, this one includes the README/PLAN.md/`scheduler.rs`/`tests/invariants.rs` reading phase that preceded the first edit, so it is the more complete of the two measurements taken so far.
