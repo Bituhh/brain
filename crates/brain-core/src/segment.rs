@@ -131,8 +131,8 @@ mod tests {
 
     #[test]
     fn above_threshold_still_returns_exactly_one_value() {
-        // Requirement 10.6: the binary implementation returns one of two
-        // values -- not a magnitude that scales with how far over
+        // Requirement 10.6, NEU-6a: the binary implementation returns one
+        // of two values -- not a magnitude that scales with how far over
         // threshold the count is.
         let params = BinaryCoincidenceParams { threshold: 10 };
         assert_eq!(BinaryCoincidence::evaluate(50.0, &SegmentState, &params), Depolarisation(1.0));

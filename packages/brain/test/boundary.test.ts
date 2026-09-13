@@ -1,4 +1,5 @@
-// Boundary tests for the zero-copy FFI contract (Requirement 2, Plan Step 3).
+// Boundary tests for the zero-copy FFI contract (Requirement 2, Plan Step 3, ENG-8, ENG-2's
+// `unsafe` typed-array views).
 //
 // This is where zero-copy bugs actually live (design.md's Testing Strategy,
 // Layer 3): these tests run against the real compiled native addon, not

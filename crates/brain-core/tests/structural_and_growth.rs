@@ -199,7 +199,7 @@ fn snapshot_survives_a_real_structural_sweep_and_growth() {
 
 #[test]
 fn a_restored_network_can_grow_and_keep_learning_without_discarding_prior_learning() {
-    // Requirement 16.9: after restore, neurons and synapses must be
+    // Requirement 16.9, RUN-9b: after restore, neurons and synapses must be
     // addable to the network and learning must continue, without
     // discarding what was already learned before the snapshot.
     let (neurons, synapses, sched, a, b, syn) = train(150);

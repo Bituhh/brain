@@ -11,7 +11,7 @@ function candidates(): Candidate<string>[] {
   ];
 }
 
-test("decode returns the highest-overlap candidate (Requirement 7.1)", () => {
+test("decode returns the highest-overlap candidate (Requirement 7.1, IO-3)", () => {
   const observed = makeSdr(20, [0, 1, 2, 9]); // 3/4 overlap with "a", 0 with the others
   const result = decode(observed, candidates(), 0.1);
   assert.equal(result?.label, "a");

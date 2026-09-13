@@ -410,6 +410,7 @@ mod tests {
         assert!((membrane - input).abs() < 1e-3, "membrane should converge to steady state = input");
     }
 
+    /// NEU-1: exercises membrane, last-spike and refractory-until together.
     #[test]
     fn spike_resets_and_enters_refractory() {
         let params = LifParams::new(5.0, 0.0, 0.0, 3);
@@ -507,7 +508,7 @@ mod tests {
 
     /// Requirement 4.4: firing rate under constant supra-threshold current
     /// must match the closed-form LIF solution within tolerance.
-    /// Requirement 14.1's LIF half.
+    /// Requirement 14.1's LIF half. NEU-2, VAL-1.
     #[test]
     fn firing_rate_matches_closed_form_solution() {
         let tau_m = 50.0f32;

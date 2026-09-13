@@ -23,9 +23,10 @@
     "test": "node scripts/run-ts-tests.mjs fast",
     "test:ts:slow": "node scripts/run-ts-tests.mjs slow",
     "test:fast": "cargo test --workspace && cargo clippy --workspace --tests -- -D warnings && npm run build && npm run typecheck && npm run test",
-    "test:slow": "cargo test --workspace --release -- --ignored --skip regenerate_golden_rasters && npm run test:golden && npm run test:ts:slow && npm run check:traceability",
+    "test:slow": "cargo test --workspace --release -- --ignored --skip regenerate_golden_rasters && npm run test:golden && npm run test:ts:slow && npm run check:traceability && npm run check:requirement-ids",
     "test:golden": "cargo test -p brain-core --release --test golden matches_golden -- --ignored --nocapture",
     "test:golden:regen": "cargo test -p brain-core --release --test golden regenerate_golden_rasters -- --ignored --nocapture",
-    "check:traceability": "node scripts/check-traceability.mjs"
+    "check:traceability": "node scripts/check-traceability.mjs",
+    "check:requirement-ids": "node scripts/check-requirement-coverage.mjs"
   }
 }

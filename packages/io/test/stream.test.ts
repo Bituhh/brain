@@ -99,7 +99,7 @@ test("streamThrough advances the simulation's tick counter by ticksPerInput per 
   assert.equal(sim.currentTick(), before + 9, "3 inputs * 3 ticksPerInput must advance the tick counter by exactly 9");
 });
 
-test("streamThrough: plasticity remains active throughout, with no train/inference mode switch (Requirement 9.2)", () => {
+test("streamThrough: plasticity remains active throughout, with no train/inference mode switch (Requirement 9.2, IO-4)", () => {
   // Reuses the exact binary threshold-crossing technique already proven in
   // packages/brain/test/boundary.test.ts's "Simulation.reward measurably
   // changes a plasticity outcome" test, driven through streamThrough this

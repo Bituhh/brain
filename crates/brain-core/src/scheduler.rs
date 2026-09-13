@@ -1778,6 +1778,8 @@ mod tests {
         assert!(neurons.membrane[b as usize] < 0.0, "inhibitory source must deliver negative current (Dale, NEU-4)");
     }
 
+    /// RUN-1: work is proportional to spikes -- a silent neuron costs
+    /// nothing (never enters the set the scheduler actually iterates).
     #[test]
     fn a_silent_neuron_never_enters_the_dirty_set() {
         let mut neurons = NeuronArena::new();

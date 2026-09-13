@@ -382,6 +382,8 @@ mod tests {
         assert_eq!(run(), run());
     }
 
+    /// NET-1: a directed multigraph, not a layered structure -- recurrence,
+    /// loops and self-connections are legal by construction.
     #[test]
     fn self_connections_and_cycles_are_permitted() {
         let mut neurons = NeuronArena::new();

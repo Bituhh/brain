@@ -192,7 +192,7 @@ mod tests {
         }
     }
 
-    /// Requirement 8.10.
+    /// Requirement 8.10, LRN-9.
     #[test]
     fn rule_chain_applies_rules_in_order_and_clamps_afterward() {
         let a = Box::new(RecordingRule { delivery_calls: 0.into(), post_spike_calls: 0.into() });

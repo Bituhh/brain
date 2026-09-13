@@ -933,7 +933,7 @@ what it is and is not expected to buy.
 |---|---|---|---|---|
 | A1 | done | 2026-09-13 20:10 +0100 | ~19 min* | `packages/io/src/canonicalBrain.ts` + `canonicalBrain.test.ts`; found & closed NEU-7's missing FFI surface along the way — see README §11 Phase 7 status and §13.12 item 13 |
 | A2 | done | 2026-09-13 20:29 +0100 | ~16 min† | `scheduler.rs`'s `apply_local_effect` (`signed_current.signum()`), new `tests/invariants.rs` property test, README §13.12 item 11(a)/(b) updated — see README for the two design calls recorded there |
-| A3 | not started | | | |
+| A3 | done | 2026-09-13 21:05 +0100 | ~22 min‡ | `scripts/check-requirement-coverage.mjs` (sibling script, README ids), wired into `npm run test:slow`; RUN-9b annotated plus ~15 other genuine test citations added; 27-entry `DEFERRED` list records every real gap the sweep found — see README §13.12 item 15 |
 | B1 | not started | | | critical path |
 | B2 | not started | | | |
 | C1 | not started | | | |
@@ -952,3 +952,5 @@ what it is and is not expected to buy.
 *A1's duration is measured from its first file edit (19:51 +0100) to the completing commit (20:10 +0100) — this session has no independently logged start time, so it excludes the research/reading phase (README, PLAN.md, `charPrediction.ts`, `scheduler.rs`/`lib.rs`) that preceded that first edit, and understates the real total. Future items should log a start timestamp here (or in the item's own commit trail) when work begins, so this column can be a real measurement rather than a partial one.
 
 †A2's duration is measured from this session's actual start (20:14 +0100, per the user) to the completing commit (`bab577d`, 20:29:51 +0100) — ~16 min, including the README/PLAN.md/`scheduler.rs`/`tests/invariants.rs` reading phase that preceded the first edit. An earlier version of this note used the working directory's creation timestamp (19:43:15 +0100) as a proxy for session start and got ~47 min; that proxy was wrong (stale/reused temp directory, not this session's actual start) and the user corrected it. Lesson for next time: don't infer a session's start time from filesystem metadata — log it explicitly, or ask.
+
+‡A3's duration is measured from this session's actual start (20:43 +0100, per the user) to 21:05 +0100 (per the user, prompting this note's update) — ~22 min, including the README/PLAN.md/`check-traceability.mjs` reading phase that preceded the first edit. No completing commit exists yet at the time this note was written, so 21:05 stands in for it; per †'s lesson, this is a logged, user-given timestamp, not an inference from filesystem metadata.

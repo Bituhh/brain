@@ -477,6 +477,8 @@ mod tests {
         assert_eq!(r3.index, a.index);
     }
 
+    /// RUN-2: touches the arena's flat per-field `Vec`s directly -- the
+    /// structure-of-arrays layout, not a struct-per-neuron.
     #[test]
     fn allocate_resets_all_hot_fields() {
         let mut arena = NeuronArena::new();

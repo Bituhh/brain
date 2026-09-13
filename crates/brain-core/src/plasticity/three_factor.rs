@@ -156,8 +156,8 @@ mod tests {
 
     #[test]
     fn modulator_at_unity_reduces_to_plain_stdp() {
-        // Requirement 8.8, tested literally: with modulator == 1.0, the
-        // permanence change from one event must equal
+        // Requirement 8.8, LRN-4, tested literally: with modulator == 1.0,
+        // the permanence change from one event must equal
         // learning_rate * eligibility_after_this_event -- i.e. exactly
         // the STDP-shaped contribution, undiluted by any modulation.
         let rule = ThreeFactorStdp::new(ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0));
@@ -217,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn eligibility_decays_between_touches() {
+    fn eligibility_decays_between_touches() { // LRN-3
         let rule = ThreeFactorStdp::new(ThreeFactorParams::new(stdp(), 50.0, 1.0, 0));
         let mut fx = Fixture::new();
         fx.last_active = 0;

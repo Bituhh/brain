@@ -2541,11 +2541,11 @@ Three claims, in decreasing order of confidence that they are unprecedented.
       (Bittner et al., 2017) as the candidate that reuses LRN-3's existing seconds-scale
       eligibility trace and NEU-6's dendritic event, and item 5(d)'s `cap_per_neuron` constraint
       remains the real blocker.
-    - **RUN-9b is met but untraceable.** `tests/structural_and_growth.rs`'s
-      `a_restored_network_can_grow_and_keep_learning_without_discarding_prior_learning` is exactly
-      RUN-9b and cites no requirement ID, so VAL-10's traceability check would score a *must* as
-      unimplemented. A grep for requirement IDs across the tree is a cheap standing check that
-      does not currently exist.
+    - **RUN-9b is met but untraceable — closed 2026-09-13, PLAN.md item A3.** `tests/
+      structural_and_growth.rs`'s `a_restored_network_can_grow_and_keep_learning_without_
+      discarding_prior_learning` is exactly RUN-9b and cited no requirement ID, so VAL-10's
+      traceability check would have scored a *must* as unimplemented. Now annotated, and the
+      standing check this bullet asked for exists — see item 15.
     - **"Every column runs the identical algorithm" (NET-4) is presently true for an
       uninteresting reason: there is no per-column algorithm.** A `Scheduler` holds at most one
       `FixedNeighbourhoods` and one `SegmentConfig` for every neuron it owns; a column is a
@@ -2556,6 +2556,47 @@ Three claims, in decreasing order of confidence that they are unprecedented.
       column model (Hawkins et al., 2019) actually specifies: an input layer, an output layer, and
       voting between *output* layers. NET-5 as built is a reasonable first step toward that and
       should not be read as having reached it.
+
+15. **A standing check now exists over README's own requirement IDs, and it found more gaps than
+    item 14 named — 2026-09-13, PLAN.md item A3.** `scripts/check-requirement-coverage.mjs` builds
+    an inventory over every `NEU-*`/`SYN-*`/`LRN-*`/`NET-*`/`RUN-*`/`IO-*`/`ENG-*`/`OBS-*`/`VAL-*`/
+    `VIZ-*` id in §3–§9's tables — a different id space from `check-traceability.mjs`'s numbered
+    `requirements.md` criteria — and sorts every one into cited-by-a-test, mentioned-in-code-but-
+    no-test, or not-mentioned-anywhere. Wired into `npm run test:slow` as `check:requirement-ids`,
+    run `--list` for the full per-id membership. Item 14's four (NET-6, NET-8, NET-11, LRN-12) and
+    RUN-9b's missing citation (now added) were the known cases; sweeping the other 84 ids surfaced
+    genuinely new findings, all now recorded in the script's own `DEFERRED` list rather than papered
+    over with invented citations:
+    - **NEU-3 (pluggable neuron dynamics) has never been exercised with a second implementation.**
+      `Lif` is the only `NeuronDynamics` impl this codebase ever builds; swappability is a
+      structural claim the type system permits but nothing demonstrates.
+    - **RUN-7 (partition assignment minimises cross-partition edges) is unverified, not merely
+      uncited.** `PartitionRuntime::cross_partition_edge_fraction` exists to measure exactly this
+      and is never called — not by a test, not by any production path.
+    - **RUN-9c (snapshot size proportional to live structure) is likewise never measured** — the
+      existing snapshot round-trip tests check correctness after growth/pruning, never byte size.
+    - **RUN-6 (atomics for shared state) is a known, already-documented gap** (its own §6 table row
+      already says "not yet met for the neuromodulator field"); this check independently confirms
+      no atomic type appears anywhere in `crates/brain-core/src`.
+    - **RUN-1a (0.1 ms default tick) is the same finding `check-traceability.mjs` already carries
+      under its own id space's '5.2'** — ticks stay unit-agnostic pending a real `BrainConfig`.
+    - **IO-6 (motor output effector) is a genuine unbuilt *could*** beyond item 14's four: IO-5's
+      sensorimotor loop is built, driving an actual effector is not.
+    - **A cluster of architecture-level requirements are true by inspection, not by a named test**
+      — LRN-1 (no-backprop is type-enforced), RUN-1b (fixed grid, no priority-queue type exists to
+      compare against), IO-2/ENG-5 (dependency-free by omission from `package.json`/`Cargo.toml`,
+      unasserted), ENG-1/ENG-4/ENG-7/ENG-10 (repo shape and API-surface facts), ENG-3 (TypeScript
+      `strict` is a `tsconfig.json` setting, checked by `typecheck`, not a named test), ENG-9 (hot-
+      path discipline has no enforcing lint yet), and VAL-5/VAL-10/VAL-11 (each describes the test
+      suite or tooling's own shape — this script and its sibling *are* VAL-10, `test:fast`/
+      `test:slow` *are* VAL-11's split). None of these are false; none currently has a test that
+      would fail if they became false.
+    - **VIZ-1/VIZ-3 (visualiser rendering, time-scrubbing) are real, built browser client code**
+      with no DOM/browser test harness in this zero-runtime-dependency shell to assert rendered
+      output against.
+    - **RUN-10/RUN-11 (WASM, WebGPU) remain exactly the documented non-goals their own table rows
+      already describe** — "not mentioned anywhere" here is confirming those rows, not contradicting
+      them.
 
 ### 13.13 Mechanisms the evidence base names but §3–§9 does not specify
 

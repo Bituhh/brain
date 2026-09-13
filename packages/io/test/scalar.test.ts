@@ -19,7 +19,7 @@ test("encodeScalar is deterministic (Requirement 2.3)", () => {
   assert.deepEqual(a.activeBits, b.activeBits);
 });
 
-test("encodeScalar: close values overlap substantially, far values overlap little or not at all (Requirement 3.2)", () => {
+test("encodeScalar: close values overlap substantially, far values overlap little or not at all (Requirement 3.2, IO-1)", () => {
   const cfg = config();
   const base = encodeScalar(cfg, 50);
   const close = encodeScalar(cfg, 51);
