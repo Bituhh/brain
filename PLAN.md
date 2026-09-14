@@ -53,6 +53,7 @@ graph TD
 
     B1["B1 · Split weight from permanence<br/><i>2–4 sessions · heavy review</i>"]
     B2["B2 · Verify growth deadlock dissolved<br/><i>1 session + runs</i>"]
+    B3["B3 · Newborn neurons: pre-wired + hyperexcitable<br/><i>2–3 sessions + runs</i>"]
 
     C1["C1 · Wire consolidation into the loop<br/><i>1 session + runs</i>"]
     C2["C2 · Noradrenaline from prediction error<br/><i>1–2 sessions</i>"]
@@ -80,6 +81,9 @@ graph TD
     A1 --> A4
     A4 --> B1
     B1 --> B2
+    B2 --> B3
+    B3 --> D3
+    B3 -.-> E1
     B1 --> C1
     B1 --> D1
     B1 --> E1
@@ -114,6 +118,14 @@ downscale semantics, and the `cap_per_neuron` work. Nothing downstream of it is 
 requires snapshot continuation to stay bit-identical, and that does not hold today once periodic
 sweeps are live — so without A4, B1 cannot tell its own bugs from a pre-existing one.
 
+**B3 exists because B1 was necessary but not sufficient** (added 2026-09-14, while B2 was still
+running). Splitting weight from permanence opened one of three locks on a newborn neuron; the other
+two — sprouting requires *both* ends to have already fired, and every internal synapse lands on a
+dendritic segment that can prime a cell but never fire it — are still shut. B3 implements the
+biological answer instead: a newborn arrives already wired to whatever is active, and temporarily
+easy to excite. It gates D3 because the canonical brain has growth on, and is strongly preferred
+before E1, since a persistent brain that cannot grow contradicts invariant 10.
+
 **Phase G is housekeeping** found during the same verification. G1 needs only A3 and is best done
 before D3, which is when vetoed segments first become visible. G2 waits for A4 and B1, because both
 change the sweeps it has to wire up.
@@ -133,6 +145,7 @@ wide change to the arena addressing scheme that cross-partition routing depends 
 | **A4** | Snapshot every sweep's state (RUN-9a) + a golden scenario that can see the engine | A1 | 1 session | — |
 | **B1** | Split `weight` from `permanence` | A1, A2, A4 | 2–4 sessions | **heavy review** |
 | **B2** | Verify the NET-10 growth deadlock is dissolved | B1 | 1 session | ~1 hour of runs |
+| **B3** | Newborn neurons arrive pre-wired to active inputs and hyperexcitable, then mature or die | B2 | 2–3 sessions | **1 design call** + hours of runs |
 | **C1** | Wire `runConsolidation` into the streaming loop | B1 | 1 session | hours of runs |
 | **C2** | Drive noradrenaline from prediction error | A1 | 1–2 sessions | 1 design call |
 | **D1** | `polarity` in `NeuronLocal` + E/I-aware `rescale_one` | B1 | 1 session | — |
@@ -509,6 +522,140 @@ pruned on its own merits.
 DONE WHEN. The six conditions are re-measured and reported honestly (including "still deadlocked"
 if that is the answer), README §13.12 item 10 carries the new table, and §11's phase status says
 whether NET-10 and invariant 10 are now actually met.
+```
+
+---
+
+### B3 — Newborn neurons: pre-wired to active inputs, hyperexcitable, then mature or die
+
+```
+Read README.md NET-7, NET-10, NET-11, LRN-7, NEU-6, NEU-7, SYN-3, §10 invariants 1, 4 and 10,
+§12 decision 11 (B1's weight/permanence split), and ALL of §13.12 item 10 including its
+2026-09-13 addendum and whatever B2 recorded there. Then PLAN.md §4. Assumes B2 has landed.
+
+WHY THIS ITEM EXISTS. B1 split weight from permanence, and README §13.12 items 10 and 12 predicted
+that would "dissolve the growth deadlock as a side effect". It did not: B2's re-run still shows
+grown neurons that never fire. That prediction was wrong, and the reason is that a newborn neuron is
+behind THREE locks, not one. B1 opened only the third:
+
+1. ELIGIBILITY LOCK. `StructuralPlasticity::sprout` (crates/brain-core/src/plasticity/structural.rs,
+   the two `activity_streak < min_activity_streak` checks, ~lines 162 and 171) requires BOTH the
+   source and the target to have fired for several consecutive sweeps. A neuron born with zero
+   synapses never fires, so it is never eligible as either. LRN-8's burst sprouting
+   (plasticity/predictive.rs) has the same shape: the source must be recently active, and the
+   target must be the neuron that just fired.
+2. WIRING-LOCATION LOCK. In any network with dendritic segments configured — which includes the
+   canonical brain and charPrediction.ts — every internal synapse lands on a DENDRITIC segment.
+   `GraphBuilder::connect` draws segment 0..segmentsPerNeuron (graph.rs ~line 199–203) and `sprout`
+   hard-codes segment 0 (structural.rs ~line 179). Dendritic input can only prime a cell (NEU-6), it
+   can never make it fire; only synapses targeting `segment::FEEDFORWARD_SEGMENT` (u32::MAX,
+   segment.rs ~line 92; see `apply_local_effect`'s `is_dendritic` check, scheduler.rs ~line 1098)
+   drive the soma. So in these networks the ONLY thing that ever makes a neuron fire is external
+   stimulation — and grown neurons are never stimulated. Even a fully wired newborn would stay
+   silent under today's rules.
+3. INVISIBLE-SYNAPSE LOCK — opened by B1. A new synapse can now be structurally connected with
+   near-zero weight and still be seen and strengthened by STDP.
+
+Also still true after B1: `reclaim_unused_neurons` (structural.rs ~line 192) exempts never-fired
+neurons, so dead-on-arrival newborns are immortal and keep their ceiling slot and synapse block.
+
+THE BIOLOGY TO FOLLOW. README §13.12 item 10's closing paragraph already names it under NET-11:
+exuberant activity-independent synaptogenesis plus newborn intrinsic hyperexcitability. Concretely,
+from adult hippocampal neurogenesis — the best-studied case of neurons joining a working circuit:
+- Inputs first, outputs later, attached to what is already active: dendrites of new neurons first
+  contact PRE-EXISTING presynaptic boutons already synapsing on other cells (Toni et al., Nat
+  Neurosci 2007).
+- Temporarily easy to excite and quick to learn: young granule cells have distinct membrane
+  properties and enhanced LTP (Schmidt-Hieber, Jonas & Bischofberger, Nature 2004), and raising a
+  newborn's intrinsic excitability measurably improves its integration (Lin et al., Neuron 2010).
+- Use it or lose it: many newborns die, and survival depends on their own synaptic input during a
+  critical window (Tashiro et al., Nature 2006).
+Honesty note for the README: adult neurogenesis is a hippocampal phenomenon, not a neocortical one.
+What is borrowed is the integration strategy, not a claim that cortex grows neurons in adulthood.
+
+WHERE A NEWBORN IS CREATED TODAY (verify, then change what the design below requires):
+- Arena index: `NeuronArena::allocate` (arena.rs ~line 182) reuses a freed slot if one exists,
+  otherwise appends. In practice newborns are appended past the original population.
+- Coordinates: every newborn gets the SAME point, `coords_origin` (scheduler.rs growth block,
+  ~line 1462). Distance-based wiring cannot tell newborns apart or place them near anything.
+- Column: the Rust ColumnRegistry's last column is extended (brain-napi lib.rs ~line 1453), but the
+  TypeScript ColumnHandle's range is fixed at construction, so newborns are never stimulated or
+  decoded.
+- Inhibition: FixedNeighbourhoods groups by contiguous index, so appended newborns form their OWN
+  competition group with the same k. Canonical brain: 50 newborns competing for k = 3 slots.
+  charPrediction.ts: up to 400 newborns competing for k = 64 slots — 16%, eight times the 2% target.
+  Hyperexcitable newborns in an over-generous group will flood it.
+
+THE TASK. Make a newborn neuron integrate, using the three-part biological strategy.
+
+1. INPUTS AT BIRTH (the design call — propose it, get the user's agreement, then build it).
+   Recommended default: wire each newborn's inputs from a sparse, deterministic random subset of the
+   neurons that were active in a short window before the growth event, targeting
+   FEEDFORWARD_SEGMENT, structurally connected (permanence at/above threshold) with a modest weight.
+   Reasoning: growth fires because the population could not represent what it was just seeing, so
+   the neurons active at that moment ARE the thing that needed more capacity. The newborn starts
+   selective for exactly that. This is scheduler-invoked wiring outside the PlasticityRule
+   interface — the same precedent `predictive.rs` already sets and README §12a item 5(b) says does
+   not violate invariant 1.
+   Alternatives to weigh and reject explicitly, with reasons: random by distance (activity
+   independent, but newborns share one coordinate so it is meaningless without fixing placement,
+   and they would represent noise); cloning an existing neuron's inputs (the copy may never
+   diverge, since ties break deterministically by index).
+   Details that must be settled: window length relative to when `should_grow` actually fires (the
+   saturation signal arrives from TypeScript via recordGrowthActivation and the policy may decide
+   later, so measure how well the chosen inputs overlap the pattern that caused the collision);
+   subset size and weight such that a realistic fraction of those inputs re-firing crosses the
+   newborn's LOWERED threshold; and every newborn drawing a DIFFERENT subset via
+   rng::derive_stream(seed, newborn_index, purpose, tick) so newborns do not duplicate each other.
+2. PLACEMENT. Give each newborn coordinates derived from its inputs (for example their centroid,
+   plus deterministic jitter) instead of the shared coords_origin, so later distance-based
+   mechanisms treat it as local to what it represents. Keep appended indices — do NOT redesign
+   inhibition here — but make sure the newborn group's sparsity stays at target (k relative to
+   group size) and record what you chose. Membership-based inhibition, if needed, belongs in F6.
+3. OUTPUTS LATER. No outgoing synapses at birth. Once a newborn fires, its activity streak builds
+   and LRN-7/LRN-8 treat it like any other neuron. Note that sprouted outputs land on dendritic
+   segment 0 of their targets, so a mature newborn contributes predictive CONTEXT to the existing
+   population — that is its route to affecting VAL-4. Confirm it actually happens.
+4. HYPEREXCITABILITY THAT MATURES. A newborn starts with a lowered firing threshold that relaxes to
+   normal over a maturation window. Prefer an explicit per-neuron birth tick over relying on
+   IntrinsicHomeostasis (NEU-7) to raise it: NEU-7 may be disabled, and coupling to its tuning makes
+   the window invisible. A birth tick is new per-neuron state, so it goes in the snapshot —
+   FORMAT_VERSION 9 -> 10 with a migration (existing neurons are "mature"). Elevated plasticity for
+   newborns is NET-11's local half; implement it only if integration fails without it, and record
+   the decision either way.
+5. SURVIVAL. At the end of the maturation window, a newborn that has not integrated (define it —
+   e.g. fired at least N times and holds at least one outgoing synapse) is reclaimed, replacing the
+   never-fired exemption FOR NEWBORNS ONLY. Before relying on reclaim, VERIFY what freeing a neuron
+   actually does: `NeuronArena::free` (arena.rs ~line 218) flips `alive` and pushes to the free
+   list but does not touch synapses, and a static read found no liveness check in delivery,
+   integration or pruning. If a freed slot keeps its old incoming and outgoing synapses — and the
+   next newborn reuses that slot via the free list — the newborn would inherit a dead neuron's
+   wiring. Confirm or rule that out with a test before building on it, and fix it if real.
+
+TESTS.
+- A focused Rust integration test: a driven network grows newborns; assert that newborns FIRE within
+  the window, acquire at least one outgoing synapse, that non-integrating ones are reclaimed, and
+  that reclaimed slots do not leak wiring into the next occupant.
+- VAL-9 ablations: without FEEDFORWARD input placement nothing fires; without hyperexcitability
+  measurably fewer newborns integrate. A mechanism that cannot be shown to matter is not yet
+  load-bearing.
+- Determinism (RUN-3) with growth on, and A4-style off-boundary snapshot continuation with newborns
+  mid-maturation (canonicalBrain.test.ts has the pattern).
+- Re-run B2's harness (scripts/investigate-growth-regression.ts): grown neurons should now have a
+  firstGrownSpikeTick, synapsesFromGrown should be non-zero, and conditions B–F should finally
+  differ from structural-plasticity-alone.
+
+CONSTRAINTS. Invariant 1 (locality) and 2 (no global gradient): choosing a newborn's inputs from
+recent spike times is local bookkeeping, not credit assignment — keep it that way. Invariant 4: the
+newborn group must not break sparsity. Growth remains single-threaded only (lib.rs rejects it with
+threadCount > 1); do not change that. char-prediction.slow.test.ts is a VAL-4 test — if you are
+unsure whether VAL-4 tuning is in progress, ask before running it.
+
+DONE WHEN. Newborns fire, wire outputs, and either mature or are reclaimed; the ablations and the
+slot-reuse test pass; B2's harness shows grown neurons participating; VAL-4 is measured on the
+5-seed protocol and reported honestly whichever way it moves; README §13.12 items 10 and 12 are
+corrected where they said the split alone would dissolve the deadlock; and NET-10's and invariant
+10's status say whether growth now adds functional capacity.
 ```
 
 ---
@@ -1162,6 +1309,7 @@ partitioned.
 | A4 | done | 2026-09-13 21:56 +0100 | ~27 min§ | Snapshot format version 7 → 8 (`crates/brain-core/src/snapshot.rs`): every periodic sweep's own scheduling state now round-trips; documented best-effort migration for v1-7 snapshots; second golden scenario (`engine_mechanisms_all_excitatory`, existing fixture unchanged); off-boundary continuation tests in both `canonicalBrain.test.ts` and `invariants.rs`, both confirmed to fail pre-fix — see README §11 Phase 7 status's A1 entry |
 | B1 | done | 2026-09-14 01:13 +0100 | not reliably measured¶ | New `weight` field split from `permanence` end to end (`synapse.rs`, `scheduler.rs`, `plasticity/*.rs`, `snapshot.rs` format version 8→9, `brain-napi`, `packages/brain`/`io`/`viz`); design decision + gotcha recorded at README §12 decision 11; outcome recorded at §13.12 item 12 and §11 Phase 7 status; VAL-4 re-measured at 18.03% (was 17.37%), still not met |
 | B2 | not started | | | |
+| B3 | not started | | | added 2026-09-14; 1 design call on input sources |
 | C1 | not started | | | |
 | C2 | not started | | | |
 | D1 | not started | | | |
