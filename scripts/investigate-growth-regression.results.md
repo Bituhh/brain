@@ -1,14 +1,18 @@
-# NET-10 growth-regression investigation -- Phase A results
+# NET-10 growth-regression investigation -- results
 
-Generated 2026-09-13T13:40:30.494Z by scripts/investigate-growth-regression.ts.
+Generated 2026-09-14T07:43:27.377Z by scripts/investigate-growth-regression.ts (PLAN.md B2 re-run, post-B1 weight/permanence split).
 
 5-seed official protocol (seeds [1,2,3,4,5], 15,000-character corpus slice, matching every other VAL-4 figure in README §13.12).
 
-| condition | mean network accuracy | range across seeds | mean trigram accuracy | wall-clock |
+The 30 (condition x seed) trials ran concurrently across a 6-worker-thread pool (one native Simulation per thread, no shared state). Each trial's own duration is still measured individually; "wall-clock" below is the *sum* of a condition's 5 individual trial durations -- a compute-time proxy comparable in spirit to Phase A's original sequential measurement -- not the actual (shorter) parallel batch time, which is logged separately below the table.
+
+| condition | mean network accuracy | range across seeds | mean trigram accuracy | wall-clock (summed per-seed) |
 |---|---|---|---|---|
-| A: baseline (no growth, no structural plasticity) | 17.37% | 15.75%-18.55% | 28.40% | 175.9s |
-| B: growth + structural plasticity, original (burst) pace | 13.04% | 5.20%-16.65% | 28.40% | 699.3s |
-| C: structural plasticity alone, no growth | 13.04% | 5.20%-16.65% | 28.40% | 696.9s |
-| D: growth + structural plasticity, burst pace, sprout-source-restricted | 13.04% | 5.20%-16.65% | 28.40% | 706.2s |
-| E: growth alone at a gentle pace + structural plasticity, unrestricted | 13.04% | 5.20%-16.65% | 28.40% | 729.7s |
-| F: growth at a gentle pace + structural plasticity, sprout-source-restricted | 13.04% | 5.20%-16.65% | 28.40% | 737.0s |
+| A: baseline (no growth, no structural plasticity) | 17.37% | 15.75%-18.55% | 28.40% | 236.0s |
+| B: growth + structural plasticity, original (burst) pace | 6.40% | 3.50%-13.10% | 28.40% | 6948.4s |
+| C: structural plasticity alone, no growth | 6.40% | 3.50%-13.10% | 28.40% | 7422.1s |
+| D: growth + structural plasticity, burst pace, sprout-source-restricted | 6.40% | 3.50%-13.10% | 28.40% | 7766.5s |
+| E: growth alone at a gentle pace + structural plasticity, unrestricted | 6.40% | 3.50%-13.10% | 28.40% | 8926.3s |
+| F: growth at a gentle pace + structural plasticity, sprout-source-restricted | 6.40% | 3.50%-13.10% | 28.40% | 10541.0s |
+
+Actual parallel batch wall-clock for all 30 trials: 7078.5s across 6 worker threads.

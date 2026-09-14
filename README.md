@@ -839,6 +839,18 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
       `neuronsPerTrigger`, spreading the same capacity over most of the run instead of the first 10%)
       is the natural next experiment, untried as of this entry. `growth`/`structuralPlasticity` stay
       `undefined` in `DEFAULT_CONFIG` — zero behaviour change for every existing caller.
+    - **NET-10 functional capacity (PLAN.md item B2, 2026-09-14): re-measured, still not met.** The
+      "NET-10 wired live" entry above is accurate for neuron *count* — `apply_growth` runs live in
+      `Scheduler::step` and the population genuinely grows. It is not accurate for functional
+      capacity: re-running §13.12 item 10's own six-condition script after B1 (the weight/permanence
+      split predicted would dissolve the deadlock) shows conditions B–F are still bit-for-bit
+      identical to C (structural plasticity alone, no growth) at every seed, and direct
+      instrumentation confirms why — grown neurons acquire zero synapses and never fire, across the
+      entire 15,000-character run, in every condition tried. See §13.12 item 10's own 2026-09-14
+      update for the full six-condition table, instrumentation, and diagnosis (a still-shut
+      eligibility gate, not the invisible-synapse problem B1 fixed). Invariant 10 ("capacity is
+      grown, not configured") is therefore still not met for anything beyond raw neuron count.
+      PLAN.md's B3 is scoped as the follow-up.
   - **Canonical "everything on" brain constructor (PLAN.md item A1): built.**
     `packages/io/src/canonicalBrain.ts` is the single place every mechanism `@brain/core` implements
     is wired together, live, by default, rather than left to whichever subset one experiment happens
@@ -2446,6 +2458,109 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     `weight` from `permanence`) and **B2** (re-run this item's own six-condition script once B1
     lands, to confirm the deadlock actually dissolves) scope this as ordered follow-up work; neither
     has been started as of this entry.
+
+    **Update, 2026-09-14 (PLAN.md B2): re-measured, not assumed — the split did not dissolve the
+    deadlock.** B1 landed (§12 decision 11); this item's own six-condition script
+    (`scripts/investigate-growth-regression.ts`) was re-run against it on the identical protocol (5
+    seeds, 15,000-character corpus slice), with two changes the split itself made necessary, not
+    cosmetic ones: `structuralPlasticityParams()`'s `sproutPermanence` moved from the pre-split value
+    (0.1, deliberately sub-threshold) to 0.35 (at/above `connectionThreshold`, matching
+    `buildNetwork`'s own `predictiveLearning.burstSproutPermanence`), paired with the new
+    `sproutWeight: 0.05` field — re-running the *old*, pre-split config would have silently
+    reproduced the very deadlock this re-run exists to test past. The official 30-trial battery also
+    now runs across a worker-thread pool (`investigate-growth-regression.worker.ts`) instead of
+    sequentially — with a caveat the script's own header records: a pool sized to
+    `os.cpus().length` (20 logical cores on the machine this ran on, a hybrid P-core/E-core CPU)
+    collapsed under contention (measured: ~1.2 of 20 cores busy on average, sustained over tens of
+    seconds, with 27 of 28 threads sitting in `Wait` rather than `Running`); capped at 6, the same
+    pool measured ~5.9 of 6 cores busy.
+
+    | condition | mean network accuracy | range across seeds |
+    |---|---|---|
+    | A: baseline (no growth, no structural plasticity) | 17.37% | 15.75%–18.55% |
+    | B: growth + structural plasticity, original (burst) pace | 6.40% | 3.50%–13.10% |
+    | C: structural plasticity alone, no growth | 6.40% | 3.50%–13.10% |
+    | D: growth + structural plasticity, burst pace, sprout-source-restricted | 6.40% | 3.50%–13.10% |
+    | E: growth alone at a gentle pace + structural plasticity, unrestricted | 6.40% | 3.50%–13.10% |
+    | F: growth at a gentle pace + structural plasticity, sprout-source-restricted | 6.40% | 3.50%–13.10% |
+
+    Condition A reproduces the original Phase A baseline almost exactly (17.37%, 15.75%–18.55% —
+    bit-identical), confirming the harness itself is unchanged and the comparison is apples-to-apples.
+    **B through F are still bit-for-bit identical to each other and to C, at every seed** — the exact
+    same signature Phase A found before B1 existed, just at a different absolute number (6.40% vs.
+    the original 13.04%) because `sproutPermanence`/`sproutWeight` themselves changed what structural
+    plasticity alone now does to the original 800-neuron population. Growth's presence, its pace, and
+    the sprout-source restriction still change nothing.
+
+    **Directly instrumented, not inferred: grown neurons never acquire a single synapse.** New
+    per-sample columns (`grownLive`, `synapsesOntoGrown`, `synapsesFromGrown`, `firstGrownSpike` —
+    read straight off `synapseOccupiedView`/`synapseTargetNeuronView`/`lastSpikeView`, not a proxy;
+    see the script's own doc comments) on conditions B, D and E's instrumented seed-1 runs: growth
+    reaches its full ceiling (`grownLive` = 400) by character 3,000 for the burst pace (B/D) or
+    character 10,500 for the gentle pace (E), and holds there for the remainder of the 15,000-
+    character run. **`synapsesOntoGrown` and `synapsesFromGrown` are exactly 0 at every single
+    sampled checkpoint, in every instrumented condition, for the entire run** — not one synapse,
+    sprouted or otherwise, ever touched a grown-neuron index in either direction. `firstGrownSpike`
+    stayed unset (`--`) throughout every run: no grown neuron was ever observed to fire, not once,
+    across 15,000 characters / ~30,000 ticks, at either growth pace.
+
+    **Diagnosed: this confirms the exact mechanism this item's own closing paragraph already named
+    as the "surgical option," not a new hypothesis.** B1 changes what happens *once a synapse to a
+    grown neuron exists* — the synapse becomes structurally connected and STDP-visible instead of
+    invisible. It does nothing to the separate, prior question of whether such a synapse can ever be
+    *created*. `StructuralPlasticity::sprout` (`structural.rs` ~lines 161–171) still requires
+    `activity_streak >= min_activity_streak` for *both* the candidate source and the candidate
+    target, and that streak is driven purely by `NeuronArena::last_spike`
+    (`update_activity_streaks`, ~line 122) — real spikes only. A neuron `apply_growth` allocates with
+    zero synapses can never receive current, so it can never spike, so its streak is pinned at 0, so
+    it can never become sprout-eligible as *either* role — identical to the pre-B1 analysis above,
+    because B1 never touched this gate at all. The instrumentation is the direct proof: growth adds
+    live neurons correctly (`grownLive` climbs exactly as configured), but the one mechanism that
+    could ever wire them in (`sprout`) never creates a single synapse in their direction, at any
+    pace, with or without the sprout-source restriction.
+
+    **The deadlock has (at least) three separate locks, not one — B1 opened only the third.**
+    Recorded here in full because PLAN.md's **B3** (added 2026-09-14, scoped independently while this
+    re-run was still in flight) found and named the first two precisely, and they belong in this
+    item's own record, not only in PLAN.md's task text:
+    1. **Eligibility lock** (above): both `sprout` and LRN-8's burst-sprout path
+       (`predictive.rs`'s `reinforce_or_sprout_burst`) require prior activity from a neuron that
+       structurally cannot have any.
+    2. **Wiring-location lock**: even a hypothetically-eligible sprout lands on dendritic segment 0
+       (`structural.rs`'s `sprout` hard-codes `0` as `synapses.insert`'s third argument), not
+       `FEEDFORWARD_SEGMENT`. Dendritic input only primes a neuron's prediction (NEU-6); only
+       feedforward synapses drive a spike (`apply_local_effect`'s `is_dendritic` check,
+       `scheduler.rs` ~line 1098). Grown neurons are never externally stimulated, so a dendritic-only
+       synapse could not make one fire even if lock 1 did not exist.
+    3. **Invisible-synapse lock** — the one B1 actually closed: a sub-threshold synapse used to be
+       skipped by `deliver` before `on_delivery` ever ran, making it unreachable by any plasticity
+       rule regardless of how it was created. B1 fixed this correctly, but it was never the binding
+       constraint at this network's scale — locks 1 and 2 are, and this re-run never gets far enough
+       to exercise lock 3 at all.
+
+    **`reclaim_unused_neurons`'s never-fired exemption (task step 5): left as-is — the honest answer
+    is "not yet a live question."** The exemption's cost, described in the 2026-09-13 addendum above,
+    is unchanged and confirmed directly here: 400 permanently-inert neurons (B/D/E all reach and hold
+    the full ceiling) each consuming a `growth.ceiling` slot and a reserved `cap_per_neuron` synapse
+    block for the entire run, counted in `PopulationStats::live_count` (which feeds the *next* growth
+    decision) despite contributing nothing. Removing the exemption today would not reclaim capacity
+    that is merely idle — every grown neuron would be reclaimed on the very next sweep after birth
+    (none of them ever clear `last_spike != u32::MAX`), making growth self-defeating by construction:
+    `apply_growth` would add capacity and `reclaim_unused_neurons` would remove the same capacity one
+    sweep later, regardless of whether it was ever given a fair chance to wire in. The exemption is
+    doing its intended job — the actual problem is that nothing currently gives a grown neuron that
+    chance. Revisit this once B3 (or any fix to locks 1/2 above) lets a grown neuron actually wire —
+    at that point, one that *still* never fires despite being wireable would be a legitimate reclaim
+    candidate, and today's blanket exemption would be worth narrowing.
+
+    **Consequence for invariant 10 and §11's Phase 7 status.** Phase 7's "NET-10 wired live: met"
+    finding is correct as far as it goes — `apply_growth` is live in `Scheduler::step`, and neuron
+    count genuinely grows. But invariant 10 ("capacity is grown, not configured") means *functional*
+    capacity, and this re-run shows that reading is still not met: growth adds population size and
+    nothing else, exactly as before B1. See §11's Phase 7 status for the corresponding update and
+    PLAN.md's **B3** for the scoped follow-up (a newborn neuron pre-wired to active inputs and
+    temporarily hyperexcitable, closing locks 1 and 2 together via the biological precedent adult
+    hippocampal neurogenesis already sets, rather than a narrow `sprout`-eligibility patch).
 
     **Phase B (`scripts/tune-segments-and-threshold.ts`), completed 2026-09-13: a full targetRate
     coordinate search at each of `segmentsPerNeuron` in {1, 2, 3, 4}, official 5-seed protocol at

@@ -1,6 +1,6 @@
 # NET-10 growth-regression investigation -- per-window instrumentation
 
-Generated 2026-09-13T13:40:30.496Z by scripts/investigate-growth-regression.ts. Seed 1 only, sampled every 1500 characters.
+Generated 2026-09-14T07:43:27.378Z by scripts/investigate-growth-regression.ts (PLAN.md B2 re-run). Seed 1 only, sampled every 1500 characters. Grown-neuron columns are new for B2 (PLAN.md task step 3): grownLive is liveNeuronCount - width; synapsesOntoGrown/synapsesFromGrown count occupied synapse slots whose target/source neuron index is >= width (the only mechanism that can create such a synapse here is structural-plasticity sprouting, since apply_growth itself allocates zero synapses); firstGrownSpikeTick is the exact tick (read from lastSpikeView, not char-resolution) the first grown neuron was observed to have fired, latched once and left blank until then.
 
 
 ### B: growth + structural plasticity, original (burst) pace
@@ -9,18 +9,18 @@ Reproduces the known regression as a sanity check the harness matches the prior 
 
 ## seed 1
 
-| char index | trailing-window accuracy | liveNeuronCount | growthEventCount | synapseCount | meanPermanence | sparsity |
-|---|---|---|---|---|---|---|
-| 1500 | 9.73% | 1160 | 9 | 76877 | 0.1969 | 5.52% |
-| 3000 | 10.75% | 1200 | 10 | 74389 | 0.1732 | 5.33% |
-| 4500 | 13.70% | 1200 | 10 | 70424 | 0.1701 | 5.33% |
-| 6000 | 12.05% | 1200 | 10 | 71289 | 0.1653 | 5.33% |
-| 7500 | 12.25% | 1200 | 10 | 73040 | 0.1608 | 5.33% |
-| 9000 | 15.50% | 1200 | 10 | 71841 | 0.1616 | 5.33% |
-| 10500 | 13.95% | 1200 | 10 | 68908 | 0.1698 | 5.33% |
-| 12000 | 14.30% | 1200 | 10 | 71941 | 0.1634 | 5.33% |
-| 13500 | 14.20% | 1200 | 10 | 70694 | 0.1697 | 5.33% |
-| 14999 | 14.75% | 1200 | 10 | 72122 | 0.1638 | 5.33% |
+| char index | trailing-window accuracy | liveNeuronCount | growthEventCount | synapseCount | meanPermanence | sparsity | grownLive | synapsesOntoGrown | synapsesFromGrown | firstGrownSpike |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1500 | 14.07% | 1160 | 9 | 66463 | 0.1739 | 5.52% | 360 | 0 | 0 | -- |
+| 3000 | 16.10% | 1200 | 10 | 69403 | 0.1410 | 5.33% | 400 | 0 | 0 | -- |
+| 4500 | 16.00% | 1200 | 10 | 64329 | 0.1379 | 5.33% | 400 | 0 | 0 | -- |
+| 6000 | 14.10% | 1200 | 10 | 67298 | 0.1402 | 5.33% | 400 | 0 | 0 | -- |
+| 7500 | 11.95% | 1200 | 10 | 69005 | 0.1393 | 5.33% | 400 | 0 | 0 | -- |
+| 9000 | 11.40% | 1200 | 10 | 67615 | 0.1351 | 5.33% | 400 | 0 | 0 | -- |
+| 10500 | 10.85% | 1200 | 10 | 62787 | 0.1480 | 5.33% | 400 | 0 | 0 | -- |
+| 12000 | 11.30% | 1200 | 10 | 68130 | 0.1345 | 5.33% | 400 | 0 | 0 | -- |
+| 13500 | 12.30% | 1200 | 10 | 66854 | 0.1402 | 5.33% | 400 | 0 | 0 | -- |
+| 14999 | 13.10% | 1200 | 10 | 68528 | 0.1301 | 5.33% | 400 | 0 | 0 | -- |
 
 ### D: growth + structural plasticity, burst pace, sprout-source-restricted
 
@@ -28,18 +28,18 @@ Same as B, but grown neurons (index >= 800) are excluded from ever being a sprou
 
 ## seed 1
 
-| char index | trailing-window accuracy | liveNeuronCount | growthEventCount | synapseCount | meanPermanence | sparsity |
-|---|---|---|---|---|---|---|
-| 1500 | 9.73% | 1160 | 9 | 76877 | 0.1969 | 5.52% |
-| 3000 | 10.75% | 1200 | 10 | 74389 | 0.1732 | 5.33% |
-| 4500 | 13.70% | 1200 | 10 | 70424 | 0.1701 | 5.33% |
-| 6000 | 12.05% | 1200 | 10 | 71289 | 0.1653 | 5.33% |
-| 7500 | 12.25% | 1200 | 10 | 73040 | 0.1608 | 5.33% |
-| 9000 | 15.50% | 1200 | 10 | 71841 | 0.1616 | 5.33% |
-| 10500 | 13.95% | 1200 | 10 | 68908 | 0.1698 | 5.33% |
-| 12000 | 14.30% | 1200 | 10 | 71941 | 0.1634 | 5.33% |
-| 13500 | 14.20% | 1200 | 10 | 70694 | 0.1697 | 5.33% |
-| 14999 | 14.75% | 1200 | 10 | 72122 | 0.1638 | 5.33% |
+| char index | trailing-window accuracy | liveNeuronCount | growthEventCount | synapseCount | meanPermanence | sparsity | grownLive | synapsesOntoGrown | synapsesFromGrown | firstGrownSpike |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1500 | 14.07% | 1160 | 9 | 66463 | 0.1739 | 5.52% | 360 | 0 | 0 | -- |
+| 3000 | 16.10% | 1200 | 10 | 69403 | 0.1410 | 5.33% | 400 | 0 | 0 | -- |
+| 4500 | 16.00% | 1200 | 10 | 64329 | 0.1379 | 5.33% | 400 | 0 | 0 | -- |
+| 6000 | 14.10% | 1200 | 10 | 67298 | 0.1402 | 5.33% | 400 | 0 | 0 | -- |
+| 7500 | 11.95% | 1200 | 10 | 69005 | 0.1393 | 5.33% | 400 | 0 | 0 | -- |
+| 9000 | 11.40% | 1200 | 10 | 67615 | 0.1351 | 5.33% | 400 | 0 | 0 | -- |
+| 10500 | 10.85% | 1200 | 10 | 62787 | 0.1480 | 5.33% | 400 | 0 | 0 | -- |
+| 12000 | 11.30% | 1200 | 10 | 68130 | 0.1345 | 5.33% | 400 | 0 | 0 | -- |
+| 13500 | 12.30% | 1200 | 10 | 66854 | 0.1402 | 5.33% | 400 | 0 | 0 | -- |
+| 14999 | 13.10% | 1200 | 10 | 68528 | 0.1301 | 5.33% | 400 | 0 | 0 | -- |
 
 ### E: growth alone at a gentle pace + structural plasticity, unrestricted
 
@@ -47,15 +47,15 @@ Same +400 capacity spread over most of the run instead of the first 10% -- check
 
 ## seed 1
 
-| char index | trailing-window accuracy | liveNeuronCount | growthEventCount | synapseCount | meanPermanence | sparsity |
-|---|---|---|---|---|---|---|
-| 1500 | 9.73% | 840 | 2 | 76877 | 0.1969 | 7.62% |
-| 3000 | 10.75% | 900 | 5 | 74389 | 0.1732 | 7.11% |
-| 4500 | 13.70% | 960 | 8 | 70424 | 0.1701 | 6.67% |
-| 6000 | 12.05% | 1020 | 11 | 71289 | 0.1653 | 6.27% |
-| 7500 | 12.25% | 1080 | 14 | 73040 | 0.1608 | 5.93% |
-| 9000 | 15.50% | 1140 | 17 | 71841 | 0.1616 | 5.61% |
-| 10500 | 13.95% | 1200 | 20 | 68908 | 0.1698 | 5.33% |
-| 12000 | 14.30% | 1200 | 20 | 71941 | 0.1634 | 5.33% |
-| 13500 | 14.20% | 1200 | 20 | 70694 | 0.1697 | 5.33% |
-| 14999 | 14.75% | 1200 | 20 | 72122 | 0.1638 | 5.33% |
+| char index | trailing-window accuracy | liveNeuronCount | growthEventCount | synapseCount | meanPermanence | sparsity | grownLive | synapsesOntoGrown | synapsesFromGrown | firstGrownSpike |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1500 | 14.07% | 840 | 2 | 66463 | 0.1739 | 7.62% | 40 | 0 | 0 | -- |
+| 3000 | 16.10% | 900 | 5 | 69403 | 0.1410 | 7.11% | 100 | 0 | 0 | -- |
+| 4500 | 16.00% | 960 | 8 | 64329 | 0.1379 | 6.67% | 160 | 0 | 0 | -- |
+| 6000 | 14.10% | 1020 | 11 | 67298 | 0.1402 | 6.27% | 220 | 0 | 0 | -- |
+| 7500 | 11.95% | 1080 | 14 | 69005 | 0.1393 | 5.93% | 280 | 0 | 0 | -- |
+| 9000 | 11.40% | 1140 | 17 | 67615 | 0.1351 | 5.61% | 340 | 0 | 0 | -- |
+| 10500 | 10.85% | 1200 | 20 | 62787 | 0.1480 | 5.33% | 400 | 0 | 0 | -- |
+| 12000 | 11.30% | 1200 | 20 | 68130 | 0.1345 | 5.33% | 400 | 0 | 0 | -- |
+| 13500 | 12.30% | 1200 | 20 | 66854 | 0.1402 | 5.33% | 400 | 0 | 0 | -- |
+| 14999 | 13.10% | 1200 | 20 | 68528 | 0.1301 | 5.33% | 400 | 0 | 0 | -- |

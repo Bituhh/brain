@@ -1,78 +1,112 @@
 
+Running 30 trials (6 conditions x 5 seeds) across up to 6 worker threads...
+  [A: baseline (no growth, no structural plasticity)] seed 5: accuracy=16.65% (47.0s)
+  [A: baseline (no growth, no structural plasticity)] seed 2: accuracy=18.55% (47.1s)
+  [A: baseline (no growth, no structural plasticity)] seed 4: accuracy=17.40% (47.2s)
+  [A: baseline (no growth, no structural plasticity)] seed 3: accuracy=18.50% (47.3s)
+  [A: baseline (no growth, no structural plasticity)] seed 1: accuracy=15.75% (47.4s)
+  [B: growth + structural plasticity, original (burst) pace] seed 1: accuracy=13.10% (1298.8s)
+  [B: growth + structural plasticity, original (burst) pace] seed 5: accuracy=7.70% (1393.1s)
+  [C: structural plasticity alone, no growth] seed 1: accuracy=13.10% (1414.9s)
+  [B: growth + structural plasticity, original (burst) pace] seed 4: accuracy=3.75% (1415.4s)
+  [B: growth + structural plasticity, original (burst) pace] seed 3: accuracy=3.95% (1418.4s)
+  [B: growth + structural plasticity, original (burst) pace] seed 2: accuracy=3.50% (1422.7s)
+  [C: structural plasticity alone, no growth] seed 2: accuracy=3.50% (1331.5s)
+  [C: structural plasticity alone, no growth] seed 3: accuracy=3.95% (1557.5s)
+  [C: structural plasticity alone, no growth] seed 5: accuracy=7.70% (1547.9s)
+  [C: structural plasticity alone, no growth] seed 4: accuracy=3.75% (1570.4s)
+  [D: growth + structural plasticity, burst pace, sprout-source-restricted] seed 1: accuracy=13.10% (1570.8s)
+  [D: growth + structural plasticity, burst pace, sprout-source-restricted] seed 2: accuracy=3.50% (1575.6s)
+  [D: growth + structural plasticity, burst pace, sprout-source-restricted] seed 3: accuracy=3.95% (1400.7s)
+  [D: growth + structural plasticity, burst pace, sprout-source-restricted] seed 5: accuracy=7.70% (1597.7s)
+  [D: growth + structural plasticity, burst pace, sprout-source-restricted] seed 4: accuracy=3.75% (1621.7s)
+  [E: growth alone at a gentle pace + structural plasticity, unrestricted] seed 1: accuracy=13.10% (1628.7s)
+  [E: growth alone at a gentle pace + structural plasticity, unrestricted] seed 2: accuracy=3.50% (1637.1s)
+  [E: growth alone at a gentle pace + structural plasticity, unrestricted] seed 3: accuracy=3.95% (1629.5s)
+  [E: growth alone at a gentle pace + structural plasticity, unrestricted] seed 4: accuracy=3.75% (1757.2s)
+  [E: growth alone at a gentle pace + structural plasticity, unrestricted] seed 5: accuracy=7.70% (2273.8s)
+  [F: growth at a gentle pace + structural plasticity, sprout-source-restricted] seed 1: accuracy=13.10% (2310.3s)
+  [F: growth at a gentle pace + structural plasticity, sprout-source-restricted] seed 2: accuracy=3.50% (2319.9s)
+  [F: growth at a gentle pace + structural plasticity, sprout-source-restricted] seed 4: accuracy=3.75% (2309.5s)
+  [F: growth at a gentle pace + structural plasticity, sprout-source-restricted] seed 3: accuracy=3.95% (2310.9s)
+  [F: growth at a gentle pace + structural plasticity, sprout-source-restricted] seed 5: accuracy=7.70% (1290.3s)
+
 === A: baseline (no growth, no structural plasticity) ===
 The control every other row compares against -- identical to DEFAULT_CONFIG.
   mean network accuracy: 17.37% (range 15.75%-18.55%)
   mean trigram accuracy: 28.40%
-  wall-clock: 175.9s
+  wall-clock (summed per-seed): 236.0s
 
 === B: growth + structural plasticity, original (burst) pace ===
 Reproduces the known regression as a sanity check the harness matches the prior session's (README §11 Phase 7 status: 18.33% -> 4.91%).
-  mean network accuracy: 13.04% (range 5.20%-16.65%)
+  mean network accuracy: 6.40% (range 3.50%-13.10%)
   mean trigram accuracy: 28.40%
-  wall-clock: 699.3s
+  wall-clock (summed per-seed): 6948.4s
 
 === C: structural plasticity alone, no growth ===
 Isolates whether sprouting/pruning by itself destabilises this network at this scale, independent of growth adding any neurons.
-  mean network accuracy: 13.04% (range 5.20%-16.65%)
+  mean network accuracy: 6.40% (range 3.50%-13.10%)
   mean trigram accuracy: 28.40%
-  wall-clock: 696.9s
+  wall-clock (summed per-seed): 7422.1s
 
 === D: growth + structural plasticity, burst pace, sprout-source-restricted ===
 Same as B, but grown neurons (index >= 800) are excluded from ever being a sprout *source* -- directly tests the noise-injection hypothesis.
-  mean network accuracy: 13.04% (range 5.20%-16.65%)
+  mean network accuracy: 6.40% (range 3.50%-13.10%)
   mean trigram accuracy: 28.40%
-  wall-clock: 706.2s
+  wall-clock (summed per-seed): 7766.5s
 
 === E: growth alone at a gentle pace + structural plasticity, unrestricted ===
 Same +400 capacity spread over most of the run instead of the first 10% -- checks whether pacing alone (with the noise-injection variable NOT controlled for) fixes anything.
-  mean network accuracy: 13.04% (range 5.20%-16.65%)
+  mean network accuracy: 6.40% (range 3.50%-13.10%)
   mean trigram accuracy: 28.40%
-  wall-clock: 729.7s
+  wall-clock (summed per-seed): 8926.3s
 
 === F: growth at a gentle pace + structural plasticity, sprout-source-restricted ===
 Combines E's gentle pace with D's sprout-source restriction -- checks whether pacing matters once the noise-injection variable is controlled for.
-  mean network accuracy: 13.04% (range 5.20%-16.65%)
+  mean network accuracy: 6.40% (range 3.50%-13.10%)
   mean trigram accuracy: 28.40%
-  wall-clock: 737.0s
+  wall-clock (summed per-seed): 10541.0s
+
+Actual parallel batch wall-clock: 7078.5s
 
 === Instrumenting: B: growth + structural plasticity, original (burst) pace (seed 1 only) ===
-    char 1500: acc=9.73% liveNeurons=1160 growthEvents=9 synapses=76877 meanPermanence=0.1969 sparsity=5.52%
-    char 3000: acc=10.75% liveNeurons=1200 growthEvents=10 synapses=74389 meanPermanence=0.1732 sparsity=5.33%
-    char 4500: acc=13.70% liveNeurons=1200 growthEvents=10 synapses=70424 meanPermanence=0.1701 sparsity=5.33%
-    char 6000: acc=12.05% liveNeurons=1200 growthEvents=10 synapses=71289 meanPermanence=0.1653 sparsity=5.33%
-    char 7500: acc=12.25% liveNeurons=1200 growthEvents=10 synapses=73040 meanPermanence=0.1608 sparsity=5.33%
-    char 9000: acc=15.50% liveNeurons=1200 growthEvents=10 synapses=71841 meanPermanence=0.1616 sparsity=5.33%
-    char 10500: acc=13.95% liveNeurons=1200 growthEvents=10 synapses=68908 meanPermanence=0.1698 sparsity=5.33%
-    char 12000: acc=14.30% liveNeurons=1200 growthEvents=10 synapses=71941 meanPermanence=0.1634 sparsity=5.33%
-    char 13500: acc=14.20% liveNeurons=1200 growthEvents=10 synapses=70694 meanPermanence=0.1697 sparsity=5.33%
-    char 14999: acc=14.75% liveNeurons=1200 growthEvents=10 synapses=72122 meanPermanence=0.1638 sparsity=5.33%
-  instrumentation wall-clock: 145.3s
+    char 1500: acc=14.07% liveNeurons=1160 growthEvents=9 synapses=66463 meanPermanence=0.1739 sparsity=5.52% grownLive=360 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 3000: acc=16.10% liveNeurons=1200 growthEvents=10 synapses=69403 meanPermanence=0.1410 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 4500: acc=16.00% liveNeurons=1200 growthEvents=10 synapses=64329 meanPermanence=0.1379 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 6000: acc=14.10% liveNeurons=1200 growthEvents=10 synapses=67298 meanPermanence=0.1402 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 7500: acc=11.95% liveNeurons=1200 growthEvents=10 synapses=69005 meanPermanence=0.1393 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 9000: acc=11.40% liveNeurons=1200 growthEvents=10 synapses=67615 meanPermanence=0.1351 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 10500: acc=10.85% liveNeurons=1200 growthEvents=10 synapses=62787 meanPermanence=0.1480 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 12000: acc=11.30% liveNeurons=1200 growthEvents=10 synapses=68130 meanPermanence=0.1345 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 13500: acc=12.30% liveNeurons=1200 growthEvents=10 synapses=66854 meanPermanence=0.1402 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 14999: acc=13.10% liveNeurons=1200 growthEvents=10 synapses=68528 meanPermanence=0.1301 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+  instrumentation wall-clock: 496.2s
 
 === Instrumenting: D: growth + structural plasticity, burst pace, sprout-source-restricted (seed 1 only) ===
-    char 1500: acc=9.73% liveNeurons=1160 growthEvents=9 synapses=76877 meanPermanence=0.1969 sparsity=5.52%
-    char 3000: acc=10.75% liveNeurons=1200 growthEvents=10 synapses=74389 meanPermanence=0.1732 sparsity=5.33%
-    char 4500: acc=13.70% liveNeurons=1200 growthEvents=10 synapses=70424 meanPermanence=0.1701 sparsity=5.33%
-    char 6000: acc=12.05% liveNeurons=1200 growthEvents=10 synapses=71289 meanPermanence=0.1653 sparsity=5.33%
-    char 7500: acc=12.25% liveNeurons=1200 growthEvents=10 synapses=73040 meanPermanence=0.1608 sparsity=5.33%
-    char 9000: acc=15.50% liveNeurons=1200 growthEvents=10 synapses=71841 meanPermanence=0.1616 sparsity=5.33%
-    char 10500: acc=13.95% liveNeurons=1200 growthEvents=10 synapses=68908 meanPermanence=0.1698 sparsity=5.33%
-    char 12000: acc=14.30% liveNeurons=1200 growthEvents=10 synapses=71941 meanPermanence=0.1634 sparsity=5.33%
-    char 13500: acc=14.20% liveNeurons=1200 growthEvents=10 synapses=70694 meanPermanence=0.1697 sparsity=5.33%
-    char 14999: acc=14.75% liveNeurons=1200 growthEvents=10 synapses=72122 meanPermanence=0.1638 sparsity=5.33%
-  instrumentation wall-clock: 145.0s
+    char 1500: acc=14.07% liveNeurons=1160 growthEvents=9 synapses=66463 meanPermanence=0.1739 sparsity=5.52% grownLive=360 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 3000: acc=16.10% liveNeurons=1200 growthEvents=10 synapses=69403 meanPermanence=0.1410 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 4500: acc=16.00% liveNeurons=1200 growthEvents=10 synapses=64329 meanPermanence=0.1379 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 6000: acc=14.10% liveNeurons=1200 growthEvents=10 synapses=67298 meanPermanence=0.1402 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 7500: acc=11.95% liveNeurons=1200 growthEvents=10 synapses=69005 meanPermanence=0.1393 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 9000: acc=11.40% liveNeurons=1200 growthEvents=10 synapses=67615 meanPermanence=0.1351 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 10500: acc=10.85% liveNeurons=1200 growthEvents=10 synapses=62787 meanPermanence=0.1480 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 12000: acc=11.30% liveNeurons=1200 growthEvents=10 synapses=68130 meanPermanence=0.1345 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 13500: acc=12.30% liveNeurons=1200 growthEvents=10 synapses=66854 meanPermanence=0.1402 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 14999: acc=13.10% liveNeurons=1200 growthEvents=10 synapses=68528 meanPermanence=0.1301 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+  instrumentation wall-clock: 468.9s
 
 === Instrumenting: E: growth alone at a gentle pace + structural plasticity, unrestricted (seed 1 only) ===
-    char 1500: acc=9.73% liveNeurons=840 growthEvents=2 synapses=76877 meanPermanence=0.1969 sparsity=7.62%
-    char 3000: acc=10.75% liveNeurons=900 growthEvents=5 synapses=74389 meanPermanence=0.1732 sparsity=7.11%
-    char 4500: acc=13.70% liveNeurons=960 growthEvents=8 synapses=70424 meanPermanence=0.1701 sparsity=6.67%
-    char 6000: acc=12.05% liveNeurons=1020 growthEvents=11 synapses=71289 meanPermanence=0.1653 sparsity=6.27%
-    char 7500: acc=12.25% liveNeurons=1080 growthEvents=14 synapses=73040 meanPermanence=0.1608 sparsity=5.93%
-    char 9000: acc=15.50% liveNeurons=1140 growthEvents=17 synapses=71841 meanPermanence=0.1616 sparsity=5.61%
-    char 10500: acc=13.95% liveNeurons=1200 growthEvents=20 synapses=68908 meanPermanence=0.1698 sparsity=5.33%
-    char 12000: acc=14.30% liveNeurons=1200 growthEvents=20 synapses=71941 meanPermanence=0.1634 sparsity=5.33%
-    char 13500: acc=14.20% liveNeurons=1200 growthEvents=20 synapses=70694 meanPermanence=0.1697 sparsity=5.33%
-    char 14999: acc=14.75% liveNeurons=1200 growthEvents=20 synapses=72122 meanPermanence=0.1638 sparsity=5.33%
-  instrumentation wall-clock: 144.8s
+    char 1500: acc=14.07% liveNeurons=840 growthEvents=2 synapses=66463 meanPermanence=0.1739 sparsity=7.62% grownLive=40 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 3000: acc=16.10% liveNeurons=900 growthEvents=5 synapses=69403 meanPermanence=0.1410 sparsity=7.11% grownLive=100 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 4500: acc=16.00% liveNeurons=960 growthEvents=8 synapses=64329 meanPermanence=0.1379 sparsity=6.67% grownLive=160 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 6000: acc=14.10% liveNeurons=1020 growthEvents=11 synapses=67298 meanPermanence=0.1402 sparsity=6.27% grownLive=220 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 7500: acc=11.95% liveNeurons=1080 growthEvents=14 synapses=69005 meanPermanence=0.1393 sparsity=5.93% grownLive=280 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 9000: acc=11.40% liveNeurons=1140 growthEvents=17 synapses=67615 meanPermanence=0.1351 sparsity=5.61% grownLive=340 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 10500: acc=10.85% liveNeurons=1200 growthEvents=20 synapses=62787 meanPermanence=0.1480 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 12000: acc=11.30% liveNeurons=1200 growthEvents=20 synapses=68130 meanPermanence=0.1345 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 13500: acc=12.30% liveNeurons=1200 growthEvents=20 synapses=66854 meanPermanence=0.1402 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+    char 14999: acc=13.10% liveNeurons=1200 growthEvents=20 synapses=68528 meanPermanence=0.1301 sparsity=5.33% grownLive=400 synapsesOntoGrown=0 synapsesFromGrown=0 firstGrownSpike=--
+  instrumentation wall-clock: 264.2s
 
 Results written to C:\projects\brain\scripts\investigate-growth-regression.results.md
 Per-window samples written to C:\projects\brain\scripts\investigate-growth-regression.samples.md
