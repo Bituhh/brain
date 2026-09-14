@@ -851,6 +851,37 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
       eligibility gate, not the invisible-synapse problem B1 fixed). Invariant 10 ("capacity is
       grown, not configured") is therefore still not met for anything beyond raw neuron count.
       PLAN.md's B3 is scoped as the follow-up.
+    - **NET-10 functional capacity (PLAN.md item B3, 2026-09-14): the eligibility and
+      wiring-location locks are now closed — invariant 10 is met for wiring, verified
+      mechanistically.** A new `NewbornMaturation` mechanism (`crates/brain-core/src/plasticity/
+      newborn.rs`) wires each newly grown neuron's first synapses directly from recently-active
+      neurons onto the feedforward segment, places it at their coordinate centroid, and gives it a
+      temporary hyperexcitability window — closing the two locks item 10's B2 re-run found still
+      shut after B1. Verified at three levels (unit tests, whole-network Rust integration tests
+      driven through `Scheduler::step` including two VAL-9 ablations and an A4-style mid-maturation
+      snapshot-continuation test, and a smoke run on the real `charPrediction.ts` network) — see
+      §13.12 item 10's 2026-09-14 update for the full account. On the real network, grown neurons
+      now fire (first observed spike within ~150 ticks of a growth event, versus never across B2's
+      entire run) and gain synapses in both directions (tens of thousands by character 4,000, versus
+      exactly zero throughout B2's entire run) — `synapsesFromGrown`'s non-zero count is a grown
+      neuron's own activity streak clearing `StructuralPlasticity::sprout`'s ordinary eligibility bar,
+      not anything `NewbornMaturation` places directly, confirming item 3's "outputs later" design
+      works end to end. A real, separate bug was found and fixed along the way: `NeuronArena::free`
+      never touched `SynapseArena`, so a reclaimed neuron's old wiring would have silently carried
+      over to whichever neuron reused its slot — invisible before B3 because the pre-B3 never-fired
+      exemption made a grown neuron immortal, so reclamation was essentially never exercised for
+      grown neurons. **VAL-4 result (5-seed × 6-condition battery, §13.12 item 10's own protocol,
+      completed 2026-09-14): the deadlock is confirmed dissolved — every growth condition now has its
+      own distinct accuracy instead of B2's bit-identical-to-structural-plasticity-alone numbers — but
+      the newly-functional capacity does not help this task.** Burst-pace growth (7.45%/7.00%) lands
+      a little above structural-plasticity-alone (6.40%); gentle-pace growth (4.51%/4.52%) lands
+      below it; none approaches baseline (17.37%). The dominant effect throughout remains structural
+      plasticity's own already-known drag on the original population, which B3 was never scoped to
+      fix. See §13.12 item 10's 2026-09-14 update for the full table, per-window instrumentation, and
+      discussion. Invariant 10 is therefore met for functional capacity (grown neurons fire and wire
+      bidirectionally, and measurably change the network's behaviour) for the first time — whether
+      that capacity is *useful* for VAL-4 specifically is a separate, now-honestly-answered "not with
+      this configuration," not a further open question about wiring.
   - **Canonical "everything on" brain constructor (PLAN.md item A1): built.**
     `packages/io/src/canonicalBrain.ts` is the single place every mechanism `@brain/core` implements
     is wired together, live, by default, rather than left to whichever subset one experiment happens
@@ -966,8 +997,12 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     by any Rust unit test, and now documented as the general rule for any future "which field"
     question in this codebase. Newly-sprouted synapses (`structural.rs`, `predictive.rs`'s
     burst-sprout path) now start structurally connected (permanence at/above threshold) but at a
-    near-zero weight — the biological "silent synapse" pattern, and the actual mechanism that
-    dissolves the NET-10 deadlock, not the field split by itself. Format-version-9 snapshots
+    near-zero weight — the biological "silent synapse" pattern, expected at the time this was written
+    to be the mechanism that dissolves the NET-10 deadlock. **It was not** — PLAN.md B2 re-measured
+    (2026-09-14) and found the deadlock intact: a grown neuron's own `sprout` eligibility requires
+    prior activity it can structurally never have, a gate this split never touched. PLAN.md B3 closes
+    that gate directly; see §13.12 item 10's 2026-09-14 update for the full finding. Format-version-9
+    snapshots
     round-trip weight exactly; version ≤8 snapshots migrate by deriving weight from permanence.
     `npm run test:fast` and `npm run test:slow` are both green, and — notably — neither existing
     golden raster needed regeneration: weight is seeded identically to permanence at construction
@@ -2636,6 +2671,140 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     an open observation rather than papered over, in case it turns out to matter (e.g. a saturation
     regime at this specific combination of extreme settings that happens to be seed-insensitive, as
     opposed to a measurement artefact).
+
+    **Update, 2026-09-14 (PLAN.md B3): the deadlock is dissolved — the three locks named in this
+    item's own 2026-09-14 update above are now all closed, verified mechanistically on the real
+    network, not merely by inspection.** B1 (weight/permanence split) closed lock 3 only
+    (invisible-synapse); locks 1 (eligibility: `sprout`/burst-sprout both require prior activity a
+    zero-synapse neuron can structurally never have) and 2 (wiring-location: a hypothetically-eligible
+    sprout lands on a dendritic segment, which only primes a cell, NEU-6, never fires it) remained
+    shut, which is exactly what B2's re-run measured (grown neurons acquired zero synapses across the
+    full run, at any growth pace). PLAN.md B3 closes both directly, following the adult-hippocampal-
+    neurogenesis precedent this item's own closing paragraph named: a new module,
+    `crates/brain-core/src/plasticity/newborn.rs`'s `NewbornMaturation`, wires each newly grown
+    neuron's inputs from a deterministic random subset of neurons that fired within a short window
+    before the growth event (`rng::derive_stream(seed, batch_index, purpose, tick)`, RUN-3-correct),
+    onto `FEEDFORWARD_SEGMENT` specifically (not a dendritic one), structurally connected
+    (permanence at/above `connectionThreshold`) at a modest weight; places it at those inputs'
+    coordinate centroid plus deterministic jitter, instead of the shared `coordsOrigin` every newborn
+    used to get; and gives it a temporarily lowered firing threshold (an explicit per-neuron birth
+    tick, not coupled to NEU-7) that relaxes linearly back to normal over a maturation window. A
+    newborn that has not fired at least once *and* gained at least one outgoing synapse by the end of
+    that window is reclaimed — the never-fired reclaim exemption is otherwise unchanged for every
+    other neuron. This is scheduler-invoked wiring outside the `PlasticityRule` interface, the same
+    precedent `predictive.rs`'s burst-sprout path already sets (§12a item 5(b)): the inputs it wires
+    are a pure function of a neuron's own recent local history, not a global credit-assignment signal,
+    so invariant 1 is not violated; invariant 4 (sparsity) is untouched, since newborns keep their
+    appended indices and existing inhibition-neighbourhood membership (redesigning that is PLAN.md
+    F6's scope, not this item's).
+
+    **A real bug found and fixed while building this, worth recording on its own:**
+    `NeuronArena::free` (`arena.rs`) flips a neuron's `alive` flag and pushes its index onto the free
+    list, but — the two arenas having no back-reference — never touches `SynapseArena`. Since
+    `NeuronArena::allocate` reuses freed slots LIFO, a reclaimed neuron's old incoming *and* outgoing
+    synapses would have silently carried over to whichever neuron the free list handed that slot to
+    next — invisible until B3 made neuron reclamation a routine, frequent event for the first time
+    (previously, `reclaim_unused_neurons`' never-fired exemption made a grown neuron immortal, so this
+    path was essentially never exercised for grown neurons at all). Fixed by a new
+    `SynapseArena::disconnect_neuron`, called by both `StructuralPlasticity::reclaim_unused_neurons`
+    and `NewbornMaturation`'s own non-survival reclaim path, and confirmed by a dedicated test
+    (`reclaiming_a_neuron_disconnects_its_synapses_so_the_next_occupant_does_not_inherit_them`) that a
+    freshly-reallocated slot starts with zero synapses in either direction.
+
+    **Verified in three independent ways, from narrowest to broadest:**
+    1. **Unit tests** (`plasticity/newborn.rs`, 5 tests): input wiring lands on the feedforward
+       segment with the configured permanence/weight and respects the activity window; threshold
+       lowers at birth and relaxes linearly; a non-integrating newborn is reclaimed at the maturation
+       deadline; a reclaimed slot's synapses do not leak into its next occupant.
+    2. **Whole-network Rust integration tests** (`crates/brain-core/tests/newborn_integration.rs`, 6
+       tests, driven purely through `Scheduler::step`): a newborn wired to recently-active drivers
+       fires, matures, and gains an outgoing synapse (LRN-7 sprouting from its own activity streak,
+       exactly as this item's "outputs later" design predicted); a newborn wired to *no* active
+       candidates never fires and is reclaimed, with no wiring leak into the next occupant; the whole
+       scenario is RUN-3 deterministic; a snapshot taken mid-maturation (`FORMAT_VERSION` 9 → 10,
+       migration: a pre-version-10 snapshot has no neuron currently tracked as a newborn) restores and
+       continues bit-identical to an uninterrupted run (RUN-9a, PLAN.md item A4's own discipline).
+       Two VAL-9 ablations, both load-bearing as expected: `with_growth` alone (no
+       `with_newborn_maturation`) reproduces B2's finding exactly — a grown neuron gains no synapses
+       and never fires, even with drivers actively firing around it; and `excitabilityThresholdFactor
+       = 1.0` (no lowering) measurably integrates fewer newborns than a genuinely lowered factor,
+       against otherwise identical alternating-driver input (chosen specifically so a newborn's inputs
+       are only ever partially coincident on any one tick — with every driver firing in lockstep,
+       hyperexcitability would be moot, since even a mature threshold would be crossed trivially).
+    3. **A smoke test on the real `charPrediction.ts` network** (condition B's own configuration —
+       `growthBurst()` + `structuralPlasticityParams()` + a new `newbornMaturationParams()` — run for
+       4,000 characters, one seed): `firstGrownSpikeTick` — stuck at `--` (never observed) for the
+       *entire* 15,000-character run in every B2 condition — fires at tick 302 (character 152), well
+       within the first growth event. `synapsesOntoGrown` and `synapsesFromGrown` — exactly 0 at
+       *every* sampled checkpoint in B2 — climb into the tens of thousands (peaking near
+       `grownLive`'s ceiling at char 2000, then settling under structural plasticity's own ongoing
+       prune/sprout/reclaim churn): 25,611 onto grown neurons and 18,401 from them by character 4,000.
+       `synapsesFromGrown`'s non-zero value is direct confirmation of item 3's "outputs later"
+       design: those synapses were never placed by `NewbornMaturation` (which only ever wires
+       *inputs*) — they exist because a firing newborn's own activity streak cleared
+       `StructuralPlasticity::sprout`'s eligibility bar exactly like any other neuron's, and `sprout`
+       then wired its output the same way it always has.
+
+    **Update, 2026-09-14: the official 5-seed × 6-condition VAL-4 battery (the same protocol B2 used)
+    completed. The deadlock is confirmed dissolved — B through F are no longer bit-identical to C or
+    to each other, for the first time across Phase A, B2, and B3 — but the added, now-genuinely-
+    functional capacity does not help this task; if anything it is a mixed, mostly negative
+    modulation on top of structural plasticity's own already-known drag.**
+
+    | condition | mean network accuracy | range across seeds |
+    |---|---|---|
+    | A: baseline (no growth, no structural plasticity) | 17.37% | 15.75%–18.55% |
+    | B: growth + structural plasticity, burst pace | 7.45% | 1.30%–13.10% |
+    | C: structural plasticity alone, no growth | 6.40% | 3.50%–13.10% |
+    | D: growth + structural plasticity, burst pace, sprout-source-restricted | 7.00% | 1.50%–10.30% |
+    | E: growth alone at a gentle pace + structural plasticity, unrestricted | 4.51% | 1.80%–8.00% |
+    | F: growth at a gentle pace + structural plasticity, sprout-source-restricted | 4.52% | 1.20%–8.95% |
+
+    **This is genuinely new information, not a restatement of B2's finding under a different number.**
+    Every condition B–F now has its *own* accuracy, reflecting real growth-driven structural
+    differences the network is actually exercising: B and D (burst pace) land a little *above* C
+    (7.45%/7.00% vs. 6.40%) — growth's extra capacity, now reachable, provides a small net benefit on
+    top of structural plasticity alone. E and F (gentle pace) land *below* C (4.51%/4.52%) — spreading
+    the same +400 neurons across nearly the whole run, instead of front-loading them, is worse, not
+    better, for this task. The sprout-source restriction (D vs. B, F vs. E) makes at most a marginal
+    difference either way, unlike the pace axis. None of this was visible in B2, where every growth
+    condition was numerically indistinguishable from C by construction (no grown neuron could ever be
+    reached).
+
+    **None of the six conditions comes anywhere close to baseline (17.37%).** The dominant effect
+    throughout is still what item 10's 2026-09-14 (pre-B3) update already found: structural plasticity
+    acting on the *original* 800-neuron population regresses accuracy on its own (condition C, 6.40%),
+    and every growth condition inherits most of that same drag — B3 did not fix it, because it was
+    never what B3 targeted. The per-window instrumentation (seed 1, conditions B/D/E) confirms the
+    shape directly: condition B's accuracy is still comparable to baseline at character 1,500
+    (14.40%) — while growth is actively firing and *before* the population has stabilised — then
+    declines steadily through the rest of the run (15.85% → 13.60% → 7.80% → … → 5.30% final) *well
+    after* growth stops adding neurons (`growthEvents` plateaus at 16 by character 4,500) — the same
+    "steady, moderate drag, not a sudden collapse" shape item 10's own C-alone finding already
+    described, not a new growth-specific failure mode.
+
+    **Confirms this is not the same phenomenon as the original 18.33% → 4.91% regression report.**
+    That report's shape was fine-then-sudden-collapse; every measurement in this investigation (Phase
+    A, B2, and now B3) instead shows a steady drag whose magnitude tracks structural plasticity's own
+    parameters, not growth's presence. The most likely explanation remains what Phase A already
+    concluded: the original report used different, more aggressive structural-plasticity parameters
+    than this reconstruction's defaults, not a mechanism this investigation has failed to find.
+
+    **Consequence for invariant 10 and NET-10.** Split into the two questions this item has always
+    kept separate: **growth now adds functional capacity** — grown neurons fire, hold synapses in
+    both directions, and measurably change VAL-4's outcome (B–F's distinct, no-longer-bit-identical
+    numbers are the proof) — invariant 10 ("capacity is grown, not configured") is met for the first
+    time, for something beyond raw neuron count. Whether that capacity is *useful* for this specific
+    task is a separate, now-answered question: not with this configuration. That is an honest,
+    negative-but-informative result (Requirement 13.6), not a failure of B3's own scope — B3 was
+    asked to make growth *reachable*, which it now demonstrably is, not to make growth *good for VAL-4*,
+    which was never a stated goal of PLAN.md B3 and remains open (a natural next step, untried here,
+    is retuning `structuralPlasticity`'s own parameters now that growth can actually interact with
+    them, rather than tuning growth in isolation).
+
+    Full per-trial data: `scripts/investigate-growth-regression.results.md`. Per-window
+    instrumentation (`grownLive`, `synapsesOntoGrown`, `synapsesFromGrown`, `firstGrownSpikeTick`,
+    every 1,500 characters, conditions B/D/E): `scripts/investigate-growth-regression.samples.md`.
 11. **Polarity is a first-class concept in the type system and invisible to every mechanism that
     acts on it — found 2026-09-13 during a §2-against-§3–§9-against-code review.** NEU-4 and
     invariant 3 are correctly implemented at the point of transmission
@@ -2734,17 +2903,17 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     activity. That removes the one remedy a bootstrapping deadlock normally has (a provisional
     connection that grows into a real one), which is why a neuron added by growth can never
     acquire a synapse in either direction and developmental growth currently adds no functional
-    capacity at all. Splitting the two fields dissolves that deadlock as a side effect: a
-    structurally-connected, near-zero-*weight* synapse transmits a trickle, is visible to STDP,
-    and survives or is pruned on its own merits. **This raises item 12 from a correctness defect
-    with a plausible VAL-4 payoff to the prerequisite for invariant 10** — the only one of these
-    findings that currently blocks a stated architectural invariant rather than degrading a
-    measured number.
+    capacity at all. **Expected** (at the time this was written) that splitting the two fields would
+    dissolve that deadlock as a side effect: a structurally-connected, near-zero-*weight* synapse
+    transmits a trickle, is visible to STDP, and survives or is pruned on its own merits. **This
+    raises item 12 from a correctness defect with a plausible VAL-4 payoff to the prerequisite for
+    invariant 10** — the only one of these findings that currently blocks a stated architectural
+    invariant rather than degrading a measured number.
 
-    **Closed 2026-09-13 (PLAN.md item B1) — see §12 decision 11 for the full design and the one
-    real gotcha found building it** (routing predictive learning's reinforce/punish to weight
-    instead of permanence silently disabled dendritic prediction learning; caught by re-running
-    the actual milestone harness, not by a unit test). Both fields exist, are independently
+    **The field split itself closed 2026-09-13 (PLAN.md item B1) — see §12 decision 11 for the full
+    design and the one real gotcha found building it** (routing predictive learning's reinforce/punish
+    to weight instead of permanence silently disabled dendritic prediction learning; caught by
+    re-running the actual milestone harness, not by a unit test). Both fields exist, are independently
     exercised (unit tests in `synapse.rs`, `three_factor.rs`, `homeostatic.rs`, `structural.rs`,
     `predictive.rs`, and whole-scheduler tests in `scheduler.rs`), and format-version-9 snapshots
     round-trip weight exactly while version ≤8 snapshots migrate by deriving weight from
@@ -2755,6 +2924,19 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     rather than a regression. `npm run test:fast` and `npm run test:slow` are both green; the two
     existing golden rasters needed no regeneration at all (see decision 11's closing bullet for
     why).
+
+    **The "dissolves the deadlock as a side effect" expectation above was wrong, re-measured
+    2026-09-14 (PLAN.md B2) — the deadlock is not the same thing as item 10's invisible-synapse
+    finding, it is a separate, prior gate the split never touched.** `StructuralPlasticity::sprout`
+    (and LRN-8's burst-sprout path) requires a candidate to already have real spiking activity before
+    it is eligible as *either* a sprout source or target; a neuron `apply_growth` allocates with zero
+    synapses can never receive current, so it can never spike, so it can never clear that bar,
+    regardless of what a synapse *would* look like once created. B1 changes what happens once a
+    synapse to a grown neuron exists (visible to STDP instead of invisible) — it does nothing to
+    whether such a synapse can ever be created in the first place. Closed instead by PLAN.md B3,
+    which wires a newly grown neuron's first synapses directly rather than waiting for eligibility it
+    can never earn on its own; see §13.12 item 10's 2026-09-14 update for the full design and
+    verification.
 
 13. **Four mechanisms are built, tested and reachable from no caller — found 2026-09-13, same
     review; a fourth added 2026-09-13 by PLAN.md item A1's own canonical-constructor review.**

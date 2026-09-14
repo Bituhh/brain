@@ -51,6 +51,7 @@ use crate::column::{ColumnRegistry, ColumnSpec};
 use crate::growth::GrowthRawState;
 use crate::inhibition::FixedNeighbourhoods;
 use crate::plasticity::{Modulators, NUM_MODULATORS};
+use crate::plasticity::newborn::NewbornMaturationRawState;
 use crate::scheduler::{Scheduler, SweepSchedulingRawState};
 use crate::segment::{BinaryCoincidenceParams, SegmentConfig};
 use crate::synapse::SynapseArena;
@@ -128,6 +129,17 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// dispatch leaves both new arrays empty for those, exactly what a fresh
 /// `Scheduler` already starts with.
 ///
+/// Bumped 9 -> 10 in PLAN.md item B3 to add a newborn-maturation section
+/// (NET-10/NET-11, README §13.12 item 10). `NewbornMaturation`'s per-neuron
+/// `birth_tick`/`mature_threshold` is new, genuinely evolving state -- the
+/// same "not configuration, a decaying/plasticity-relevant value" shape
+/// `adaptation` was in version 4 -- so it is a new trailing section,
+/// following `write_growth_state`/`write_sweep_scheduling_state`'s own
+/// precedent: absent from a version 1-9 payload, for which `read` supplies
+/// `None`, which `Scheduler::restore_newborn_maturation_raw_state` turns
+/// into "no neuron is currently tracked as a newborn" -- the only sound
+/// reading, since the mechanism did not exist yet.
+///
 /// Bumped 3 -> 4 in Phase 5.5 to add a spike-frequency-adaptation section
 /// (NEU-8, Requirement 2). `adaptation` is a new, genuinely evolving
 /// per-neuron `NeuronArena` field (Phase 0-3's `predictive`/`rate_estimate`/
@@ -162,7 +174,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// schema migration, partial loading, compatibility guarantees -- from
 /// Phase 0-3 to Phase 4; the round-trip mechanism itself (this module) was
 /// already in scope then and is unchanged in its v1 shape.
-pub const FORMAT_VERSION: u32 = 9;
+pub const FORMAT_VERSION: u32 = 10;
 /// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
 /// concrete and falsifiable: `read` migrates any snapshot from this
 /// version through `FORMAT_VERSION`. Widen this only alongside an actual
@@ -631,6 +643,44 @@ fn read_sweep_scheduling_state(r: &mut Reader<'_>) -> Result<SweepSchedulingRawS
     })
 }
 
+/// `NewbornMaturationRawState`'s section (format version 10, PLAN.md item
+/// B3): unlike `write_sweep_scheduling_state`'s five independently-flagged
+/// mechanisms, there is exactly one mechanism here, so one flag byte
+/// suffices, matching `write_growth_state`'s single-flag precedent.
+fn write_newborn_maturation_state(w: &mut Writer, state: Option<&NewbornMaturationRawState>) {
+    match state {
+        Some(s) => {
+            w.u8(1);
+            w.u32(s.last_swept_at);
+            w.u32(s.birth_tick.len() as u32);
+            for &v in &s.birth_tick {
+                w.u32(v);
+            }
+            for &v in &s.mature_threshold {
+                w.f32(v);
+            }
+        }
+        None => w.u8(0),
+    }
+}
+
+fn read_newborn_maturation_state(r: &mut Reader<'_>) -> Result<Option<NewbornMaturationRawState>, SnapshotError> {
+    if r.u8()? != 1 {
+        return Ok(None);
+    }
+    let last_swept_at = r.u32()?;
+    let len = r.u32()? as usize;
+    let mut birth_tick = Vec::with_capacity(len);
+    for _ in 0..len {
+        birth_tick.push(r.u32()?);
+    }
+    let mut mature_threshold = Vec::with_capacity(len);
+    for _ in 0..len {
+        mature_threshold.push(r.f32()?);
+    }
+    Ok(Some(NewbornMaturationRawState { last_swept_at, birth_tick, mature_threshold }))
+}
+
 fn write_synapses(w: &mut Writer, synapses: &SynapseArena, neuron_count: u32) {
     w.u32(synapses.cap_per_neuron());
     w.u32(neuron_count);
@@ -833,6 +883,8 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
 
     write_synapse_weights(&mut w, synapses, neuron_count);
 
+    write_newborn_maturation_state(&mut w, scheduler.newborn_maturation_raw_state().as_ref());
+
     w.buf
 }
 
@@ -882,6 +934,14 @@ pub struct Restored {
     /// documented best-effort reconstruction for exactly that case rather
     /// than requiring the caller to special-case it.
     pub sweep_scheduling: Option<SweepSchedulingRawState>,
+    /// New in format version 10 (PLAN.md item B3). `None` both when
+    /// restoring a version 1-9 snapshot and when this snapshot's own
+    /// scheduler never called `with_newborn_maturation` -- either way,
+    /// apply via `Scheduler::restore_newborn_maturation_raw_state` only if
+    /// the restoring scheduler itself has newborn maturation configured
+    /// (that call is already a no-op otherwise), matching
+    /// `growth_state`'s own precedent exactly.
+    pub newborn_maturation: Option<NewbornMaturationRawState>,
 }
 
 /// Restores a snapshot written by [`write`]. `expected_config_hash` must
@@ -983,6 +1043,12 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
         read_synapse_weights(&mut r, &mut synapses)?;
     }
 
+    // Format versions 1-9 have no newborn-maturation section -- the only
+    // sound migration is "no neuron is currently tracked as a newborn"
+    // (PLAN.md item B3): the mechanism did not exist yet, so every neuron
+    // in that snapshot is, definitionally, "mature."
+    let newborn_maturation = if header.version >= 10 { read_newborn_maturation_state(&mut r)? } else { None };
+
     Ok(Restored {
         neurons,
         synapses,
@@ -999,6 +1065,7 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
         segment_last_depolarised_tick,
         growth_state,
         sweep_scheduling,
+        newborn_maturation,
     })
 }
 
@@ -1588,6 +1655,57 @@ mod tests {
             restored.synapses.weight[0], restored.synapses.permanence[0],
             "a version-8 snapshot has no weight section, so weight must derive from permanence"
         );
+    }
+
+    // -- Newborn-maturation state (NET-10/NET-11, PLAN.md item B3, format version 10).
+
+    /// Newborn-maturation's own cross-tick state round-trips exactly,
+    /// mirroring `round_trips_sweep_scheduling_state_exactly`'s own
+    /// technique: seed it directly via the exact production
+    /// `restore_newborn_maturation_raw_state` path, then check only that
+    /// the *bytes* round-trip -- end-to-end behaviour (a newborn actually
+    /// firing/maturing/being reclaimed across a real restore) is
+    /// `newborn_integration.rs`'s job.
+    #[test]
+    fn round_trips_newborn_maturation_state_exactly() {
+        use crate::plasticity::newborn::{NewbornMaturationParams, NewbornMaturationRawState, NewbornWiringParams};
+
+        let (neurons, synapses, _) = sample_network();
+        let mut sched = Scheduler::new(4, 0.3).with_newborn_maturation(
+            NewbornWiringParams { input_window_ticks: 10, input_subset_size: 4, input_permanence: 0.6, input_weight: 0.2, placement_jitter: 0.01 },
+            NewbornMaturationParams { sweep_interval_ticks: 10, maturation_ticks: 100, excitability_threshold_factor: 0.5 },
+        );
+
+        let seeded = NewbornMaturationRawState { last_swept_at: 70, birth_tick: vec![u32::MAX, 20, u32::MAX], mature_threshold: vec![0.0, 1.0, 0.0] };
+        sched.restore_newborn_maturation_raw_state(Some(seeded.clone()), 100);
+
+        let bytes = write(&neurons, &synapses, &sched, &ColumnRegistry::new(), 2, 1);
+        let restored = read(&bytes, 1).unwrap();
+        let after = restored.newborn_maturation.expect("a version-10 snapshot must carry a newborn-maturation section");
+
+        assert_eq!(after, seeded);
+    }
+
+    /// A version-9 (pre-this-fix) payload has no newborn-maturation section
+    /// at all -- `read` must supply `None`, which
+    /// `Scheduler::restore_newborn_maturation_raw_state` (exercised
+    /// directly by `scheduler.rs`'s own unit tests) turns into "no neuron
+    /// is currently tracked as a newborn," the only sound reading since the
+    /// mechanism did not exist yet.
+    #[test]
+    fn a_version_9_snapshot_restores_with_no_newborn_maturation_section() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
+        // `sample_network`'s scheduler never configures newborn maturation,
+        // so its section is exactly one zero-flag byte (see
+        // `write_newborn_maturation_state`) -- the last thing `write`
+        // appends.
+        let truncated_len = bytes.len() - 1;
+        let mut truncated = bytes[..truncated_len].to_vec();
+        truncated[6..10].copy_from_slice(&9u32.to_le_bytes());
+
+        let restored = read(&truncated, 7).unwrap();
+        assert!(restored.newborn_maturation.is_none(), "a version-9 snapshot has no newborn-maturation section, so it must restore to None");
     }
 
     #[test]

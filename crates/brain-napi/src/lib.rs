@@ -16,6 +16,7 @@ use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
 use brain_core::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
+use brain_core::plasticity::newborn::{NewbornMaturationParams, NewbornWiringParams};
 use brain_core::plasticity::predictive::PredictiveLearningParams;
 use brain_core::plasticity::stdp::StdpParams;
 use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams};
@@ -414,6 +415,65 @@ pub struct GrowthConfig {
     pub seed: BigInt,
 }
 
+/// Newborn neuron integration (PLAN.md B3, NET-10/NET-11, README §13.12
+/// item 10's three-lock diagnosis) -- `NewbornMaturation`'s FFI-layer
+/// mirror. Meaningless without `growth` also configured (there is nothing
+/// for it to act on); like `growth`, **not supported together with
+/// `threadCount > 1`**, for the same reason (growth itself is single-
+/// partition only). Omit to leave a newly grown neuron exactly as
+/// `apply_growth` allocates it -- zero synapses, `growth`'s shared
+/// `coordsOrigin`, normal threshold -- the pre-PLAN.md-B3 behaviour README
+/// §13.12 item 10's 2026-09-14 update confirms never lets a grown neuron
+/// receive current at all.
+#[napi(object)]
+pub struct NewbornMaturationConfig {
+    /// How far back (in ticks) from the growth tick a neuron's last spike
+    /// may count it as a candidate input source for a newborn.
+    pub input_window_ticks: u32,
+    /// How many recently-active candidates each newborn draws its inputs
+    /// from (without replacement).
+    pub input_subset_size: u32,
+    /// Permanence a newborn's input synapses start at -- should sit at/above
+    /// `connectionThreshold`, matching `structuralPlasticity.sproutPermanence`'s
+    /// post-B1 meaning.
+    pub input_permanence: f64,
+    /// Weight (efficacy) a newborn's input synapses start at -- deliberately
+    /// small, matching `structuralPlasticity.sproutWeight`'s "silent
+    /// synapse" reasoning.
+    pub input_weight: f64,
+    /// Scales the deterministic jitter added to a newborn's placement (the
+    /// centroid of its chosen input sources' coordinates).
+    pub placement_jitter: f64,
+    /// How often (in ticks) newborn maturation's own sweep checks in-flight
+    /// newborns and relaxes their threshold.
+    pub sweep_interval_ticks: u32,
+    /// Ticks from birth until a newborn's threshold has fully relaxed to its
+    /// mature value and its survival is decided.
+    pub maturation_ticks: u32,
+    /// A newborn's threshold at birth is its mature threshold multiplied by
+    /// this factor (< 1.0 lowers it, i.e. makes firing easier).
+    pub excitability_threshold_factor: f64,
+}
+
+impl NewbornMaturationConfig {
+    fn to_params(&self) -> (NewbornWiringParams, NewbornMaturationParams) {
+        (
+            NewbornWiringParams {
+                input_window_ticks: self.input_window_ticks,
+                input_subset_size: self.input_subset_size,
+                input_permanence: self.input_permanence as f32,
+                input_weight: self.input_weight as f32,
+                placement_jitter: self.placement_jitter as f32,
+            },
+            NewbornMaturationParams {
+                sweep_interval_ticks: self.sweep_interval_ticks.max(1),
+                maturation_ticks: self.maturation_ticks,
+                excitability_threshold_factor: self.excitability_threshold_factor as f32,
+            },
+        )
+    }
+}
+
 /// The STDP timing kernel's parameters (`stdp.rs`'s `StdpParams`), as a
 /// plain JS object.
 #[napi(object)]
@@ -665,6 +725,7 @@ struct SchedulerConfig {
     segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
     inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
     growth: Option<GrowthConfig>,
+    newborn_maturation: Option<NewbornMaturationConfig>,
 }
 
 fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
@@ -741,6 +802,10 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
             [cfg.coords_origin_x as f32, cfg.coords_origin_y as f32, cfg.coords_origin_z as f32],
             cfg.seed.get_u64().1,
         );
+    }
+    if let Some(cfg) = &config.newborn_maturation {
+        let (wiring, maturation) = cfg.to_params();
+        scheduler = scheduler.with_newborn_maturation(wiring, maturation);
     }
     scheduler
 }
@@ -928,6 +993,7 @@ impl NativeSimulation {
         segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
         inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
         growth: Option<GrowthConfig>,
+        newborn_maturation: Option<NewbornMaturationConfig>,
         thread_count: Option<u32>,
         total_neurons: Option<u32>,
     ) -> Result<Self> {
@@ -938,6 +1004,12 @@ impl NativeSimulation {
         // "only the last partition" invariant with no coordination between them.
         if growth.is_some() && thread_count > 1 {
             return Err(Error::from_reason("growth is not supported together with threadCount > 1 (partitioned mode) -- see GrowthConfig's doc comment"));
+        }
+        // PLAN.md B3: same restriction as `growth` above, for the same
+        // reason -- meaningless without growth, and growth itself is
+        // single-partition only.
+        if newborn_maturation.is_some() && thread_count > 1 {
+            return Err(Error::from_reason("newbornMaturation is not supported together with threadCount > 1 (partitioned mode) -- see NewbornMaturationConfig's doc comment"));
         }
         let plasticity = plasticity.map(|cfg| cfg.resolve()).transpose()?;
         let scheduler_segments = segments.unwrap_or(SegmentsConfig::NONE);
@@ -954,6 +1026,7 @@ impl NativeSimulation {
             segment_threshold_homeostasis,
             inhibition_homeostasis,
             growth,
+            newborn_maturation,
         };
         let runtime = if thread_count > 1 {
             let total_neurons = total_neurons.ok_or_else(|| {
@@ -1782,6 +1855,7 @@ impl NativeSimulation {
         segment_threshold_homeostasis: Option<SegmentThresholdHomeostasisConfig>,
         inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
         growth: Option<GrowthConfig>,
+        newborn_maturation: Option<NewbornMaturationConfig>,
     ) -> Result<Self> {
         // Note: no `synapse_cap_per_neuron` parameter here -- the snapshot
         // payload already carries it (`write_synapses` stores it, and
@@ -1885,6 +1959,10 @@ impl NativeSimulation {
                 cfg.seed.get_u64().1,
             );
         }
+        if let Some(cfg) = &newborn_maturation {
+            let (wiring, maturation) = cfg.to_params();
+            scheduler = scheduler.with_newborn_maturation(wiring, maturation);
+        }
         scheduler.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
         // Phase 5 Requirement 15.6: must run *after* with_plasticity above,
         // which resets the neuromodulator field to a fresh, zeroed one as a
@@ -1917,6 +1995,12 @@ impl NativeSimulation {
         // branch reads each mechanism's own already-configured interval to
         // reconstruct its `last_applied_at`.
         scheduler.restore_sweep_scheduling_state(restored.sweep_scheduling, restored.tick);
+        // PLAN.md B3, RUN-9a: newborn-maturation state (format version 10).
+        // A no-op if this restoring scheduler has no `newborn_maturation`
+        // configured; for a pre-version-10 snapshot (`restored.
+        // newborn_maturation` is `None`), the only sound migration is "no
+        // neuron is currently tracked as a newborn."
+        scheduler.restore_newborn_maturation_raw_state(restored.newborn_maturation, restored.tick);
 
         Ok(Self {
             neurons: restored.neurons,

@@ -28,6 +28,7 @@ import {
   type SegmentThresholdHomeostasisConfig,
   type InhibitionHomeostasisConfig,
   type GrowthConfig,
+  type NewbornMaturationConfig,
   type ProbeOptionsFfi,
   type ProbeDataFfi,
   type SegmentSampleFfi,
@@ -54,6 +55,7 @@ export type {
   SegmentThresholdHomeostasisConfig,
   InhibitionHomeostasisConfig,
   GrowthConfig,
+  NewbornMaturationConfig,
 };
 
 /** A probe's configuration (OBS-1, Phase 6 Requirement 4). */
@@ -158,6 +160,24 @@ export interface SimulationOptions {
    */
   growth?: GrowthConfig;
   /**
+   * Newborn neuron integration (PLAN.md B3, NET-10/NET-11): a newly grown
+   * neuron's inputs are wired from a deterministic random subset of
+   * recently-active neurons (onto the feedforward segment, not a dendritic
+   * one -- only feedforward input can ever make a cell fire), placed at
+   * their coordinate centroid, and given a temporarily lowered firing
+   * threshold that relaxes back to normal over a maturation window: this
+   * is what closes the two locks README §13.12 item 10's 2026-09-14
+   * update found still shut after `weight`/`permanence` split alone
+   * (`growth` above). A newborn that never integrates (never fires, or
+   * never gains an outgoing synapse) by the end of its maturation window
+   * is reclaimed. Omit to leave a newly grown neuron exactly as
+   * `apply_growth` allocates it -- zero synapses, `growth`'s shared
+   * `coordsOrigin`, normal threshold -- which never lets it receive
+   * current at all. Meaningless without `growth` also configured, and,
+   * like `growth`, **not supported together with `threadCount > 1`**.
+   */
+  newbornMaturation?: NewbornMaturationConfig;
+  /**
    * Number of native threads `PartitionRuntime` should use (Requirement 7
    * AC1, Phase 4 RUN-4). Omit or pass 1 for today's exact single-threaded
    * behaviour -- the default, and the only mode `snapshot()`/`restore()`
@@ -205,6 +225,7 @@ function hashConfig(lif: LifConfig, options: SimulationOptions): bigint {
       structuralPlasticity: options.structuralPlasticity ?? null,
       intrinsicHomeostasis: options.intrinsicHomeostasis ?? null,
       growth: options.growth ?? null,
+      newbornMaturation: options.newbornMaturation ?? null,
     },
     (_key, value) => (typeof value === "bigint" ? value.toString() : value),
   );
@@ -415,6 +436,7 @@ export class Simulation {
         options.segmentThresholdHomeostasis ?? null,
         options.inhibitionHomeostasis ?? null,
         options.growth ?? null,
+        options.newbornMaturation ?? null,
         options.threadCount ?? null,
         options.totalNeurons ?? null,
       ),
@@ -461,6 +483,7 @@ export class Simulation {
       options.segmentThresholdHomeostasis ?? null,
       options.inhibitionHomeostasis ?? null,
       options.growth ?? null,
+      options.newbornMaturation ?? null,
     );
     return new Simulation(native, lif, options);
   }

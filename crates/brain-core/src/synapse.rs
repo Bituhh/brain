@@ -274,6 +274,27 @@ impl SynapseArena {
             .filter(move |&id| self.occupied[id as usize])
     }
 
+    /// Removes every synapse touching `index`, in either direction --
+    /// outgoing (`index`'s own block, via [`Self::occupied_in_block`]) and
+    /// incoming (via [`Self::incoming`]). `NeuronArena::free` does not (and
+    /// cannot, without a back-reference) touch `SynapseArena` on its own --
+    /// the two arenas are separate, so freeing a neuron's slot leaves its
+    /// old wiring untouched. Because `NeuronArena::allocate` reuses freed
+    /// slots LIFO, the *next* occupant of that slot would otherwise
+    /// silently inherit a dead neuron's incoming and outgoing synapses.
+    /// Callers that free a neuron (`StructuralPlasticity::reclaim_unused_neurons`,
+    /// B3's newborn-survival reclaim) must call this first.
+    pub fn disconnect_neuron(&mut self, index: u32) {
+        let outgoing: Vec<u32> = self.occupied_in_block(index).collect();
+        for id in outgoing {
+            self.remove(id);
+        }
+        let incoming: Vec<u32> = self.incoming(index).collect();
+        for id in incoming {
+            self.remove(id);
+        }
+    }
+
     /// Splits this arena's fields into `neuron_ranges.len()` disjoint,
     /// mutable [`SynapseArenaViewMut`]s (RUN-4), one per partition.
     /// `neuron_ranges` must be exactly the same contiguous, gapless,

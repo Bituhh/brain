@@ -32,6 +32,7 @@ use crate::metrics::{FiringRateMeter, PredictionAccuracyMeter};
 use crate::neuromodulator::NeuromodulatorField;
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
 use crate::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
+use crate::plasticity::newborn::{NewbornMaturation, NewbornMaturationParams, NewbornMaturationRawState, NewbornWiringParams};
 use crate::plasticity::predictive::{PredictingSegmentTracker, PredictiveLearning, PredictiveLearningParams};
 use crate::plasticity::structural::StructuralPlasticity;
 use crate::plasticity::{LocalContext, Modulators, NeuronLocal, RuleChain, SynapseMut};
@@ -356,6 +357,16 @@ pub struct Scheduler {
     /// every tick and allocates new neurons via [`apply_growth`] the moment
     /// it fires, with no human-issued command for any individual event.
     growth: Option<GrowthState>,
+    /// `None` means a newly grown neuron is left exactly as `apply_growth`
+    /// allocates it -- zero synapses, `growth.coords_origin`, normal
+    /// threshold -- the pre-PLAN.md-B3 behaviour, which README §13.12 item
+    /// 10's 2026-09-14 update confirms never lets a grown neuron receive
+    /// current at all. When attached via [`Self::with_newborn_maturation`]
+    /// and `growth` is also configured, `step()` wires each newly grown
+    /// neuron's inputs, places it, and lowers its threshold the moment it
+    /// is allocated, then relaxes/reclaims it on this mechanism's own
+    /// periodic sweep -- see `plasticity/newborn.rs`.
+    newborn_maturation: Option<NewbornMaturation>,
 }
 
 /// Everything `step()` needs to grow this scheduler's population
@@ -454,6 +465,7 @@ impl Scheduler {
             prediction_accuracy: PredictionAccuracyMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
             inhibition_homeostasis: None,
             growth: None,
+            newborn_maturation: None,
         }
     }
 
@@ -678,6 +690,20 @@ impl Scheduler {
         self
     }
 
+    /// Enables newborn integration (PLAN.md B3, NET-10/NET-11) as an
+    /// always-on, opt-in part of `step()`'s growth block: the moment
+    /// `with_growth`'s policy fires, each newly allocated neuron is also
+    /// wired, placed and made temporarily hyperexcitable
+    /// (`plasticity/newborn.rs::NewbornMaturation::wire_and_place_newborns`),
+    /// and `maybe_sweep` relaxes/reclaims it on `maturation`'s own
+    /// schedule. Meaningless without `with_growth` also configured (there
+    /// is nothing for it to act on), matching every other sweep's own
+    /// "does not enforce the ordering" precedent.
+    pub fn with_newborn_maturation(mut self, wiring: NewbornWiringParams, maturation: NewbornMaturationParams) -> Self {
+        self.newborn_maturation = Some(NewbornMaturation::new(wiring, maturation));
+        self
+    }
+
     /// Feeds one activation event to the growth policy's collision signal
     /// (Requirement 1 AC2): the caller decides what counts as a collision
     /// for its own encoding, matching `OverlapSaturation::record_activation`'s
@@ -706,6 +732,38 @@ impl Scheduler {
     pub fn restore_growth_raw_state(&mut self, state: GrowthRawState) {
         if let Some(growth) = &mut self.growth {
             growth.policy.restore_raw_state(state);
+        }
+    }
+
+    /// Newborn maturation's full cross-tick state (RUN-9a, `snapshot.rs`
+    /// format version 10), or `None` if `with_newborn_maturation` was never
+    /// called -- the newborn-maturation counterpart to
+    /// [`Self::growth_raw_state`].
+    pub fn newborn_maturation_raw_state(&self) -> Option<NewbornMaturationRawState> {
+        self.newborn_maturation.as_ref().map(|nm| nm.raw_state())
+    }
+
+    /// Overlays snapshotted newborn-maturation state onto a
+    /// freshly-constructed `Scheduler` (built with the same
+    /// `with_newborn_maturation` configuration the snapshot's config hash
+    /// was checked against). `state: None` means the snapshot predates
+    /// this section (format version <= 9) -- the only sound migration is
+    /// "no neuron is currently tracked as a newborn," which a fresh
+    /// `NewbornMaturation` instance already is; `last_swept_at`'s
+    /// reconstruction follows `restore_sweep_scheduling_state`'s own
+    /// `(tick / interval) * interval` precedent so this sweep resumes
+    /// on-grid rather than immediately re-firing on the first post-restore
+    /// tick. A no-op if newborn maturation is not configured on this
+    /// scheduler, matching `restore_growth_raw_state`'s own precedent.
+    pub fn restore_newborn_maturation_raw_state(&mut self, state: Option<NewbornMaturationRawState>, tick: u32) {
+        if let Some(nm) = &mut self.newborn_maturation {
+            match state {
+                Some(s) => nm.restore_raw_state(s),
+                None => {
+                    let interval = nm.sweep_interval_ticks().max(1);
+                    nm.restore_raw_state(NewbornMaturationRawState { last_swept_at: (tick / interval) * interval, birth_tick: Vec::new(), mature_threshold: Vec::new() });
+                }
+            }
         }
     }
 
@@ -1432,7 +1490,16 @@ impl Scheduler {
             }
         }
 
-        // NET-10, invariant 10: an eighth always-on, opt-in sweep -- unlike
+        // PLAN.md B3: an eighth always-on, opt-in sweep, relaxing/reclaiming
+        // newborns from *earlier* growth events at this tick, before growth
+        // (below) potentially adds fresh ones -- same "reads `neurons`/
+        // `synapses` directly, borrow through the views has already ended"
+        // reasoning as `structural_plasticity` above.
+        if let Some(newborn_maturation) = &mut self.newborn_maturation {
+            newborn_maturation.maybe_sweep(neurons, synapses, report.tick);
+        }
+
+        // NET-10, invariant 10: a ninth always-on, opt-in sweep -- unlike
         // the seven above, this one can change `neurons.live_count()`
         // itself, which is exactly the point (README §10's "capacity is
         // grown, not configured"). Deliberately last: growth is the
@@ -1461,6 +1528,14 @@ impl Scheduler {
                         polarity: crate::graph::derive_polarity(seed, base_index + i, excitatory_fraction),
                         coords: coords_origin,
                     });
+                    // PLAN.md B3: without this, a newly grown neuron keeps
+                    // zero synapses and `coords_origin` forever -- README
+                    // §13.12 item 10's 2026-09-14 update confirms that dead
+                    // end directly (grown neurons never acquire a synapse or
+                    // fire, across the full run, at any growth pace).
+                    if let Some(newborn_maturation) = &mut self.newborn_maturation {
+                        newborn_maturation.wire_and_place_newborns(neurons, synapses, &added, report.tick, seed);
+                    }
                     report.grown = added.into_iter().map(|id| id.index).collect();
                 }
             }

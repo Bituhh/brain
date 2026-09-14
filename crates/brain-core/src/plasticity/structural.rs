@@ -189,7 +189,7 @@ impl StructuralPlasticity {
         sprouted
     }
 
-    fn reclaim_unused_neurons(&self, neurons: &mut NeuronArena, tick: u32) -> u32 {
+    fn reclaim_unused_neurons(&self, neurons: &mut NeuronArena, synapses: &mut SynapseArena, tick: u32) -> u32 {
         let mut reclaimed = 0;
         for i in 0..neurons.capacity_len() {
             let last_spike = neurons.last_spike[i];
@@ -199,6 +199,11 @@ impl StructuralPlasticity {
             if tick.saturating_sub(last_spike) >= self.params.unused_ticks_before_reclaim {
                 let id = crate::ids::NeuronId::new(i as u32, neurons_generation_at(neurons, i));
                 if neurons.free(id).is_ok() {
+                    // PLAN.md B3: `NeuronArena::free` does not touch
+                    // `SynapseArena` on its own -- without this, a reclaimed
+                    // slot's old wiring survives to be silently inherited by
+                    // whichever neuron `allocate` next hands that slot to.
+                    synapses.disconnect_neuron(i as u32);
                     reclaimed += 1;
                 }
             }
@@ -266,7 +271,7 @@ impl StructuralPlasticity {
         let neuron_count = neurons.capacity_len() as u32;
         let pruned = self.prune(synapses, neuron_count);
         let sprouted = self.sprout(synapses, neuron_count, &partition_of);
-        let reclaimed_neurons = self.reclaim_unused_neurons(neurons, tick);
+        let reclaimed_neurons = self.reclaim_unused_neurons(neurons, synapses, tick);
 
         StructuralSweepReport { pruned, sprouted, reclaimed_neurons }
     }
@@ -559,6 +564,41 @@ mod tests {
         let report = sp.maybe_sweep(&mut neurons, &mut synapses, 200).unwrap();
         assert_eq!(report.reclaimed_neurons, 1);
         assert!(!neurons.is_alive(crate::ids::NeuronId::new(0, 0)));
+    }
+
+    /// PLAN.md B3, task step 5: `NeuronArena::free` alone does not touch
+    /// `SynapseArena`, and `NeuronArena::allocate` reuses freed slots LIFO --
+    /// without `disconnect_neuron`, a reclaimed neuron's old incoming and
+    /// outgoing synapses would silently carry over to whichever neuron is
+    /// allocated into that same slot next.
+    #[test]
+    fn reclaiming_a_neuron_disconnects_its_synapses_so_the_next_occupant_does_not_inherit_them() {
+        let mut neurons = make_neurons(3);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(3);
+        // Neuron 1 has both an outgoing synapse (1->2) and an incoming one
+        // (0->1) at the moment it becomes reclaimable.
+        let outgoing = synapses.insert(1, 2, 0, 1, 0.5, 0.5).unwrap();
+        let incoming = synapses.insert(0, 1, 0, 1, 0.5, 0.5).unwrap();
+        neurons.last_spike[0] = 19; // fired recently -- not reclaimable
+        neurons.last_spike[1] = 5; // fired once, long ago -- reclaimable
+        neurons.last_spike[2] = 19; // fired recently -- not reclaimable
+
+        let params = StructuralPlasticityParams { unused_ticks_before_reclaim: 10, sweep_interval_ticks: 10, min_activity_streak: 1000, ..default_params() };
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 20).unwrap();
+        assert_eq!(report.reclaimed_neurons, 1);
+        assert!(!neurons.is_alive(crate::ids::NeuronId::new(1, 0)));
+        assert!(!synapses.is_occupied(outgoing), "neuron 1's outgoing synapse must be removed on reclaim");
+        assert!(!synapses.is_occupied(incoming), "neuron 1's incoming synapse must be removed on reclaim");
+
+        // The freed slot (index 1) is reused by the next allocation --
+        // confirm the new occupant starts with zero synapses in either
+        // direction, not the reclaimed neuron's old wiring.
+        let reused = neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] });
+        assert_eq!(reused.index, 1, "the freed slot must be reused LIFO");
+        assert!(synapses.occupied_in_block(1).next().is_none(), "reused slot must start with no outgoing synapses");
+        assert!(synapses.incoming(1).next().is_none(), "reused slot must start with no incoming synapses");
     }
 
     #[test]

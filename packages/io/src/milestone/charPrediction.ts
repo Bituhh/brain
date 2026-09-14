@@ -47,6 +47,7 @@ import {
   type InhibitionHomeostasisConfig,
   type GrowthConfig,
   type StructuralPlasticityConfig,
+  type NewbornMaturationConfig,
 } from "@brain/core";
 import { wrapColumnHandles, type ColumnHandle } from "../columns.ts";
 import { encodeChar, SUPPORTED_ALPHABET, type CharEncoderConfig } from "../encoders/text.ts";
@@ -118,34 +119,58 @@ export interface CharPredictionConfig {
   /**
    * Saturation-driven growth (NET-10, invariant 10). `undefined` (default)
    * leaves population size fixed at `width` exactly as before this
-   * existed. **Only meaningful together with `structuralPlasticity`
-   * below** -- `apply_growth` wires zero synapses for a newly grown
-   * neuron (by design, NET-10's own Out of Scope), so without structural
-   * plasticity's sprouting a grown neuron never receives input and never
-   * fires: pure inert capacity, not a real experiment. Grown neurons land
-   * at indices `>= width`, past `columnConfig`'s own `neighbourhoodSize`/
-   * candidate-addressable range -- they are *hidden* capacity only, never
-   * directly stimulated (`ColumnHandle.stimulateSdr`) or directly decoded
+   * existed. **Meaningful only together with `newbornMaturation` below,
+   * not `structuralPlasticity` alone** -- an earlier revision of this
+   * comment said structural plasticity's sprouting was what let a grown
+   * neuron receive input; re-measured 2026-09-14 (README §13.12 item 10's
+   * B2 update) and found wrong: `apply_growth` gives a grown neuron zero
+   * synapses, and `StructuralPlasticity::sprout` requires prior activity
+   * from a candidate before it is eligible as *either* a sprout source or
+   * target -- a neuron that can never receive current can never spike, so
+   * it can never clear that bar, regardless of whether structural
+   * plasticity is configured. `newbornMaturation` is what actually closes
+   * this. Grown neurons land at indices `>= width`, past `columnConfig`'s
+   * own `neighbourhoodSize`/candidate-addressable range -- they are
+   * *hidden* capacity only, never directly stimulated
+   * (`ColumnHandle.stimulateSdr`) or directly decoded
    * (`ColumnHandle.observedSdr`), both of which stay scoped to the
    * original `[0, width)` column range for the lifetime of a
    * `Simulation` (re-encoding `buildCandidates` at a wider space on every
    * growth event would scramble every candidate's bit pattern via
    * `encodeChar`'s hash-based encoding, silently discarding whatever the
    * network had already learned about the old ones). This tests whether
-   * *internal* capacity for `structuralPlasticity` to wire into the
-   * visible population's dendritic segments helps discriminate 97
-   * candidates more distinctly -- not whether a bigger visible/decoded
-   * population would.
+   * *internal* capacity wired into the visible population's dendritic
+   * segments helps discriminate 97 candidates more distinctly -- not
+   * whether a bigger visible/decoded population would.
    */
   readonly growth?: GrowthConfig;
   /**
-   * Structural plasticity (LRN-7) -- see `growth`'s doc comment above for
-   * why this is the mechanism that actually makes growth do anything here.
-   * `undefined` (default) leaves `step()`'s structural sweep disabled,
-   * exactly as before this existed (no synapse is ever pruned or sprouted
+   * Structural plasticity (LRN-7) -- prunes/sprouts among the *original*
+   * population and, once a newborn can fire (`newbornMaturation`), sprouts
+   * its outputs too (see that field's own doc comment). `undefined`
+   * (default) leaves `step()`'s structural sweep disabled, exactly as
+   * before this existed (no synapse is ever pruned or sprouted
    * automatically).
    */
   readonly structuralPlasticity?: StructuralPlasticityConfig;
+  /**
+   * Newborn neuron integration (PLAN.md B3, NET-10/NET-11, README §13.12
+   * item 10's three-lock diagnosis). `growth`'s own doc comment above
+   * (written before B3) said structural plasticity alone was what let
+   * growth do anything -- re-measured 2026-09-14 and found false: a grown
+   * neuron's own `sprout` eligibility requires prior activity it can
+   * structurally never have, so `structuralPlasticity` alone never wires a
+   * synapse to or from a grown neuron either (§13.12 item 10's B2 update).
+   * This is what actually closes that gap: a newly grown neuron's inputs
+   * are wired directly from recently-active neurons onto the feedforward
+   * segment (not a dendritic one), placed at their coordinate centroid,
+   * and given a temporarily lowered threshold that relaxes over a
+   * maturation window; a newborn that never integrates is reclaimed.
+   * `undefined` (default) leaves a grown neuron exactly as `apply_growth`
+   * allocates it -- inert, per the finding above. Meaningless without
+   * `growth` also configured.
+   */
+  readonly newbornMaturation?: NewbornMaturationConfig;
   /**
    * The growth-policy collision signal (Requirement 1 AC2 of the
    * saturation-driven-growth spec): after each character, the top two
@@ -260,6 +285,7 @@ export function buildNetwork(
   growth: GrowthConfig | undefined = DEFAULT_CONFIG.growth,
   structuralPlasticity: StructuralPlasticityConfig | undefined = DEFAULT_CONFIG.structuralPlasticity,
   segmentsPerNeuron: number = DEFAULT_CONFIG.segmentsPerNeuron ?? DEFAULT_SEGMENTS_PER_NEURON,
+  newbornMaturation: NewbornMaturationConfig | undefined = DEFAULT_CONFIG.newbornMaturation,
 ): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 };
   const options: SimulationOptions = {
@@ -321,6 +347,10 @@ export function buildNetwork(
     // if-defined convention as every optional mechanism above.
     ...(growth !== undefined && { growth }),
     ...(structuralPlasticity !== undefined && { structuralPlasticity }),
+    // PLAN.md B3: see `CharPredictionConfig.newbornMaturation`'s doc
+    // comment for why this, not `structuralPlasticity` alone, is what
+    // makes `growth` actually do anything here.
+    ...(newbornMaturation !== undefined && { newbornMaturation }),
     predictiveLearning: {
       significanceThreshold: 0.5,
       reinforceAmount: 0.08,
@@ -406,6 +436,7 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
     config.growth,
     config.structuralPlasticity,
     config.segmentsPerNeuron ?? DEFAULT_SEGMENTS_PER_NEURON,
+    config.newbornMaturation,
   );
   const collisionMargin = config.collisionMargin ?? DEFAULT_COLLISION_MARGIN;
   const trigram = new TrigramModel();

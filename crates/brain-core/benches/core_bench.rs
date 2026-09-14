@@ -69,7 +69,7 @@ fn build_benchmark_network() -> (NeuronArena, SynapseArena, ColumnRegistry) {
         for i in 0..10u32 {
             let source = ranges[col].start + i;
             let target = ranges[next].start + i;
-            let _ = synapses.insert(source, target, 0, 2, 0.6);
+            let _ = synapses.insert(source, target, 0, 2, 0.6, 0.6);
         }
     }
     (neurons, synapses, columns)
@@ -395,7 +395,7 @@ fn build_locality_realistic_network() -> (NeuronArena, SynapseArena, ColumnRegis
         for i in 0..10u32 {
             let source = ranges[col].start + i;
             let target = ranges[next].start + i;
-            let _ = synapses.insert(source, target, 0, 2, 0.6);
+            let _ = synapses.insert(source, target, 0, 2, 0.6, 0.6);
         }
     }
 

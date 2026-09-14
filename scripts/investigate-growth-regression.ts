@@ -65,6 +65,22 @@
 // maxSproutSourceIndex`) tests this directly: neuron indices past the
 // cutoff can still be sprout *targets*, just never sprout *sources*.
 //
+// Update, PLAN.md B3 (2026-09-14): B2's re-run (below, and README §13.12
+// item 10's 2026-09-14 update) found B1 did NOT dissolve the deadlock --
+// conditions B-F were still bit-identical to C, and direct instrumentation
+// showed grown neurons never acquired a single synapse across the whole
+// run. The cause is two further locks B1 never touched: `sprout` requires
+// prior activity from a candidate before it is eligible as *either* a
+// source or target (a neuron with zero synapses can never spike, so it can
+// never clear that bar), and even a hypothetically-eligible sprout lands on
+// a dendritic segment, which only primes a cell rather than firing it. This
+// script now also configures `newbornMaturation` (PLAN.md B3) on every
+// growth-enabled condition (B, D, E, F) -- see `newbornMaturationParams()`
+// below -- which wires a newly grown neuron's inputs directly, onto the
+// feedforward segment, with a temporary hyperexcitability window. The
+// results table and per-window instrumentation below are this re-run, not
+// B2's original one.
+//
 // Honest caveat (Requirement 13.6): the exact growth/structuralPlasticity
 // parameters used to produce the original 4.91% figure were not preserved
 // in this repo (that retest was run from an ad hoc scratch script, not
@@ -94,7 +110,7 @@ import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { cpus } from "node:os";
-import type { GrowthConfig, StructuralPlasticityConfig, Simulation } from "@brain/core";
+import type { GrowthConfig, StructuralPlasticityConfig, NewbornMaturationConfig, Simulation } from "@brain/core";
 import {
   assessMilestone,
   buildNetwork,
@@ -129,7 +145,7 @@ const POOL_SIZE = Math.max(1, Math.min(cpus().length, 6));
 writeFileSync(
   RESULTS_PATH,
   "# NET-10 growth-regression investigation -- results\n\n" +
-    `Generated ${new Date().toISOString()} by scripts/investigate-growth-regression.ts (PLAN.md B2 re-run, post-B1 weight/permanence split).\n\n` +
+    `Generated ${new Date().toISOString()} by scripts/investigate-growth-regression.ts (PLAN.md B3 re-run: newborn input wiring + hyperexcitability on top of B1's weight/permanence split, since B2's own re-run found the split alone insufficient).\n\n` +
     "5-seed official protocol (seeds [1,2,3,4,5], 15,000-character corpus slice, matching every other VAL-4 figure in README §13.12).\n\n" +
     `The 30 (condition x seed) trials ran concurrently across a ${POOL_SIZE}-worker-thread pool (one native Simulation per thread, no shared state). Each trial's own duration is still measured individually; "wall-clock" below is the *sum* of a condition's 5 individual trial durations -- a compute-time proxy comparable in spirit to Phase A's original sequential measurement -- not the actual (shorter) parallel batch time, which is logged separately below the table.\n\n` +
     "| condition | mean network accuracy | range across seeds | mean trigram accuracy | wall-clock (summed per-seed) |\n" +
@@ -138,7 +154,7 @@ writeFileSync(
 writeFileSync(
   SAMPLES_PATH,
   "# NET-10 growth-regression investigation -- per-window instrumentation\n\n" +
-    `Generated ${new Date().toISOString()} by scripts/investigate-growth-regression.ts (PLAN.md B2 re-run). Seed 1 only, sampled every ${1500} characters. Grown-neuron columns are new for B2 (PLAN.md task step 3): grownLive is liveNeuronCount - width; synapsesOntoGrown/synapsesFromGrown count occupied synapse slots whose target/source neuron index is >= width (the only mechanism that can create such a synapse here is structural-plasticity sprouting, since apply_growth itself allocates zero synapses); firstGrownSpikeTick is the exact tick (read from lastSpikeView, not char-resolution) the first grown neuron was observed to have fired, latched once and left blank until then.\n\n`,
+    `Generated ${new Date().toISOString()} by scripts/investigate-growth-regression.ts (PLAN.md B3 re-run). Seed 1 only, sampled every ${1500} characters. Grown-neuron columns (from B2, PLAN.md task step 3): grownLive is liveNeuronCount - width; synapsesOntoGrown/synapsesFromGrown count occupied synapse slots whose target/source neuron index is >= width -- now expected to be non-zero for synapsesFromGrown too, since PLAN.md B3's newbornMaturation wires a grown neuron's *inputs* directly (source < width, target >= width, i.e. synapsesOntoGrown) and, once a newborn can fire, structural plasticity can sprout its *outputs* (source >= width, i.e. synapsesFromGrown) -- B2 found both were exactly zero throughout, at every checkpoint, in every instrumented condition; firstGrownSpikeTick is the exact tick (read from lastSpikeView, not char-resolution) the first grown neuron was observed to have fired, latched once and left blank until then.\n\n`,
 );
 
 function logResult(name: string, meanAccuracy: number, perSeed: readonly number[], meanTrigram: number, wallClockMs: number): void {
@@ -185,6 +201,40 @@ function structuralPlasticityParams(maxSproutSourceIndex?: number): StructuralPl
     neighbourhoodSize: 100,
     k: 10,
     ...(maxSproutSourceIndex !== undefined && { maxSproutSourceIndex }),
+  };
+}
+
+// PLAN.md B3 (added 2026-09-14 while this script's B2 re-run was still in
+// flight): B1's weight/permanence split alone did not dissolve the deadlock
+// after all -- re-measured, grown neurons still never acquired a single
+// synapse (see this file's own header and README §13.12 item 10's
+// 2026-09-14 update). The reason is two further locks B1 never touched:
+// `sprout` requires prior activity from a candidate before it is eligible
+// as *either* a source or target, and even a hypothetically-eligible sprout
+// lands on a dendritic segment, which only primes a cell (NEU-6), never
+// fires it. `newbornMaturationParams()` closes both directly: a newly grown
+// neuron's inputs are wired from recently-active neurons onto the
+// feedforward segment, placed at their coordinate centroid, and given a
+// temporarily lowered threshold -- see `NewbornMaturationConfig`'s own doc
+// comment for the full reasoning. Values below are this investigation's own
+// starting point, not independently tuned: `inputSubsetSize`/`inputWeight`
+// scaled up from the smaller values `newborn_integration.rs`'s Rust
+// integration tests validated, for this network's ~64-neuron (8% of 800)
+// per-tick k-WTA active set rather than a handful of driver neurons;
+// `maturationTicks` sized to comfortably exceed the ~600 ticks
+// `structuralPlasticityParams()`'s own `minActivityStreak: 3` x
+// `sweepIntervalTicks: 200` needs before a firing newborn could ever sprout
+// an output.
+function newbornMaturationParams(): NewbornMaturationConfig {
+  return {
+    inputWindowTicks: 10,
+    inputSubsetSize: 24,
+    inputPermanence: 0.4,
+    inputWeight: 0.15,
+    placementJitter: 1.0,
+    sweepIntervalTicks: 100,
+    maturationTicks: 3000,
+    excitabilityThresholdFactor: 0.4,
   };
 }
 
@@ -248,7 +298,7 @@ const CONDITIONS: readonly Condition[] = [
   {
     name: "B: growth + structural plasticity, original (burst) pace",
     description: "Reproduces the known regression as a sanity check the harness matches the prior session's (README §11 Phase 7 status: 18.33% -> 4.91%).",
-    config: { ...DEFAULT_CONFIG, growth: growthBurst(), structuralPlasticity: structuralPlasticityParams() },
+    config: { ...DEFAULT_CONFIG, growth: growthBurst(), structuralPlasticity: structuralPlasticityParams(), newbornMaturation: newbornMaturationParams() },
     instrument: true,
   },
   {
@@ -260,19 +310,19 @@ const CONDITIONS: readonly Condition[] = [
   {
     name: "D: growth + structural plasticity, burst pace, sprout-source-restricted",
     description: "Same as B, but grown neurons (index >= 800) are excluded from ever being a sprout *source* -- directly tests the noise-injection hypothesis.",
-    config: { ...DEFAULT_CONFIG, growth: growthBurst(), structuralPlasticity: structuralPlasticityParams(WIDTH - 1) },
+    config: { ...DEFAULT_CONFIG, growth: growthBurst(), structuralPlasticity: structuralPlasticityParams(WIDTH - 1), newbornMaturation: newbornMaturationParams() },
     instrument: true,
   },
   {
     name: "E: growth alone at a gentle pace + structural plasticity, unrestricted",
     description: "Same +400 capacity spread over most of the run instead of the first 10% -- checks whether pacing alone (with the noise-injection variable NOT controlled for) fixes anything.",
-    config: { ...DEFAULT_CONFIG, growth: growthGentle(), structuralPlasticity: structuralPlasticityParams() },
+    config: { ...DEFAULT_CONFIG, growth: growthGentle(), structuralPlasticity: structuralPlasticityParams(), newbornMaturation: newbornMaturationParams() },
     instrument: true,
   },
   {
     name: "F: growth at a gentle pace + structural plasticity, sprout-source-restricted",
     description: "Combines E's gentle pace with D's sprout-source restriction -- checks whether pacing matters once the noise-injection variable is controlled for.",
-    config: { ...DEFAULT_CONFIG, growth: growthGentle(), structuralPlasticity: structuralPlasticityParams(WIDTH - 1) },
+    config: { ...DEFAULT_CONFIG, growth: growthGentle(), structuralPlasticity: structuralPlasticityParams(WIDTH - 1), newbornMaturation: newbornMaturationParams() },
     instrument: false,
   },
 ];
@@ -442,6 +492,7 @@ function runInstrumented(config: CharPredictionConfig, seed: bigint): void {
     config.growth,
     config.structuralPlasticity,
     config.segmentsPerNeuron,
+    config.newbornMaturation,
   );
   const collisionMargin = config.collisionMargin ?? 0.1;
   const networkAcc = new SlidingWindowAccuracy(config.slidingWindow);
