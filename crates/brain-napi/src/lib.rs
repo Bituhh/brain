@@ -728,10 +728,21 @@ struct SchedulerConfig {
     newborn_maturation: Option<NewbornMaturationConfig>,
 }
 
+/// `InhibitionConfig` -> `FixedNeighbourhoods`, shared by `build_scheduler`
+/// and `restore` so PLAN.md B3's `densityTarget` is applied identically in
+/// both places.
+fn build_inhibition(cfg: &InhibitionConfig) -> FixedNeighbourhoods {
+    let mut inhibition = FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k);
+    if let Some(density) = cfg.density_target {
+        inhibition = inhibition.with_density_target(density as f32);
+    }
+    inhibition
+}
+
 fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
     let mut scheduler = Scheduler::new(config.max_delay.min(u16::MAX as u32) as u16, config.connection_threshold as f32);
     if let Some(cfg) = &config.inhibition {
-        scheduler = scheduler.with_inhibition(FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k));
+        scheduler = scheduler.with_inhibition(build_inhibition(cfg));
     }
     if let Some(cfg) = &config.segments {
         scheduler = scheduler.with_segments(SegmentConfig {
@@ -850,6 +861,18 @@ enum Runtime {
 pub struct InhibitionConfig {
     pub neighbourhood_size: u32,
     pub k: u32,
+    /// Density-scaled k (PLAN.md B3) -- `FixedNeighbourhoods::with_density_target`'s
+    /// FFI mirror. `undefined` (default) keeps `k` fixed for every
+    /// neighbourhood regardless of how many members it actually has, the
+    /// pre-B4 behaviour. When set (typically `k / neighbourhoodSize`, which
+    /// reproduces today's `k` exactly for a full-size neighbourhood), a
+    /// neighbourhood with fewer members than `neighbourhoodSize` -- e.g. a
+    /// trailing group newborn neurons (NET-10) land in past the original
+    /// population -- gets a proportionally smaller cap instead of `k`
+    /// unchanged, which measured out to *no* real competition at all once
+    /// membership fell below `k` (every candidate won). See
+    /// `FixedNeighbourhoods`'s own doc comment for the measured numbers.
+    pub density_target: Option<f64>,
 }
 
 /// A distance-based connectivity policy (`graph.rs`'s `DistancePolicy`),
@@ -1869,7 +1892,7 @@ impl NativeSimulation {
 
         let mut scheduler = Scheduler::new(max_delay.min(u16::MAX as u32) as u16, connection_threshold as f32);
         if let Some(cfg) = &inhibition {
-            scheduler = scheduler.with_inhibition(FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k));
+            scheduler = scheduler.with_inhibition(build_inhibition(cfg));
         }
         if let Some(cfg) = &segments {
             scheduler = scheduler.with_segments(SegmentConfig {

@@ -429,6 +429,73 @@ mod tests {
         assert!(synapses.occupied_in_block(0).all(|id| synapses.target_neuron[id as usize] != 2), "neuron 2 never fired, must not be a sprout candidate");
     }
 
+    /// **Characterization test, not a property being asserted as correct**
+    /// (PLAN.md B4, README §13.12 item 10's 2026-09-14 diagnosis update,
+    /// mechanism 2). Makes the current, load-bearing-but-questionable
+    /// assumption explicit and checkable: `sprout` links a co-active pair
+    /// with NO regard for which one fired first, even when firing order is
+    /// unambiguous (neuron 0 fires strictly before neuron 1 on every one of
+    /// three consecutive sweeps -- about as clear a "0 predicts 1" signal
+    /// as this coarse, sweep-granularity mechanism can produce). LRN-8's
+    /// predictive learning needs the opposite structure to mean anything: a
+    /// segment predicts BY being active before the spike it anticipates,
+    /// so "1 predicts 0" is backwards for a neuron that always fires after
+    /// 0, not merely uninformative. `sprout` creates it anyway, symmetric
+    /// with the useful direction. When PLAN.md B4 makes sprout temporally
+    /// directed, this test's own assertions should flip (a wrong-direction
+    /// sprout should stop being created) -- update it then, rather than
+    /// deleting it, so the property this item changes stays documented by a
+    /// concrete before/after rather than just this comment.
+    #[test]
+    fn sprout_creates_a_synapse_in_the_wrong_temporal_direction_too_pre_b4() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, ..default_params() };
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
+
+        // Neuron 0 fires strictly before neuron 1, every sweep -- an
+        // unambiguous "0 predicts 1" relationship, not a coincidence.
+        neurons.last_spike[0] = 2;
+        neurons.last_spike[1] = 8;
+
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 10).unwrap();
+        assert_eq!(report.sprouted, 2, "today: both directions sprout regardless of order -- PLAN.md B4 should make this 1 (0->1 only)");
+        assert!(
+            synapses.occupied_in_block(1).any(|id| synapses.target_neuron[id as usize] == 0),
+            "today: 1->0 (the temporally backwards direction, since 1 always fires AFTER 0) is created just as readily as 0->1 -- this is exactly what PLAN.md B4's temporal-direction fix removes"
+        );
+    }
+
+    /// Characterization test (PLAN.md B4, diagnosis mechanism 3): every
+    /// sprout lands on segment 0 specifically, regardless of which pair
+    /// created it -- so every sprout across a whole neighbourhood piles
+    /// onto the SAME segment's coincidence count, unlike construction-time
+    /// wiring (`graph.rs`'s `purpose::SEGMENT_ASSIGN`), which spreads real
+    /// synapses across segments deterministically. Update this test (it
+    /// should stop passing at segment 0 specifically) once B4 spreads
+    /// sprouted synapses across segments.
+    #[test]
+    fn sprout_always_targets_segment_zero_pre_b4() {
+        let mut neurons = make_neurons(3);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(3);
+        let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, ..default_params() };
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
+        neurons.last_spike[0] = 5;
+        neurons.last_spike[1] = 5;
+        neurons.last_spike[2] = 5;
+
+        sp.maybe_sweep(&mut neurons, &mut synapses, 10);
+
+        let sprouted: Vec<u32> = (0..3).flat_map(|src| synapses.occupied_in_block(src).collect::<Vec<_>>()).collect();
+        assert!(!sprouted.is_empty(), "sanity: at least one sprout must have occurred among 3 mutually co-active neurons");
+        assert!(
+            sprouted.iter().all(|&id| synapses.target_segment[id as usize] == 0),
+            "today: every sprout lands on segment 0 -- PLAN.md B4 should spread these across segments deterministically instead"
+        );
+    }
+
     #[test]
     fn a_single_coincidence_is_not_enough_to_sprout() {
         let mut neurons = make_neurons(2);

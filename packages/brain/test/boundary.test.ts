@@ -698,6 +698,96 @@ test("Simulation.create rejects growth configured together with threadCount > 1 
   assert.throws(() => Simulation.create(lif, options), /growth is not supported together with threadCount/);
 });
 
+// -- PLAN.md B3 (Fix 1, closed 2026-09-14 as a post-hoc gap found in a
+// results review, not in the original B3 session): a newly grown population
+// lands in a partially-filled trailing `FixedNeighbourhoods` neighbourhood,
+// which a *fixed* `k` gives no real competition at all once its membership
+// drops below `k` -- measured on the real char-prediction network (README
+// §13.12 item 10's 2026-09-14 diagnosis): a 40-member trailing group let
+// all 40 fire every tick against an 8% target. `InhibitionConfig.
+// densityTarget` fixes this. These two tests exercise it through the real
+// compiled addon (not brain-core's own Rust-level tests of the same
+// property), confirming the FFI plumbing carries it correctly end to end.
+
+test("without densityTarget, a partially-filled trailing group of grown neurons has no real competition (Fix 1's defect, reproduced through the real addon)", () => {
+  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
+  const options: SimulationOptions = {
+    maxDelay: 2,
+    connectionThreshold: 0.2,
+    synapseCapPerNeuron: 1,
+    inhibition: { neighbourhoodSize: 4, k: 4 }, // no densityTarget: today's pre-Fix-1 behaviour
+    growth: {
+      collisionThreshold: 0.5,
+      window: 2,
+      neuronsPerTrigger: 3,
+      minTicksBetweenGrowth: 1,
+      ceiling: 10,
+      threshold: 0.5,
+      excitatoryFraction: 1.0,
+      coordsOriginX: 0,
+      coordsOriginY: 0,
+      coordsOriginZ: 0,
+      seed: 1n,
+    },
+  };
+  const sim = Simulation.create(lif, options);
+  for (let i = 0; i < 4; i++) sim.allocateNeuron(0.5, 1); // one full neighbourhood (size 4)
+
+  for (let i = 0; i < 3; i++) {
+    sim.step();
+    sim.recordGrowthActivation(true);
+  }
+  sim.step();
+  const grownCount = sim.liveNeuronCount() - 4;
+  assert.ok(grownCount > 0 && grownCount < 4, `expected a partially-filled trailing group (1-3 members), got ${grownCount}`);
+
+  for (let i = 4; i < 4 + grownCount; i++) sim.stimulate(i, 10.0);
+  const spiked = sim.step();
+  const trailingWinners = spiked.filter((i) => i >= 4).length;
+  assert.equal(trailingWinners, grownCount, `without densityTarget, ALL ${grownCount} members of the under-filled trailing group must win -- no real competition at all, the exact sparsity violation Fix 1 closes`);
+});
+
+test("with densityTarget, a partially-filled trailing group of grown neurons respects it (Fix 1, through the real addon)", () => {
+  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
+  const options: SimulationOptions = {
+    maxDelay: 2,
+    connectionThreshold: 0.2,
+    synapseCapPerNeuron: 1,
+    inhibition: { neighbourhoodSize: 4, k: 4, densityTarget: 0.5 }, // k=2 for a full 4-member group
+    growth: {
+      collisionThreshold: 0.5,
+      window: 2,
+      neuronsPerTrigger: 3,
+      minTicksBetweenGrowth: 1,
+      ceiling: 10,
+      threshold: 0.5,
+      excitatoryFraction: 1.0,
+      coordsOriginX: 0,
+      coordsOriginY: 0,
+      coordsOriginZ: 0,
+      seed: 1n,
+    },
+  };
+  const sim = Simulation.create(lif, options);
+  for (let i = 0; i < 4; i++) sim.allocateNeuron(0.5, 1);
+
+  for (let i = 0; i < 3; i++) {
+    sim.step();
+    sim.recordGrowthActivation(true);
+  }
+  sim.step();
+  const grownCount = sim.liveNeuronCount() - 4;
+  assert.ok(grownCount > 0 && grownCount < 4, `expected a partially-filled trailing group (1-3 members), got ${grownCount}`);
+
+  for (let i = 0; i < 4; i++) sim.stimulate(i, 10.0);
+  for (let i = 4; i < 4 + grownCount; i++) sim.stimulate(i, 10.0);
+  const spiked = sim.step();
+  const baseWinners = spiked.filter((i) => i < 4).length;
+  const trailingWinners = spiked.filter((i) => i >= 4).length;
+  assert.equal(baseWinners, 2, "the full 4-member base group must still cap at densityTarget*4 = 2 winners, unchanged from today's fixed-k behaviour");
+  assert.ok(trailingWinners < grownCount, `the trailing group must cap below its own full membership (${grownCount}) instead of every member winning -- got ${trailingWinners}`);
+});
+
 // -- Phase 5 Requirement 15: reward API and neuromodulator control surface.
 
 test("Simulation.reward measurably changes a plasticity outcome through the real compiled addon (Requirement 15.1, 15.2)", () => {

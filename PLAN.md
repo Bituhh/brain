@@ -54,6 +54,7 @@ graph TD
     B1["B1 · Split weight from permanence<br/><i>2–4 sessions · heavy review</i>"]
     B2["B2 · Verify growth deadlock dissolved<br/><i>1 session + runs</i>"]
     B3["B3 · Newborn neurons: pre-wired + hyperexcitable<br/><i>2–3 sessions + runs</i>"]
+    B4["B4 · Structural plasticity: sequence-aware sprout,<br/>usefulness-aware prune<br/><i>2–3 sessions + runs</i>"]
 
     C1["C1 · Wire consolidation into the loop<br/><i>1 session + runs</i>"]
     C2["C2 · Noradrenaline from prediction error<br/><i>1–2 sessions</i>"]
@@ -82,7 +83,8 @@ graph TD
     A4 --> B1
     B1 --> B2
     B2 --> B3
-    B3 --> D3
+    B3 --> B4
+    B4 --> D3
     B3 -.-> E1
     B1 --> C1
     B1 --> D1
@@ -126,6 +128,17 @@ biological answer instead: a newborn arrives already wired to whatever is active
 easy to excite. It gates D3 because the canonical brain has growth on, and is strongly preferred
 before E1, since a persistent brain that cannot grow contradicts invariant 10.
 
+**B4 exists because B3's own VAL-4 battery surfaced a cost that predates B3 — and predates growth
+entirely** (added 2026-09-14, immediately after B3 closed). Condition C (structural plasticity
+alone, no growth) regressed from Phase A's 13.04% to 6.40% at the point B1 landed: B1 made every
+sprout connected and STDP-visible from birth (the fix growth genuinely needed), but nothing about
+*where* or *how* `StructuralPlasticity::sprout` places a synapse was designed for that — it was
+tuned when a fresh sprout was inert until potentiated, and is now live from the first sweep. README
+§13.12 item 10's 2026-09-14 diagnosis update names three specific mechanisms sharing that one root
+cause. It gates D3 for the same reason B3 does: D3's re-tune should start from a structural
+plasticity mechanism that has been fixed, not one with a known, already-measured drag baked in —
+tuning around it now would fit parameters to a defect rather than to the network's actual behaviour.
+
 **Phase G is housekeeping** found during the same verification. G1 needs only A3 and is best done
 before D3, which is when vetoed segments first become visible. G2 waits for A4 and B1, because both
 change the sweeps it has to wire up.
@@ -146,6 +159,7 @@ wide change to the arena addressing scheme that cross-partition routing depends 
 | **B1** | Split `weight` from `permanence` | A1, A2, A4 | 2–4 sessions | **heavy review** |
 | **B2** | Verify the NET-10 growth deadlock is dissolved | B1 | 1 session | ~1 hour of runs |
 | **B3** | Newborn neurons arrive pre-wired to active inputs and hyperexcitable, then mature or die | B2 | 2–3 sessions | **1 design call** + hours of runs |
+| **B4** | Structural plasticity sprouts by sequence and prunes by usefulness, not just co-activity/permanence | B3 | 2–3 sessions | **3 design calls** + hours of runs |
 | **C1** | Wire `runConsolidation` into the streaming loop | B1 | 1 session | hours of runs |
 | **C2** | Drive noradrenaline from prediction error | A1 | 1–2 sessions | 1 design call |
 | **D1** | `polarity` in `NeuronLocal` + E/I-aware `rescale_one` | B1 | 1 session | — |
@@ -660,6 +674,145 @@ corrected where they said the split alone would dissolve the deadlock; and NET-1
 
 ---
 
+### B4 — Structural plasticity: sequence-aware sprout, usefulness-aware prune
+
+```
+Read README.md LRN-2, LRN-7, LRN-8, §12 decision 11 in full, §13.12 item 10's 2026-09-14 diagnosis
+update (the three-mechanism finding, not the VAL-4 table above it), and PLAN.md §4. Assumes B3 has
+landed.
+
+WHY THIS ITEM EXISTS. B3 closed the two locks that kept growth's neurons inert and, as a side
+effect, ran the official VAL-4 battery for the first time since B1 landed. Condition C (structural
+plasticity alone, no growth at all) came back at 6.40% — down from Phase A's pre-B1 13.04% on the
+identical configuration. B1 did not touch `StructuralPlasticity::sprout`'s or `prune`'s own logic at
+all; what changed is that a fresh sprout is now connected and STDP-visible from the sweep it is
+created, instead of sitting invisible below `connection_threshold` until potentiated. Every design
+choice `sprout`/`prune` currently embodies was made against the *old* semantics. README §13.12 item
+10's 2026-09-14 update names three specific consequences, read directly from the current
+implementation:
+
+1. DENDRITIC VOTES ARE WEIGHT-BLIND. `Scheduler::apply_local_effect`'s dendritic branch
+   (crates/brain-core/src/scheduler.rs, the `self.segment_counts[composite] += signed_current.signum()`
+   line) reads only the SIGN of a delivery, never its magnitude. `sproutWeight`'s near-zero value
+   makes a fresh sprout "silent" on the feedforward path (`input_accum += signed_current`) but does
+   nothing on the dendritic path — a synapse sprouted one sweep ago casts the same ±1 coincidence
+   vote as one STDP has spent 10,000 characters confirming. This is deliberate design, not a bug
+   (decision 11's own reasoning: HTM's binary-count convention, and not silently reweighting every
+   existing tuned threshold) — but it was decided before a live sprout was even reachable in this
+   quantity, and the cost was never measured until now.
+2. SPROUT IS SYMMETRIC AND ATEMPORAL. `StructuralPlasticity::sprout`'s nested `a`/`b` loop
+   (crates/brain-core/src/plasticity/structural.rs) creates both `a→b` and `b→a` for any pair that
+   both cleared `min_activity_streak` within the same sweep window (`sweep_interval_ticks`), with no
+   notion of which fired first. LRN-8's predictive learning needs the opposite: a segment predicts
+   BY being active before the spike it anticipates, so a useful predictive synapse encodes "this
+   fired shortly before me," not "we were both active sometime in the same window." A same-pair
+   symmetric sprout gets the direction right only about half the time, by construction.
+3. EVERY SPROUT LANDS ON SEGMENT 0. Same function, `synapses.insert(a, b, 0, ...)` — the literal
+   `0` third argument. Unlike a newborn (B3's own "wiring-location lock"), this does not block the
+   *original* population from firing (segment 0 already has real wiring there) — but it does mean
+   every sprout across every neighbourhood piles onto the SAME segment's coincidence count instead
+   of being spread the way `graph.rs`'s own construction-time wiring already spreads real synapses
+   (`purpose::SEGMENT_ASSIGN`, a deterministic per-pair hash).
+4. PRUNE CANNOT SEE ANY OF THIS. `StructuralPlasticity::prune` removes a synapse at or below
+   `prune_floor` and reads nothing else. A sprout that connects instantly (permanence at
+   `sproutPermanence`, structurally connected by construction since B1) and is never potentiated by
+   STDP (`weight` stuck near `sproutWeight` forever) has no path to removal — it is exactly as
+   prune-eligible the day it is created as it is 10,000 characters later, regardless of whether it
+   ever contributed anything correct. Decision 11's own closing bullet already flagged this as an
+   open question, unconnected at the time to any measured cost.
+
+THE TASK. Four sub-fixes, each with its own design call — propose each, get the user's agreement,
+then build. Read the diagnosis update's full reasoning for each before starting; do not treat the
+summary above as the whole finding.
+
+1. WEIGHT-GATE DENDRITIC COINCIDENCE, WITHOUT RETUNING EVERY EXISTING THRESHOLD. Decision 11
+   explicitly rejected scaling `segment_counts` by weight magnitude, because every threshold in this
+   codebase (`BinaryCoincidenceParams::threshold`, `segmentThresholdHomeostasis`'s targets) was tuned
+   assuming a count of *connected* synapses, and a magnitude-weighted sum would silently change what
+   every one of those numbers means. Find a fix that does not reopen that — the natural shape is a
+   binary maturity gate (a synapse counts toward coincidence once its weight clears some floor,
+   separate from `connection_threshold`, not a continuous reweighting), but this is your design call
+   to make and justify, not a prescription. State clearly what "silent" now means for a dendritic
+   synapse and confirm it does not change `BinaryCoincidenceParams::threshold`'s own meaning for an
+   already-mature synapse.
+2. MAKE SPROUT TEMPORALLY DIRECTED. Use `NeuronArena::last_spike` (already read by
+   `update_activity_streaks`) to determine which of a candidate pair fired more recently within the
+   sweep window, and sprout only in the predictive direction (earlier → later), not both. Decide and
+   record: what counts as "clearly earlier" (a fixed tick gap? the more recent of two streak-building
+   windows?) and what happens to a pair that fired closely enough to be ambiguous — sprout neither,
+   matching STDP's own treatment of near-simultaneous spikes, is the conservative default, but say so
+   explicitly rather than leaving it implicit.
+3. SPREAD SPROUTS ACROSS SEGMENTS DETERMINISTICALLY. Replace the hard-coded `0` with a deterministic
+   per-pair segment assignment, following `graph.rs`'s own `purpose::SEGMENT_ASSIGN` precedent
+   (`derive_stream(seed, source, purpose, target) % segments_per_neuron`) rather than inventing a new
+   scheme. This is the narrow, tractable half of "which segment" — choosing a segment that matches
+   the *context* a synapse should predict (closer to NET-6 feedback or a clustering signal) is
+   explicitly out of scope here; do not attempt it.
+4. GIVE PRUNE A SECOND CRITERION: SYNAPSES THAT NEVER MATURED. A synapse connected for a long time
+   (structurally, permanence-wise) whose weight never moved meaningfully above its sprout-time value
+   is a standing cost with no benefit — decision 11's own open question. Decide what "never matured"
+   means with the state this module already has available (`last_active`, `eligibility_updated_at`,
+   or a new per-synapse field if genuinely needed — justify before adding one, since it is a
+   `SynapseArena` width increase, the same class of change B1 was) and add it as a second, independent
+   prune condition alongside the existing permanence floor. State whether this should also apply to
+   ordinary (non-sprouted) synapses or only ones `sprout` itself created.
+
+CONFIRM THE DIAGNOSIS BEFORE COMMITTING TO ALL FOUR FIXES. The diagnosis update is explicit that it
+is read from code, not yet re-measured. Before or alongside building the fixes, run the confirming
+experiments below — if one of the four mechanisms turns out not to matter, say so and narrow scope
+rather than shipping an unmeasured fix for it anyway.
+
+EXPERIMENTS (run in parallel, separate OS processes — condition C alone, no growth, so each is far
+cheaper than B3's own battery):
+1. Condition C with today's code but `sproutPermanence` reverted to a sub-threshold value (e.g. 0.1,
+   Phase A's original) — if accuracy returns to roughly 13%, that isolates "live sprouts" as the
+   cause in general, independent of which specific mechanism among 1-4 is responsible.
+2. Condition C with sprouting disabled entirely (`prune` only, `sprout` a no-op) — isolates whether
+   pruning alone is safe, or whether pruning itself also regresses accuracy.
+3. Condition C with fix 2 (weight-gated dendritic coincidence) applied alone, sprout/prune otherwise
+   unchanged from today — tests the "loud vote" hypothesis in isolation.
+4. Condition C with fix 3 (temporally-directed sprout) applied alone — tests the "wrong-direction
+   synapse" hypothesis in isolation.
+5. Once the above narrow down which mechanism(s) matter, the corresponding combination of fixes,
+   condition C, to confirm the fix actually recovers accuracy before re-running the full B/D/E/F
+   battery.
+Report every experiment's result, including ones that show no effect — a fix that cannot be shown to
+matter is not yet load-bearing (VAL-9's own standard), and this item's job is to find out which of
+the four actually carries the regression, not to ship all four regardless.
+
+TESTS.
+- Unit tests for each fix in isolation, in `structural.rs`'s own test module, following its existing
+  pattern (construct a scenario, sweep once, assert the specific property): a sprout only forms in
+  the earlier-fires-first direction; a sprout's target segment is not always 0 and is deterministic
+  given the same seed; a synapse that never matures gets pruned by the new criterion even with
+  permanence held fixed above the floor; an already-mature synapse's dendritic vote is unaffected by
+  the weight gate.
+- A regression test locking in the actual finding from the experiments above — whichever mechanism(s)
+  turn out to matter, assert condition C's accuracy on the 5-seed protocol is measurably closer to
+  Phase A's 13.04% than to B3's 6.40%, so a future change that reintroduces this regression is caught
+  automatically rather than requiring another manual investigation.
+- VAL-9 ablations for whichever fixes the experiments confirm matter, following B3's own precedent.
+
+CONSTRAINTS. Invariant 1 (locality): every fix here stays within `StructuralPlasticity`'s existing
+scheduler-invoked-sweep shape — none of this reaches for global state. Do not touch B3's own
+`NewbornMaturation` wiring in this item; if a fix here changes how newborns' OWN inputs behave
+(fix 1 in particular, since B3's newborn inputs also land on segments), note the interaction
+explicitly but scope any newborn-specific follow-up separately. Golden rasters WILL need
+regeneration if any fix changes ordinary (non-newborn, non-growth) network behaviour — expected here,
+unlike Phase A's items, since this is exactly the "some mechanism I fixed instead of not exercising"
+case `npm run test:golden:regen`'s own guidance describes; explain why each changed raster's
+divergence is the intended fix, not a side effect.
+
+DONE WHEN. The four design calls are made and recorded; the confirming experiments have identified
+which mechanism(s) actually carry the regression; condition C's accuracy is measurably improved and
+locked in by a regression test; the new unit tests and VAL-9 ablations pass; `npm run test:fast` and
+`npm run test:slow` are green; and README §12 decision 11 (the weight-blind-coincidence rationale)
+and §13.12 item 10 (the diagnosis this item worked from) are updated with the confirmed result,
+honestly, whichever fixes turned out to matter and whichever did not.
+```
+
+---
+
 ### C1 — Wire consolidation into the streaming loop
 
 ```
@@ -828,7 +981,7 @@ plus LRN-2's status record the new rule.
 
 ```
 Read README.md §2.4, NEU-4, NET-2, §13.12 items 1, 2 and 11, §13.13(a), and §11 Phase 7/8 status.
-Then PLAN.md §4. Assumes A2, B1, B2, C1, C2, D1 and D2 have all landed.
+Then PLAN.md §4. Assumes A2, B1, B2, B4, C1, C2, D1 and D2 have all landed.
 
 WHAT THIS IS. Every parameter in this repository was found with `excitatoryFraction: 1.0` — no run
 has ever used the 80:20 ratio NEU-4 specifies (README §13.12 item 11d). This item turns it on. The
@@ -1310,6 +1463,7 @@ partitioned.
 | B1 | done | 2026-09-14 01:13 +0100 | not reliably measured¶ | New `weight` field split from `permanence` end to end (`synapse.rs`, `scheduler.rs`, `plasticity/*.rs`, `snapshot.rs` format version 8→9, `brain-napi`, `packages/brain`/`io`/`viz`); design decision + gotcha recorded at README §12 decision 11; outcome recorded at §13.12 item 12 and §11 Phase 7 status; VAL-4 re-measured at 18.03% (was 17.37%), still not met |
 | B2 | done | 2026-09-14 11:03 +0100 | ~3h46min‖ | `scripts/investigate-growth-regression.ts` re-run post-B1 (corrected `sproutPermanence`/new `sproutWeight`, parallelised via `investigate-growth-regression.worker.ts`); **finding: the deadlock is NOT dissolved** — B–F still bit-identical to C at every seed, direct instrumentation shows grown neurons acquire zero synapses and never fire across the full run; root cause is a still-shut sprout eligibility gate (`activity_streak`), a different lock than the one B1 closed — see README §13.12 item 10's 2026-09-14 update and §11 Phase 7 status |
 | B3 | done | 2026-09-14 14:33 +0100 | ~3h08min** | Closed the two locks B1 left shut (README §13.12 item 10's 2026-09-14 update): new `crates/brain-core/src/plasticity/newborn.rs` (`NewbornMaturation`) wires a newborn's inputs from recently-active neurons onto `FEEDFORWARD_SEGMENT`, places it at their coordinate centroid, and gives it a temporary hyperexcitability window that relaxes over a maturation window, reclaiming it if it never integrates; `FORMAT_VERSION` 9→10 with migration; found and fixed a real pre-existing bug along the way (`NeuronArena::free` never disconnected a freed neuron's synapses — fixed via new `SynapseArena::disconnect_neuron`, shared with `StructuralPlasticity::reclaim_unused_neurons`). Verified at three levels: 5 unit tests, 6 whole-network integration tests (`tests/newborn_integration.rs` — incl. both VAL-9 ablations and an A4-style mid-maturation snapshot-continuation test, which caught a test-harness alternation-phase bug, not an engine one), and the official 5-seed × 6-condition VAL-4 battery (`scripts/investigate-growth-regression.ts`, same protocol as B2). **Result: the deadlock is confirmed dissolved — B–F are no longer bit-identical to C or each other for the first time across Phase A/B2/B3 — but the newly-functional capacity does not help VAL-4**: burst-pace growth (7.45%/7.00%) lands slightly above structural-plasticity-alone (6.40%), gentle-pace (4.51%/4.52%) lands below it, none approach baseline (17.37%) — honestly reported per Requirement 13.6, not spun. Invariant 10 is met for functional capacity (grown neurons fire and wire bidirectionally) for the first time; whether that capacity helps this specific task is a separate, now-answered "not with this configuration." `npm run test:fast` green throughout. README §13.12 items 10 and 12 plus §11 Phase 7 status all corrected and updated — see README for the full account and the per-condition/per-window data in `scripts/investigate-growth-regression.{results,samples}.md`. |
+| B4 | not started (confirming experiments done) | | | added 2026-09-14; 4 design calls, gates D3. `scripts/investigate-structural-plasticity-drag.ts` confirmed the diagnosis and narrowed priority before any code: sprout disabled outright recovers to 16.51% (near baseline 17.37%, vs. control's 6.40%), sub-threshold sprout (pre-B1) reproduces Phase A's 13.04% almost exactly, and a naively stricter prune floor makes it *worse* (1.78%) — sprout's own placement (fixes 2/3) is the load-bearing lever, fix 4 (pruning) is real but not a substitute and must be selective, not a blanket floor change. See README §13.12 item 10's 2026-09-14 update. Implementation (the 4 fixes themselves) not yet started. |
 | C1 | not started | | | |
 | C2 | not started | | | |
 | D1 | not started | | | |

@@ -1002,6 +1002,12 @@ impl Scheduler {
     /// the gap `restore_raw_state` alone would leave (a live `k` frozen at
     /// whatever the caller's fresh config supplied, ignoring however far
     /// homeostasis had actually nudged it by snapshot time).
+    /// **Known gap (PLAN.md B3): silently drops any `with_density_target`
+    /// setting.** `with_base` builds a fresh `FixedNeighbourhoods` with no
+    /// density target, so a caller combining `InhibitionHomeostasis` with a
+    /// density-scaled inhibition (neither does today) would lose the
+    /// density target the first time a homeostasis sweep fires. Not fixed
+    /// here -- no current caller configures both.
     fn resync_inhibition_k(inhibition: &mut Option<FixedNeighbourhoods>, k_estimate: f32) {
         if let Some(old) = inhibition {
             let clamped_k = (k_estimate.round().max(1.0) as u32).min(old.size()).max(1);
@@ -1686,7 +1692,12 @@ impl Scheduler {
         self.winners_scratch.clear();
         self.winner_set.clear();
         if let Some(inhibition) = &mut self.inhibition {
-            inhibition.resolve_into(&self.candidates_scratch, &mut self.winners_scratch);
+            // PLAN.md B3: `resolve_into_scaled` is `resolve_into`'s exact
+            // behaviour when no density target is configured (every caller
+            // before this existed) -- only a caller that opts in via
+            // `with_density_target` (e.g. B3's newborn neighbourhood) sees
+            // any difference.
+            inhibition.resolve_into_scaled(&self.candidates_scratch, neurons.capacity_len() as u32, &mut self.winners_scratch);
             for &idx in &self.winners_scratch {
                 self.winner_set.insert(idx);
             }

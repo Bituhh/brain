@@ -2805,6 +2805,116 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     Full per-trial data: `scripts/investigate-growth-regression.results.md`. Per-window
     instrumentation (`grownLive`, `synapsesOntoGrown`, `synapsesFromGrown`, `firstGrownSpikeTick`,
     every 1,500 characters, conditions B/D/E): `scripts/investigate-growth-regression.samples.md`.
+
+    **Update, 2026-09-14: a post-hoc diagnosis of the drag itself, from a design review of the B3
+    results rather than new instrumentation — three specific mechanisms in `StructuralPlasticity`
+    that predate B3 entirely, sharing one root cause (`sprout` was designed and tuned against
+    *pre-B1* semantics, where a fresh sprout started below `connection_threshold` and was inert
+    until potentiated — B1 made every sprout connected and live from birth, but nothing about how
+    or where `sprout` places a synapse changed to account for that).** Condition C (structural
+    plasticity alone) fell from Phase A's 13.04% to 6.40% at exactly the point B1 landed — the same
+    field split B2/B3 needed to make growth reachable at all also made every ordinary sprout, on the
+    *original* population, load-bearing for the first time. PLAN.md B4 scopes the fix; this entry
+    records the diagnosis it works from.
+
+    - **A fresh sprout is a full-strength dendritic vote from the moment it connects, regardless of
+      `sproutWeight`.** `apply_local_effect`'s dendritic branch (`scheduler.rs`) reads
+      `signed_current.signum()`, not its magnitude — decision 11's own §12 entry documents this as
+      deliberate (HTM's binary coincidence-counting convention, chosen so existing thresholds tuned
+      against a count-of-synapses reading would not silently change meaning). `weight` is what makes
+      a sprout "silent" on the *feedforward* path (`input_accum += signed_current`, genuinely
+      near-zero at `sproutWeight: 0.05`) — but a dendritic segment never reads weight at all, so the
+      same sprout is not silent there: connected (permanence at/above threshold) is all `apply_local_
+      effect` checks. A synapse sprouted one sweep ago casts the identical ±1 vote toward a
+      *prediction* as one STDP spent 10,000 characters confirming.
+    - **`sprout` links co-active pairs with no temporal order, in both directions, onto a fixed
+      segment.** `structural.rs`'s `sprout` (the nested `a`/`b` loop over one neighbourhood) creates
+      both `a→b` and `b→a` for any pair that both cleared `min_activity_streak` in the same
+      sweep window (`sweep_interval_ticks`, 200 ticks / ~100 characters here) — LRN-7's own
+      requirement text says exactly this: "sprout new candidates from a co-active neuron". LRN-8's
+      predictive learning, by contrast, needs the *opposite* structure to mean anything — a segment
+      predicts *by* being active before the postsynaptic spike it anticipates, so a synapse a
+      prediction is built from should encode "this fired shortly before me," not "this and I were
+      both active sometime in the same 100-character window." A same-pair symmetric sprout gets the
+      temporal direction right by construction only half the time. Every sprout also lands on segment
+      0 specifically (`synapses.insert(a, b, 0, ...)`), the same hard-coded value B3's own "wiring-
+      location lock" named for newborns — for the *original* population this does not block firing
+      (segment 0 is a real, already-wired segment there), but it does mean every sprout across every
+      neighbourhood competes to write the *same* segment's coincidence count, rather than being
+      spread the way `graph.rs`'s own construction-time wiring already spreads real synapses
+      (`purpose::SEGMENT_ASSIGN`, a deterministic hash of `(source, target)`).
+    - **`prune` cannot see any of this, because it only reads permanence.** `structural.rs`'s `prune`
+      removes a synapse at or below `prune_floor` and stops there — a synapse that connected
+      instantly (permanence at `sproutPermanence`, structurally connected by construction, per
+      decision 11) and then never gets potentiated by STDP (`weight` stuck near `sproutWeight`) has
+      no path to removal at all: it is exactly as prune-eligible as it was the sweep it was created,
+      forever, regardless of whether it ever contributed anything correct. Decision 11's own closing
+      bullet already named this as an open question ("whether `prune` should ever consider weight …
+      not attempted here") without yet connecting it to a measured cost.
+    - **The shape in the data matches a slow accumulation, not a one-time effect.** The instrumented
+      seed's synapse count (condition B) climbs from an estimated ~32,000 at construction
+      (`p0 = 0.05` over 800² pairs) to 89,900–100,600 over the run, settling around 94,500 — a
+      standing population of tens of thousands of sprouted synapses, each one a full-strength,
+      potentially-backwards, always-segment-0 dendritic vote that nothing removes unless STDP
+      happens to potentiate *or* punish it into permanence dropping below the floor. Accuracy
+      declines on the same timescale this population builds up (14.40% → 13.60% → 7.80% → … → 5.30%
+      across the run), not on growth's own timescale (`growthEvents` plateaus by character 4,500,
+      well before the decline finishes) — consistent with noise accumulating in the prediction
+      pathway, not with anything growth-specific.
+    - **Update, 2026-09-14: confirmed by experiment (`scripts/investigate-structural-plasticity-drag.ts`,
+      5-seed protocol, condition C's own config with exactly one parameter changed per condition).
+      Sprouting itself carries essentially the entire regression; a naively stricter prune floor makes
+      it WORSE, not better.**
+
+      | condition | mean network accuracy | range across seeds |
+      |---|---|---|
+      | control (condition C, unchanged) | 6.40% | 3.50%–13.10% |
+      | E1: `sproutPermanence` reverted to 0.1 (pre-B1, sub-threshold) | 13.04% | 5.20%–16.65% |
+      | E2: sprout disabled outright (prune only) | 16.51% | 14.00%–18.35% |
+      | E3: prune floor raised 0.05 → 0.15, sprout unchanged | 1.78% | 0.75%–2.20% |
+
+      **E1 reproduces Phase A's own 13.04% almost exactly** — reverting `sproutPermanence` to its
+      pre-B1 sub-threshold value recovers the identical number Phase A measured before B1 existed,
+      a precise confirmation that B1's split (not anything about growth) is what turned this specific
+      dial. **E2 goes further and lands within a point and a half of baseline (17.37%)** — disabling
+      sprout entirely, so no new synapse is ever created, recovers *almost all* of the regression on
+      its own. Between them: the four mechanisms this diagnosis names are properties of what a live
+      sprout specifically does (weight-blind dendritic votes, symmetric/atemporal placement, segment
+      0) — not of structural plasticity's sprout-vs-prune balance in the abstract, since prune alone
+      (E2) is nearly harmless.
+
+      **E3 is the more informative negative result.** A stricter permanence floor does not
+      selectively remove noisy sprouts — `prune` has no notion of "sprouted vs. original", so it
+      removes *any* synapse at or below the floor, including genuinely useful ones the original
+      800-neuron population's own construction and STDP had already built. Raising the floor
+      indiscriminately destroys learned structure alongside noise, net negative (1.78%, *worse* than
+      doing nothing). This directly answers item 12's own open question ("whether `prune` should ever
+      consider weight") in the negative for the crude version of that idea: a blanket stricter floor
+      is not the fix. It sharpens what PLAN.md B4's fix 4 has to be — a *second, independent* prune
+      criterion that targets specifically-unmatured sprouts by their own history (weight stuck near
+      `sproutWeight`), not a stricter version of the existing floor applied uniformly.
+
+      **Consequence for priority among PLAN.md B4's four fixes.** Fixes 2 (weight-gated dendritic
+      coincidence) and 3 (temporally-directed, segment-spread sprout) target what a sprout *is* the
+      moment it is created — exactly the lever E1/E2 show matters. Fix 4 (usefulness-aware pruning)
+      is a real, separately-motivated improvement (decision 11's own open question), but this
+      experiment shows it is not a substitute for fixing sprout's placement logic, and a naive version
+      of it is actively harmful. B4's own task order already reflects this; this result is the
+      evidence for it, not merely a restated preference.
+
+      **Also measured: Fix 1 (newborn-sparsity cap, closed 2026-09-14) does not show a clear effect on
+      condition B, separate from this item's main finding.** Re-running B3's own condition B (growth +
+      structural plasticity, burst pace) against today's code (Fix 1 picked up automatically via
+      `charPrediction.ts`'s default `inhibition.densityTarget`) measured **5.87%** (range 1.30%–11.40%),
+      against B3's own pre-fix 7.45% (range 1.30%–13.10%) — the ranges overlap almost entirely, and
+      growth conditions have shown this much seed-to-seed spread throughout every measurement in this
+      investigation (Phase A, B2, B3 alike). Fix 1 closes a real, independently-confirmed defect
+      (`inhibition.rs`'s and `newborn_integration.rs`'s own dedicated tests demonstrate the property
+      directly, not via this downstream accuracy metric) — but its effect here is swamped by the much
+      larger sprout-placement drag this item's other four mechanisms describe, and cannot honestly be
+      called an improvement or a regression from this measurement alone.
+
+      Full per-trial data: `scripts/investigate-structural-plasticity-drag.results.md`.
 11. **Polarity is a first-class concept in the type system and invisible to every mechanism that
     acts on it — found 2026-09-13 during a §2-against-§3–§9-against-code review.** NEU-4 and
     invariant 3 are correctly implemented at the point of transmission

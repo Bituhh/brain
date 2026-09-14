@@ -302,7 +302,20 @@ export function buildNetwork(
     // into near-total-column firing -- every candidate ends up with ~100%
     // overlap against the observed activity, and decode() stops
     // discriminating between them at all.
-    inhibition: { neighbourhoodSize: width, k: Math.max(1, Math.round(width * NETWORK_DENSITY)) },
+    // `densityTarget` (PLAN.md B3): reproduces `k` above exactly while the
+    // population is a single, full `width`-sized neighbourhood (density *
+    // width == k by construction), but scales `k` down for a *smaller*
+    // trailing neighbourhood -- specifically, the newborns growth (NET-10)
+    // appends past `width` land in one. Without this, that trailing group
+    // competed for the SAME absolute k as the original population,
+    // providing no real sparsity control at all until it grew past k
+    // members (measured directly: a 40-member newborn group let all 40 fire
+    // every tick against an 8% target). Meaningless (and inert) without
+    // `growth` also configured, since population never exceeds `width`
+    // otherwise. NOTE: not combined with `inhibitionHomeostasis` below --
+    // `InhibitionConfig`'s own doc comment records that combination as an
+    // unfixed gap (a homeostasis sweep would silently drop this target).
+    inhibition: { neighbourhoodSize: width, k: Math.max(1, Math.round(width * NETWORK_DENSITY)), densityTarget: NETWORK_DENSITY },
     // inhibition-homeostasis spec, Requirement 1: self-tunes the k above
     // toward a target population activity rate instead of it staying
     // fixed at `round(width * density)` for the network's whole lifetime

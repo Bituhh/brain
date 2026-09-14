@@ -269,3 +269,120 @@ fn ablation_hyperexcitability_measurably_changes_how_many_newborns_integrate() {
         "lowering a newborn's threshold at birth must measurably help integration: with={with_hyperexcitability}, without={without_hyperexcitability}"
     );
 }
+
+// -- Newborn-group sparsity (PLAN.md B3 task item 2, closed 2026-09-14 as a
+// post-hoc fix -- found missing during a post-B3 results review, not in the
+// original B3 session). Growth (NET-10) appends new neurons past the
+// original population, so they land in a partially-filled trailing
+// `FixedNeighbourhoods` neighbourhood. A *fixed* `k` gives that trailing
+// group no real competition at all once its membership drops below `k` --
+// measured directly on the real char-prediction network (README §13.12 item
+// 10's 2026-09-14 diagnosis): a 40-member trailing group let all 40 fire
+// every tick against an 8% target. `FixedNeighbourhoods::with_density_target`
+// (`inhibition.rs`) fixes this; these two tests demonstrate the defect it
+// closes and the fix, at the `Scheduler::step` integration level rather than
+// `inhibition.rs`'s own unit-level tests of `FixedNeighbourhoods` in
+// isolation -- this is the level a test suite needed to actually catch the
+// original gap, since B3's own tests never configured inhibition at all.
+
+/// Builds an 8-neuron base population (one full neighbourhood at
+/// `neighbourhood_size = 8`) plus a 3-neuron trailing group appended past
+/// it -- the same shape growth produces, without needing growth itself
+/// (`NeuronArena::allocate` directly, matching `structural_and_growth.rs`'s
+/// own precedent for constructing a known population shape).
+fn base_plus_trailing_population() -> (NeuronArena, SynapseArena) {
+    let mut neurons = NeuronArena::new();
+    for _ in 0..8 {
+        neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] });
+    }
+    for _ in 0..3 {
+        neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] });
+    }
+    let mut synapses = SynapseArena::new(4);
+    synapses.reserve_for_neurons(neurons.capacity_len());
+    (neurons, synapses)
+}
+
+#[test]
+fn without_a_density_target_a_partially_filled_trailing_neighbourhood_has_no_real_competition() {
+    // Reproduces the defect directly: `FixedNeighbourhoods::new(8, 4)` with
+    // no density target keeps k fixed at 4 regardless of how many neurons
+    // actually occupy a neighbourhood -- the 3-member trailing group here
+    // is entirely under that fixed k, so every member wins unconditionally.
+    let (mut neurons, mut synapses) = base_plus_trailing_population();
+    let mut sched = Scheduler::new(2, CONNECTION_THRESHOLD).with_inhibition(FixedNeighbourhoods::new(8, 4));
+    let params = LifParams::new(5.0, 0.0, 0.0, 0);
+
+    for i in 0..11u32 {
+        sched.stimulate(&neurons, i, 10.0);
+    }
+    let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+
+    let trailing_winners = report.spiked.iter().filter(|&&i| i >= 8).count();
+    assert_eq!(
+        trailing_winners, 3,
+        "without a density target, ALL 3 members of the under-filled trailing group win -- no real competition at all, the exact sparsity violation PLAN.md B3's Fix 1 closes"
+    );
+}
+
+#[test]
+fn with_a_density_target_a_partially_filled_trailing_neighbourhood_respects_it() {
+    // Same population and stimulation as the defect-reproduction test above
+    // -- only the inhibition scheme differs, by one opt-in call.
+    let (mut neurons, mut synapses) = base_plus_trailing_population();
+    let density = 0.5; // matches k=4 for the full 8-member base group
+    let mut sched = Scheduler::new(2, CONNECTION_THRESHOLD).with_inhibition(FixedNeighbourhoods::new(8, 4).with_density_target(density));
+    let params = LifParams::new(5.0, 0.0, 0.0, 0);
+
+    for i in 0..11u32 {
+        sched.stimulate(&neurons, i, 10.0);
+    }
+    let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+
+    let base_winners = report.spiked.iter().filter(|&&i| i < 8).count();
+    let trailing_winners = report.spiked.iter().filter(|&&i| i >= 8).count();
+    assert_eq!(base_winners, 4, "the full 8-member base group must still cap at density*8 = 4 winners, unchanged from today's fixed-k behaviour");
+    assert_eq!(
+        trailing_winners, 2,
+        "the 3-member trailing group must cap at round(density*3)=2 winners, not all 3 -- real competition, proportional to its own actual membership"
+    );
+}
+
+/// End-to-end through the actual growth+newborn-maturation pipeline (not
+/// the hand-constructed population above): confirms the fix holds once
+/// newborns arrive via `apply_growth` and become hyperexcitable, not just
+/// for a hand-built scenario.
+#[test]
+fn newborns_from_a_real_growth_event_respect_a_density_target_instead_of_all_firing_together() {
+    let mut neurons = NeuronArena::new();
+    let (group_a, group_b) = build_drivers(&mut neurons);
+    let mut synapses = SynapseArena::new(8);
+    synapses.reserve_for_neurons(neurons.capacity_len());
+
+    let growth_policy = Box::new(FixedSchedule::new(GROWTH_COUNT, GROWTH_INTERVAL_TICKS));
+    let structural = StructuralPlasticity::new(structural_params(), FixedNeighbourhoods::new(20, 20));
+    let density = 0.5; // meaningful competition for the full driver group too (k=3 of 6), not just the trailing one
+    let mut sched = Scheduler::new(2, CONNECTION_THRESHOLD)
+        .with_growth(growth_policy, DRIVER_COUNT + GROWTH_COUNT, 1.0, 1.0, [0.0; 3], 1)
+        .with_structural_plasticity(structural)
+        .with_newborn_maturation(wiring(), maturation(0.2)) // strongly hyperexcitable, so newborns reliably cross threshold once wired
+        .with_inhibition(FixedNeighbourhoods::new(DRIVER_COUNT, DRIVER_COUNT).with_density_target(density));
+
+    drive(&mut neurons, &mut synapses, &mut sched, &group_a, &group_b, 40);
+    assert!(neurons.live_count() as u32 >= DRIVER_COUNT + GROWTH_COUNT, "growth must have fired");
+
+    // Stimulate every newborn directly and strongly, so all of them would
+    // cross threshold this tick absent inhibition -- isolates the
+    // inhibition property itself from whether newborn wiring happens to
+    // deliver simultaneous current on any given driven tick.
+    let params = LifParams::new(5.0, 0.0, 0.0, 0);
+    for idx in newborn_ids() {
+        sched.stimulate(&neurons, idx, 10.0);
+    }
+    let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+    let newborn_winners = report.spiked.iter().filter(|&&i| newborn_ids().contains(&i)).count();
+    assert!(
+        newborn_winners < GROWTH_COUNT as usize,
+        "with a density target, not every newborn in the trailing group should win when all are stimulated together -- got {newborn_winners} of {GROWTH_COUNT}, expected fewer"
+    );
+}
