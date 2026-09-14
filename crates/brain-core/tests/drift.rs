@@ -71,6 +71,7 @@ fn predictive_params() -> PredictiveLearningParams {
         punish_amount: 0.2,
         burst_target_segment: 0,
         burst_sprout_permanence: 0.1,
+        burst_sprout_weight: 0.05,
         recently_active_window_ticks: 20,
         modulator_index: None,
     }
@@ -102,6 +103,7 @@ fn build(with_homeostasis: bool) -> (NeuronArena, SynapseArena, Scheduler, u32, 
                 StructuralPlasticityParams {
                     prune_floor: 0.02,
                     sprout_permanence: 0.1,
+                    sprout_weight: 0.05,
                     min_activity_streak: 5,
                     sweep_interval_ticks: 500,
                     unused_ticks_before_reclaim: 50_000,

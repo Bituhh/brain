@@ -66,6 +66,11 @@ pub struct LocalContext {
 /// here but three borrowed scalars.
 pub struct SynapseMut<'a> {
     pub permanence: &'a mut f32,
+    /// Synaptic efficacy (§2.5) -- what STDP and predictive learning's
+    /// reinforce/punish actually move (README §12's weight/permanence
+    /// split, 2026-09-13). `permanence` above stays structural: no rule
+    /// reachable through this type writes it.
+    pub weight: &'a mut f32,
     pub eligibility: &'a mut f32,
     /// Strictly "last delivery tick" -- read (not written) by
     /// `on_post_spike` to compute the causal-direction timing interval.
@@ -111,6 +116,13 @@ pub fn clamp_permanence(value: f32) -> f32 {
     value.clamp(0.0, 1.0)
 }
 
+/// Bounds a weight value to `[0, 1]` (SYN-4: no unbounded growth) after any
+/// rule chain has run -- the weight-side counterpart of `clamp_permanence`,
+/// kept as its own named function in case the two bounds ever diverge.
+pub fn clamp_weight(value: f32) -> f32 {
+    value.clamp(0.0, 1.0)
+}
+
 /// An ordered list of plasticity rules, applied in sequence (Requirement
 /// 8.10). Composing via a `Vec<Box<dyn PlasticityRule>>` here -- rather
 /// than requiring one monomorphic rule type -- is deliberate: plasticity
@@ -132,6 +144,7 @@ impl RuleChain {
             rule.on_delivery(
                 SynapseMut {
                     permanence: syn.permanence,
+                    weight: syn.weight,
                     eligibility: syn.eligibility,
                     last_active: syn.last_active,
                     eligibility_updated_at: syn.eligibility_updated_at,
@@ -140,6 +153,7 @@ impl RuleChain {
             );
         }
         *syn.permanence = clamp_permanence(*syn.permanence);
+        *syn.weight = clamp_weight(*syn.weight);
     }
 
     pub fn on_post_spike(&self, syn: SynapseMut<'_>, ctx: &LocalContext) {
@@ -147,6 +161,7 @@ impl RuleChain {
             rule.on_post_spike(
                 SynapseMut {
                     permanence: syn.permanence,
+                    weight: syn.weight,
                     eligibility: syn.eligibility,
                     last_active: syn.last_active,
                     eligibility_updated_at: syn.eligibility_updated_at,
@@ -155,6 +170,7 @@ impl RuleChain {
             );
         }
         *syn.permanence = clamp_permanence(*syn.permanence);
+        *syn.weight = clamp_weight(*syn.weight);
     }
 }
 
@@ -175,11 +191,11 @@ mod tests {
     impl PlasticityRule for RecordingRule {
         fn on_delivery(&self, syn: SynapseMut<'_>, _ctx: &LocalContext) {
             self.delivery_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            *syn.permanence += 0.1;
+            *syn.weight += 0.1;
         }
         fn on_post_spike(&self, syn: SynapseMut<'_>, _ctx: &LocalContext) {
             self.post_spike_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            *syn.permanence += 0.1;
+            *syn.weight += 0.1;
         }
     }
 
@@ -200,20 +216,23 @@ mod tests {
         let chain = RuleChain::new(vec![a, b]);
 
         let mut permanence = 0.85;
+        let mut weight = 0.85;
         let mut eligibility = 0.0;
         let mut last_active = 0u32;
         let mut eligibility_updated_at = 0u32;
         chain.on_delivery(
             SynapseMut {
                 permanence: &mut permanence,
+                weight: &mut weight,
                 eligibility: &mut eligibility,
                 last_active: &mut last_active,
                 eligibility_updated_at: &mut eligibility_updated_at,
             },
             &ctx(),
         );
-        // Both rules added 0.1, then clamped: 0.85 + 0.1 + 0.1 = 1.05 -> 1.0.
-        assert_eq!(permanence, 1.0);
+        // Both rules added 0.1 to weight, then clamped: 0.85 + 0.1 + 0.1 = 1.05 -> 1.0.
+        assert_eq!(weight, 1.0);
+        assert_eq!(permanence, 0.85, "no rule in this chain touches permanence");
     }
 
     #[test]
@@ -221,5 +240,12 @@ mod tests {
         assert_eq!(clamp_permanence(-0.5), 0.0);
         assert_eq!(clamp_permanence(1.5), 1.0);
         assert_eq!(clamp_permanence(0.5), 0.5);
+    }
+
+    #[test]
+    fn clamp_weight_bounds_to_unit_interval() {
+        assert_eq!(clamp_weight(-0.5), 0.0);
+        assert_eq!(clamp_weight(1.5), 1.0);
+        assert_eq!(clamp_weight(0.5), 0.5);
     }
 }

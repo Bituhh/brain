@@ -136,6 +136,7 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
       targetNeuron: sim.synapseTargetNeuronView(),
       targetSegment: sim.synapseTargetSegmentView(),
       permanence: sim.synapsePermanenceView(),
+      weight: sim.synapseWeightView(),
       delay: sim.synapseDelayView(),
       occupied: sim.synapseOccupiedView(),
     };
@@ -143,7 +144,14 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
 
   function metricsSnapshotMessage(): ServerMessage {
     const snap = sim.metricsSnapshot();
-    return { type: "metricsSnapshot", sparsity: snap.sparsity, meanPermanence: snap.meanPermanence, excitatoryFraction: snap.excitatoryFraction, synapseCount: snap.synapseCount };
+    return {
+      type: "metricsSnapshot",
+      sparsity: snap.sparsity,
+      meanPermanence: snap.meanPermanence,
+      meanWeight: snap.meanWeight,
+      excitatoryFraction: snap.excitatoryFraction,
+      synapseCount: snap.synapseCount,
+    };
   }
 
   function probeDataMessage(neuron: number, data: ProbeData): ServerMessage {

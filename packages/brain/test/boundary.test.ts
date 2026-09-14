@@ -560,7 +560,7 @@ test("Simulation.membraneView is cached per epoch, not re-minted on every access
 // drive these automatically inside `step()`, but nothing exposed the
 // configuration itself past `crates/brain-napi` until now).
 
-test("Simulation homeostaticScaling measurably rescales permanence through the real compiled addon, with no caller-driven sweep call (Requirement 9.2, 9.6)", () => {
+test("Simulation homeostaticScaling measurably rescales weight through the real compiled addon, with no caller-driven sweep call (Requirement 9.2, 9.6)", () => {
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
 
   function buildAndProbe(withHomeostasis: boolean): boolean {
@@ -568,7 +568,7 @@ test("Simulation homeostaticScaling measurably rescales permanence through the r
       maxDelay: 2,
       connectionThreshold: 0.05,
       synapseCapPerNeuron: 1,
-      ...(withHomeostasis ? { homeostaticScaling: { targetTotalPermanence: 0.5, intervalTicks: 1 } } : {}),
+      ...(withHomeostasis ? { homeostaticScaling: { targetTotalWeight: 0.5, intervalTicks: 1 } } : {}),
     };
     const sim = Simulation.create(lif, options);
     const a1 = sim.allocateNeuron(0.1, 1);
@@ -590,7 +590,7 @@ test("Simulation homeostaticScaling measurably rescales permanence through the r
     return probe.includes(post);
   }
 
-  assert.equal(buildAndProbe(false), true, "without homeostatic scaling, permanence 0.8 alone must still cross threshold");
+  assert.equal(buildAndProbe(false), true, "without homeostatic scaling, weight 0.8 alone must still cross threshold");
   assert.equal(buildAndProbe(true), false, "with homeostatic scaling active, the rescaled-down synapse must no longer cross threshold alone -- proving the sweep ran with no caller-driven maybe_apply call");
 });
 
@@ -603,6 +603,7 @@ test("Simulation structuralPlasticity prunes a weak synapse through the real com
     structuralPlasticity: {
       pruneFloor: 0.05,
       sproutPermanence: 0.1,
+      sproutWeight: 0.05,
       minActivityStreak: 1_000_000, // never sprout -- this test is about pruning only
       sweepIntervalTicks: 1,
       unusedTicksBeforeReclaim: 1_000_000,
@@ -707,16 +708,17 @@ test("Simulation.reward measurably changes a plasticity outcome through the real
   // (NativeSimulation never called `Scheduler::with_plasticity` in any
   // prior phase), closed alongside Requirement 15.
   //
-  // No permanence-read FFI call exists, so the outcome is observed
-  // behaviourally, mirroring scheduler.rs's own
-  // `causal_pre_then_post_potentiates_through_the_real_scheduler_path` and
-  // `zero_modulator_leaves_permanence_unchanged_despite_spiking` combined:
+  // Observed behaviourally rather than via `synapseWeightView()` directly,
+  // mirroring scheduler.rs's own
+  // `causal_pre_then_post_potentiates_the_weight_not_the_permanence_through_the_real_scheduler_path`
+  // and `zero_modulator_leaves_weight_unchanged_despite_spiking` combined:
   // a synapse starting well below the downstream threshold is driven
   // through many causal pre-then-post rounds. With reward active, STDP
-  // potentiates it until a *single* later delivery is enough to cross
+  // potentiates its *weight* (README §12's weight/permanence split,
+  // 2026-09-13) until a *single* later delivery is enough to cross
   // threshold on its own; with reward never injected (modulator stays at
-  // its zero baseline), permanence never moves, so that later delivery
-  // never does.
+  // its zero baseline), weight never moves, so that later delivery never
+  // does.
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
   const options: SimulationOptions = {
     maxDelay: 2,
@@ -733,11 +735,12 @@ test("Simulation.reward measurably changes a plasticity outcome through the real
 
   function trainThenProbe(withReward: boolean): boolean {
     const sim = Simulation.create(lif, options);
-    // 0.1: a single delivery at the *initial* permanence (0.3) lands well
+    // 0.1: a single delivery at the *initial* weight (0.3, seeded from
+    // `connect`'s permanence argument -- README §12's split) lands well
     // below this (LIF's single-tick delivery gain is `1 - exp(-1/tauM)`,
-    // measured at ~0.18 here, so 0.3 permanence delivers ~0.054 -- see the
+    // measured at ~0.18 here, so 0.3 weight delivers ~0.054 -- see the
     // debug run this threshold was picked from), but a delivery at the
-    // *saturated* (STDP-clamped) permanence of ~1.0 delivers ~0.18, comfortably
+    // *saturated* (STDP-clamped) weight of ~1.0 delivers ~0.18, comfortably
     // crossing it.
     const a = sim.allocateNeuron(0.1, 1);
     const b = sim.allocateNeuron(0.1, 1);
@@ -863,9 +866,10 @@ function plasticityConfig() {
 function consolidationConfig(overrides: Partial<ConsolidationConfig> = {}): ConsolidationConfig {
   return {
     replayWindow: 1000,
-    downscaleTargetTotalPermanence: 1000.0,
+    downscaleTargetTotalWeight: 1000.0,
     pruneFloor: 0.0,
     sproutPermanence: 0.1,
+    sproutWeight: 0.05,
     minActivityStreak: 1_000_000,
     unusedTicksBeforeReclaim: 1_000_000,
     ...overrides,
@@ -1024,6 +1028,10 @@ test("Simulation synapse bulk views expose a connected synapse's real data, and 
   assert.equal(sim.synapseTargetNeuronView()[synId], b);
   assert.equal(sim.synapseTargetSegmentView()[synId], 3);
   assert.equal(sim.synapsePermanenceView()[synId], Math.fround(0.75));
+  // README §12's weight/permanence split (2026-09-13): `connect` seeds
+  // weight from the same value as permanence, so ordinary wiring's initial
+  // dynamics are unaffected by the split.
+  assert.equal(sim.synapseWeightView()[synId], Math.fround(0.75));
   assert.equal(sim.synapseDelayView()[synId], 4);
 
   const occupied = sim.synapseOccupiedView();

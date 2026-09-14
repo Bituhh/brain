@@ -173,6 +173,11 @@ pub struct MetricsSnapshot {
     pub sparsity: f64,
     /// Mean permanence across every occupied synapse (`0.0` if none exist).
     pub mean_permanence: f32,
+    /// Mean weight across every occupied synapse (`0.0` if none exist) --
+    /// README §12's weight/permanence split (2026-09-13): reported
+    /// alongside `mean_permanence` since the two now carry independent
+    /// meanings (structural connectivity vs. efficacy).
+    pub mean_weight: f32,
     /// Fraction of the live population with excitatory polarity (NEU-4).
     pub excitatory_fraction: f64,
     pub synapse_count: u32,
@@ -196,10 +201,12 @@ impl MetricsSnapshot {
         }
 
         let mut permanence_sum = 0.0f64;
+        let mut weight_sum = 0.0f64;
         let mut synapse_count = 0u32;
         for source in 0..alive.len() as u32 {
             for id in synapses.occupied_in_block(source) {
                 permanence_sum += synapses.permanence[id as usize] as f64;
+                weight_sum += synapses.weight[id as usize] as f64;
                 synapse_count += 1;
             }
         }
@@ -207,6 +214,7 @@ impl MetricsSnapshot {
         Self {
             sparsity: if live_count == 0 { 0.0 } else { spikes_this_tick as f64 / live_count as f64 },
             mean_permanence: if synapse_count == 0 { 0.0 } else { (permanence_sum / synapse_count as f64) as f32 },
+            mean_weight: if synapse_count == 0 { 0.0 } else { (weight_sum / synapse_count as f64) as f32 },
             excitatory_fraction: if live_count == 0 { 0.0 } else { excitatory_count as f64 / live_count as f64 },
             synapse_count,
         }
@@ -371,17 +379,18 @@ mod tests {
     }
 
     #[test]
-    fn metrics_snapshot_computes_mean_permanence_and_synapse_count() {
+    fn metrics_snapshot_computes_mean_permanence_mean_weight_and_synapse_count() {
         let neurons = make_neurons_with_polarity(&[1, 1, 1]);
         let mut synapses = SynapseArena::new(2);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        synapses.insert(0, 1, 0, 1, 0.2).unwrap();
-        synapses.insert(0, 2, 0, 1, 0.4).unwrap();
-        synapses.insert(1, 2, 0, 1, 0.6).unwrap();
+        synapses.insert(0, 1, 0, 1, 0.2, 0.8).unwrap();
+        synapses.insert(0, 2, 0, 1, 0.4, 1.0).unwrap();
+        synapses.insert(1, 2, 0, 1, 0.6, 0.6).unwrap();
 
         let snapshot = MetricsSnapshot::compute(&neurons, &synapses, 0);
         assert_eq!(snapshot.synapse_count, 3);
         assert!((snapshot.mean_permanence - 0.4).abs() < 1e-6);
+        assert!((snapshot.mean_weight - 0.8).abs() < 1e-6);
     }
 
     #[test]
@@ -389,12 +398,13 @@ mod tests {
         let neurons = make_neurons_with_polarity(&[1, 1]);
         let mut synapses = SynapseArena::new(2);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        let syn = synapses.insert(0, 1, 0, 1, 0.9).unwrap();
+        let syn = synapses.insert(0, 1, 0, 1, 0.9, 0.9).unwrap();
         synapses.remove(syn);
 
         let snapshot = MetricsSnapshot::compute(&neurons, &synapses, 0);
         assert_eq!(snapshot.synapse_count, 0);
         assert_eq!(snapshot.mean_permanence, 0.0);
+        assert_eq!(snapshot.mean_weight, 0.0);
     }
 
     #[test]
@@ -416,6 +426,7 @@ mod tests {
         assert_eq!(snapshot.sparsity, 0.0);
         assert_eq!(snapshot.excitatory_fraction, 0.0);
         assert_eq!(snapshot.mean_permanence, 0.0);
+        assert_eq!(snapshot.mean_weight, 0.0);
         assert_eq!(snapshot.synapse_count, 0);
     }
 }

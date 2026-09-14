@@ -7,8 +7,8 @@
 //! `PlasticityRule` and is driven by its own interval rather than by
 //! scheduler events.
 //!
-//! It multiplicatively renormalises each neuron's *incoming* permanence
-//! total toward a configured target (Requirement 9.1), on a timescale
+//! It multiplicatively renormalises each neuron's *incoming* weight total
+//! toward a configured target (Requirement 9.1), on a timescale
 //! substantially slower than STDP (Requirement 9.2, enforced by
 //! `interval_ticks` being large relative to `three_factor`'s
 //! `tau_plus`/`tau_minus`) so it stabilises runs without erasing what was
@@ -17,12 +17,23 @@
 //! the whole point is to stop a population of synapses from drifting
 //! toward uniform saturation while still respecting which of them Hebbian
 //! learning judged strongest.
+//!
+//! README §12's weight/permanence split (2026-09-13): this sweep now
+//! renormalises `weight` (efficacy), not `permanence` (structural
+//! connectivity). Before the split, this rescale silently performed
+//! structural plasticity -- a downscaling sweep could push a synapse's one
+//! shared field below `connection_threshold` (disconnecting it) and an
+//! upscaling sweep could push a sub-threshold one above it (connecting it),
+//! with this module having no awareness of the threshold at all. Retargeting
+//! to weight removes that side effect entirely: weight carries no
+//! connectivity semantics, so scaling it can no longer connect or
+//! disconnect anything.
 
 use crate::arena::NeuronArena;
 use crate::synapse::SynapseArena;
 
 pub struct HomeostaticScaling {
-    pub target_total_permanence: f32,
+    pub target_total_weight: f32,
     pub interval_ticks: u32,
     last_applied_at: u32,
     // Reused across calls so steady-state application allocates nothing
@@ -32,9 +43,9 @@ pub struct HomeostaticScaling {
 }
 
 impl HomeostaticScaling {
-    pub fn new(target_total_permanence: f32, interval_ticks: u32) -> Self {
+    pub fn new(target_total_weight: f32, interval_ticks: u32) -> Self {
         assert!(interval_ticks > 0, "interval_ticks must be positive");
-        Self { target_total_permanence, interval_ticks, last_applied_at: 0, incoming_scratch: Vec::new() }
+        Self { target_total_weight, interval_ticks, last_applied_at: 0, incoming_scratch: Vec::new() }
     }
 
     /// Applies scaling to every neuron if `interval_ticks` have elapsed
@@ -85,13 +96,13 @@ impl HomeostaticScaling {
         if self.incoming_scratch.is_empty() {
             return;
         }
-        let total: f32 = self.incoming_scratch.iter().map(|&id| synapses.permanence[id as usize]).sum();
+        let total: f32 = self.incoming_scratch.iter().map(|&id| synapses.weight[id as usize]).sum();
         if total <= 0.0 {
             return; // nothing to rescale toward a positive target from zero
         }
-        let factor = self.target_total_permanence / total;
+        let factor = self.target_total_weight / total;
         for &id in &self.incoming_scratch {
-            synapses.permanence[id as usize] = (synapses.permanence[id as usize] * factor).clamp(0.0, 1.0);
+            synapses.weight[id as usize] = (synapses.weight[id as usize] * factor).clamp(0.0, 1.0);
         }
     }
 }
@@ -395,9 +406,9 @@ mod tests {
         let target = neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] }).index;
         let mut synapses = SynapseArena::new(2);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        synapses.insert(source_a, target, 0, 1, 0.9).unwrap();
-        synapses.insert(source_b, target, 0, 1, 0.9).unwrap();
-        synapses.insert(source_c, target, 0, 1, 0.9).unwrap();
+        synapses.insert(source_a, target, 0, 1, 0.9, 0.9).unwrap();
+        synapses.insert(source_b, target, 0, 1, 0.9, 0.9).unwrap();
+        synapses.insert(source_c, target, 0, 1, 0.9, 0.9).unwrap();
         (neurons, synapses, target)
     }
 
@@ -418,7 +429,7 @@ mod tests {
         scaling.force_apply(&neurons, &mut synapses);
 
         let incoming: Vec<u32> = synapses.incoming(target).collect();
-        let new_total: f32 = incoming.iter().map(|&id| synapses.permanence[id as usize]).sum();
+        let new_total: f32 = incoming.iter().map(|&id| synapses.weight[id as usize]).sum();
         assert!((new_total - 1.5).abs() < 1e-4, "force_apply must rescale toward target even though the interval never elapsed, got {new_total}");
     }
 
@@ -438,16 +449,23 @@ mod tests {
     }
 
     #[test]
-    fn rescales_incoming_permanence_toward_target_total() {
+    fn rescales_incoming_weight_toward_target_total_and_leaves_permanence_untouched() {
         let (neurons, mut synapses, target) = two_neurons_three_synapses();
-        // Total incoming = 2.7; target 1.5 -> each synapse should be
+        // Total incoming weight = 2.7; target 1.5 -> each synapse should be
         // multiplicatively scaled by 1.5/2.7.
+        let incoming: Vec<u32> = synapses.incoming(target).collect();
+        let permanence_before: Vec<f32> = incoming.iter().map(|&id| synapses.permanence[id as usize]).collect();
+
         let mut scaling = HomeostaticScaling::new(1.5, 100);
         assert!(scaling.maybe_apply(&neurons, &mut synapses, 100));
 
-        let incoming: Vec<u32> = synapses.incoming(target).collect();
-        let new_total: f32 = incoming.iter().map(|&id| synapses.permanence[id as usize]).sum();
-        assert!((new_total - 1.5).abs() < 1e-4, "incoming total should be rescaled to the target, got {new_total}");
+        let new_total: f32 = incoming.iter().map(|&id| synapses.weight[id as usize]).sum();
+        assert!((new_total - 1.5).abs() < 1e-4, "incoming weight total should be rescaled to the target, got {new_total}");
+
+        // README §12's fix, tested directly: a scaling sweep must no longer
+        // double as structural plasticity -- permanence never moves.
+        let permanence_after: Vec<f32> = incoming.iter().map(|&id| synapses.permanence[id as usize]).collect();
+        assert_eq!(permanence_after, permanence_before, "homeostatic scaling must not touch permanence at all");
     }
 
     #[test]
@@ -458,14 +476,14 @@ mod tests {
         let target = neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] }).index;
         let mut synapses = SynapseArena::new(2);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        let strong = synapses.insert(a, target, 0, 1, 0.8).unwrap();
-        let weak = synapses.insert(b, target, 0, 1, 0.2).unwrap();
+        let strong = synapses.insert(a, target, 0, 1, 0.8, 0.8).unwrap();
+        let weak = synapses.insert(b, target, 0, 1, 0.2, 0.2).unwrap();
 
         let mut scaling = HomeostaticScaling::new(0.5, 10);
         scaling.maybe_apply(&neurons, &mut synapses, 10);
 
         assert!(
-            synapses.permanence[strong as usize] > synapses.permanence[weak as usize],
+            synapses.weight[strong as usize] > synapses.weight[weak as usize],
             "multiplicative scaling must preserve which synapse was stronger"
         );
     }

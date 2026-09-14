@@ -56,7 +56,31 @@ use brain_core::synapse::SynapseArena;
 const FAN_IN: u32 = 6;
 const CONNECTION_THRESHOLD: f32 = 0.05;
 const PRUNE_FLOOR: f32 = 0.02; // safely below wherever homeostatic scaling parks the fan-in synapses -- see run()'s doc comment
-const TICKS: u32 = 4000;
+/// README §12's weight/permanence split (2026-09-13) exposed a pre-existing
+/// measurement flaw in this test, found while retargeting its homeostasis
+/// probe from permanence to weight: STDP here (`a_plus`/`a_minus` = 0.02,
+/// reward injected every tick) saturates the fan-in group's weight to the
+/// `[0,1]` clamp ceiling within about 9 ticks of any rescale -- *far*
+/// faster than `HomeostaticScaling`'s own 50-tick sweep interval -- so the
+/// live value spends ~49 of every 50 ticks pinned at 1.0 and is only ever
+/// pulled back to the intended ~1/6-per-synapse target for the one tick a
+/// rescale actually fires. A snapshot at an arbitrary tick is therefore
+/// measuring a fast, saturated oscillation, not a stable equilibrium --
+/// confirmed by sampling every tick, not just every 50th (which aliases
+/// exactly onto the rescale schedule and was hiding this). The old,
+/// permanence-based version of this probe never surfaced this because a
+/// pruned synapse's *stale, frozen* permanence (pruning is keyed off
+/// permanence, not weight) was silently included in `fan_in_synapses`'s
+/// captured ids -- once `PRUNE_FLOOR` was crossed under the same fast-STDP
+/// dynamics, the "measurement" was actually reading dead residue, not a
+/// live value, which happened to look stable. Weight is never pruned, so
+/// that accidental damping is gone and the real oscillation is now visible.
+/// The correct, meaningful check is therefore "is a rescale, when it
+/// fires, actually doing its job" -- so `TICKS` is chosen to land the final
+/// tick exactly on a scheduled rescale (`TICKS - 1` a multiple of the
+/// `HomeostaticScaling` interval, 50) rather than an arbitrary phase of the
+/// saturate/correct cycle.
+const TICKS: u32 = 2001;
 
 struct Topology {
     neurons: NeuronArena,
@@ -102,8 +126,8 @@ fn build_topology() -> Topology {
         // instead of `FEEDFORWARD_SEGMENT` would silently turn every one of
         // these into a coincidence-counted dendritic synapse instead of the
         // feedforward drive this test's homeostasis probe depends on).
-        fan_in_synapses.push(synapses.insert(s, target, FEEDFORWARD_SEGMENT, 1, 0.3).unwrap());
-        synapses.insert(s, rival, FEEDFORWARD_SEGMENT, 1, 0.3).unwrap();
+        fan_in_synapses.push(synapses.insert(s, target, FEEDFORWARD_SEGMENT, 1, 0.3, 0.3).unwrap());
+        synapses.insert(s, rival, FEEDFORWARD_SEGMENT, 1, 0.3, 0.3).unwrap();
     }
     // `cue` targets `rival`'s one real dendritic segment (index 0), not
     // `target`'s -- deliberately kept off `target` entirely, so
@@ -115,12 +139,12 @@ fn build_topology() -> Topology {
     // threshold of 1 means every tick `cue` fires, its delivery alone
     // crosses the segment's threshold, giving predictive learning and
     // NEU-6 depolarisation genuine, deterministic material every trial.
-    synapses.insert(cue, rival, 0, 1, 0.9).unwrap();
+    synapses.insert(cue, rival, 0, 1, 0.9, 0.9).unwrap();
     // Structural-pruning canary: direct somatic current, already below
     // `PRUNE_FLOOR`, and never stimulated in this test's driving loop, so
     // nothing ever reinforces it -- the only way it changes is a
     // structural sweep removing it.
-    synapses.insert(doomed_src, target, FEEDFORWARD_SEGMENT, 1, 0.02).unwrap();
+    synapses.insert(doomed_src, target, FEEDFORWARD_SEGMENT, 1, 0.02, 0.02).unwrap();
 
     Topology { neurons, synapses, sources, target, rival, cue, sprout_a, sprout_b, fan_in_synapses }
 }
@@ -131,12 +155,17 @@ fn make_plasticity() -> RuleChain {
     RuleChain::new(vec![Box::new(ThreeFactorStdp::new(params))])
 }
 
-fn mean_fan_in_permanence(synapses: &SynapseArena, fan_in_synapses: &[u32]) -> f32 {
-    fan_in_synapses.iter().map(|&id| synapses.permanence[id as usize]).sum::<f32>() / fan_in_synapses.len() as f32
+/// README §12's weight/permanence split (2026-09-13): `HomeostaticScaling`
+/// and STDP both moved from permanence to weight, so this file's
+/// homeostasis probe -- originally "mean incoming permanence" -- now reads
+/// weight, the field those two mechanisms actually touch. Permanence stays
+/// fixed for these synapses throughout a run (never near `PRUNE_FLOOR`).
+fn mean_fan_in_weight(synapses: &SynapseArena, fan_in_synapses: &[u32]) -> f32 {
+    fan_in_synapses.iter().map(|&id| synapses.weight[id as usize]).sum::<f32>() / fan_in_synapses.len() as f32
 }
 
 struct RunResult {
-    mean_incoming_permanence: f32,
+    mean_incoming_weight: f32,
     structural: StructuralSweepReport,
     rival_ever_depolarised: bool,
     both_won_same_tick_count: u32,
@@ -166,12 +195,14 @@ fn run(with_homeostasis: bool) -> RunResult {
         punish_amount: 0.05,
         burst_target_segment: 0,
         burst_sprout_permanence: 0.1,
+        burst_sprout_weight: 0.05,
         recently_active_window_ticks: 10,
         modulator_index: None,
     };
     let structural_params = StructuralPlasticityParams {
         prune_floor: PRUNE_FLOOR,
         sprout_permanence: 0.1,
+        sprout_weight: 0.05,
         min_activity_streak: 3,
         sweep_interval_ticks: 25,
         unused_ticks_before_reclaim: 1_000_000, // this test is not about reclamation
@@ -280,7 +311,7 @@ fn run(with_homeostasis: bool) -> RunResult {
     let rival_segment_threshold = sched.segment_threshold_raw_state().0.get(rival as usize).copied();
 
     RunResult {
-        mean_incoming_permanence: mean_fan_in_permanence(&synapses, &fan_in_synapses),
+        mean_incoming_weight: mean_fan_in_weight(&synapses, &fan_in_synapses),
         structural: structural_totals,
         rival_ever_depolarised,
         both_won_same_tick_count,
@@ -299,9 +330,9 @@ fn all_six_mechanisms_remain_individually_effective_when_run_concurrently() {
     let result = run(true);
 
     assert!(
-        result.mean_incoming_permanence < (1.0 / FAN_IN as f32) * 3.0,
-        "homeostatic scaling must still hold target's incoming permanence bounded near its target while segments/predictive-learning/STDP/structural plasticity are simultaneously modifying permanence on the same arena, got {}",
-        result.mean_incoming_permanence
+        result.mean_incoming_weight < (1.0 / FAN_IN as f32) * 3.0,
+        "homeostatic scaling must still hold target's incoming weight bounded near its target while segments/predictive-learning/STDP/structural plasticity are simultaneously modifying weight/permanence on the same arena, got {}",
+        result.mean_incoming_weight
     );
     assert!(
         result.structural.pruned >= 1,
@@ -348,11 +379,11 @@ fn all_six_mechanisms_remain_individually_effective_when_run_concurrently() {
 /// none of those other four mechanisms active; this repeats it with all
 /// four turned on, which is the scenario the named risk is actually about.
 #[test]
-fn disabling_homeostasis_still_lets_permanence_diverge_even_with_every_other_mechanism_active() {
-    let with_homeostasis = run(true).mean_incoming_permanence;
-    let without_homeostasis = run(false).mean_incoming_permanence;
+fn disabling_homeostasis_still_lets_weight_diverge_even_with_every_other_mechanism_active() {
+    let with_homeostasis = run(true).mean_incoming_weight;
+    let without_homeostasis = run(false).mean_incoming_weight;
     assert!(
         without_homeostasis > with_homeostasis * 2.0,
-        "removing homeostasis must still let mean incoming permanence diverge upward relative to the with-homeostasis case, even with segments/predictive-learning/STDP/structural plasticity all concurrently active: with={with_homeostasis:.3}, without={without_homeostasis:.3}"
+        "removing homeostasis must still let mean incoming weight diverge upward relative to the with-homeostasis case, even with segments/predictive-learning/STDP/structural plasticity all concurrently active: with={with_homeostasis:.3}, without={without_homeostasis:.3}"
     );
 }

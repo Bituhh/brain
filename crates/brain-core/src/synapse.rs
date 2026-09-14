@@ -28,6 +28,16 @@ pub struct SynapseArena {
     /// by whoever is delivering spikes, not as an intrinsic property of
     /// storage.
     pub permanence: Vec<f32>,
+    /// Synaptic efficacy (§2.5): how much current a *connected* synapse
+    /// actually passes, independent of whether it is connected at all.
+    /// Bounded to `[0, 1]` (SYN-4, via `plasticity::clamp_weight`) --
+    /// unlike `permanence`, this field carries no structural meaning and
+    /// is never read by `connection_threshold`'s gate. See README §12's
+    /// weight/permanence split decision (2026-09-13) for why these are two
+    /// fields rather than one: aliasing them made "firmly connected but
+    /// weak" inexpressible and made `HomeostaticScaling` silently perform
+    /// structural plasticity.
+    pub weight: Vec<f32>,
     /// Axonal delay in ticks, always >= 1 (SYN-2).
     pub delay: Vec<u16>,
     pub eligibility: Vec<f32>,
@@ -81,6 +91,7 @@ impl SynapseArena {
             target_neuron: Vec::new(),
             target_segment: Vec::new(),
             permanence: Vec::new(),
+            weight: Vec::new(),
             delay: Vec::new(),
             eligibility: Vec::new(),
             last_active: Vec::new(),
@@ -106,6 +117,7 @@ impl SynapseArena {
         let fixed_columns = self.target_neuron.capacity() * size_of::<u32>()
             + self.target_segment.capacity() * size_of::<u32>()
             + self.permanence.capacity() * size_of::<f32>()
+            + self.weight.capacity() * size_of::<f32>()
             + self.delay.capacity() * size_of::<u16>()
             + self.eligibility.capacity() * size_of::<f32>()
             + self.last_active.capacity() * size_of::<u32>()
@@ -125,6 +137,7 @@ impl SynapseArena {
             self.target_neuron.resize(needed, 0);
             self.target_segment.resize(needed, 0);
             self.permanence.resize(needed, 0.0);
+            self.weight.resize(needed, 0.0);
             self.delay.resize(needed, 1);
             self.eligibility.resize(needed, 0.0);
             self.last_active.resize(needed, u32::MAX);
@@ -152,6 +165,7 @@ impl SynapseArena {
         target_segment: u32,
         delay: u16,
         permanence: f32,
+        weight: f32,
     ) -> Result<u32, SynapseError> {
         debug_assert!(delay >= 1, "axonal delay must be at least one tick (SYN-2)");
         let range = self.block_range(source_index);
@@ -164,6 +178,7 @@ impl SynapseArena {
                 self.target_neuron[slot] = target_neuron;
                 self.target_segment[slot] = target_segment;
                 self.permanence[slot] = permanence;
+                self.weight[slot] = weight;
                 self.delay[slot] = delay;
                 self.eligibility[slot] = 0.0;
                 self.last_active[slot] = u32::MAX;
@@ -200,6 +215,7 @@ impl SynapseArena {
         target_neuron: u32,
         target_segment: u32,
         permanence: f32,
+        weight: f32,
         delay: u16,
         eligibility: f32,
         last_active: u32,
@@ -216,6 +232,7 @@ impl SynapseArena {
         self.target_neuron[slot] = target_neuron;
         self.target_segment[slot] = target_segment;
         self.permanence[slot] = permanence;
+        self.weight[slot] = weight;
         self.delay[slot] = delay;
         self.eligibility[slot] = eligibility;
         self.last_active[slot] = last_active;
@@ -273,6 +290,7 @@ impl SynapseArena {
         let mut target_neuron_rest = self.target_neuron.as_mut_slice();
         let mut target_segment_rest = self.target_segment.as_mut_slice();
         let mut permanence_rest = self.permanence.as_mut_slice();
+        let mut weight_rest = self.weight.as_mut_slice();
         let mut delay_rest = self.delay.as_mut_slice();
         let mut eligibility_rest = self.eligibility.as_mut_slice();
         let mut last_active_rest = self.last_active.as_mut_slice();
@@ -295,6 +313,8 @@ impl SynapseArena {
             target_segment_rest = rest;
             let (permanence, rest) = permanence_rest.split_at_mut(synapse_len);
             permanence_rest = rest;
+            let (weight, rest) = weight_rest.split_at_mut(synapse_len);
+            weight_rest = rest;
             let (delay, rest) = delay_rest.split_at_mut(synapse_len);
             delay_rest = rest;
             let (eligibility, rest) = eligibility_rest.split_at_mut(synapse_len);
@@ -313,6 +333,7 @@ impl SynapseArena {
                 target_neuron: OffsetSlice::new(synapse_base, target_neuron),
                 target_segment: OffsetSlice::new(synapse_base, target_segment),
                 permanence: OffsetSlice::new(synapse_base, permanence),
+                weight: OffsetSlice::new(synapse_base, weight),
                 delay: OffsetSlice::new(synapse_base, delay),
                 eligibility: OffsetSlice::new(synapse_base, eligibility),
                 last_active: OffsetSlice::new(synapse_base, last_active),
@@ -333,6 +354,7 @@ impl SynapseArena {
             target_neuron: OffsetSlice::whole(&mut self.target_neuron),
             target_segment: OffsetSlice::whole(&mut self.target_segment),
             permanence: OffsetSlice::whole(&mut self.permanence),
+            weight: OffsetSlice::whole(&mut self.weight),
             delay: OffsetSlice::whole(&mut self.delay),
             eligibility: OffsetSlice::whole(&mut self.eligibility),
             last_active: OffsetSlice::whole(&mut self.last_active),
@@ -353,6 +375,7 @@ pub struct SynapseArenaViewMut<'a> {
     pub target_neuron: OffsetSlice<'a, u32>,
     pub target_segment: OffsetSlice<'a, u32>,
     pub permanence: OffsetSlice<'a, f32>,
+    pub weight: OffsetSlice<'a, f32>,
     pub delay: OffsetSlice<'a, u16>,
     pub eligibility: OffsetSlice<'a, f32>,
     pub last_active: OffsetSlice<'a, u32>,
@@ -448,7 +471,7 @@ impl<'a> SynapseArenaViewMut<'a> {
     /// (`debug_assert`), since a cross-partition sprout is exactly the
     /// structural-plasticity-under-partitioning question a later step
     /// answers, not silently miscompiled data.
-    pub fn insert(&mut self, source_index: u32, target_neuron: u32, target_segment: u32, delay: u16, permanence: f32) -> Result<u32, SynapseError> {
+    pub fn insert(&mut self, source_index: u32, target_neuron: u32, target_segment: u32, delay: u16, permanence: f32, weight: f32) -> Result<u32, SynapseError> {
         debug_assert!(delay >= 1, "axonal delay must be at least one tick (SYN-2)");
         debug_assert!(self.owns_source(source_index), "insert on a SynapseArenaViewMut requires the source to belong to this view's own range");
         debug_assert!(self.owns_neuron(target_neuron), "insert on a SynapseArenaViewMut requires the target to belong to this view's own range");
@@ -459,6 +482,7 @@ impl<'a> SynapseArenaViewMut<'a> {
                 self.target_neuron[slot] = target_neuron;
                 self.target_segment[slot] = target_segment;
                 self.permanence[slot] = permanence;
+                self.weight[slot] = weight;
                 self.delay[slot] = delay;
                 self.eligibility[slot] = 0.0;
                 self.last_active[slot] = u32::MAX;
@@ -479,8 +503,8 @@ mod tests {
     fn insert_and_iterate_one_block() {
         let mut arena = SynapseArena::new(4);
         arena.reserve_for_neurons(2);
-        let a = arena.insert(0, 10, 0, 3, 0.6).unwrap();
-        let b = arena.insert(0, 11, 0, 5, 0.7).unwrap();
+        let a = arena.insert(0, 10, 0, 3, 0.6, 0.6).unwrap();
+        let b = arena.insert(0, 11, 0, 5, 0.7, 0.7).unwrap();
         let occupied: Vec<u32> = arena.occupied_in_block(0).collect();
         assert_eq!(occupied, vec![a, b]);
         assert_eq!(arena.source_of(a), 0);
@@ -490,26 +514,26 @@ mod tests {
     fn block_full_is_reported_not_panicked() {
         let mut arena = SynapseArena::new(2);
         arena.reserve_for_neurons(1);
-        arena.insert(0, 1, 0, 1, 0.5).unwrap();
-        arena.insert(0, 2, 0, 1, 0.5).unwrap();
-        assert_eq!(arena.insert(0, 3, 0, 1, 0.5), Err(SynapseError::BlockFull));
+        arena.insert(0, 1, 0, 1, 0.5, 0.5).unwrap();
+        arena.insert(0, 2, 0, 1, 0.5, 0.5).unwrap();
+        assert_eq!(arena.insert(0, 3, 0, 1, 0.5, 0.5), Err(SynapseError::BlockFull));
     }
 
     #[test]
     fn out_of_range_source_is_reported() {
         let mut arena = SynapseArena::new(2);
         arena.reserve_for_neurons(1);
-        assert_eq!(arena.insert(5, 1, 0, 1, 0.5), Err(SynapseError::OutOfRange));
+        assert_eq!(arena.insert(5, 1, 0, 1, 0.5, 0.5), Err(SynapseError::OutOfRange));
     }
 
     #[test]
     fn remove_frees_the_slot_for_reuse() {
         let mut arena = SynapseArena::new(1);
         arena.reserve_for_neurons(1);
-        let a = arena.insert(0, 1, 0, 1, 0.5).unwrap();
+        let a = arena.insert(0, 1, 0, 1, 0.5, 0.5).unwrap();
         arena.remove(a);
         assert!(!arena.is_occupied(a));
-        let b = arena.insert(0, 2, 0, 1, 0.9).unwrap();
+        let b = arena.insert(0, 2, 0, 1, 0.9, 0.9).unwrap();
         assert_eq!(a, b, "single-capacity block must reuse the just-freed slot");
     }
 
@@ -517,8 +541,8 @@ mod tests {
     fn blocks_are_independent_across_neurons() {
         let mut arena = SynapseArena::new(2);
         arena.reserve_for_neurons(2);
-        arena.insert(0, 100, 0, 1, 0.5).unwrap();
-        let b0 = arena.insert(1, 200, 0, 1, 0.5).unwrap();
+        arena.insert(0, 100, 0, 1, 0.5, 0.5).unwrap();
+        let b0 = arena.insert(1, 200, 0, 1, 0.5, 0.5).unwrap();
         assert_eq!(arena.source_of(b0), 1, "neuron 1's synapse must be addressed to block 1, not block 0");
         assert_eq!(arena.occupied_in_block(1).count(), 1);
         assert_eq!(arena.occupied_in_block(0).count(), 1);
@@ -528,10 +552,10 @@ mod tests {
     fn reserve_growth_does_not_disturb_existing_blocks() {
         let mut arena = SynapseArena::new(2);
         arena.reserve_for_neurons(1);
-        let a = arena.insert(0, 1, 0, 1, 0.5).unwrap();
+        let a = arena.insert(0, 1, 0, 1, 0.5, 0.5).unwrap();
         arena.reserve_for_neurons(3); // grow to make room for neurons 1, 2
         assert!(arena.is_occupied(a), "growth must not disturb an existing block's contents");
-        let b = arena.insert(1, 2, 0, 1, 0.5).unwrap();
+        let b = arena.insert(1, 2, 0, 1, 0.5, 0.5).unwrap();
         assert_eq!(arena.source_of(b), 1);
     }
 
@@ -539,9 +563,9 @@ mod tests {
     fn incoming_finds_synapses_by_target_regardless_of_source() {
         let mut arena = SynapseArena::new(4);
         arena.reserve_for_neurons(3);
-        let a_to_c = arena.insert(0, 2, 0, 1, 0.5).unwrap();
-        let b_to_c = arena.insert(1, 2, 0, 1, 0.5).unwrap();
-        arena.insert(0, 1, 0, 1, 0.5).unwrap(); // a -> b, must not appear in incoming(2)
+        let a_to_c = arena.insert(0, 2, 0, 1, 0.5, 0.5).unwrap();
+        let b_to_c = arena.insert(1, 2, 0, 1, 0.5, 0.5).unwrap();
+        arena.insert(0, 1, 0, 1, 0.5, 0.5).unwrap(); // a -> b, must not appear in incoming(2)
 
         let mut incoming: Vec<u32> = arena.incoming(2).collect();
         incoming.sort_unstable();
@@ -554,7 +578,7 @@ mod tests {
     fn incoming_is_empty_for_a_target_with_no_synapses() {
         let mut arena = SynapseArena::new(4);
         arena.reserve_for_neurons(3);
-        arena.insert(0, 1, 0, 1, 0.5).unwrap();
+        arena.insert(0, 1, 0, 1, 0.5, 0.5).unwrap();
         assert_eq!(arena.incoming(2).count(), 0);
     }
 
@@ -562,7 +586,7 @@ mod tests {
     fn incoming_filters_out_removed_synapses() {
         let mut arena = SynapseArena::new(4);
         arena.reserve_for_neurons(2);
-        let syn = arena.insert(0, 1, 0, 1, 0.5).unwrap();
+        let syn = arena.insert(0, 1, 0, 1, 0.5, 0.5).unwrap();
         assert_eq!(arena.incoming(1).count(), 1);
         arena.remove(syn);
         assert_eq!(arena.incoming(1).count(), 0, "a removed synapse must not appear as incoming");
@@ -572,7 +596,7 @@ mod tests {
     fn newly_inserted_synapse_has_never_active_sentinel() {
         let mut arena = SynapseArena::new(2);
         arena.reserve_for_neurons(1);
-        let syn = arena.insert(0, 1, 0, 1, 0.5).unwrap();
+        let syn = arena.insert(0, 1, 0, 1, 0.5, 0.5).unwrap();
         assert_eq!(arena.last_active[syn as usize], u32::MAX, "must be distinguishable from 'touched at tick 0'");
     }
 }

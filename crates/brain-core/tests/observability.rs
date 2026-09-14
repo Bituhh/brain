@@ -17,7 +17,7 @@ fn a_probe_and_a_raster_driven_from_the_real_scheduler_stay_consistent_and_bound
     let b = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
     let mut synapses = SynapseArena::new(4);
     synapses.reserve_for_neurons(neurons.capacity_len());
-    let syn = synapses.insert(a, b, 0, 1, 0.9).unwrap();
+    let syn = synapses.insert(a, b, 0, 1, 0.9, 0.9).unwrap();
 
     let mut sched = Scheduler::new(4, 0.4);
     let params = LifParams::new(5.0, 0.0, 0.0, 0);
@@ -34,7 +34,7 @@ fn a_probe_and_a_raster_driven_from_the_real_scheduler_stay_consistent_and_bound
         sched.stimulate(&neurons, a, 10.0);
         let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
 
-        probe.observe(report.tick, report.spiked.contains(&a), neurons.membrane[a as usize], |id| synapses.permanence[id as usize]);
+        probe.observe(report.tick, report.spiked.contains(&a), neurons.membrane[a as usize], |id| (synapses.permanence[id as usize], synapses.weight[id as usize]));
         raster.record_tick(report.tick, &report.spiked);
         firing_rate.record(report.spiked.len() as u32);
         accuracy.record(report.predicted_spikes, report.spiked.len() as u32);
@@ -118,10 +118,10 @@ fn attached_probes_record_only_their_own_neurons_dendritic_segment_activity() {
     let mut synapses = SynapseArena::new(1);
     synapses.reserve_for_neurons(neurons.capacity_len());
     for &s in &segment0_sources {
-        synapses.insert(s, target, 0, 1, 0.9).unwrap(); // segment 0: 5 sources, threshold 5 -> fires
+        synapses.insert(s, target, 0, 1, 0.9, 0.9).unwrap(); // segment 0: 5 sources, threshold 5 -> fires
     }
     for &s in &segment1_sources {
-        synapses.insert(s, target, 1, 1, 0.9).unwrap(); // segment 1: only 2 sources -> never reaches 5
+        synapses.insert(s, target, 1, 1, 0.9, 0.9).unwrap(); // segment 1: only 2 sources -> never reaches 5
     }
 
     let mut sched = Scheduler::new(4, 0.5).with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 5 } });

@@ -326,7 +326,13 @@ export function buildNetwork(
       reinforceAmount: 0.08,
       punishAmount: 0.05,
       burstTargetSegment: 0,
-      burstSproutPermanence: 0.1,
+      // README §12's weight/permanence split (2026-09-13): permanence now
+      // at/above connectionThreshold (structurally connected from birth),
+      // paired with a near-zero burstSproutWeight -- though neither value
+      // is ever exercised here, since neighbourhoodSize=1/neighbourhoodK=1
+      // below makes this path a guaranteed no-op.
+      burstSproutPermanence: 0.35,
+      burstSproutWeight: 0.05,
       recentlyActiveWindowTicks: 10,
       // The column's own initial internal wiring (p0=0.3 across the whole
       // width, see columnConfig above) is already dense enough for

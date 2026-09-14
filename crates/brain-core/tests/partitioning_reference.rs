@@ -91,17 +91,17 @@ fn build_network(seed: u64) -> (NeuronArena, SynapseArena, ColumnRegistry, Range
     for i in 0..3u32 {
         let source = a_range.start + i;
         let target = b_range.start + i;
-        let _ = synapses.insert(source, target, FEEDFORWARD_SEGMENT, 2, 0.6);
-        let _ = synapses.insert(target, source, FEEDFORWARD_SEGMENT, 3, 0.6);
+        let _ = synapses.insert(source, target, FEEDFORWARD_SEGMENT, 2, 0.6, 0.6);
+        let _ = synapses.insert(target, source, FEEDFORWARD_SEGMENT, 3, 0.6, 0.6);
     }
     // Cross-column dendritic wiring onto segment 0 (a subset, deterministic).
     for i in 3..7u32 {
         let source = a_range.start + i;
         let target = b_range.start + (i % COLUMN_SIZE);
-        let _ = synapses.insert(source, target, 0, 2, 0.9);
+        let _ = synapses.insert(source, target, 0, 2, 0.9, 0.9);
         let source2 = b_range.start + i;
         let target2 = a_range.start + (i % COLUMN_SIZE);
-        let _ = synapses.insert(source2, target2, 0, 2, 0.9);
+        let _ = synapses.insert(source2, target2, 0, 2, 0.9, 0.9);
     }
 
     (neurons, synapses, columns, a_range, b_range)
@@ -215,6 +215,7 @@ fn assert_identical_synapses(a: &SynapseArena, b: &SynapseArena, neuron_count: u
         for &id in &a_ids {
             let i = id as usize;
             assert_eq!(a.permanence[i], b.permanence[i], "{label}: synapse {id} permanence must match exactly");
+            assert_eq!(a.weight[i], b.weight[i], "{label}: synapse {id} weight must match exactly");
             assert_eq!(a.eligibility[i], b.eligibility[i], "{label}: synapse {id} eligibility must match exactly");
             assert_eq!(a.last_active[i], b.last_active[i], "{label}: synapse {id} last_active must match exactly");
             assert_eq!(a.eligibility_updated_at[i], b.eligibility_updated_at[i], "{label}: synapse {id} eligibility_updated_at must match exactly");
@@ -296,9 +297,11 @@ fn pinned_executor_matches_the_sequential_reference_at_every_thread_count() {
 }
 
 /// A sanity check that this scenario actually exercises the mechanism
-/// under test: if nothing ever spiked, or no synapse's permanence ever
+/// under test: if nothing ever spiked, or no synapse's weight ever
 /// moved, the equality assertions above would be trivially (and
-/// uselessly) true.
+/// uselessly) true. README §12's weight/permanence split (2026-09-13):
+/// this scenario only configures STDP (`with_plasticity`), which now
+/// moves weight, not permanence -- permanence never moves here.
 #[test]
 fn the_reference_scenario_actually_produces_activity_and_learning() {
     let outcome = run_plain_scheduler(7);
@@ -309,7 +312,7 @@ fn the_reference_scenario_actually_produces_activity_and_learning() {
     let moved = (0..TOTAL_NEURONS).any(|source| {
         outcome.synapses.occupied_in_block(source).any(|id| {
             let i = id as usize;
-            (outcome.synapses.permanence[i] - initial_synapses.permanence[i]).abs() > 1e-6
+            (outcome.synapses.weight[i] - initial_synapses.weight[i]).abs() > 1e-6
         })
     });
     assert!(moved, "test scenario must actually exercise plasticity for the comparison tests to be meaningful");
@@ -385,6 +388,7 @@ fn structural_plasticity() -> StructuralPlasticity {
     let params = StructuralPlasticityParams {
         prune_floor: 0.05,
         sprout_permanence: 0.1,
+        sprout_weight: 0.05,
         min_activity_streak: 2,
         sweep_interval_ticks: 20,
         unused_ticks_before_reclaim: 10_000,
@@ -394,8 +398,26 @@ fn structural_plasticity() -> StructuralPlasticity {
     StructuralPlasticity::new(params, FixedNeighbourhoods::new(COLUMN_SIZE, 2))
 }
 
+/// README §12's weight/permanence split (2026-09-13): homeostatic scaling
+/// no longer touches permanence, so nothing in the "always on" scenarios
+/// below ever drifts a synapse's permanence down toward
+/// `structural_plasticity()`'s prune_floor (every synapse here starts at
+/// 0.4-0.9, permanence now fixed for life outside structural plasticity's
+/// own sprout/prune). A deliberate below-floor canary (mirroring
+/// `combined_mechanisms.rs`'s `doomed_src`) keeps these scenarios a genuine
+/// test of pruning, not an accident of homeostatic scaling incidentally
+/// pushing something below the floor -- applied identically to both the
+/// plain-scheduler and partitioned builds so their topologies still match
+/// exactly for the cross-comparison tests.
+fn build_network_with_prune_canary(seed: u64) -> (NeuronArena, SynapseArena, ColumnRegistry, Range<u32>, Range<u32>) {
+    let (neurons, mut synapses, columns, a_range, b_range) = build_network(seed);
+    let canary = synapses.occupied_in_block(a_range.start).next().expect("column a's first neuron must have at least one outgoing synapse");
+    synapses.permanence[canary as usize] = 0.01;
+    (neurons, synapses, columns, a_range, b_range)
+}
+
 fn run_plain_scheduler_with_always_on_plasticity(seed: u64) -> RunOutcome {
-    let (mut neurons, mut synapses, _columns, _a, _b) = build_network(seed);
+    let (mut neurons, mut synapses, _columns, _a, _b) = build_network_with_prune_canary(seed);
     let mut sched = Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
         .with_inhibition(FixedNeighbourhoods::new(COLUMN_SIZE, 2))
         .with_segments(segments())
@@ -422,7 +444,7 @@ fn run_plain_scheduler_with_always_on_plasticity(seed: u64) -> RunOutcome {
 }
 
 fn run_partitioned_with_always_on_plasticity(seed: u64, partition_count: usize, executor: ExecutorChoice) -> RunOutcome {
-    let (mut neurons, mut synapses, columns, a_range, b_range) = build_network(seed);
+    let (mut neurons, mut synapses, columns, a_range, b_range) = build_network_with_prune_canary(seed);
     let plan = if partition_count == 1 { PartitionPlan::single(TOTAL_NEURONS) } else { PartitionPlan::contiguous(&columns, partition_count) };
 
     let schedulers: Vec<Scheduler> = (0..plan.partition_count())
@@ -519,15 +541,15 @@ fn a_single_broadcast_injection_reaches_every_partition_equally() {
     let pre1 = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
     let post1 = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
     synapses.reserve_for_neurons(neurons.capacity_len());
-    let syn0 = synapses.insert(pre0, post0, FEEDFORWARD_SEGMENT, 1, 0.5).unwrap();
-    let syn1 = synapses.insert(pre1, post1, FEEDFORWARD_SEGMENT, 1, 0.5).unwrap();
+    let syn0 = synapses.insert(pre0, post0, FEEDFORWARD_SEGMENT, 1, 0.5, 0.5).unwrap();
+    let syn1 = synapses.insert(pre1, post1, FEEDFORWARD_SEGMENT, 1, 0.5, 0.5).unwrap();
 
     let plan = PartitionPlan::even_split(4, 2); // partition 0: neurons 0,1 (pre0/post0); partition 1: neurons 2,3 (pre1/post1)
     let schedulers: Vec<Scheduler> = (0..2).map(|_| Scheduler::new(4, 0.4).with_plasticity(plasticity(), [1000.0; NUM_MODULATORS])).collect();
     let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, 4);
 
-    let before0 = synapses.permanence[syn0 as usize];
-    let before1 = synapses.permanence[syn1 as usize];
+    let before0 = synapses.weight[syn0 as usize];
+    let before1 = synapses.weight[syn1 as usize];
 
     runtime.inject_modulator(DOPAMINE, 1.0); // exactly once, not per-tick -- proves one call suffices
     runtime.stimulate(&neurons, pre0, 10.0);
@@ -537,8 +559,8 @@ fn a_single_broadcast_injection_reaches_every_partition_equally() {
     runtime.stimulate(&neurons, post1, 10.0);
     runtime.step::<Lif>(&mut neurons, &mut synapses, &lif_params()); // deliveries land, both posts spike same tick
 
-    let after0 = synapses.permanence[syn0 as usize];
-    let after1 = synapses.permanence[syn1 as usize];
+    let after0 = synapses.weight[syn0 as usize];
+    let after1 = synapses.weight[syn1 as usize];
     assert!(after0 > before0, "partition 0's pair must potentiate: {before0} -> {after0}");
     assert!(after1 > before1, "partition 1's pair must potentiate: {before1} -> {after1}");
     assert_eq!(after0, after1, "both partitions saw the same broadcast injection, so both pairs (identical topology) must potentiate identically");
@@ -566,17 +588,17 @@ fn reward_broadcasts_correctly_across_a_partition_boundary_containing_a_gating_e
     let gate = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: -1, coords: [0.0; 3] }).index; // inhibitory, partition 1
     let _ = filler;
     synapses.reserve_for_neurons(neurons.capacity_len());
-    let syn0 = synapses.insert(pre0, post0, FEEDFORWARD_SEGMENT, 1, 0.5).unwrap();
-    let syn1 = synapses.insert(pre1, post1, FEEDFORWARD_SEGMENT, 1, 0.5).unwrap();
+    let syn0 = synapses.insert(pre0, post0, FEEDFORWARD_SEGMENT, 1, 0.5, 0.5).unwrap();
+    let syn1 = synapses.insert(pre1, post1, FEEDFORWARD_SEGMENT, 1, 0.5, 0.5).unwrap();
     // Cross-partition gating edge: gate (partition 1) -> post0 (partition 0),
     // NET-13's suppress shape, exercised through RUN-5's cross-partition
     // delivery path. Delay 2 (not 1): RUN-5's own invariant is that a
     // cross-partition message must not arrive earlier than the receiving
     // partition could have already processed it -- this test's first draft
     // used delay 1 on a cross-partition edge and the delivery silently
-    // never landed (permanence never moved), which is exactly the failure
+    // never landed (weight never moved), which is exactly the failure
     // mode that invariant exists to prevent.
-    synapses.insert(gate, post0, FEEDFORWARD_SEGMENT, 2, 0.3).unwrap();
+    synapses.insert(gate, post0, FEEDFORWARD_SEGMENT, 2, 0.3, 0.3).unwrap();
 
     // even_split(6, 2) => partition 0 = indices [0,3) = {pre0, post0,
     // filler}, partition 1 = indices [3,6) = {pre1, post1, gate}. Both
@@ -588,8 +610,8 @@ fn reward_broadcasts_correctly_across_a_partition_boundary_containing_a_gating_e
     let schedulers: Vec<Scheduler> = (0..2).map(|_| Scheduler::new(4, 0.4).with_plasticity(plasticity(), [1000.0; NUM_MODULATORS])).collect();
     let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, 6);
 
-    let before0 = synapses.permanence[syn0 as usize];
-    let before1 = synapses.permanence[syn1 as usize];
+    let before0 = synapses.weight[syn0 as usize];
+    let before1 = synapses.weight[syn1 as usize];
 
     runtime.inject_modulator(DOPAMINE, 1.0); // exactly once -- broadcast, not per-partition
     runtime.stimulate(&neurons, pre0, 10.0);
@@ -599,8 +621,8 @@ fn reward_broadcasts_correctly_across_a_partition_boundary_containing_a_gating_e
     runtime.stimulate(&neurons, post1, 10.0);
     runtime.step::<Lif>(&mut neurons, &mut synapses, &lif_params()); // deliveries land, both posts spike same tick
 
-    let after0 = synapses.permanence[syn0 as usize];
-    let after1 = synapses.permanence[syn1 as usize];
+    let after0 = synapses.weight[syn0 as usize];
+    let after1 = synapses.weight[syn1 as usize];
     assert!(after0 > before0, "partition 0's pair must potentiate despite the cross-partition gating edge present: {before0} -> {after0}");
     assert!(after1 > before1, "partition 1's pair must potentiate identically: {before1} -> {after1}");
     assert_eq!(after0, after1, "the broadcast must reach both partitions equally regardless of the cross-partition gating edge's presence");

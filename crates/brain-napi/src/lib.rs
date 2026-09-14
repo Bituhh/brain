@@ -240,6 +240,13 @@ pub struct PredictiveLearningConfig {
     pub punish_amount: f64,
     pub burst_target_segment: u32,
     pub burst_sprout_permanence: f64,
+    /// Weight (§2.5's efficacy) a burst-sprouted synapse starts at --
+    /// README §12's weight/permanence split (2026-09-13): deliberately
+    /// small, the weight-side counterpart to `burst_sprout_permanence`
+    /// above, which is now expected to sit at/above `connectionThreshold`
+    /// (structurally connected, the "silent synapse" pattern) rather than
+    /// below it.
+    pub burst_sprout_weight: f64,
     pub recently_active_window_ticks: u32,
     /// Which neuromodulator channel scales reinforce/punish deltas (LRN-4/
     /// LRN-5) -- `0` is `DOPAMINE`, matching `modulatorLevels`' channel
@@ -264,6 +271,7 @@ impl PredictiveLearningConfig {
             punish_amount: self.punish_amount as f32,
             burst_target_segment: self.burst_target_segment,
             burst_sprout_permanence: self.burst_sprout_permanence as f32,
+            burst_sprout_weight: self.burst_sprout_weight as f32,
             recently_active_window_ticks: self.recently_active_window_ticks,
             modulator_index: self.modulator_index.map(|v| v as usize),
         }
@@ -278,7 +286,11 @@ impl PredictiveLearningConfig {
 /// homeostatic sweep disabled, matching every pre-Phase-5 caller exactly.
 #[napi(object)]
 pub struct HomeostaticScalingConfig {
-    pub target_total_permanence: f64,
+    /// README §12's weight/permanence split (2026-09-13): this sweep now
+    /// renormalises weight (§2.5's efficacy), not permanence (SYN-3's
+    /// structural quantity) -- renaming this field from the pre-split
+    /// `targetTotalPermanence` to match.
+    pub target_total_weight: f64,
     pub interval_ticks: u32,
 }
 
@@ -345,7 +357,14 @@ pub struct InhibitionHomeostasisConfig {
 #[napi(object)]
 pub struct StructuralPlasticityConfig {
     pub prune_floor: f64,
+    /// Permanence a newly-sprouted synapse starts at -- README §12's split
+    /// (2026-09-13): should now sit at/above `connectionThreshold`
+    /// (structurally connected from birth), paired with `sproutWeight`
+    /// below for its actual near-zero initial efficacy. See
+    /// `structural::StructuralPlasticityParams::sprout_permanence`'s doc
+    /// comment for the full reasoning.
     pub sprout_permanence: f64,
+    pub sprout_weight: f64,
     pub min_activity_streak: u32,
     pub sweep_interval_ticks: u32,
     pub unused_ticks_before_reclaim: u32,
@@ -470,9 +489,13 @@ impl PlasticityConfig {
 #[napi(object)]
 pub struct ConsolidationConfig {
     pub replay_window: u32,
-    pub downscale_target_total_permanence: f64,
+    /// README §12's weight/permanence split (2026-09-13): retargets weight,
+    /// not permanence -- same fix as `HomeostaticScalingConfig`'s own
+    /// rename, for the same reason.
+    pub downscale_target_total_weight: f64,
     pub prune_floor: f64,
     pub sprout_permanence: f64,
+    pub sprout_weight: f64,
     pub min_activity_streak: u32,
     pub unused_ticks_before_reclaim: u32,
 }
@@ -500,6 +523,9 @@ pub struct ProbeOptionsFfi {
 pub struct WeightSampleFfi {
     pub synapse_id: u32,
     pub permanence: f64,
+    /// README §12's weight/permanence split (2026-09-13): `WeightSample`
+    /// now actually carries weight too, not just permanence.
+    pub weight: f64,
 }
 
 /// One dendritic-segment activity sample read back from a probe (Phase 6
@@ -529,14 +555,18 @@ pub struct ProbeDataFfi {
 pub struct MetricsSnapshotFfi {
     pub sparsity: f64,
     pub mean_permanence: f64,
+    /// README §12's weight/permanence split (2026-09-13): reported
+    /// alongside `mean_permanence` since the two now carry independent
+    /// meanings.
+    pub mean_weight: f64,
     pub excitatory_fraction: f64,
     pub synapse_count: u32,
 }
 
 impl ConsolidationConfig {
     fn resolve(&self) -> Result<ConsolidationParams> {
-        if !self.downscale_target_total_permanence.is_finite() || self.downscale_target_total_permanence < 0.0 {
-            return Err(Error::from_reason("downscaleTargetTotalPermanence must be finite and non-negative"));
+        if !self.downscale_target_total_weight.is_finite() || self.downscale_target_total_weight < 0.0 {
+            return Err(Error::from_reason("downscaleTargetTotalWeight must be finite and non-negative"));
         }
         if !(0.0..=1.0).contains(&self.prune_floor) {
             return Err(Error::from_reason("pruneFloor must be within [0, 1]"));
@@ -546,9 +576,10 @@ impl ConsolidationConfig {
         }
         Ok(ConsolidationParams {
             replay_window: self.replay_window as usize,
-            downscale_target_total_permanence: self.downscale_target_total_permanence as f32,
+            downscale_target_total_weight: self.downscale_target_total_weight as f32,
             prune_floor: self.prune_floor as f32,
             sprout_permanence: self.sprout_permanence as f32,
+            sprout_weight: self.sprout_weight as f32,
             min_activity_streak: self.min_activity_streak,
             unused_ticks_before_reclaim: self.unused_ticks_before_reclaim,
         })
@@ -655,12 +686,13 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
         scheduler = scheduler.with_plasticity(rules, resolved.modulator_tau_ticks);
     }
     if let Some(cfg) = &config.homeostatic_scaling {
-        scheduler = scheduler.with_homeostatic_scaling(HomeostaticScaling::new(cfg.target_total_permanence as f32, cfg.interval_ticks.max(1)));
+        scheduler = scheduler.with_homeostatic_scaling(HomeostaticScaling::new(cfg.target_total_weight as f32, cfg.interval_ticks.max(1)));
     }
     if let Some(cfg) = &config.structural_plasticity {
         let params = StructuralPlasticityParams {
             prune_floor: cfg.prune_floor as f32,
             sprout_permanence: cfg.sprout_permanence as f32,
+            sprout_weight: cfg.sprout_weight as f32,
             min_activity_streak: cfg.min_activity_streak,
             sweep_interval_ticks: cfg.sweep_interval_ticks.max(1),
             unused_ticks_before_reclaim: cfg.unused_ticks_before_reclaim,
@@ -997,8 +1029,15 @@ impl NativeSimulation {
     /// ordinary, expected outcome (design.md's Error Handling table).
     #[napi]
     pub fn connect(&mut self, source: u32, target: u32, segment: u32, delay: u32, permanence: f64) -> Option<u32> {
+        // README §12's weight/permanence split (2026-09-13): ordinary,
+        // caller-driven wiring seeds weight from the same value as
+        // permanence -- initial dynamics are therefore unaffected by the
+        // split, and only diverge once a plasticity rule that moves weight
+        // (not permanence) next touches the synapse. `connect`'s own
+        // signature stays 5 args so every existing caller keeps working
+        // unchanged.
         self.synapses
-            .insert(source, target, segment, delay.clamp(1, u16::MAX as u32) as u16, permanence as f32)
+            .insert(source, target, segment, delay.clamp(1, u16::MAX as u32) as u16, permanence as f32, permanence as f32)
             .ok()
     }
 
@@ -1241,6 +1280,19 @@ impl NativeSimulation {
     pub fn synapse_permanence_view(&mut self) -> Float32Array {
         let len = self.synapses.permanence.len();
         let ptr = self.synapses.permanence.as_mut_ptr();
+        // SAFETY: see `membrane_view` above.
+        unsafe { Float32Array::with_external_data(ptr, len, |_ptr, _len| {}) }
+    }
+
+    /// A zero-copy view over every synapse slot's weight (§2.5's efficacy --
+    /// README §12's weight/permanence split, 2026-09-13): how much current a
+    /// *connected* synapse actually passes, independent of
+    /// `synapse_permanence_view`'s structural "is this connected" gate.
+    /// Same safety contract as `membrane_view` above.
+    #[napi]
+    pub fn synapse_weight_view(&mut self) -> Float32Array {
+        let len = self.synapses.weight.len();
+        let ptr = self.synapses.weight.as_mut_ptr();
         // SAFETY: see `membrane_view` above.
         unsafe { Float32Array::with_external_data(ptr, len, |_ptr, _len| {}) }
     }
@@ -1576,7 +1628,7 @@ impl NativeSimulation {
             membrane_trace: probe.membrane_trace().map(|t| t.iter().map(|&v| v as f64).collect()),
             weight_history: probe.weight_history().map(|h| {
                 h.iter()
-                    .map(|samples| samples.iter().map(|s| WeightSampleFfi { synapse_id: s.synapse_id, permanence: s.permanence as f64 }).collect())
+                    .map(|samples| samples.iter().map(|s| WeightSampleFfi { synapse_id: s.synapse_id, permanence: s.permanence as f64, weight: s.weight as f64 }).collect())
                     .collect()
             }),
             segment_samples: probe.segment_history().map(|h| {
@@ -1662,6 +1714,7 @@ impl NativeSimulation {
         MetricsSnapshotFfi {
             sparsity: snapshot.sparsity,
             mean_permanence: snapshot.mean_permanence as f64,
+            mean_weight: snapshot.mean_weight as f64,
             excitatory_fraction: snapshot.excitatory_fraction,
             synapse_count: snapshot.synapse_count,
         }
@@ -1760,12 +1813,13 @@ impl NativeSimulation {
             scheduler = scheduler.with_plasticity(rules, resolved.modulator_tau_ticks);
         }
         if let Some(cfg) = &homeostatic_scaling {
-            scheduler = scheduler.with_homeostatic_scaling(HomeostaticScaling::new(cfg.target_total_permanence as f32, cfg.interval_ticks.max(1)));
+            scheduler = scheduler.with_homeostatic_scaling(HomeostaticScaling::new(cfg.target_total_weight as f32, cfg.interval_ticks.max(1)));
         }
         if let Some(cfg) = &structural_plasticity {
             let params = StructuralPlasticityParams {
                 prune_floor: cfg.prune_floor as f32,
                 sprout_permanence: cfg.sprout_permanence as f32,
+                sprout_weight: cfg.sprout_weight as f32,
                 min_activity_streak: cfg.min_activity_streak,
                 sweep_interval_ticks: cfg.sweep_interval_ticks.max(1),
                 unused_ticks_before_reclaim: cfg.unused_ticks_before_reclaim,

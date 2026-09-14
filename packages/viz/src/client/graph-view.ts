@@ -15,6 +15,8 @@ export interface SynapseTopology {
   readonly targetNeuron: Uint32Array;
   readonly targetSegment: Uint32Array;
   readonly permanence: Float32Array;
+  /** §2.5's efficacy -- README §12's weight/permanence split (2026-09-13): how much current a *connected* synapse actually passes, independent of `permanence`'s structural "is this connected" gate. */
+  readonly weight: Float32Array;
   readonly delay: Uint16Array;
   readonly occupied: Uint8Array;
 }
@@ -140,7 +142,7 @@ export class GraphView {
   #renderEdges(ctx: CanvasRenderingContext2D): void {
     const synapses = this.#synapses;
     if (!synapses) return;
-    const { capPerNeuron, connectionThreshold, targetNeuron, occupied, permanence } = synapses;
+    const { capPerNeuron, connectionThreshold, targetNeuron, occupied, permanence, weight } = synapses;
     for (let id = 0; id < targetNeuron.length; id++) {
       if (!occupied[id]) continue;
       const perm = permanence[id]!;
@@ -154,8 +156,13 @@ export class GraphView {
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
       if (connected) {
-        ctx.strokeStyle = `rgba(148,163,184,${Math.max(0.1, Math.min(1, perm))})`;
-        ctx.lineWidth = Math.max(0.5, perm * 2);
+        // README §12's weight/permanence split (2026-09-13): a connected
+        // edge's visual strength reflects weight (§2.5's efficacy, what
+        // actually reaches the soma), not permanence (the structural gate
+        // already decided above).
+        const w = weight[id]!;
+        ctx.strokeStyle = `rgba(148,163,184,${Math.max(0.1, Math.min(1, w))})`;
+        ctx.lineWidth = Math.max(0.5, w * 2);
       } else {
         // SYN-3: sub-threshold synapses are *potential*, not connected --
         // visually distinguished (Requirement 9.3), not drawn identically.

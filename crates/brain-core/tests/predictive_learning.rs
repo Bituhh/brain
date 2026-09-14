@@ -28,7 +28,8 @@ fn correct_prediction_proportion_rises_across_exposures_to_a_repeating_sequence(
         reinforce_amount: 0.2,
         punish_amount: 0.2,
         burst_target_segment: 0,
-        burst_sprout_permanence: 0.1,
+        burst_sprout_permanence: 0.4,
+        burst_sprout_weight: 0.05,
         recently_active_window_ticks: 20,
         modulator_index: None,
     };
@@ -96,7 +97,8 @@ fn no_label_or_external_error_signal_is_needed_anywhere_in_this_path() {
         reinforce_amount: 0.2,
         punish_amount: 0.2,
         burst_target_segment: 0,
-        burst_sprout_permanence: 0.1,
+        burst_sprout_permanence: 0.4,
+        burst_sprout_weight: 0.05,
         recently_active_window_ticks: 20,
         modulator_index: None,
     };
@@ -117,5 +119,11 @@ fn no_label_or_external_error_signal_is_needed_anywhere_in_this_path() {
 
     let learned = synapses.occupied_in_block(a).find(|&id| synapses.target_neuron[id as usize] == b);
     assert!(learned.is_some(), "the network must have sprouted its own a->b connection with no external error signal");
-    assert!(synapses.permanence[learned.unwrap() as usize] > 0.1, "and reinforced it purely from repeated local co-occurrence");
+    // README §12's weight/permanence split (2026-09-13): predictive
+    // learning's reinforce/punish moves permanence, not weight -- a
+    // deliberate exception to the general split (see predictive.rs's
+    // `adjust_segment_permanence` doc comment): dendritic coincidence
+    // detection is a binary, permanence-gated signum step, so only
+    // permanence changes are visible to future predictions.
+    assert!(synapses.permanence[learned.unwrap() as usize] > 0.4, "and reinforced it purely from repeated local co-occurrence");
 }

@@ -52,7 +52,7 @@ function membersOfNeuron(neuron: number): Map<number, SegmentMember[]> {
     const segment = synapses.targetSegment[id]!;
     if (segment === FEEDFORWARD_SEGMENT) continue;
     const source = Math.floor(id / synapses.capPerNeuron);
-    const member: SegmentMember = { synapseId: id, source, permanence: synapses.permanence[id]! };
+    const member: SegmentMember = { synapseId: id, source, permanence: synapses.permanence[id]!, weight: synapses.weight[id]! };
     const list = bySegment.get(segment);
     if (list) list.push(member);
     else bySegment.set(segment, [member]);
@@ -111,6 +111,7 @@ function handleServerMessage(msg: ServerMessage): void {
       metricsEl.textContent =
         `sparsity ${msg.sparsity.toFixed(4)}  ` +
         `mean permanence ${msg.meanPermanence.toFixed(3)}  ` +
+        `mean weight ${msg.meanWeight.toFixed(3)}  ` +
         `excitatory fraction ${msg.excitatoryFraction.toFixed(3)}  ` +
         `synapses ${msg.synapseCount}`;
       break;

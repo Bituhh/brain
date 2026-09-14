@@ -12,12 +12,29 @@ use crate::synapse::SynapseArena;
 pub struct StructuralPlasticityParams {
     /// Permanence at or below this is pruned (Requirement 11.1).
     pub prune_floor: f32,
-    /// Permanence a newly-sprouted candidate synapse starts at --
-    /// sub-threshold by construction (Requirement 11.2's "at sub-threshold
-    /// permanence"), so it must be less than whatever connection
-    /// threshold the scheduler is using, or it would be a full connection
-    /// from the moment it sprouts.
+    /// Permanence a newly-sprouted candidate synapse starts at.
+    ///
+    /// **Semantics flipped by README §12's weight/permanence split
+    /// (2026-09-13, item 12's NET-10 addendum).** Before the split this was
+    /// deliberately *below* the scheduler's connection threshold (a
+    /// "potential" connection, invisible to delivery and therefore to every
+    /// plasticity rule) -- which is exactly what made a bootstrapping
+    /// deadlock permanent: a synapse that can never transmit can never be
+    /// potentiated by activity either. Now that `weight` (efficacy) is a
+    /// separate field, a new sprout should instead start *at or above* the
+    /// caller's connection threshold -- structurally connected from birth,
+    /// the biological "silent synapse" pattern -- and rely on
+    /// [`Self::sprout`]'s companion `sprout_weight` for its actual (near-
+    /// zero) initial transmission strength. As before, this module has no
+    /// notion of the scheduler's connection threshold itself; the caller
+    /// coordinates the two values, just in the opposite direction than
+    /// before.
     pub sprout_permanence: f32,
+    /// Weight (efficacy, §2.5) a newly-sprouted candidate synapse starts
+    /// at -- deliberately small, so a new structural contact transmits only
+    /// a trickle until activity potentiates it via STDP (see
+    /// `sprout_permanence`'s doc comment above for the full reasoning).
+    pub sprout_weight: f32,
     /// A neuron must have fired at least once per sweep for this many
     /// *consecutive* sweeps before it is eligible to be one half of a
     /// sprouted pair (Requirement 11.2's "repeatedly co-active" -- a
@@ -159,7 +176,7 @@ impl StructuralPlasticity {
                         continue;
                     }
                     let delay = if partition_of(a) != partition_of(b) { self.params.min_cross_partition_delay.max(1) } else { 1 };
-                    if synapses.insert(a, b, 0, delay, self.params.sprout_permanence).is_ok() {
+                    if synapses.insert(a, b, 0, delay, self.params.sprout_permanence, self.params.sprout_weight).is_ok() {
                         sprouted += 1;
                     }
                     // BlockFull is a legitimate, expected outcome
@@ -316,7 +333,8 @@ mod tests {
     fn default_params() -> StructuralPlasticityParams {
         StructuralPlasticityParams {
             prune_floor: 0.05,
-            sprout_permanence: 0.1,
+            sprout_permanence: 0.6, // at/above this module's tests' assumed connection threshold
+            sprout_weight: 0.05,
             min_activity_streak: 3,
             sweep_interval_ticks: 100,
             unused_ticks_before_reclaim: 1000,
@@ -330,8 +348,8 @@ mod tests {
         let mut neurons = make_neurons(2);
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(2);
-        let weak = synapses.insert(0, 1, 0, 1, 0.05).unwrap();
-        let strong = synapses.insert(0, 1, 0, 1, 0.5).unwrap();
+        let weak = synapses.insert(0, 1, 0, 1, 0.05, 0.05).unwrap();
+        let strong = synapses.insert(0, 1, 0, 1, 0.5, 0.5).unwrap();
 
         let mut sp = StructuralPlasticity::new(default_params(), FixedNeighbourhoods::new(10, 1));
         let report = sp.maybe_sweep(&mut neurons, &mut synapses, 100).unwrap();
@@ -357,8 +375,8 @@ mod tests {
         let mut neurons = make_neurons(2);
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(2);
-        let weak = synapses.insert(0, 1, 0, 1, 0.05).unwrap();
-        let strong = synapses.insert(0, 1, 0, 1, 0.5).unwrap();
+        let weak = synapses.insert(0, 1, 0, 1, 0.05, 0.05).unwrap();
+        let strong = synapses.insert(0, 1, 0, 1, 0.5, 0.5).unwrap();
 
         let params = StructuralPlasticityParams { sweep_interval_ticks: 1_000_000, ..default_params() };
         let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
@@ -421,18 +439,27 @@ mod tests {
     }
 
     #[test]
-    fn sprouted_synapse_starts_below_connection_threshold() {
+    fn sprouted_synapse_starts_structurally_connected_but_near_zero_weight() {
+        // README §12's weight/permanence split (2026-09-13): a new sprout
+        // now starts at/above the caller's connection threshold (this
+        // test's `sprout_permanence: 0.6`) with a separate, near-zero
+        // `sprout_weight` -- the "silent synapse" pattern that dissolves
+        // the NET-10 bootstrapping deadlock (item 12's addendum to item
+        // 10). Before this split, `sprout_permanence` was deliberately
+        // *sub*-threshold; that inverted assertion is exactly what
+        // (invisibly) blocked activity from ever potentiating a sprout.
         let mut neurons = make_neurons(2);
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(2);
-        let params = StructuralPlasticityParams { min_activity_streak: 1, sprout_permanence: 0.1, sweep_interval_ticks: 10, ..default_params() };
+        let params = StructuralPlasticityParams { min_activity_streak: 1, sprout_permanence: 0.6, sprout_weight: 0.05, sweep_interval_ticks: 10, ..default_params() };
         let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
         neurons.last_spike[0] = 5;
         neurons.last_spike[1] = 6;
         sp.maybe_sweep(&mut neurons, &mut synapses, 10);
 
         let id = synapses.occupied_in_block(0).find(|&id| synapses.target_neuron[id as usize] == 1).unwrap();
-        assert_eq!(synapses.permanence[id as usize], 0.1, "must start at sprout_permanence, sub-threshold by construction (Req 11.2)");
+        assert_eq!(synapses.permanence[id as usize], 0.6, "must start at sprout_permanence, structurally connected by construction");
+        assert_eq!(synapses.weight[id as usize], 0.05, "must start at sprout_weight, near-zero so it only transmits a trickle");
     }
 
     /// Requirement 4, Acceptance Criterion 2.
@@ -484,7 +511,7 @@ mod tests {
         let mut neurons = make_neurons(3);
         let mut synapses = SynapseArena::new(1); // capacity 1 per neuron
         synapses.reserve_for_neurons(3);
-        synapses.insert(0, 2, 0, 1, 0.5).unwrap(); // fills neuron 0's only slot already
+        synapses.insert(0, 2, 0, 1, 0.5, 0.5).unwrap(); // fills neuron 0's only slot already
         let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, ..default_params() };
         let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
         neurons.last_spike[0] = 5;

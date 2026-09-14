@@ -51,6 +51,7 @@ test("topologySynapses round-trips every column exactly, including occupied as 0
     targetNeuron: new Uint32Array([5, 6]),
     targetSegment: new Uint32Array([0, 0xffffffff]),
     permanence: new Float32Array([0.9, 0.1]),
+    weight: new Float32Array([0.7, 0.05]),
     delay: new Uint16Array([3, 65535]),
     occupied: new Uint8Array([1, 0]),
   };
@@ -62,6 +63,7 @@ test("topologySynapses round-trips every column exactly, including occupied as 0
   assertTypedArrayEqual(decoded.targetNeuron, message.targetNeuron);
   assertTypedArrayEqual(decoded.targetSegment, message.targetSegment);
   assertTypedArrayEqual(decoded.permanence, message.permanence);
+  assertTypedArrayEqual(decoded.weight, message.weight);
   assertTypedArrayEqual(decoded.delay, message.delay);
   assertTypedArrayEqual(decoded.occupied, message.occupied);
 });
@@ -110,7 +112,7 @@ test("tick round-trips an empty spiked array (a fully quiet tick)", () => {
 });
 
 test("metricsSnapshot round-trips exactly", () => {
-  const message: ServerMessage = { type: "metricsSnapshot", sparsity: 0.02, meanPermanence: 0.6, excitatoryFraction: 0.8, synapseCount: 12345 };
+  const message: ServerMessage = { type: "metricsSnapshot", sparsity: 0.02, meanPermanence: 0.6, meanWeight: 0.3, excitatoryFraction: 0.8, synapseCount: 12345 };
   assert.deepEqual(roundTrip(message), message);
 });
 

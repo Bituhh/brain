@@ -70,7 +70,7 @@ pub fn two_neuron_chain(options: TwoNeuronChainOptions) -> TwoNeuronChain {
     let b = neurons.allocate(NeuronSpec { threshold: options.threshold, polarity: 1, coords: [1.0; 3] }).index;
     let mut synapses = SynapseArena::new(4);
     synapses.reserve_for_neurons(neurons.capacity_len());
-    let synapse_id = synapses.insert(a, b, 0, options.delay, options.initial_permanence).unwrap();
+    let synapse_id = synapses.insert(a, b, 0, options.delay, options.initial_permanence, options.initial_permanence).unwrap();
 
     let mut scheduler =
         Scheduler::new(options.max_delay, options.connection_threshold).with_plasticity(default_plasticity(), [500.0; NUM_MODULATORS]);

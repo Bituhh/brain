@@ -12,14 +12,17 @@
 //!
 //! Setup: two source neurons (`a`, `b`) converge onto one shared target
 //! (`post`), with online homeostatic scaling active throughout (a fixed
-//! total-incoming-permanence budget). Training `a` first ("sequence A")
-//! grows its synapse; training `b` afterward ("sequence B") grows *its*
-//! synapse, and since both compete for the same fixed budget, `a`'s share
-//! gets squeezed down as `b`'s grows -- the concrete interference
-//! mechanism this test exercises. Interleaving replay of `a`'s early
-//! activity during `b`'s training re-credits `a`'s synapse via the same
-//! STDP path a live causal pair would use, counteracting some of that
-//! squeeze.
+//! total-incoming-weight budget -- README §12's weight/permanence split,
+//! 2026-09-13: STDP and homeostatic scaling both moved from permanence to
+//! weight, so this test's "synapse strength"/interference measurement now
+//! reads weight, not permanence, which stays fixed at its initial value
+//! throughout). Training `a` first ("sequence A") grows its synapse;
+//! training `b` afterward ("sequence B") grows *its* synapse, and since
+//! both compete for the same fixed budget, `a`'s share gets squeezed down
+//! as `b`'s grows -- the concrete interference mechanism this test
+//! exercises. Interleaving replay of `a`'s early activity during `b`'s
+//! training re-credits `a`'s synapse via the same STDP path a live causal
+//! pair would use, counteracting some of that squeeze.
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::consolidation::ConsolidationParams;
@@ -45,8 +48,8 @@ fn build_network() -> (NeuronArena, SynapseArena, u32, u32, u32, u32, u32) {
     let post = neurons.allocate(NeuronSpec { threshold: 0.1, polarity: 1, coords: [0.0; 3] }).index;
     let mut synapses = SynapseArena::new(1);
     synapses.reserve_for_neurons(neurons.capacity_len());
-    let syn_a = synapses.insert(a, post, 0, 1, 0.5).unwrap();
-    let syn_b = synapses.insert(b, post, 0, 1, 0.05).unwrap(); // starts weak -- it grows during "learn B"
+    let syn_a = synapses.insert(a, post, 0, 1, 0.5, 0.5).unwrap();
+    let syn_b = synapses.insert(b, post, 0, 1, 0.05, 0.05).unwrap(); // starts weak -- it grows during "learn B"
     (neurons, synapses, a, b, post, syn_a, syn_b)
 }
 
@@ -80,9 +83,10 @@ fn causal_round(sched: &mut Scheduler, neurons: &mut NeuronArena, synapses: &mut
 fn consolidation_params() -> ConsolidationParams {
     ConsolidationParams {
         replay_window: 1000,
-        downscale_target_total_permanence: 0.6, // matches the online scheduler's own budget -- consolidation reinforces the same regime, it does not introduce a different one
+        downscale_target_total_weight: 0.6, // matches the online scheduler's own budget -- consolidation reinforces the same regime, it does not introduce a different one
         prune_floor: 0.0,                       // this test is about retention, not pruning -- keep it inert
         sprout_permanence: 0.1,
+        sprout_weight: 0.05,
         min_activity_streak: u32::MAX, // never sprout
         unused_ticks_before_reclaim: u32::MAX,
     }
@@ -110,12 +114,12 @@ fn consolidation_measurably_reduces_forgetting_relative_to_no_consolidation() {
     // Branch 1: learn "sequence B" with no consolidation at all.
     let (mut neurons, mut synapses, mut sched, _raster, a, b, post, syn_a, syn_b) = learn_a();
     let _ = a;
-    let a_after_learning_a_only = synapses.permanence[syn_a as usize];
+    let a_after_learning_a_only = synapses.weight[syn_a as usize];
     for _ in 0..150 {
         causal_round(&mut sched, &mut neurons, &mut synapses, &params, b, post, &mut SpikeRaster::new());
     }
-    let a_no_consolidation = synapses.permanence[syn_a as usize];
-    let b_no_consolidation = synapses.permanence[syn_b as usize];
+    let a_no_consolidation = synapses.weight[syn_a as usize];
+    let b_no_consolidation = synapses.weight[syn_b as usize];
 
     // Branch 2: learn "sequence B" with A's recorded activity replayed
     // (via consolidation) every few rounds.
@@ -127,8 +131,8 @@ fn consolidation_measurably_reduces_forgetting_relative_to_no_consolidation() {
             sched2.run_consolidation::<Lif, _>(&mut neurons2, &mut synapses2, &params, &raster, &consolidation_params(), round as u64);
         }
     }
-    let a_with_consolidation = synapses2.permanence[syn_a2 as usize];
-    let b_with_consolidation = synapses2.permanence[syn_b2 as usize];
+    let a_with_consolidation = synapses2.weight[syn_a2 as usize];
+    let b_with_consolidation = synapses2.weight[syn_b2 as usize];
 
     assert!(
         a_no_consolidation < a_after_learning_a_only,

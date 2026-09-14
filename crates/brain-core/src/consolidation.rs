@@ -72,13 +72,19 @@ pub struct ConsolidationParams {
     /// [`ReplaySource::recent_events`].
     pub replay_window: usize,
     /// Downscaling target (Requirement 11.1): `HomeostaticScaling::force_apply`
-    /// run once, unconditionally, at this target.
-    pub downscale_target_total_permanence: f32,
+    /// run once, unconditionally, at this target. README §12's weight/
+    /// permanence split (2026-09-13): this now retargets `weight`, not
+    /// `permanence` -- same fix as the online sweep (`homeostatic.rs`), for
+    /// the same reason: consolidation's downscale is the identical
+    /// operation at a stricter target, so it must not double as structural
+    /// plasticity either.
+    pub downscale_target_total_weight: f32,
     /// Pruning floor (Requirement 11.2) -- typically stricter (higher) than
     /// whatever floor any online `StructuralPlasticity` uses, since this
     /// runs far less often and is meant to be aggressive.
     pub prune_floor: f32,
     pub sprout_permanence: f32,
+    pub sprout_weight: f32,
     pub min_activity_streak: u32,
     pub unused_ticks_before_reclaim: u32,
 }
@@ -184,12 +190,13 @@ impl Scheduler {
             self.set_tick(replay_start.wrapping_add(last_offset) + 1);
         }
 
-        let mut scaling = HomeostaticScaling::new(params.downscale_target_total_permanence, 1);
+        let mut scaling = HomeostaticScaling::new(params.downscale_target_total_weight, 1);
         scaling.force_apply(neurons, synapses);
 
         let sp_params = StructuralPlasticityParams {
             prune_floor: params.prune_floor,
             sprout_permanence: params.sprout_permanence,
+            sprout_weight: params.sprout_weight,
             min_activity_streak: params.min_activity_streak,
             sweep_interval_ticks: 1,
             unused_ticks_before_reclaim: params.unused_ticks_before_reclaim,
@@ -224,16 +231,24 @@ mod run_consolidation_tests {
         let b = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
         let mut synapses = SynapseArena::new(1);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        let syn = synapses.insert(a, b, 0, 1, 0.5).unwrap();
+        let syn = synapses.insert(a, b, 0, 1, 0.5, 0.5).unwrap();
         (neurons, synapses, a, b, syn)
     }
 
     fn default_params() -> ConsolidationParams {
-        // A downscale target well above what a single 0.5-permanence
-        // synapse contributes, but not so large it swamps every test's
-        // signal -- see the individual tests below for where this matters
-        // and why each picks its own target instead.
-        ConsolidationParams { replay_window: 100, downscale_target_total_permanence: 1000.0, prune_floor: 0.0, sprout_permanence: 0.1, min_activity_streak: 1, unused_ticks_before_reclaim: 1_000_000 }
+        // A downscale target well above what a single 0.5-weight synapse
+        // contributes, but not so large it swamps every test's signal --
+        // see the individual tests below for where this matters and why
+        // each picks its own target instead.
+        ConsolidationParams {
+            replay_window: 100,
+            downscale_target_total_weight: 1000.0,
+            prune_floor: 0.0,
+            sprout_permanence: 0.6,
+            sprout_weight: 0.05,
+            min_activity_streak: 1,
+            unused_ticks_before_reclaim: 1_000_000,
+        }
     }
 
     /// Requirement 10.1-10.3: a raster recording a causal pre-then-post
@@ -262,8 +277,8 @@ mod run_consolidation_tests {
         let b = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
         let mut synapses = SynapseArena::new(1);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        let syn_a1 = synapses.insert(a1, b, 0, 1, 0.5).unwrap();
-        let syn_a2 = synapses.insert(a2, b, 0, 1, 0.5).unwrap(); // never spikes -- stays inert (never delivers, so `last_active` is never set)
+        let syn_a1 = synapses.insert(a1, b, 0, 1, 0.5, 0.5).unwrap();
+        let syn_a2 = synapses.insert(a2, b, 0, 1, 0.5, 0.5).unwrap(); // never spikes -- stays inert (never delivers, so `last_active` is never set)
 
         let mut sched = Scheduler::new(4, 0.4).with_plasticity(make_plasticity(), [1000.0; NUM_MODULATORS]);
         sched.reward(1.0);
@@ -273,23 +288,27 @@ mod run_consolidation_tests {
         raster.record(1, b);
 
         let lif_params = LifParams::new(5.0, 0.0, 0.0, 0);
-        // A target near the pair's *existing* total (1.0), not
+        // A target near the pair's *existing* weight total (1.0), not
         // `default_params()`'s 1000.0: an enormous target rescales both
         // synapses up to the [0,1] clamp ceiling together, which trivially
         // "preserves order" by erasing the very difference this test needs
         // to observe. A modest target keeps both synapses comfortably
         // below the ceiling, so the STDP-driven difference between them
-        // survives the common rescale factor.
-        let params = ConsolidationParams { downscale_target_total_permanence: 1.0, ..default_params() };
+        // survives the common rescale factor. README §12's split: STDP
+        // moves weight and downscaling now retargets weight too, so both
+        // the credited difference and the rescale land on the same field.
+        let params = ConsolidationParams { downscale_target_total_weight: 1.0, ..default_params() };
         let report = sched.run_consolidation::<Lif, _>(&mut neurons, &mut synapses, &lif_params, &raster, &params, 1);
 
         assert_eq!(report.replayed_spikes, 2);
         assert!(
-            synapses.permanence[syn_a1 as usize] > synapses.permanence[syn_a2 as usize],
+            synapses.weight[syn_a1 as usize] > synapses.weight[syn_a2 as usize],
             "a1's synapse (credited by the replayed causal pair) must end up stronger than a2's (never involved), regardless of downscaling's common rescale factor: a1={}, a2={}",
-            synapses.permanence[syn_a1 as usize],
-            synapses.permanence[syn_a2 as usize]
+            synapses.weight[syn_a1 as usize],
+            synapses.weight[syn_a2 as usize]
         );
+        assert_eq!(synapses.permanence[syn_a1 as usize], 0.5, "STDP and downscaling must not touch permanence");
+        assert_eq!(synapses.permanence[syn_a2 as usize], 0.5, "STDP and downscaling must not touch permanence");
     }
 
     /// Requirement 12.4: nothing recorded yet must not error, and
@@ -319,7 +338,7 @@ mod run_consolidation_tests {
     /// bit-identical results.
     #[test]
     fn run_consolidation_is_deterministic_given_the_same_inputs() {
-        fn run() -> (f32, u32, u32) {
+        fn run() -> (f32, f32, u32, u32) {
             let (mut neurons, mut synapses, a, b, syn) = two_neuron_network();
             let mut sched = Scheduler::new(4, 0.4).with_plasticity(make_plasticity(), [1000.0; NUM_MODULATORS]);
             sched.reward(1.0);
@@ -328,7 +347,7 @@ mod run_consolidation_tests {
             raster.record(1, b);
             let lif_params = LifParams::new(5.0, 0.0, 0.0, 0);
             let report = sched.run_consolidation::<Lif, _>(&mut neurons, &mut synapses, &lif_params, &raster, &default_params(), 42);
-            (synapses.permanence[syn as usize], report.replayed_spikes, report.pruned)
+            (synapses.permanence[syn as usize], synapses.weight[syn as usize], report.replayed_spikes, report.pruned)
         }
         assert_eq!(run(), run());
     }
@@ -342,13 +361,11 @@ mod run_consolidation_tests {
         let mut sched = Scheduler::new(4, 0.01); // low enough that a 0.02-permanence synapse still transmits pre-prune
         let raster = SpikeRaster::new();
         let lif_params = LifParams::new(5.0, 0.0, 0.0, 0);
-        // Downscaling runs *before* pruning within one consolidation pass
-        // (LRN-10's stated order): a target much larger than this synapse's
-        // tiny existing total would multiplicatively inflate it right back
-        // above the prune floor before pruning ever saw it. A target at
-        // (or below) the current total keeps this test isolated to pruning
-        // alone.
-        let params = ConsolidationParams { prune_floor: 0.05, downscale_target_total_permanence: 0.02, ..default_params() };
+        // README §12's split: downscaling now retargets weight, not
+        // permanence, so it can no longer inflate this synapse's permanence
+        // back above the prune floor at all -- pruning depends only on
+        // `prune_floor` vs. the permanence set directly above.
+        let params = ConsolidationParams { prune_floor: 0.05, ..default_params() };
 
         let report = sched.run_consolidation::<Lif, _>(&mut neurons, &mut synapses, &lif_params, &raster, &params, 1);
         assert_eq!(report.pruned, 1);

@@ -12,6 +12,8 @@ export interface SegmentMember {
   readonly synapseId: number;
   readonly source: number;
   readonly permanence: number;
+  /** §2.5's efficacy -- README §12's weight/permanence split (2026-09-13). */
+  readonly weight: number;
 }
 
 export interface SegmentActivitySample {
@@ -105,7 +107,7 @@ export class SegmentPanel {
       const list = document.createElement("ul");
       for (const member of members) {
         const item = document.createElement("li");
-        item.textContent = `from neuron ${member.source}, permanence ${member.permanence.toFixed(2)}`;
+        item.textContent = `from neuron ${member.source}, permanence ${member.permanence.toFixed(2)}, weight ${member.weight.toFixed(2)}`;
         list.appendChild(item);
       }
       this.#root.appendChild(list);

@@ -53,11 +53,11 @@ fn run_scenario() -> SpikeRaster {
     synapses.reserve_for_neurons(neurons.capacity_len());
     // 0,1,2 each drive 3,4 (a converging feedforward fan-in); 5 (inhibitory) is driven by 3.
     for &source in &ids[0..3] {
-        synapses.insert(source, ids[3], 0, 1, 0.7).unwrap();
-        synapses.insert(source, ids[4], 0, 2, 0.6).unwrap();
+        synapses.insert(source, ids[3], 0, 1, 0.7, 0.7).unwrap();
+        synapses.insert(source, ids[4], 0, 2, 0.6, 0.6).unwrap();
     }
-    synapses.insert(ids[3], ids[5], 0, 1, 0.8).unwrap();
-    synapses.insert(ids[5], ids[4], 0, 1, 0.9).unwrap();
+    synapses.insert(ids[3], ids[5], 0, 1, 0.8, 0.8).unwrap();
+    synapses.insert(ids[5], ids[4], 0, 1, 0.9, 0.9).unwrap();
 
     let stdp = StdpParams { a_plus: 0.05, a_minus: 0.05, tau_plus: 20.0, tau_minus: 20.0, window_ticks: 100 };
     let plasticity = RuleChain::new(vec![Box::new(ThreeFactorStdp::new(ThreeFactorParams::new(stdp, 500.0, 1.0, DOPAMINE)))]);
@@ -119,7 +119,7 @@ fn run_engine_mechanisms_scenario() -> SpikeRaster {
         for &target in &ids[4..8] {
             let segment = if (source + target) % 2 == 0 { 0 } else { 1 };
             let delay = 1 + ((source + target) % 3) as u16;
-            synapses.insert(source, target, segment, delay, 0.5).unwrap();
+            synapses.insert(source, target, segment, delay, 0.5, 0.5).unwrap();
         }
     }
 
@@ -128,6 +128,7 @@ fn run_engine_mechanisms_scenario() -> SpikeRaster {
     let structural_params = StructuralPlasticityParams {
         prune_floor: 0.05,
         sprout_permanence: 0.1,
+        sprout_weight: 0.05,
         min_activity_streak: 2,
         sweep_interval_ticks: 25,
         unused_ticks_before_reclaim: 1_000_000,

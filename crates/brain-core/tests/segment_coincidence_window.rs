@@ -35,7 +35,7 @@ fn build_topology() -> (NeuronArena, SynapseArena, u32, u32) {
     let mut synapses = SynapseArena::new(8);
     synapses.reserve_for_neurons(neurons.capacity_len());
     for &delay in &DELAYS {
-        synapses.insert(source, target, 0, delay, 0.9).unwrap();
+        synapses.insert(source, target, 0, delay, 0.9, 0.9).unwrap();
     }
     (neurons, synapses, source, target)
 }

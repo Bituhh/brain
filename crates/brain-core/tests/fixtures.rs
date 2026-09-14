@@ -14,14 +14,16 @@ use common::{population_80_20, two_neuron_chain, TwoNeuronChainOptions};
 fn two_neuron_chain_potentiates_under_default_options() {
     let mut fixture = two_neuron_chain(TwoNeuronChainOptions::default());
     let params = LifParams::new(5.0, 0.0, 0.0, 0);
-    let before = fixture.synapses.permanence[fixture.synapse_id as usize];
+    // README §12's weight/permanence split (2026-09-13): STDP moves weight,
+    // not permanence -- this fixture's own potentiation check follows.
+    let before = fixture.synapses.weight[fixture.synapse_id as usize];
     for _ in 0..200 {
         fixture.scheduler.stimulate(&fixture.neurons, fixture.a, 10.0);
         fixture.scheduler.step::<Lif>(&mut fixture.neurons, &mut fixture.synapses, &params);
         fixture.scheduler.stimulate(&fixture.neurons, fixture.b, 10.0);
         fixture.scheduler.step::<Lif>(&mut fixture.neurons, &mut fixture.synapses, &params);
     }
-    let after = fixture.synapses.permanence[fixture.synapse_id as usize];
+    let after = fixture.synapses.weight[fixture.synapse_id as usize];
     assert!(after > before, "the shared two-neuron fixture must potentiate under its own default plasticity config: before={before}, after={after}");
 }
 

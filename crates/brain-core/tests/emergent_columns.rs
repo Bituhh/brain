@@ -99,7 +99,7 @@ fn wire(synapses: &mut SynapseArena, seed: u64, sources: Range<u32>, targets: Ra
             if exists_rng.next_f32() < WIRING_PROBABILITY {
                 let mut perm_rng = derive_stream(seed, pair_id, PURPOSE_WIRE_PERMANENCE, 0);
                 let permanence = 0.2 + perm_rng.next_f32() * 0.7;
-                let _ = synapses.insert(si, ti, segment, 1, permanence);
+                let _ = synapses.insert(si, ti, segment, 1, permanence, permanence);
             }
         }
     }
@@ -125,6 +125,7 @@ fn predictive_learning_params() -> PredictiveLearningParams {
         punish_amount: 0.05,
         burst_target_segment: 0,
         burst_sprout_permanence: 0.15,
+        burst_sprout_weight: 0.05,
         recently_active_window_ticks: 10,
         modulator_index: None,
     }

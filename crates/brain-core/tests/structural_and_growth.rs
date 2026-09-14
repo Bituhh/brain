@@ -20,14 +20,16 @@ fn make_plasticity() -> RuleChain {
     RuleChain::new(vec![Box::new(ThreeFactorStdp::new(params))])
 }
 
-/// Trains a-then-b for `ticks`, returns the learned synapse's permanence.
+/// Trains a-then-b for `ticks`, returns the learned synapse's id (its
+/// weight is what STDP moves -- README §12's weight/permanence split,
+/// 2026-09-13 -- permanence stays fixed at its initial value).
 fn train(ticks: u32) -> (NeuronArena, SynapseArena, Scheduler, u32, u32, u32) {
     let mut neurons = NeuronArena::new();
     let a = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
     let b = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
     let mut synapses = SynapseArena::new(4);
     synapses.reserve_for_neurons(neurons.capacity_len());
-    let syn = synapses.insert(a, b, 0, 1, 0.5).unwrap();
+    let syn = synapses.insert(a, b, 0, 1, 0.5, 0.5).unwrap();
 
     let params = LifParams::new(5.0, 0.0, 0.0, 0);
     let mut sched = Scheduler::new(2, 0.2).with_plasticity(make_plasticity(), [500.0; NUM_MODULATORS]);
@@ -52,7 +54,8 @@ fn structural_changes_continue_without_a_rebuild() {
     let mut structural = StructuralPlasticity::new(
         StructuralPlasticityParams {
             prune_floor: 0.01,
-            sprout_permanence: 0.1,
+            sprout_permanence: 0.3,
+            sprout_weight: 0.05,
             min_activity_streak: 1,
             sweep_interval_ticks: 10,
             unused_ticks_before_reclaim: 100_000,
@@ -85,8 +88,8 @@ fn growth_does_not_degrade_previously_learned_behaviour() {
     // network with unrelated neurons, then confirm the learned synapse's
     // behaviour is unaffected.
     let (mut neurons, mut synapses, mut sched, a, b, syn) = train(200);
-    let permanence_before_growth = synapses.permanence[syn as usize];
-    assert!(permanence_before_growth > 0.5, "the synapse should have potentiated from training, got {permanence_before_growth}");
+    let weight_before_growth = synapses.weight[syn as usize];
+    assert!(weight_before_growth > 0.5, "the synapse should have potentiated from training, got {weight_before_growth}");
 
     apply_growth(&mut neurons, &mut synapses, 20, |_| NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] });
 
@@ -98,10 +101,10 @@ fn growth_does_not_degrade_previously_learned_behaviour() {
         sched.stimulate(&neurons, b, 10.0);
         sched.step::<Lif>(&mut neurons, &mut synapses, &params);
     }
-    let permanence_after_growth = synapses.permanence[syn as usize];
+    let weight_after_growth = synapses.weight[syn as usize];
     assert!(
-        permanence_after_growth >= permanence_before_growth - 1e-6,
-        "growth must not degrade already-learned permanence: before={permanence_before_growth}, after={permanence_after_growth}"
+        weight_after_growth >= weight_before_growth - 1e-6,
+        "growth must not degrade already-learned weight: before={weight_before_growth}, after={weight_after_growth}"
     );
 }
 
@@ -114,7 +117,8 @@ fn structural_and_growth_changes_are_deterministic() {
         let mut structural = StructuralPlasticity::new(
             StructuralPlasticityParams {
                 prune_floor: 0.01,
-                sprout_permanence: 0.1,
+                sprout_permanence: 0.3,
+                sprout_weight: 0.05,
                 min_activity_streak: 1,
                 sweep_interval_ticks: 10,
                 unused_ticks_before_reclaim: 100_000,
@@ -132,7 +136,7 @@ fn structural_and_growth_changes_are_deterministic() {
             sched.step::<Lif>(&mut neurons, &mut synapses, &params);
             let _ = tick;
         }
-        (synapses.permanence[syn as usize], neurons.live_count() as u32)
+        (synapses.weight[syn as usize], neurons.live_count() as u32)
     }
     assert_eq!(run(), run());
 }
@@ -151,7 +155,8 @@ fn snapshot_survives_a_real_structural_sweep_and_growth() {
     let mut structural = StructuralPlasticity::new(
         StructuralPlasticityParams {
             prune_floor: 0.01,
-            sprout_permanence: 0.1,
+            sprout_permanence: 0.3,
+            sprout_weight: 0.05,
             min_activity_streak: 1,
             sweep_interval_ticks: 1,
             unused_ticks_before_reclaim: 100_000,
@@ -172,7 +177,7 @@ fn snapshot_survives_a_real_structural_sweep_and_growth() {
     // permanence is gone -- either the slot is free, or it has been
     // overwritten by a fresh sub-threshold sprout.
     if synapses.is_occupied(syn) {
-        assert_eq!(synapses.permanence[syn as usize], 0.1, "if re-occupied, it must be a fresh sprout, not the original weak permanence");
+        assert_eq!(synapses.permanence[syn as usize], 0.3, "if re-occupied, it must be a fresh sprout, not the original weak permanence");
     }
 
     apply_growth(&mut neurons, &mut synapses, 3, |_| NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] });
@@ -203,8 +208,8 @@ fn a_restored_network_can_grow_and_keep_learning_without_discarding_prior_learni
     // addable to the network and learning must continue, without
     // discarding what was already learned before the snapshot.
     let (neurons, synapses, sched, a, b, syn) = train(150);
-    let permanence_before_snapshot = synapses.permanence[syn as usize];
-    assert!(permanence_before_snapshot > 0.5, "a->b should have potentiated before the snapshot, got {permanence_before_snapshot}");
+    let weight_before_snapshot = synapses.weight[syn as usize];
+    assert!(weight_before_snapshot > 0.5, "a->b should have potentiated before the snapshot, got {weight_before_snapshot}");
 
     let neuron_count = neurons.capacity_len() as u32;
     let bytes = snapshot::write(&neurons, &synapses, &sched, &ColumnRegistry::new(), neuron_count, 42);
@@ -212,7 +217,7 @@ fn a_restored_network_can_grow_and_keep_learning_without_discarding_prior_learni
 
     let mut neurons = restored.neurons;
     let mut synapses = restored.synapses;
-    assert_eq!(synapses.permanence[syn as usize], permanence_before_snapshot, "restore itself must not change what was already learned");
+    assert_eq!(synapses.weight[syn as usize], weight_before_snapshot, "restore itself must not change what was already learned");
 
     let mut sched = Scheduler::new(2, 0.2).with_plasticity(make_plasticity(), [500.0; NUM_MODULATORS]);
     sched.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
@@ -220,7 +225,7 @@ fn a_restored_network_can_grow_and_keep_learning_without_discarding_prior_learni
 
     // Add a brand-new neuron and a brand-new synapse post-restore.
     let c = apply_growth(&mut neurons, &mut synapses, 1, |_| NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] })[0].index;
-    let new_syn = synapses.insert(b, c, 0, 1, 0.5).unwrap();
+    let new_syn = synapses.insert(b, c, 0, 1, 0.5, 0.5).unwrap();
 
     let params = LifParams::new(5.0, 0.0, 0.0, 0);
     for _ in 0..150 {
@@ -233,13 +238,13 @@ fn a_restored_network_can_grow_and_keep_learning_without_discarding_prior_learni
     }
 
     assert!(
-        synapses.permanence[syn as usize] >= permanence_before_snapshot - 1e-6,
-        "previously learned a->b behaviour must not degrade after restore and growth: before={permanence_before_snapshot}, after={}",
-        synapses.permanence[syn as usize]
+        synapses.weight[syn as usize] >= weight_before_snapshot - 1e-6,
+        "previously learned a->b behaviour must not degrade after restore and growth: before={weight_before_snapshot}, after={}",
+        synapses.weight[syn as usize]
     );
     assert!(
-        synapses.permanence[new_syn as usize] > 0.5,
+        synapses.weight[new_syn as usize] > 0.5,
         "the newly added neuron's synapse must be able to learn post-restore too, got {}",
-        synapses.permanence[new_syn as usize]
+        synapses.weight[new_syn as usize]
     );
 }

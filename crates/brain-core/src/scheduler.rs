@@ -54,6 +54,7 @@ fn synapse_mut<'a>(synapses: &'a mut SynapseArenaViewMut<'_>, id: u32) -> Synaps
     let i = id as usize;
     SynapseMut {
         permanence: &mut synapses.permanence[i],
+        weight: &mut synapses.weight[i],
         eligibility: &mut synapses.eligibility[i],
         last_active: &mut synapses.last_active[i],
         eligibility_updated_at: &mut synapses.eligibility_updated_at[i],
@@ -1199,7 +1200,10 @@ impl Scheduler {
             let target = synapses.target_neuron[synapse_id as usize];
             let target_segment = synapses.target_segment[synapse_id as usize];
             let sign = neurons.polarity[source_index as usize] as f32;
-            let signed_current = sign * permanence;
+            // README §12's weight/permanence split (2026-09-13): permanence
+            // above is only the connectivity gate now -- the transmitted
+            // magnitude is weight, §2.5's efficacy quantity.
+            let signed_current = sign * synapses.weight[synapse_id as usize];
             effects.push(DeliveryEffect { source_index, synapse_id, target_index: target, target_segment, signed_current });
 
             // Plasticity credits this delivery regardless of which path it
@@ -1307,7 +1311,9 @@ impl Scheduler {
         if !self.probes.is_empty() {
             for (&neuron, probe) in self.probes.iter_mut() {
                 let i = neuron as usize;
-                probe.observe(report.tick, report.spiked.contains(&neuron), neurons.membrane[i], |syn| synapses.permanence[syn as usize]);
+                probe.observe(report.tick, report.spiked.contains(&neuron), neurons.membrane[i], |syn| {
+                    (synapses.permanence[syn as usize], synapses.weight[syn as usize])
+                });
             }
         }
     }
@@ -1752,8 +1758,8 @@ mod tests {
         let target = make_neuron(&mut neurons, 100.0, 1);
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        synapses.insert(a, target, 0, 1, 0.8).unwrap();
-        synapses.insert(b, target, 0, 1, 0.8).unwrap();
+        synapses.insert(a, target, 0, 1, 0.8, 0.8).unwrap();
+        synapses.insert(b, target, 0, 1, 0.8, 0.8).unwrap();
         // incoming total = 1.6; target 0.5 -> scaling should shrink both toward it.
 
         let params = LifParams::new(5.0, 0.0, 0.0, 1);
@@ -1762,7 +1768,7 @@ mod tests {
         sched.step::<Lif>(&mut neurons, &mut synapses, &params); // tick 1: gate due (1 < 0+1 is false) -> fires
 
         let incoming: Vec<u32> = synapses.incoming(target).collect();
-        let total: f32 = incoming.iter().map(|&id| synapses.permanence[id as usize]).sum();
+        let total: f32 = incoming.iter().map(|&id| synapses.weight[id as usize]).sum();
         assert!((total - 0.5).abs() < 1e-4, "homeostatic scaling must run automatically inside step() with no caller-driven maybe_apply call, got total {total}");
     }
 
@@ -1773,12 +1779,13 @@ mod tests {
         let target = make_neuron(&mut neurons, 100.0, 1);
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        let weak = synapses.insert(a, target, 0, 1, 0.02).unwrap(); // below prune_floor below
+        let weak = synapses.insert(a, target, 0, 1, 0.02, 0.02).unwrap(); // below prune_floor below
 
         let params = LifParams::new(5.0, 0.0, 0.0, 1);
         let sp_params = StructuralPlasticityParams {
             prune_floor: 0.05,
             sprout_permanence: 0.1,
+            sprout_weight: 0.05,
             min_activity_streak: 3,
             sweep_interval_ticks: 1,
             unused_ticks_before_reclaim: 1000,
@@ -1834,6 +1841,7 @@ mod tests {
                 StructuralPlasticityParams {
                     prune_floor: 0.05,
                     sprout_permanence: 0.1,
+                    sprout_weight: 0.05,
                     min_activity_streak: 2,
                     sweep_interval_ticks: 25,
                     unused_ticks_before_reclaim: 1_000_000,
@@ -1922,7 +1930,7 @@ mod tests {
         let target = make_neuron(&mut neurons, 100.0, 1);
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        let id = synapses.insert(a, target, 0, 1, 0.02).unwrap(); // would be pruned/rescaled if either mechanism ran
+        let id = synapses.insert(a, target, 0, 1, 0.02, 0.02).unwrap(); // would be pruned/rescaled if either mechanism ran
 
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
         let mut sched = Scheduler::new(2, 0.2); // neither with_homeostatic_scaling, with_structural_plasticity, nor with_intrinsic_homeostasis called
@@ -1943,7 +1951,7 @@ mod tests {
         let a = make_neuron(&mut neurons, 0.5, 1);
         let b = make_neuron(&mut neurons, 100.0, 1); // never spikes itself
         synapses.reserve_for_neurons(2);
-        synapses.insert(a, b, 0, 5, 0.9).unwrap(); // delay = 5 ticks
+        synapses.insert(a, b, 0, 5, 0.9, 0.9).unwrap(); // delay = 5 ticks
 
         let mut sched = Scheduler::new(10, 0.5);
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
@@ -1971,7 +1979,7 @@ mod tests {
         let a = make_neuron(&mut neurons, 0.5, 1);
         let b = make_neuron(&mut neurons, 100.0, 1);
         synapses.reserve_for_neurons(2);
-        synapses.insert(a, b, 0, 1, 0.1).unwrap(); // below the 0.5 threshold
+        synapses.insert(a, b, 0, 1, 0.1, 0.1).unwrap(); // below the 0.5 threshold
 
         let mut sched = Scheduler::new(4, 0.5);
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
@@ -1989,7 +1997,7 @@ mod tests {
         let a = make_neuron(&mut neurons, 0.5, -1); // inhibitory
         let b = make_neuron(&mut neurons, 100.0, 1);
         synapses.reserve_for_neurons(2);
-        synapses.insert(a, b, 0, 1, 0.8).unwrap();
+        synapses.insert(a, b, 0, 1, 0.8, 0.8).unwrap();
 
         let mut sched = Scheduler::new(4, 0.5);
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
@@ -2024,7 +2032,7 @@ mod tests {
         let a = make_neuron(&mut neurons, 0.5, 1);
         let b = make_neuron(&mut neurons, 100.0, 1);
         synapses.reserve_for_neurons(2);
-        let syn = synapses.insert(a, b, 0, 3, 0.9).unwrap();
+        let syn = synapses.insert(a, b, 0, 3, 0.9, 0.9).unwrap();
 
         let mut sched = Scheduler::new(10, 0.5);
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
@@ -2065,8 +2073,8 @@ mod tests {
             let b = make_neuron(&mut neurons, 0.5, 1);
             let c = make_neuron(&mut neurons, 100.0, 1);
             synapses.reserve_for_neurons(3);
-            synapses.insert(a, c, 0, 2, 0.6).unwrap();
-            synapses.insert(b, c, 0, 2, 0.6).unwrap();
+            synapses.insert(a, c, 0, 2, 0.6, 0.6).unwrap();
+            synapses.insert(b, c, 0, 2, 0.6, 0.6).unwrap();
 
             let mut sched = Scheduler::new(6, 0.5);
             let params = LifParams::new(5.0, 0.0, 0.0, 0);
@@ -2176,13 +2184,17 @@ mod tests {
     }
 
     #[test]
-    fn causal_pre_then_post_potentiates_through_the_real_scheduler_path() {
+    fn causal_pre_then_post_potentiates_the_weight_not_the_permanence_through_the_real_scheduler_path() {
+        // README §12's weight/permanence split (2026-09-13): STDP is the
+        // fast, per-spike-pair mechanism and now moves `weight`, not
+        // `permanence` -- LRN-7's structural plasticity is the only thing
+        // that still writes permanence.
         let mut neurons = NeuronArena::new();
         let mut synapses = SynapseArena::new(1);
         let a = make_neuron(&mut neurons, 0.5, 1);
         let b = make_neuron(&mut neurons, 0.5, 1);
         synapses.reserve_for_neurons(2);
-        let syn = synapses.insert(a, b, 0, 1, 0.5).unwrap();
+        let syn = synapses.insert(a, b, 0, 1, 0.5, 0.5).unwrap();
 
         // modulator held at 1.0 unconditionally -> Requirement 8.8's
         // "reduces to plain STDP", exercised end to end.
@@ -2190,57 +2202,62 @@ mod tests {
         sched.inject_modulator(DOPAMINE, 1.0);
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
 
-        let before = synapses.permanence[syn as usize];
+        let permanence_before = synapses.permanence[syn as usize];
+        let weight_before = synapses.weight[syn as usize];
         sched.stimulate(&neurons, a, 10.0);
         sched.step::<Lif>(&mut neurons, &mut synapses, &params); // a spikes, delivers next tick
         sched.stimulate(&neurons, b, 10.0);
         sched.step::<Lif>(&mut neurons, &mut synapses, &params); // delivery lands, then b spikes same tick
-        let after = synapses.permanence[syn as usize];
+        let permanence_after = synapses.permanence[syn as usize];
+        let weight_after = synapses.weight[syn as usize];
 
-        assert!(after > before, "a causal pre-then-post pair must potentiate the synapse (permanence {before} -> {after})");
+        assert!(weight_after > weight_before, "a causal pre-then-post pair must potentiate the synapse's weight ({weight_before} -> {weight_after})");
+        assert_eq!(permanence_after, permanence_before, "STDP must not touch permanence -- only structural plasticity does");
     }
 
     #[test]
-    fn zero_modulator_leaves_permanence_unchanged_despite_spiking() {
+    fn zero_modulator_leaves_weight_unchanged_despite_spiking() {
         let mut neurons = NeuronArena::new();
         let mut synapses = SynapseArena::new(1);
         let a = make_neuron(&mut neurons, 0.5, 1);
         let b = make_neuron(&mut neurons, 0.5, 1);
         synapses.reserve_for_neurons(2);
-        let syn = synapses.insert(a, b, 0, 1, 0.5).unwrap();
+        let syn = synapses.insert(a, b, 0, 1, 0.5, 0.5).unwrap();
 
         // No inject_modulator call -> DOPAMINE stays at its baseline (0.0).
         let mut sched = Scheduler::new(4, 0.4).with_plasticity(make_plasticity(DOPAMINE), [1000.0; NUM_MODULATORS]);
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
 
-        let before = synapses.permanence[syn as usize];
+        let before = synapses.weight[syn as usize];
         sched.stimulate(&neurons, a, 10.0);
         sched.step::<Lif>(&mut neurons, &mut synapses, &params);
         sched.stimulate(&neurons, b, 10.0);
         sched.step::<Lif>(&mut neurons, &mut synapses, &params);
-        let after = synapses.permanence[syn as usize];
+        let after = synapses.weight[syn as usize];
 
         assert_eq!(before, after, "Requirement 8.7: with modulator at 0, no weight change occurs regardless of activity");
     }
 
     #[test]
-    fn with_no_plasticity_configured_permanence_never_changes() {
+    fn with_no_plasticity_configured_permanence_and_weight_never_change() {
         let mut neurons = NeuronArena::new();
         let mut synapses = SynapseArena::new(1);
         let a = make_neuron(&mut neurons, 0.5, 1);
         let b = make_neuron(&mut neurons, 0.5, 1);
         synapses.reserve_for_neurons(2);
-        let syn = synapses.insert(a, b, 0, 1, 0.5).unwrap();
+        let syn = synapses.insert(a, b, 0, 1, 0.5, 0.5).unwrap();
 
         let mut sched = Scheduler::new(4, 0.4); // no with_plasticity() call
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
-        let before = synapses.permanence[syn as usize];
+        let permanence_before = synapses.permanence[syn as usize];
+        let weight_before = synapses.weight[syn as usize];
         for _ in 0..20 {
             sched.stimulate(&neurons, a, 10.0);
             sched.stimulate(&neurons, b, 10.0);
             sched.step::<Lif>(&mut neurons, &mut synapses, &params);
         }
-        assert_eq!(synapses.permanence[syn as usize], before);
+        assert_eq!(synapses.permanence[syn as usize], permanence_before);
+        assert_eq!(synapses.weight[syn as usize], weight_before);
     }
 
     // -- Dendritic segments (Requirement 10): these prove the real
@@ -2257,7 +2274,7 @@ mod tests {
         let a = make_neuron(&mut neurons, 0.5, 1);
         let b = make_neuron(&mut neurons, 100.0, 1); // never spikes itself
         synapses.reserve_for_neurons(2);
-        synapses.insert(a, b, 0, 1, 0.9).unwrap(); // target_segment = 0, a real segment once configured
+        synapses.insert(a, b, 0, 1, 0.9, 0.9).unwrap(); // target_segment = 0, a real segment once configured
 
         let mut sched = Scheduler::new(4, 0.5)
             .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 5 } });
@@ -2276,7 +2293,7 @@ mod tests {
         let a = make_neuron(&mut neurons, 0.5, 1);
         let b = make_neuron(&mut neurons, 100.0, 1);
         synapses.reserve_for_neurons(2);
-        synapses.insert(a, b, FEEDFORWARD_SEGMENT, 1, 0.9).unwrap();
+        synapses.insert(a, b, FEEDFORWARD_SEGMENT, 1, 0.9, 0.9).unwrap();
 
         let mut sched = Scheduler::new(4, 0.5)
             .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 5 } });
@@ -2305,10 +2322,10 @@ mod tests {
         }
         synapses.reserve_for_neurons(neurons.capacity_len());
         for &s in &segment0_sources {
-            synapses.insert(s, target, 0, 1, 0.9).unwrap(); // segment 0: 5 sources, threshold 5 -> fires
+            synapses.insert(s, target, 0, 1, 0.9, 0.9).unwrap(); // segment 0: 5 sources, threshold 5 -> fires
         }
         for &s in &segment1_sources {
-            synapses.insert(s, target, 1, 1, 0.9).unwrap(); // segment 1: only 2 sources -> never reaches 5
+            synapses.insert(s, target, 1, 1, 0.9, 0.9).unwrap(); // segment 1: only 2 sources -> never reaches 5
         }
 
         let mut sched = Scheduler::new(4, 0.5)
@@ -2369,7 +2386,7 @@ mod tests {
         let a = make_neuron(&mut neurons, 0.5, 1);
         let b = make_neuron(&mut neurons, 100.0, 1);
         synapses.reserve_for_neurons(2);
-        synapses.insert(a, b, 0, 1, 0.9).unwrap();
+        synapses.insert(a, b, 0, 1, 0.9, 0.9).unwrap();
 
         let mut sched = Scheduler::new(4, 0.5); // no with_segments() call
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
@@ -2393,7 +2410,8 @@ mod tests {
             reinforce_amount: 0.2,
             punish_amount: 0.2,
             burst_target_segment: 0,
-            burst_sprout_permanence: 0.1,
+            burst_sprout_permanence: 0.5, // at/above this module's tests' connection_threshold (0.4)
+            burst_sprout_weight: 0.05,
             recently_active_window_ticks: 20,
             modulator_index: None,
         }
@@ -2411,7 +2429,7 @@ mod tests {
         synapses.reserve_for_neurons(neurons.capacity_len());
         let mut segment_synapses = Vec::new();
         for &s in &segment_sources {
-            segment_synapses.push(synapses.insert(s, target, 0, 1, 0.5).unwrap());
+            segment_synapses.push(synapses.insert(s, target, 0, 1, 0.5, 0.5).unwrap());
         }
 
         let mut sched = Scheduler::new(4, 0.4)
@@ -2433,9 +2451,10 @@ mod tests {
         for &syn in &segment_synapses {
             assert!(
                 synapses.permanence[syn as usize] > 0.5,
-                "a correct prediction must reinforce the responsible segment's synapses, got {}",
+                "a correct prediction must reinforce the responsible segment's synapses' permanence, got {}",
                 synapses.permanence[syn as usize]
             );
+            assert_eq!(synapses.weight[syn as usize], 0.5, "predictive learning must not touch weight -- see predictive.rs's adjust_segment_permanence doc comment");
         }
     }
 
@@ -2451,7 +2470,7 @@ mod tests {
         synapses.reserve_for_neurons(neurons.capacity_len());
         let mut segment_synapses = Vec::new();
         for &s in &segment_sources {
-            segment_synapses.push(synapses.insert(s, target, 0, 1, 0.5).unwrap());
+            segment_synapses.push(synapses.insert(s, target, 0, 1, 0.5, 0.5).unwrap());
         }
 
         let mut sched = Scheduler::new(4, 0.4)
@@ -2479,9 +2498,10 @@ mod tests {
         for &syn in &segment_synapses {
             assert!(
                 synapses.permanence[syn as usize] < 0.5,
-                "a prediction that never materialised must weaken the responsible segment's synapses, got {}",
+                "a prediction that never materialised must weaken the responsible segment's synapses' permanence, got {}",
                 synapses.permanence[syn as usize]
             );
+            assert_eq!(synapses.weight[syn as usize], 0.5, "predictive learning must not touch weight");
         }
     }
 
@@ -2506,6 +2526,7 @@ mod tests {
         assert!(neurons.last_spike[a as usize] != u32::MAX && neurons.last_spike[b as usize] != u32::MAX);
         let sprouted = synapses.occupied_in_block(a).find(|&id| synapses.target_neuron[id as usize] == b);
         assert!(sprouted.is_some(), "an unpredicted spike must sprout a synapse from a recently-active neighbour (Requirement 12.1)");
-        assert_eq!(synapses.permanence[sprouted.unwrap() as usize], 0.1);
+        assert_eq!(synapses.permanence[sprouted.unwrap() as usize], 0.5);
+        assert_eq!(synapses.weight[sprouted.unwrap() as usize], 0.05);
     }
 }

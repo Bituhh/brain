@@ -68,7 +68,7 @@ pub struct ProbeOptions {
     /// (which segment, how many coincident synapses, resulting
     /// depolarisation) for VIZ-3's segment drill-down. Fed by the
     /// scheduler's own `segment_touched` evaluation loop, the same shape
-    /// `observe`'s `permanence_of` callback already uses for weights.
+    /// `observe`'s `sample_of` callback already uses for weights.
     pub record_segments: bool,
 }
 
@@ -78,12 +78,15 @@ impl ProbeOptions {
     }
 }
 
-/// One weight sample: which synapse, and its permanence at the tick this
-/// was recorded.
+/// One weight sample: which synapse, and its permanence and weight at the
+/// tick this was recorded (README §12's weight/permanence split,
+/// 2026-09-13) -- both fields, since a probe watching a synapse's history
+/// wants to see structural connectivity and efficacy independently.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WeightSample {
     pub synapse_id: u32,
     pub permanence: f32,
+    pub weight: f32,
 }
 
 /// One dendritic-segment activity sample (Requirement 6, Phase 6): recorded
@@ -147,11 +150,12 @@ impl Probe {
 
     /// Called once per tick this probe is active for. `spiked_this_tick`
     /// and `membrane_value` are supplied by the caller rather than read
-    /// from an arena directly (see module docs); `permanence_of` resolves
-    /// one of this probe's watched synapse ids to its current permanence,
-    /// letting the caller supply that from whatever `SynapseArena` it has
-    /// in scope without this module needing to borrow it.
-    pub fn observe(&mut self, tick: u32, spiked_this_tick: bool, membrane_value: f32, mut permanence_of: impl FnMut(u32) -> f32) {
+    /// from an arena directly (see module docs); `sample_of` resolves one
+    /// of this probe's watched synapse ids to its current
+    /// `(permanence, weight)` pair, letting the caller supply that from
+    /// whatever `SynapseArena` it has in scope without this module needing
+    /// to borrow it.
+    pub fn observe(&mut self, tick: u32, spiked_this_tick: bool, membrane_value: f32, mut sample_of: impl FnMut(u32) -> (f32, f32)) {
         if spiked_this_tick {
             self.spikes.push(tick);
         }
@@ -159,7 +163,14 @@ impl Probe {
             m.push(membrane_value);
         }
         if let Some(w) = &mut self.weights {
-            let samples = self.weight_synapses.iter().map(|&id| WeightSample { synapse_id: id, permanence: permanence_of(id) }).collect();
+            let samples = self
+                .weight_synapses
+                .iter()
+                .map(|&id| {
+                    let (permanence, weight) = sample_of(id);
+                    WeightSample { synapse_id: id, permanence, weight }
+                })
+                .collect();
             w.push(samples);
         }
     }
@@ -325,10 +336,10 @@ mod tests {
     #[test]
     fn probe_always_records_spike_times() {
         let mut probe = Probe::new(7, ProbeOptions::spikes_only(10));
-        probe.observe(0, false, 0.0, |_| 0.0);
-        probe.observe(1, true, 0.0, |_| 0.0);
-        probe.observe(2, false, 0.0, |_| 0.0);
-        probe.observe(3, true, 0.0, |_| 0.0);
+        probe.observe(0, false, 0.0, |_| (0.0, 0.0));
+        probe.observe(1, true, 0.0, |_| (0.0, 0.0));
+        probe.observe(2, false, 0.0, |_| (0.0, 0.0));
+        probe.observe(3, true, 0.0, |_| (0.0, 0.0));
         assert_eq!(probe.spike_times().copied().collect::<Vec<_>>(), vec![1, 3]);
     }
 
@@ -342,21 +353,27 @@ mod tests {
     fn probe_records_membrane_trace_when_enabled() {
         let options = ProbeOptions { capacity: 5, record_membrane: true, weight_synapses: Vec::new(), record_segments: false };
         let mut probe = Probe::new(0, options);
-        probe.observe(0, false, 0.1, |_| 0.0);
-        probe.observe(1, false, 0.2, |_| 0.0);
+        probe.observe(0, false, 0.1, |_| (0.0, 0.0));
+        probe.observe(1, false, 0.2, |_| (0.0, 0.0));
         let trace = probe.membrane_trace().unwrap();
         assert_eq!(trace.iter().copied().collect::<Vec<_>>(), vec![0.1, 0.2]);
     }
 
     #[test]
-    fn probe_records_watched_synapse_permanence_when_enabled() {
+    fn probe_records_watched_synapse_permanence_and_weight_when_enabled() {
         let options = ProbeOptions { capacity: 5, record_membrane: false, weight_synapses: vec![3, 9], record_segments: false };
         let mut probe = Probe::new(0, options);
-        let permanences = [(3u32, 0.4f32), (9, 0.8)].into_iter().collect::<std::collections::HashMap<_, _>>();
-        probe.observe(0, false, 0.0, |id| permanences[&id]);
+        let samples = [(3u32, (0.4f32, 0.1f32)), (9, (0.8, 0.2))].into_iter().collect::<std::collections::HashMap<_, _>>();
+        probe.observe(0, false, 0.0, |id| samples[&id]);
         let history = probe.weight_history().unwrap();
         let first = history.iter().next().unwrap();
-        assert_eq!(first, &vec![WeightSample { synapse_id: 3, permanence: 0.4 }, WeightSample { synapse_id: 9, permanence: 0.8 }]);
+        assert_eq!(
+            first,
+            &vec![
+                WeightSample { synapse_id: 3, permanence: 0.4, weight: 0.1 },
+                WeightSample { synapse_id: 9, permanence: 0.8, weight: 0.2 },
+            ]
+        );
     }
 
     #[test]
@@ -398,7 +415,7 @@ mod tests {
     fn probe_bounds_memory_regardless_of_run_length() {
         let mut probe = Probe::new(0, ProbeOptions::spikes_only(4));
         for tick in 0..1000u32 {
-            probe.observe(tick, true, 0.0, |_| 0.0);
+            probe.observe(tick, true, 0.0, |_| (0.0, 0.0));
         }
         assert_eq!(probe.spike_times().count(), 4, "Requirement 13.2");
     }

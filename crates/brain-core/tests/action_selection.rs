@@ -234,8 +234,8 @@ fn build_race(reward_enabled: bool) -> (NeuronArena, SynapseArena, Scheduler, u3
     let t = neurons.allocate(brain_core::arena::NeuronSpec { threshold: THRESHOLD, polarity: 1, coords: [2.0, 0.0, 0.0] }).index;
     let mut synapses = SynapseArena::new(4);
     synapses.reserve_for_neurons(neurons.capacity_len());
-    let syn_a = synapses.insert(t, a, FEEDFORWARD_SEGMENT, 1, 0.35).unwrap();
-    let syn_b = synapses.insert(t, b, FEEDFORWARD_SEGMENT, 1, 0.35).unwrap();
+    let syn_a = synapses.insert(t, a, FEEDFORWARD_SEGMENT, 1, 0.35, 0.35).unwrap();
+    let syn_b = synapses.insert(t, b, FEEDFORWARD_SEGMENT, 1, 0.35, 0.35).unwrap();
 
     let mut sched = Scheduler::new(4, CONNECTION_THRESHOLD).with_inhibition(FixedNeighbourhoods::new(2, 1));
     if reward_enabled {
@@ -248,12 +248,14 @@ fn build_race(reward_enabled: bool) -> (NeuronArena, SynapseArena, Scheduler, u3
 /// direct extra stimulation A never receives) and rewarded each time via
 /// `Scheduler::reward`, B's synapse from the shared trigger must have
 /// potentiated (causal pre-then-post, converted to a weight change by the
-/// *existing* three-factor rule) -- while an identical, unrewarded run
+/// *existing* three-factor rule -- README §12's split, 2026-09-13, moved
+/// this from permanence to weight) -- while an identical, unrewarded run
 /// leaves both synapses exactly as they started (the modulator stays at
 /// its zero baseline, matching
-/// `zero_modulator_leaves_permanence_unchanged_despite_spiking`'s existing
+/// `zero_modulator_leaves_weight_unchanged_despite_spiking`'s existing
 /// proof). The final, symmetric tied trial then resolves differently
-/// between the two runs purely because of that permanence difference.
+/// between the two runs purely because of that weight difference (weight,
+/// not permanence, is what `deliver` transmits).
 #[test]
 fn reward_after_forced_wins_biases_a_later_tied_competition_toward_the_rewarded_candidate() {
     fn run(reward_enabled: bool) -> (f32, f32, Vec<u32>) {
@@ -270,8 +272,8 @@ fn reward_after_forced_wins_biases_a_later_tied_competition_toward_the_rewarded_
             }
         }
 
-        let permanence_a = synapses.permanence[syn_a as usize];
-        let permanence_b = synapses.permanence[syn_b as usize];
+        let weight_a = synapses.weight[syn_a as usize];
+        let weight_b = synapses.weight[syn_b as usize];
 
         // Final symmetric trial: identical baseline current to both a and
         // b, plus whatever t's (now possibly different) synapse delivers.
@@ -280,13 +282,13 @@ fn reward_after_forced_wins_biases_a_later_tied_competition_toward_the_rewarded_
         sched.stimulate(&neurons, a, RACE_FINAL_BASELINE_CURRENT);
         sched.stimulate(&neurons, b, RACE_FINAL_BASELINE_CURRENT);
         let final_report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
-        (permanence_a, permanence_b, final_report.spiked)
+        (weight_a, weight_b, final_report.spiked)
     }
 
     let (rewarded_a, rewarded_b, rewarded_winners) = run(true);
     let (control_a, control_b, _control_winners) = run(false);
 
-    assert!(rewarded_b > rewarded_a, "with reward, B's repeatedly-rewarded synapse must end up stronger than A's untouched one ({rewarded_a} vs {rewarded_b})");
+    assert!(rewarded_b > rewarded_a, "with reward, B's repeatedly-rewarded synapse's weight must end up stronger than A's untouched one ({rewarded_a} vs {rewarded_b})");
     assert_eq!(control_a, control_b, "without reward (modulator stays at its zero baseline), both synapses must remain exactly as they started");
     assert_eq!(rewarded_winners, vec![1], "in the final tied trial, only the rewarded candidate B (index 1) should win the shared inhibitory neighbourhood");
 }

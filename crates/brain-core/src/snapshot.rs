@@ -56,6 +56,23 @@ use crate::segment::{BinaryCoincidenceParams, SegmentConfig};
 use crate::synapse::SynapseArena;
 
 const MAGIC: [u8; 6] = *b"BRAIN\0";
+/// Bumped 8 -> 9 (README §12's weight/permanence split, 2026-09-13, PLAN.md
+/// item B1) to add a per-synapse weight section: `SynapseArena` gained a
+/// `weight: Vec<f32>` field distinct from `permanence` (SYN-3's structural
+/// gate stays permanence; §2.5's efficacy, what STDP/homeostatic
+/// scaling/predictive learning now move, is weight). Follows the version
+/// 7 -> 8 growth-state section's precedent for *why* this is a new trailing
+/// section rather than an inline addition to `write_synapses`'s fixed
+/// per-occupied-synapse block: that block's byte layout must stay
+/// version-invariant so one `read_synapses` can serve every version.
+/// Absent from a version 1-8 payload; `read`'s version dispatch derives
+/// `weight` from `permanence` for every occupied synapse instead of calling
+/// this -- the same numeric value transmission used before this split
+/// existed (`deliver` computed `sign * permanence`), so a restored pre-9
+/// snapshot's immediate dynamics are unchanged, and only diverge from that
+/// point once a plasticity rule that now moves weight (not permanence) next
+/// touches the synapse.
+///
 /// Bumped 7 -> 8 (RUN-9a, PLAN.md item A4) to add a sweep-scheduling-state
 /// section: every periodic sweep's own scheduling bookkeeping --
 /// `HomeostaticScaling`/`IntrinsicHomeostasis`/`SegmentThresholdHomeostasis`'s
@@ -145,7 +162,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// schema migration, partial loading, compatibility guarantees -- from
 /// Phase 0-3 to Phase 4; the round-trip mechanism itself (this module) was
 /// already in scope then and is unchanged in its v1 shape.
-pub const FORMAT_VERSION: u32 = 8;
+pub const FORMAT_VERSION: u32 = 9;
 /// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
 /// concrete and falsifiable: `read` migrates any snapshot from this
 /// version through `FORMAT_VERSION`. Widen this only alongside an actual
@@ -651,11 +668,52 @@ fn read_synapses(r: &mut Reader<'_>) -> Result<SynapseArena, SnapshotError> {
         let eligibility = r.f32()?;
         let last_active = r.u32()?;
         let eligibility_updated_at = r.u32()?;
+        // `weight` defaults to `permanence` here -- the correct value for
+        // every payload with no weight section of its own (version <= 8,
+        // before README §12's split existed), and the base a version-9
+        // payload's own weight section (see `read_synapse_weights`)
+        // overwrites afterward.
         synapses
-            .restore_slot(id, target_neuron, target_segment, permanence, delay, eligibility, last_active, eligibility_updated_at)
+            .restore_slot(id, target_neuron, target_segment, permanence, permanence, delay, eligibility, last_active, eligibility_updated_at)
             .map_err(|_| SnapshotError::Corrupt)?;
     }
     Ok(synapses)
+}
+
+/// New in format version 9 (README §12's weight/permanence split,
+/// 2026-09-13, PLAN.md item B1): each occupied synapse's `weight`, keyed by
+/// id exactly like `write_synapses`'s own per-occupied-synapse block, but
+/// as its own trailing section so that block's byte layout stays
+/// version-invariant (see `FORMAT_VERSION`'s doc comment). Recomputes the
+/// occupied-id list the same deterministic way `write_synapses` does,
+/// rather than threading it through as a shared parameter -- this module's
+/// existing convention (e.g. `write_growth_state`) is that each section
+/// function is self-contained.
+fn write_synapse_weights(w: &mut Writer, synapses: &SynapseArena, neuron_count: u32) {
+    let occupied: Vec<u32> = (0..neuron_count).flat_map(|source| synapses.occupied_in_block(source)).collect();
+    w.u32(occupied.len() as u32);
+    for id in occupied {
+        w.u32(id);
+        w.f32(synapses.weight[id as usize]);
+    }
+}
+
+/// Reads format version 9's weight section and overwrites the just-restored
+/// `synapses.weight` for each entry -- called only after `read_synapses` has
+/// already populated `synapses.weight` with its permanence-derived default,
+/// which is what a version <= 8 payload (no section to read at all) leaves
+/// in place unchanged.
+fn read_synapse_weights(r: &mut Reader<'_>, synapses: &mut SynapseArena) -> Result<(), SnapshotError> {
+    let count = r.u32()?;
+    for _ in 0..count {
+        let id = r.u32()? as usize;
+        let weight = r.f32()?;
+        if id >= synapses.weight.len() {
+            return Err(SnapshotError::Corrupt);
+        }
+        synapses.weight[id] = weight;
+    }
+    Ok(())
 }
 
 /// New in format version 2 (Step 21): each [`ColumnSpec`]'s neuron range,
@@ -773,6 +831,8 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
 
     write_sweep_scheduling_state(&mut w, &scheduler.sweep_scheduling_raw_state());
 
+    write_synapse_weights(&mut w, synapses, neuron_count);
+
     w.buf
 }
 
@@ -858,7 +918,7 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
     let tick = r.u32()?;
 
     let mut neurons = read_neurons(&mut r)?;
-    let synapses = read_synapses(&mut r)?;
+    let mut synapses = read_synapses(&mut r)?;
 
     let ring_len = r.u32()? as usize;
     let mut ring = Vec::with_capacity(ring_len);
@@ -916,6 +976,13 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
     // silently resetting every sweep's `last_applied_at` to zero.
     let sweep_scheduling = if header.version >= 8 { Some(read_sweep_scheduling_state(&mut r)?) } else { None };
 
+    // Format versions 1-8 have no weight section -- `read_synapses` above
+    // already defaulted every occupied synapse's weight to its permanence,
+    // the only sound migration (README §12's split, PLAN.md item B1).
+    if header.version >= 9 {
+        read_synapse_weights(&mut r, &mut synapses)?;
+    }
+
     Ok(Restored {
         neurons,
         synapses,
@@ -948,7 +1015,7 @@ mod tests {
         let b = neurons.allocate(NeuronSpec { threshold: 1.0, polarity: -1, coords: [4.0, 5.0, 6.0] }).index;
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        synapses.insert(a, b, 0, 3, 0.6).unwrap();
+        synapses.insert(a, b, 0, 3, 0.6, 0.6).unwrap();
         let scheduler = Scheduler::new(10, 0.5);
         (neurons, synapses, scheduler)
     }
@@ -1032,10 +1099,12 @@ mod tests {
     fn round_trips_occupied_synapses_exactly() {
         let (neurons, mut synapses, scheduler) = sample_network();
         synapses.eligibility[0] = 0.77;
+        synapses.weight[0] = 0.33; // deliberately different from permanence (0.6), so a round-trip that silently derived one from the other would be caught
         let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
         let restored = read(&bytes, 1).unwrap();
 
         assert_eq!(restored.synapses.permanence[0], synapses.permanence[0]);
+        assert_eq!(restored.synapses.weight[0], 0.33, "weight must round-trip independently of permanence (README §12's split)");
         assert_eq!(restored.synapses.eligibility[0], 0.77);
         assert_eq!(restored.synapses.target_neuron[0], synapses.target_neuron[0]);
         assert_eq!(restored.synapses.incoming(1).count(), 1, "target-index must be reconstructed on restore");
@@ -1052,7 +1121,7 @@ mod tests {
         let b = neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] }).index;
         let mut synapses = SynapseArena::new(100);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        synapses.insert(a, b, 0, 1, 0.5).unwrap();
+        synapses.insert(a, b, 0, 1, 0.5, 0.5).unwrap();
         let scheduler = Scheduler::new(4, 0.5);
 
         let with_one_occupied = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
@@ -1062,7 +1131,7 @@ mod tests {
         // not one scaled by the 100x larger capacity.
         let mut sparse = SynapseArena::new(100);
         sparse.reserve_for_neurons(1000); // vastly more capacity, same occupancy
-        sparse.insert(a, b, 0, 1, 0.5).unwrap();
+        sparse.insert(a, b, 0, 1, 0.5, 0.5).unwrap();
         let mut big_neurons = NeuronArena::new();
         for _ in 0..1000 {
             big_neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] });
@@ -1176,7 +1245,7 @@ mod tests {
             let b = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
             let mut synapses = SynapseArena::new(4);
             synapses.reserve_for_neurons(neurons.capacity_len());
-            synapses.insert(a, b, 0, 3, 0.9).unwrap();
+            synapses.insert(a, b, 0, 3, 0.9, 0.9).unwrap();
             (neurons, synapses, a, b)
         }
         let params = LifParams::new(5.0, 0.0, 0.0, 2);
@@ -1245,7 +1314,7 @@ mod tests {
             let mut synapses = SynapseArena::new(8);
             synapses.reserve_for_neurons(neurons.capacity_len());
             for delay in 1..=4u16 {
-                synapses.insert(source, target, 0, delay, 0.9).unwrap();
+                synapses.insert(source, target, 0, delay, 0.9, 0.9).unwrap();
             }
             (neurons, synapses, source, target)
         }
@@ -1340,7 +1409,7 @@ mod tests {
         let target = neurons.allocate(NeuronSpec { threshold: 100.0, polarity: 1, coords: [0.0; 3] }).index;
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        synapses.insert(source, target, 0, 1, 0.9).unwrap();
+        synapses.insert(source, target, 0, 1, 0.9, 0.9).unwrap();
 
         let mut sched = Scheduler::new(4, 0.3)
             .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } })
@@ -1431,6 +1500,7 @@ mod tests {
                 StructuralPlasticityParams {
                     prune_floor: 0.05,
                     sprout_permanence: 0.1,
+                    sprout_weight: 0.05,
                     min_activity_streak: 2,
                     sweep_interval_ticks: 50,
                     unused_ticks_before_reclaim: 1_000_000,
@@ -1480,15 +1550,44 @@ mod tests {
     fn a_version_7_snapshot_restores_with_no_sweep_scheduling_section() {
         let (neurons, synapses, scheduler) = sample_network();
         let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
-        // `sample_network`'s scheduler configures none of the five
-        // mechanisms, so the trailing section this test needs to strip is
-        // exactly five zero-flag bytes (see `write_sweep_scheduling_state`).
-        let truncated_len = bytes.len() - 5;
+        // `sample_network`'s scheduler configures none of the five sweep
+        // mechanisms, so its sweep-scheduling section is exactly five
+        // zero-flag bytes (see `write_sweep_scheduling_state`); its weight
+        // section (README §12's split, format version 9, now the last
+        // section `write` appends) is a u32 count plus one (id, weight)
+        // pair for its one occupied synapse -- 4 + 4 + 4 = 12 bytes. Both
+        // must be stripped to land on a genuine version-7 shape.
+        let truncated_len = bytes.len() - 5 - 12;
         let mut truncated = bytes[..truncated_len].to_vec();
         truncated[6..10].copy_from_slice(&7u32.to_le_bytes());
 
         let restored = read(&truncated, 7).unwrap();
         assert!(restored.sweep_scheduling.is_none(), "a version-7 snapshot has no sweep-scheduling section, so it must restore to None");
+    }
+
+    /// A version-8 (pre-this-fix) payload has no weight section at all --
+    /// `read` must derive `weight` from `permanence` for every occupied
+    /// synapse, the migration README §12's split (2026-09-13, PLAN.md item
+    /// B1) specifies: the same numeric value `deliver` transmitted before
+    /// the split existed, so a restored pre-9 snapshot's immediate dynamics
+    /// are unchanged.
+    #[test]
+    fn a_version_8_snapshot_restores_with_weight_derived_from_permanence() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
+        // `sample_network` has exactly one occupied synapse, so the weight
+        // section (see `write_synapse_weights`) is a u32 count plus one
+        // (id: u32, weight: f32) pair -- 4 + 4 + 4 = 12 bytes.
+        let truncated_len = bytes.len() - 12;
+        let mut truncated = bytes[..truncated_len].to_vec();
+        truncated[6..10].copy_from_slice(&8u32.to_le_bytes());
+
+        let restored = read(&truncated, 7).unwrap();
+        assert_eq!(restored.synapses.permanence[0], 0.6, "sanity: sample_network's synapse permanence");
+        assert_eq!(
+            restored.synapses.weight[0], restored.synapses.permanence[0],
+            "a version-8 snapshot has no weight section, so weight must derive from permanence"
+        );
     }
 
     #[test]

@@ -20,10 +20,14 @@ const options: SimulationOptions = {
   synapseCapPerNeuron: 32,
   inhibition: { neighbourhoodSize: 8, k: 1 },
   segments: { segmentsPerNeuron: 2, coincidenceThreshold: 3 },
-  homeostaticScaling: { targetTotalPermanence: 4.0, intervalTicks: 200 },
+  homeostaticScaling: { targetTotalWeight: 4.0, intervalTicks: 200 },
   structuralPlasticity: {
     pruneFloor: 0.02,
-    sproutPermanence: 0.1,
+    // README §12's weight/permanence split (2026-09-13): structurally
+    // connected from birth (at/above connectionThreshold), near-zero
+    // sproutWeight -- the "silent synapse" pattern.
+    sproutPermanence: 0.35,
+    sproutWeight: 0.05,
     minActivityStreak: 5,
     sweepIntervalTicks: 100,
     unusedTicksBeforeReclaim: 5000,

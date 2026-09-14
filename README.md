@@ -936,6 +936,36 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     noradrenaline signal from prediction error (C2) remain separate, out-of-scope items, exactly as
     PLAN.md schedules them.
 
+    **`weight` split from `permanence` — closed 2026-09-14, PLAN.md item B1, the largest change in
+    the plan.** §13.12 item 12 found that `SynapseArena` aliased SYN-3's structural gate and §2.5's
+    efficacy onto one `permanence` field, which made "firmly connected but weak" inexpressible, let
+    `HomeostaticScaling` silently perform structural plasticity as a side effect of rescaling, and —
+    the reason this was a blocker rather than a tuning nit — was the root cause of NET-10's finding
+    that developmental growth adds no functional capacity: a sub-threshold sprout was invisible to
+    every plasticity rule, so a grown neuron could never acquire a functional synapse. A new `weight`
+    field now carries efficacy end to end (`synapse.rs`, `scheduler.rs::deliver`'s
+    `sign * weight`, threaded through `plasticity/mod.rs`'s `SynapseMut`); `permanence` keeps its
+    exact prior meaning and remains the sole `connection_threshold` gate, moved only by
+    `StructuralPlasticity`. See §12 decision 11 for the full design, and its own closing paragraph
+    for the one real gotcha found building it: routing `PredictiveLearning`'s reinforce/punish to
+    weight (the naive reading of "activity-driven mechanisms move weight") silently disabled
+    dendritic prediction learning, because segment coincidence-detection is a binary, permanence-
+    gated step blind to weight's magnitude — caught only by re-running the actual VAL-4 harness, not
+    by any Rust unit test, and now documented as the general rule for any future "which field"
+    question in this codebase. Newly-sprouted synapses (`structural.rs`, `predictive.rs`'s
+    burst-sprout path) now start structurally connected (permanence at/above threshold) but at a
+    near-zero weight — the biological "silent synapse" pattern, and the actual mechanism that
+    dissolves the NET-10 deadlock, not the field split by itself. Format-version-9 snapshots
+    round-trip weight exactly; version ≤8 snapshots migrate by deriving weight from permanence.
+    `npm run test:fast` and `npm run test:slow` are both green, and — notably — neither existing
+    golden raster needed regeneration: weight is seeded identically to permanence at construction
+    and every mechanism that used to move permanence now moves weight via the same formulas, so
+    spike timing is bit-identical to before the split. The 100k-neuron/50M-synapse scale test now
+    reports ≈1682 MB (up from ≈1.46 GB, matching the predicted +4 bytes/synapse). VAL-4 was
+    re-measured on the official 5-seed protocol: **18.03% mean network accuracy** against 29.07%
+    trigram — still not met, but a modest, honest improvement over the pre-split 17.37% baseline,
+    not a regression. See §13.12 item 12 for the finding's own closing outcome note.
+
 ---
 
 ## 12. Decisions taken
@@ -1111,6 +1141,71 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     `char-prediction-smoke.test.ts`'s new determinism/divergence pair. See §13.12 item 9 for the
     honest, measured verdict against VAL-4 itself: no improvement at this network's own
     already-tuned `k`/`size` ratio, a regression at every other `targetRate` tried.
+
+11. **SYN-1's `weight`/`permanence` split — what moves which field, decided and recorded
+    2026-09-13 (PLAN.md item B1, closing §13.12 item 12).** `SynapseArena` gained a second
+    per-synapse `f32`, `weight`, distinct from `permanence`. `permanence` keeps SYN-3's exact
+    original meaning — the structural gate `deliver`'s `connection_threshold` check reads,
+    untouched by this change. `weight` is §2.5's efficacy: `deliver` now transmits
+    `sign * weight`, not `sign * permanence`. The task's own framing asked whether STDP should
+    move weight, permanence, or both on different timescales; the answer settled on is neither
+    "STDP moves weight, always" nor "everything activity-driven moves weight" — it is **which
+    field a given plasticity update should touch depends on which causal pathway reads that
+    field**, not on which mechanism is writing it:
+
+    - **`ThreeFactorStdp` (LRN-2/3/4) moves weight.** It shapes feedforward current magnitude —
+      `apply_local_effect`'s non-dendritic branch sums `signed_current` directly into
+      `input_accum` — and magnitude genuinely matters there. This is the fast, per-spike-pair
+      mechanism the task's own biological framing named.
+    - **`HomeostaticScaling` (LRN-6) and consolidation's global downscale (LRN-10) move weight.**
+      This is the direct fix for the second and third bullets of item 12's own finding: weight
+      carries no connectivity semantics, so a rescale sweep can no longer silently connect or
+      disconnect synapses the way rescaling permanence did.
+    - **`PredictiveLearning`'s reinforce/punish (LRN-8, `predictive.rs`'s
+      `adjust_segment_permanence` — deliberately *not* renamed to `_weight`) moves permanence,
+      not weight.** This was not the first design tried, and the correction is worth recording
+      precisely because it was found empirically, not by inspection: `scheduler.rs`'s
+      `apply_local_effect` (§13.12 item 11a's own fix) increments a dendritic segment's
+      coincidence count by `signed_current.signum()` — a fixed ±1 step, deliberately *not*
+      weighted by magnitude, per `BinaryCoincidenceParams::threshold`'s own "count of coincident
+      synapses" reading. A dendritic synapse's contribution to *future* predictions therefore
+      depends only on whether its permanence clears `connection_threshold`; its weight is
+      structurally invisible to that pathway regardless of value. Routing LRN-8's reinforce/punish
+      to weight (the first attempt) left dendritic prediction learning completely inert — verified
+      by re-running `packages/io/test/char-prediction-smoke.test.ts` end to end, where
+      `networkAccuracy` collapsed from a real 0.16 baseline to exactly 0.0 in *every* branch
+      (reward on/off, growth on/off alike), a floor effect a narrower unit test would not have
+      caught. LRN-8's whole purpose is to make a segment's contributing synapses more or less
+      likely to coincidence-detect again — a structural question, SYN-3's domain, not an efficacy
+      question — so it stays on permanence.
+    - **Newly-created synapses split asymmetrically.** `StructuralPlasticity::sprout` and
+      `PredictiveLearning::reinforce_or_sprout_burst`'s new-synapse branch now insert with
+      `permanence` at/just above `connection_threshold` (structurally connected immediately) and a
+      new, separate, near-zero `sprout_weight`/`burst_sprout_weight` (e.g. 0.05). Before this
+      split, both were sub-threshold by construction — invisible to `deliver` and therefore to
+      every plasticity rule, which is exactly what made a bootstrapping deadlock permanent (§13.12
+      item 10's addendum). Now the sprout is delivered from birth (permanence gate passes), so
+      `on_delivery`/`on_post_spike` run and `last_active` is set, making it visible to STDP —
+      which grows weight if the correlation proves real — while transmitting only a trickle in the
+      meantime. This is the biological "silent synapse" pattern (a structural contact exists
+      before AMPA-mediated transmission develops), and it is what actually dissolves the NET-10
+      deadlock (PLAN.md item B2 re-verifies this against §13.12 item 10's own six-condition
+      table). Left as an explicit open question: whether `prune` should ever consider weight (a
+      connected-but-permanently-near-zero-weight synapse has no path to being pruned by permanence
+      alone today) — not attempted here.
+    - Ordinary graph-construction wiring (`DistancePolicy`, `NativeSimulation::connect`) is
+      unaffected in kind: weight defaults to the same value as permanence at insertion, so a
+      freshly-built network's initial dynamics are bit-identical to before the split and only
+      diverge once a plasticity rule that moves weight next touches the synapse — confirmed by the
+      golden rasters (`three_neuron_chain_scenario_matches_golden_raster`,
+      `engine_mechanisms_scenario_matches_golden_raster`), which needed **no regeneration** at all:
+      both scenarios' recorded spike sequences reproduced bit-for-bit, since every field now
+      follows exactly the update trajectory `permanence` used to, just under a new name.
+
+    **Memory cost**: +4 bytes/synapse, measured directly rather than only estimated —
+    `tests/scale.rs`'s 100k-neuron/50M-synapse scenario now reports **≈1682 MB (≈1.64 GB)** total
+    (6.2 MB neurons + 1675.8 MB synapses), up from the previously-measured ≈1.46 GB, comfortably
+    within the 8 GB workstation-scale budget that test enforces.
 
 ## 12a. Open questions
 
@@ -2530,6 +2625,21 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     with a plausible VAL-4 payoff to the prerequisite for invariant 10** — the only one of these
     findings that currently blocks a stated architectural invariant rather than degrading a
     measured number.
+
+    **Closed 2026-09-13 (PLAN.md item B1) — see §12 decision 11 for the full design and the one
+    real gotcha found building it** (routing predictive learning's reinforce/punish to weight
+    instead of permanence silently disabled dendritic prediction learning; caught by re-running
+    the actual milestone harness, not by a unit test). Both fields exist, are independently
+    exercised (unit tests in `synapse.rs`, `three_factor.rs`, `homeostatic.rs`, `structural.rs`,
+    `predictive.rs`, and whole-scheduler tests in `scheduler.rs`), and format-version-9 snapshots
+    round-trip weight exactly while version ≤8 snapshots migrate by deriving weight from
+    permanence (`snapshot.rs`). VAL-4 was re-measured on the official 5-seed protocol
+    (`DEFAULT_CONFIG`, 15,000-character corpus slice): **18.03% mean network accuracy** (per-seed
+    16.33%/19.33%/19.33%/18.00%/17.13%), against 29.07% trigram — milestone still not met, honestly
+    unchanged from before the split, and a modest improvement over the pre-split 17.37% baseline
+    rather than a regression. `npm run test:fast` and `npm run test:slow` are both green; the two
+    existing golden rasters needed no regeneration at all (see decision 11's closing bullet for
+    why).
 
 13. **Four mechanisms are built, tested and reachable from no caller — found 2026-09-13, same
     review; a fourth added 2026-09-13 by PLAN.md item A1's own canonical-constructor review.**

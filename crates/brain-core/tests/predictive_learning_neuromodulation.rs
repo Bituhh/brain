@@ -54,7 +54,8 @@ impl Trial {
             reinforce_amount: 0.2,
             punish_amount: 0.2,
             burst_target_segment: 0,
-            burst_sprout_permanence: 0.1,
+            burst_sprout_permanence: 0.4, // above connection_threshold (0.3): structurally connected from birth, README §12's split
+            burst_sprout_weight: 0.05,
             recently_active_window_ticks: 20,
             modulator_index: Some(DOPAMINE),
         };
@@ -90,13 +91,24 @@ impl Trial {
 /// scheduler (stimulate/step/tracker/burst-reinforce), not an isolated
 /// `resolve()` call, a higher modulator level produces a proportionally
 /// larger permanence *delta* after the same fixed number of exposures.
-/// Exactly two exposures is deliberate: the first always sprouts (unscaled,
-/// Requirement 1 AC2 -- `burst_sprout_permanence = 0.1` at every level, the
-/// baseline this test measures *from*); the second finds that existing
-/// sub-threshold synapse (0.1 < `connection_threshold = 0.3`, so it is
-/// still "unpredicted" and takes the scaled burst-reinforcement path) and
-/// adds `reinforce_amount * level`, scaled by the ambient
-/// `NeuromodulatorField` decay at that tick.
+///
+/// README §12's weight/permanence split (2026-09-13): predictive
+/// learning's reinforce/punish is a deliberate exception to the general
+/// split and still moves permanence, not weight -- see
+/// `predictive.rs`'s `adjust_segment_permanence` doc comment (dendritic
+/// coincidence detection is a binary, permanence-gated signum step, so a
+/// weight change there would be invisible to future predictions).
+/// `burst_sprout_permanence` is now *above* `connection_threshold`
+/// (structurally connected from birth, the "silent synapse" pattern item
+/// 12/NET-10 describe) with a separate near-zero `burst_sprout_weight`,
+/// but that initial-value split doesn't change what reinforcement itself
+/// targets. Exactly two exposures is deliberate: the first always sprouts
+/// (unscaled, Requirement 1 AC2 -- `burst_sprout_permanence` at every
+/// level, the baseline this test measures *from*); the second finds that
+/// existing synapse (still significantly below `significance_threshold`,
+/// hence "unpredicted") and adds `reinforce_amount * level` to its
+/// *permanence*, scaled by the ambient `NeuromodulatorField` decay at that
+/// tick.
 ///
 /// The assertion compares *ratios* between deltas, not their absolute
 /// values, deliberately: `NeuromodulatorField`'s decay (`levels_at`) means
@@ -105,12 +117,13 @@ impl Trial {
 /// level here is injected at the same `t=0` and reinforced at the same
 /// tick offset, so `decay_factor` is identical across them and cancels
 /// exactly in a ratio. (An earlier version of this test asserted the naive
-/// `0.1 + reinforce_amount * level` and failed empirically -- e.g. level
-/// 0.5 measured delta ~0.0992, not 0.1 -- which is what led to expressing
-/// the claim as a ratio instead of hand-deriving an absolute value.)
+/// `sprout_value + reinforce_amount * level` and failed empirically --
+/// e.g. level 0.5 measured a slightly different delta -- which is what led
+/// to expressing the claim as a ratio instead of hand-deriving an absolute
+/// value.)
 #[test]
 fn two_exposures_produce_proportionally_different_permanence_across_modulator_levels() {
-    const SPROUT_PERMANENCE: f32 = 0.1;
+    const SPROUT_PERMANENCE: f32 = 0.4;
     let reinforcement_delta = |level: f32| -> f32 {
         let mut trial = Trial::new(level);
         trial.run_one_exposure();
@@ -138,27 +151,35 @@ fn two_exposures_produce_proportionally_different_permanence_across_modulator_le
 }
 
 /// Requirement 1 AC5, second half: "ideally, different learning speed" --
-/// a higher modulator level reaches `connection_threshold` (the point at
-/// which the synapse starts actually delivering current, i.e. is
-/// meaningfully "learned") in no more exposures than a lower level, and
-/// strictly fewer at these two levels specifically.
+/// a higher modulator level reaches a meaningfully-learned permanence in
+/// no more exposures than a lower level, and strictly fewer at these two
+/// levels specifically.
+///
+/// README §12's weight/permanence split (2026-09-13): the sprouted synapse
+/// is already structurally connected (permanence above
+/// `connection_threshold`, 0.3) from the moment it sprouts (at 0.4), so
+/// "reaches connection_threshold" is no longer a meaningful learning
+/// milestone -- there is nothing left to cross structurally. The
+/// meaningful milestone now is "reinforced well past its sprout value",
+/// here 0.7 (comfortably above the 0.4 starting point, comfortably below
+/// the 1.0 clamp ceiling).
 #[test]
-fn higher_modulator_level_reaches_connection_threshold_in_no_more_exposures() {
-    const CONNECTION_THRESHOLD: f32 = 0.3;
+fn higher_modulator_level_reaches_a_meaningfully_learned_permanence_in_no_more_exposures() {
+    const PERMANENCE_MILESTONE: f32 = 0.7;
 
-    let exposures_to_connect = |level: f32| -> usize {
+    let exposures_to_learn = |level: f32| -> usize {
         let mut trial = Trial::new(level);
         for exposure in 1..=20 {
             trial.run_one_exposure();
-            if trial.a_to_b_permanence().unwrap_or(0.0) >= CONNECTION_THRESHOLD {
+            if trial.a_to_b_permanence().unwrap_or(0.0) >= PERMANENCE_MILESTONE {
                 return exposure;
             }
         }
-        panic!("a->b synapse never reached connection_threshold within 20 exposures at level {level}");
+        panic!("a->b synapse's permanence never reached {PERMANENCE_MILESTONE} within 20 exposures at level {level}");
     };
 
-    let fast = exposures_to_connect(2.0);
-    let slow = exposures_to_connect(0.2);
+    let fast = exposures_to_learn(2.0);
+    let slow = exposures_to_learn(0.2);
     assert!(
         fast <= slow,
         "a higher modulator level (2.0) must not take more exposures to connect than a lower one (0.2): fast={fast}, slow={slow}"

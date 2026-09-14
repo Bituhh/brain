@@ -94,7 +94,12 @@ function buildNetwork(seed: number): Simulation {
       reinforceAmount: 0.05,
       punishAmount: 0.05,
       burstTargetSegment: 0,
-      burstSproutPermanence: 0.15,
+      // README §12's weight/permanence split (2026-09-13): neither value
+      // is ever exercised here (neighbourhoodSize=1/k=1 below makes this
+      // path a guaranteed no-op), but permanence now sits at/above
+      // CONNECTION_THRESHOLD for consistency with every other sprout site.
+      burstSproutPermanence: 0.35,
+      burstSproutWeight: 0.05,
       recentlyActiveWindowTicks: 10,
       neighbourhoodSize: 1,
       neighbourhoodK: 1,

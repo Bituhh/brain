@@ -48,7 +48,7 @@ fn one_segment_topology() -> (NeuronArena, SynapseArena, u32, u32) {
     let target = neurons.allocate(NeuronSpec { threshold: 100.0, polarity: 1, coords: [0.0; 3] }).index;
     let mut synapses = SynapseArena::new(4);
     synapses.reserve_for_neurons(neurons.capacity_len());
-    synapses.insert(source, target, 0, 1, 0.9).unwrap();
+    synapses.insert(source, target, 0, 1, 0.9, 0.9).unwrap();
     (neurons, synapses, source, target)
 }
 
@@ -98,7 +98,7 @@ fn segments_on_the_same_neuron_adjust_independently() {
     let mut synapses = SynapseArena::new(4);
     synapses.reserve_for_neurons(neurons.capacity_len());
     // segment 0 gets real traffic every tick; segment 1 gets none.
-    synapses.insert(driven_source, target, 0, 1, 0.9).unwrap();
+    synapses.insert(driven_source, target, 0, 1, 0.9, 0.9).unwrap();
 
     // target_rate 0.0 (rather than a mid-range value): with a single binary
     // synapse, `active` can only ever be exactly 0.0 or 1.0, so a threshold

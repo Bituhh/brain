@@ -96,7 +96,7 @@ export interface SimulationOptions {
    * Local plasticity -- STDP, eligibility traces, the three-factor rule
    * (Requirement 8; LRN-1 to LRN-5). **Phase 5 finding**: no version of
    * this configuration crossed the FFI before this phase -- omitting it
-   * (the pre-Phase-5 default, still) means permanence never changes
+   * (the pre-Phase-5 default, still) means weight never changes
    * regardless of activity, which was every prior caller's actual
    * behaviour, whether or not that was intended.
    */
@@ -635,6 +635,16 @@ export class Simulation {
   /** Zero-copy view over every synapse slot's permanence (SYN-3, Phase 6 Requirement 2) -- filter against `connectionThreshold` client-side to find functionally-connected synapses. */
   synapsePermanenceView(): Float32Array {
     return this.#cachedView("synapsePermanence", () => this.#native.synapsePermanenceView());
+  }
+
+  /**
+   * Zero-copy view over every synapse slot's weight (§2.5's efficacy --
+   * README §12's weight/permanence split, 2026-09-13): how much current a
+   * *connected* synapse actually passes, independent of
+   * `synapsePermanenceView()`'s structural "is this connected" gate.
+   */
+  synapseWeightView(): Float32Array {
+    return this.#cachedView("synapseWeight", () => this.#native.synapseWeightView());
   }
 
   /** Zero-copy view over every synapse slot's axonal delay (SYN-2, Phase 6 Requirement 2). */

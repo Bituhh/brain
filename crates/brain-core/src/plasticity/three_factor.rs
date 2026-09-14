@@ -1,12 +1,15 @@
 //! Three-factor plasticity: eligibility traces plus neuromodulation
 //! (LRN-3, LRN-4, Requirement 8.6, 8.7, 8.8).
 //!
-//! `Δpermanence = learning_rate · eligibility · modulator`. With the
-//! modulator held at 1.0, this degenerates exactly to the STDP kernel
-//! driving permanence directly (Requirement 8.8) -- there is no separate
-//! "plain STDP" implementation; it is this rule evaluated with a constant
-//! modulator, which is the literal reading of Requirement 8.8's "reduces
-//! to."
+//! `Δweight = learning_rate · eligibility · modulator`. With the modulator
+//! held at 1.0, this degenerates exactly to the STDP kernel driving weight
+//! directly (Requirement 8.8) -- there is no separate "plain STDP"
+//! implementation; it is this rule evaluated with a constant modulator,
+//! which is the literal reading of Requirement 8.8's "reduces to." README
+//! §12's weight/permanence split (2026-09-13) moved this from permanence to
+//! weight: STDP is the fast, per-spike-pair mechanism, and permanence
+//! (SYN-3's structural quantity) is now touched only by structural
+//! plasticity (LRN-7).
 //!
 //! Both `on_delivery` and `on_post_spike` follow the same three steps:
 //! (1) decay eligibility for the ticks elapsed since it was last touched
@@ -75,7 +78,7 @@ impl ThreeFactorStdp {
     fn apply_modulated_update(&self, syn: &mut SynapseMut<'_>, ctx: &LocalContext) {
         let modulator = ctx.modulators[self.params.modulator_index];
         let delta = self.params.learning_rate * *syn.eligibility * modulator;
-        *syn.permanence += delta;
+        *syn.weight += delta;
     }
 }
 
@@ -131,6 +134,7 @@ mod tests {
 
     struct Fixture {
         permanence: f32,
+        weight: f32,
         eligibility: f32,
         last_active: u32,
         eligibility_updated_at: u32,
@@ -138,11 +142,12 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            Self { permanence: 0.5, eligibility: 0.0, last_active: u32::MAX, eligibility_updated_at: u32::MAX }
+            Self { permanence: 0.5, weight: 0.5, eligibility: 0.0, last_active: u32::MAX, eligibility_updated_at: u32::MAX }
         }
         fn syn(&mut self) -> SynapseMut<'_> {
             SynapseMut {
                 permanence: &mut self.permanence,
+                weight: &mut self.weight,
                 eligibility: &mut self.eligibility,
                 last_active: &mut self.last_active,
                 eligibility_updated_at: &mut self.eligibility_updated_at,
@@ -157,7 +162,7 @@ mod tests {
     #[test]
     fn modulator_at_unity_reduces_to_plain_stdp() {
         // Requirement 8.8, LRN-4, tested literally: with modulator == 1.0,
-        // the permanence change from one event must equal
+        // the weight change from one event must equal
         // learning_rate * eligibility_after_this_event -- i.e. exactly
         // the STDP-shaped contribution, undiluted by any modulation.
         let rule = ThreeFactorStdp::new(ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0));
@@ -166,24 +171,26 @@ mod tests {
         // A causal pre-then-post pair: synapse delivered at tick 10,
         // post spikes at tick 15 (dt = 5, potentiation).
         fx.last_active = 10;
-        let before = fx.permanence;
+        let permanence_before = fx.permanence;
+        let weight_before = fx.weight;
         rule.on_post_spike(fx.syn(), &ctx(never_spiked(), spiked_at(15), [1.0; NUM_MODULATORS], 15));
         let expected_kernel = stdp().kernel(5.0);
-        assert!((fx.permanence - (before + expected_kernel)).abs() < 1e-6);
+        assert!((fx.weight - (weight_before + expected_kernel)).abs() < 1e-6);
         assert!((fx.eligibility - expected_kernel).abs() < 1e-6);
+        assert_eq!(fx.permanence, permanence_before, "STDP must not touch permanence");
     }
 
     #[test]
     fn zero_modulator_produces_zero_weight_change_despite_eligibility() {
         // Requirement 8.7: Δw = lr * eligibility * modulator -- if
-        // modulator is 0, no permanence change occurs even though
-        // eligibility itself is still tracked.
+        // modulator is 0, no weight change occurs even though eligibility
+        // itself is still tracked.
         let rule = ThreeFactorStdp::new(ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0));
         let mut fx = Fixture::new();
         fx.last_active = 10;
-        let before = fx.permanence;
+        let before = fx.weight;
         rule.on_post_spike(fx.syn(), &ctx(never_spiked(), spiked_at(15), [0.0; NUM_MODULATORS], 15));
-        assert_eq!(fx.permanence, before, "zero modulator must produce zero weight change");
+        assert_eq!(fx.weight, before, "zero modulator must produce zero weight change");
         assert!(fx.eligibility != 0.0, "eligibility itself must still be tracked regardless of modulator");
     }
 
@@ -192,11 +199,11 @@ mod tests {
     fn on_delivery_depresses_when_post_recently_fired() {
         let rule = ThreeFactorStdp::new(ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0));
         let mut fx = Fixture::new();
-        let before = fx.permanence;
+        let before = fx.weight;
         // Post fired at tick 8; this delivery (pre arriving) is at tick 10
         // -> dt = 8 - 10 = -2, the anti-causal/depression side.
         rule.on_delivery(fx.syn(), &ctx(never_spiked(), spiked_at(8), [1.0; NUM_MODULATORS], 10));
-        assert!(fx.permanence < before, "post-before-pre must depress");
+        assert!(fx.weight < before, "post-before-pre must depress");
         assert_eq!(fx.last_active, 10, "on_delivery must record this delivery tick");
     }
 

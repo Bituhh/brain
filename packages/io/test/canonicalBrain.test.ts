@@ -1,7 +1,7 @@
 // The standing test for the canonical "everything on" brain constructor
 // (PLAN.md prompt A1, src/canonicalBrain.ts). Deliberately asserts only
-// what is TRUE TODAY: sparsity stays roughly near target, permanence stays
-// in [0,1], nothing panics, every mechanism's FFI surface is reachable and
+// what is TRUE TODAY: sparsity stays roughly near target, permanence and
+// weight both stay in [0,1], nothing panics, every mechanism's FFI surface is reachable and
 // well-formed, and a snapshot taken mid-run round-trips. It does NOT
 // assert anything the known, open defects (README §13.12 items 11-14)
 // would fail -- e.g. no claim about E/I balance or about growth/structural
@@ -31,7 +31,15 @@ const PATTERNS = [
 ];
 
 function consolidationConfig(): ConsolidationConfig {
-  return { replayWindow: 100, downscaleTargetTotalPermanence: 4.0, pruneFloor: 0.02, sproutPermanence: 0.1, minActivityStreak: 3, unusedTicksBeforeReclaim: 1_000_000 };
+  return {
+    replayWindow: 100,
+    downscaleTargetTotalWeight: 4.0,
+    pruneFloor: 0.02,
+    sproutPermanence: 0.35,
+    sproutWeight: 0.05,
+    minActivityStreak: 3,
+    unusedTicksBeforeReclaim: 1_000_000,
+  };
 }
 
 test("the canonical brain runs with every mechanism live for many ticks and stays within today's known-true bounds", () => {
@@ -80,6 +88,7 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
   const metrics = sim.metricsSnapshot();
   assert.ok(metrics.sparsity >= 0 && metrics.sparsity <= 1, `metricsSnapshot sparsity ${metrics.sparsity} must be a fraction`);
   assert.ok(metrics.meanPermanence >= 0 && metrics.meanPermanence <= 1, `metricsSnapshot meanPermanence ${metrics.meanPermanence} must stay in [0,1]`);
+  assert.ok(metrics.meanWeight >= 0 && metrics.meanWeight <= 1, `metricsSnapshot meanWeight ${metrics.meanWeight} must stay in [0,1]`);
   assert.ok(metrics.synapseCount > 0, "metricsSnapshot must report real synapses given this column's dense internal wiring");
 
   // OBS-3: the spike raster is reachable and non-trivial after 400 ticks of driven activity.
@@ -98,13 +107,18 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
   assert.ok(meanSpikeFraction > 0, "the network must actually spike over this run");
   assert.ok(meanSpikeFraction < 0.5, `mean spike fraction ${meanSpikeFraction} must stay well below saturation`);
 
-  // SYN-3: permanence stays in [0,1] for every occupied synapse slot.
+  // SYN-3/SYN-4: permanence and weight both stay in [0,1] for every
+  // occupied synapse slot -- independently exercised (README §12's
+  // weight/permanence split, 2026-09-13), not just permanence.
   const occupied = sim.synapseOccupiedView();
   const permanence = sim.synapsePermanenceView();
+  const weight = sim.synapseWeightView();
   for (let i = 0; i < occupied.length; i++) {
     if (occupied[i]) {
       const p = permanence[i]!;
       assert.ok(p >= 0 && p <= 1, `occupied synapse slot ${i} permanence ${p} must stay in [0,1]`);
+      const w = weight[i]!;
+      assert.ok(w >= 0 && w <= 1, `occupied synapse slot ${i} weight ${w} must stay in [0,1]`);
     }
   }
 

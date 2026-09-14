@@ -39,6 +39,8 @@ export interface TopologySynapsesMessage {
   readonly targetNeuron: Uint32Array;
   readonly targetSegment: Uint32Array;
   readonly permanence: Float32Array;
+  /** §2.5's efficacy -- README §12's weight/permanence split (2026-09-13): how much current a *connected* synapse actually passes, independent of `permanence`'s structural "is this connected" gate. */
+  readonly weight: Float32Array;
   readonly delay: Uint16Array;
   readonly occupied: Uint8Array;
 }
@@ -63,6 +65,8 @@ export interface MetricsSnapshotMessage {
   readonly type: "metricsSnapshot";
   readonly sparsity: number;
   readonly meanPermanence: number;
+  /** README §12's weight/permanence split (2026-09-13): reported alongside `meanPermanence` since the two now carry independent meanings. */
+  readonly meanWeight: number;
   readonly excitatoryFraction: number;
   readonly synapseCount: number;
 }
@@ -304,7 +308,7 @@ export function encode(message: ServerMessage | ClientMessage): Uint8Array {
       break;
     case "topologySynapses":
       w.u8(TAG.topologySynapses).u32(message.epoch).u32(message.capPerNeuron).f32(message.connectionThreshold).u32(message.targetNeuron.length);
-      w.typedArray(message.targetNeuron).typedArray(message.targetSegment).typedArray(message.permanence);
+      w.typedArray(message.targetNeuron).typedArray(message.targetSegment).typedArray(message.permanence).typedArray(message.weight);
       w.typedArray(message.delay).typedArray(message.occupied);
       break;
     case "tick":
@@ -318,7 +322,7 @@ export function encode(message: ServerMessage | ClientMessage): Uint8Array {
       }
       break;
     case "metricsSnapshot":
-      w.u8(TAG.metricsSnapshot).f64(message.sparsity).f64(message.meanPermanence).f64(message.excitatoryFraction).u32(message.synapseCount);
+      w.u8(TAG.metricsSnapshot).f64(message.sparsity).f64(message.meanPermanence).f64(message.meanWeight).f64(message.excitatoryFraction).u32(message.synapseCount);
       break;
     case "probeData":
       w.u8(TAG.probeData).u32(message.neuron).u32(message.spikeTimes.length).typedArray(message.spikeTimes);
@@ -415,9 +419,10 @@ export function decode(bytes: Uint8Array): ServerMessage | ClientMessage {
       const targetNeuron = r.u32Array(count);
       const targetSegment = r.u32Array(count);
       const permanence = r.f32Array(count);
+      const weight = r.f32Array(count);
       const delay = r.u16Array(count);
       const occupied = r.bytes(count);
-      return { type: "topologySynapses", epoch, capPerNeuron, connectionThreshold, targetNeuron, targetSegment, permanence, delay, occupied };
+      return { type: "topologySynapses", epoch, capPerNeuron, connectionThreshold, targetNeuron, targetSegment, permanence, weight, delay, occupied };
     }
     case TAG.tick: {
       const tick = r.u32();
@@ -439,9 +444,10 @@ export function decode(bytes: Uint8Array): ServerMessage | ClientMessage {
     case TAG.metricsSnapshot: {
       const sparsity = r.f64();
       const meanPermanence = r.f64();
+      const meanWeight = r.f64();
       const excitatoryFraction = r.f64();
       const synapseCount = r.u32();
-      return { type: "metricsSnapshot", sparsity, meanPermanence, excitatoryFraction, synapseCount };
+      return { type: "metricsSnapshot", sparsity, meanPermanence, meanWeight, excitatoryFraction, synapseCount };
     }
     case TAG.probeData: {
       const neuron = r.u32();

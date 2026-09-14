@@ -251,7 +251,7 @@ mod tests {
         assert!(neurons.epoch() > before_epoch, "growth must be observable as arena growth (Requirement 2.2)");
         // Requirement 11.4: fully participating without a rebuild --
         // synapse storage must already be sized for the new neurons.
-        assert!(synapses.insert(added[0].index, added[1].index, 0, 1, 0.5).is_ok());
+        assert!(synapses.insert(added[0].index, added[1].index, 0, 1, 0.5, 0.5).is_ok());
     }
 
     #[test]

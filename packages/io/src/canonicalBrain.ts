@@ -19,7 +19,7 @@
 // 1. `excitatoryFraction` stays `1.0` here too. README §13.12 item 11
 //    documents a real, open segment-sign bug (an inhibitory synapse
 //    currently counts as evidence *for* a dendritic prediction) and a
-//    homeostatic-scaling bug (mixing excitatory and inhibitory permanence
+//    homeostatic-scaling bug (mixing excitatory and inhibitory weight
 //    into one renormalised total). PLAN.md's dependency chart gates a
 //    genuine 80:20 population behind A2 (the segment-sign fix) and D1-D3
 //    (E/I-aware rescaling, inhibitory STDP, then a dedicated tuning pass)
@@ -122,10 +122,11 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       modulatorTauTicks: [1000, 1000, 1000, 1000],
     },
     // LRN-6. Target chosen from this column's own wiring: ~p0*WIDTH ≈ 15
-    // incoming synapses per neuron at initialPermanence 0.4 is a total
-    // incoming permanence around 6 -- the scaling target sits at that
-    // scale rather than an arbitrary one.
-    homeostaticScaling: { targetTotalPermanence: 6.0, intervalTicks: 50 },
+    // incoming synapses per neuron at initialPermanence 0.4 (which also
+    // seeds initial weight -- README §12's weight/permanence split,
+    // 2026-09-13) is a total incoming weight around 6 -- the scaling
+    // target sits at that scale rather than an arbitrary one.
+    homeostaticScaling: { targetTotalWeight: 6.0, intervalTicks: 50 },
     // NEU-7. A live default, not a tuned one -- unlike
     // `segmentThresholdHomeostasis` below, no prior tuning pass exists for
     // this mechanism to inherit a converged value from (it had no FFI
@@ -143,7 +144,14 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
     // much larger scale.
     structuralPlasticity: {
       pruneFloor: 0.05,
-      sproutPermanence: 0.1,
+      // README §12's weight/permanence split (2026-09-13): a new sprout
+      // now starts structurally connected (permanence at/above
+      // connectionThreshold, 0.3) with a separate, near-zero sproutWeight
+      // -- the "silent synapse" pattern that dissolves the NET-10
+      // bootstrapping deadlock (item 12's addendum to item 10), rather
+      // than the pre-split below-threshold value.
+      sproutPermanence: 0.35,
+      sproutWeight: 0.05,
       minActivityStreak: 3,
       sweepIntervalTicks: 50,
       unusedTicksBeforeReclaim: 1_000_000,
@@ -178,7 +186,11 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       reinforceAmount: 0.08,
       punishAmount: 0.05,
       burstTargetSegment: 0,
-      burstSproutPermanence: 0.1,
+      // README §12's split: same above-threshold/near-zero-weight
+      // treatment as structuralPlasticity's own sproutPermanence/
+      // sproutWeight above.
+      burstSproutPermanence: 0.35,
+      burstSproutWeight: 0.05,
       recentlyActiveWindowTicks: 10,
       modulatorIndex: 0, // DOPAMINE -- LRN-4/LRN-5
       neighbourhoodSize: 20,

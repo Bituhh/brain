@@ -76,7 +76,14 @@ pub struct DistancePolicy {
     /// (SYN-2: always at least one tick).
     pub delay_min: u16,
     pub delay_max: u16,
-    /// Permanence a newly-created synapse starts at.
+    /// Permanence a newly-created synapse starts at. This is ordinary,
+    /// already-established wiring, not a provisional structural-plasticity
+    /// sprout (see `plasticity::structural`'s `sprout_weight`/
+    /// `sprout_permanence` doc comments for that distinct case) -- `weight`
+    /// defaults to this same value at insertion (README §12's weight/
+    /// permanence split, 2026-09-13), so a freshly-built network's initial
+    /// dynamics are unaffected by the split and only diverge once a
+    /// plasticity rule that moves weight acts.
     pub initial_permanence: f32,
 }
 
@@ -195,7 +202,7 @@ impl GraphBuilder {
                     let mut segment_rng = derive_stream(self.seed, source, purpose::SEGMENT_ASSIGN, target);
                     segment_rng.next_below(segments_per_neuron)
                 };
-                let _ = synapses.insert(source, target, segment, delay.max(1), policy.initial_permanence);
+                let _ = synapses.insert(source, target, segment, delay.max(1), policy.initial_permanence, policy.initial_permanence);
             }
         }
     }
@@ -301,7 +308,7 @@ impl GraphBuilder {
                 let mut delay_rng = derive_stream(self.seed, source, purpose::VOTE_DELAY_DRAW, target);
                 let delay_span = (policy.delay_max - policy.delay_min + 1) as u32;
                 let delay = policy.delay_min + delay_rng.next_below(delay_span) as u16;
-                let _ = synapses.insert(source, target, target_segment, delay.max(1), policy.initial_permanence);
+                let _ = synapses.insert(source, target, target_segment, delay.max(1), policy.initial_permanence, policy.initial_permanence);
             }
         }
     }

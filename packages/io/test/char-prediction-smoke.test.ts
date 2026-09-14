@@ -91,7 +91,11 @@ test("growth/structuralPlasticity omitted leaves the network deterministic (RUN-
     },
     structuralPlasticity: {
       pruneFloor: 0.05,
-      sproutPermanence: 0.1,
+      // README §12's weight/permanence split (2026-09-13): structurally
+      // connected from birth (at/above connectionThreshold, 0.3), near-zero
+      // sproutWeight -- the "silent synapse" pattern.
+      sproutPermanence: 0.35,
+      sproutWeight: 0.05,
       minActivityStreak: 3,
       sweepIntervalTicks: 20,
       unusedTicksBeforeReclaim: 1_000_000,

@@ -33,21 +33,25 @@ fn make_chain() -> RuleChain {
 }
 
 proptest! {
-    /// Requirement 6.7, SYN-4: permanence (this design's "weight") stays
-    /// within `[0, 1]` no matter what sequence of deliveries, post-spikes,
-    /// ticks, or modulator levels a synapse is driven through -- the
-    /// `RuleChain`'s clamp is the only thing standing between an
+    /// Requirement 6.7, SYN-4: weight (§2.5's efficacy -- what `ThreeFactorStdp`
+    /// actually moves, per README §12's weight/permanence split, 2026-09-13)
+    /// stays within `[0, 1]` no matter what sequence of deliveries,
+    /// post-spikes, ticks, or modulator levels a synapse is driven through --
+    /// the `RuleChain`'s clamp is the only thing standing between an
     /// individual rule's arithmetic and an out-of-bounds value, so this
     /// exercises that clamp against inputs no hand-written test happened
-    /// to pick.
+    /// to pick. Permanence is asserted unchanged throughout: no rule in
+    /// this chain touches it.
     #[test]
-    fn permanence_never_leaves_the_unit_interval(
+    fn weight_never_leaves_the_unit_interval_and_permanence_never_moves(
         initial_permanence in 0.0f32..=1.0,
+        initial_weight in 0.0f32..=1.0,
         events in prop::collection::vec((any::<bool>(), 0u32..2000), 1..80),
         modulator_level in 0.0f32..=3.0,
     ) {
         let chain = make_chain();
         let mut permanence = initial_permanence;
+        let mut weight = initial_weight;
         let mut eligibility = 0.0f32;
         let mut last_active = u32::MAX;
         let mut eligibility_updated_at = u32::MAX;
@@ -58,6 +62,7 @@ proptest! {
             let ctx = LocalContext { pre, post, modulators: [modulator_level; NUM_MODULATORS], tick };
             let syn = SynapseMut {
                 permanence: &mut permanence,
+                weight: &mut weight,
                 eligibility: &mut eligibility,
                 last_active: &mut last_active,
                 eligibility_updated_at: &mut eligibility_updated_at,
@@ -70,7 +75,8 @@ proptest! {
                 chain.on_post_spike(syn, &ctx);
                 post.last_spike = tick;
             }
-            prop_assert!((0.0..=1.0).contains(&permanence), "permanence left [0,1]: {permanence}");
+            prop_assert!((0.0..=1.0).contains(&weight), "weight left [0,1]: {weight}");
+            prop_assert_eq!(permanence, initial_permanence, "no rule in this chain touches permanence");
         }
     }
 
@@ -88,7 +94,7 @@ proptest! {
         let b = neurons.allocate(NeuronSpec { threshold: 100.0, polarity: 1, coords: [0.0; 3] }).index; // never spikes itself
         let mut synapses = SynapseArena::new(2);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        synapses.insert(a, b, 0, delay, 0.9).unwrap();
+        synapses.insert(a, b, 0, delay, 0.9, 0.9).unwrap();
 
         let mut sched = Scheduler::new(delay, 0.5);
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
@@ -121,7 +127,7 @@ proptest! {
         let b = neurons.allocate(NeuronSpec { threshold: 1000.0, polarity: 1, coords: [0.0; 3] }).index;
         let mut synapses = SynapseArena::new(2);
         synapses.reserve_for_neurons(neurons.capacity_len());
-        synapses.insert(a, b, 0, 1, permanence).unwrap();
+        synapses.insert(a, b, 0, 1, permanence, permanence).unwrap();
 
         let mut sched = Scheduler::new(2, 0.4);
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
@@ -157,7 +163,7 @@ proptest! {
         synapses.reserve_for_neurons(neurons.capacity_len());
         let segments_per_neuron = 2u32;
         let target_segment = 1u32; // non-zero: exercises real composite addressing, not just index 0
-        synapses.insert(a, b, target_segment, 1, permanence).unwrap();
+        synapses.insert(a, b, target_segment, 1, permanence, permanence).unwrap();
 
         // Threshold set far out of reach: this test reads the raw
         // coincidence count directly, not whether it crosses a threshold.
@@ -222,7 +228,7 @@ proptest! {
         synapses.reserve_for_neurons(neurons.capacity_len());
         for (src, dst, permanence, delay) in synapse_attempts {
             if src < neuron_count && dst < neuron_count {
-                let _ = synapses.insert(src as u32, dst as u32, 0, delay, permanence); // BlockFull is a legitimate, ignorable outcome
+                let _ = synapses.insert(src as u32, dst as u32, 0, delay, permanence, permanence); // BlockFull is a legitimate, ignorable outcome
             }
         }
 
@@ -275,6 +281,7 @@ fn make_engine_scheduler() -> Scheduler {
             StructuralPlasticityParams {
                 prune_floor: 0.05,
                 sprout_permanence: 0.1,
+                sprout_weight: 0.05,
                 min_activity_streak: 2,
                 sweep_interval_ticks: 33,
                 unused_ticks_before_reclaim: 1_000_000,
@@ -298,7 +305,7 @@ fn make_engine_network() -> (NeuronArena, SynapseArena, Vec<u32>) {
         for &target in &ids[4..8] {
             let segment = if (source + target) % 2 == 0 { 0 } else { 1 };
             let delay = 1 + ((source + target) % 3) as u16;
-            let _ = synapses.insert(source, target, segment, delay, 0.5); // BlockFull is a legitimate, ignorable outcome
+            let _ = synapses.insert(source, target, segment, delay, 0.5, 0.5); // BlockFull is a legitimate, ignorable outcome
         }
     }
     (neurons, synapses, ids)

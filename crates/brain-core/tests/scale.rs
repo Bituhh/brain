@@ -37,7 +37,7 @@ fn builds_100k_neuron_50m_synapse_network_within_a_workstation_memory_budget() {
     for source in 0..NEURON_COUNT {
         for offset in 1..=SYNAPSES_PER_NEURON {
             let target = (source + offset) % NEURON_COUNT;
-            if synapses.insert(source, target, 0, 1, 0.5).is_ok() {
+            if synapses.insert(source, target, 0, 1, 0.5, 0.5).is_ok() {
                 inserted += 1;
             }
         }

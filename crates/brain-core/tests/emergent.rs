@@ -160,7 +160,7 @@ fn build_network(seed: u64) -> Network {
                 if exists_rng.next_f32() < WIRING_PROBABILITY {
                     let mut perm_rng = derive_stream(seed, pair_id, PURPOSE_WIRE_PERMANENCE, 0);
                     let permanence = 0.2 + perm_rng.next_f32() * 0.7; // mostly above CONNECTION_THRESHOLD: see module docs on why an AND-gate needs a rich initial substrate
-                    let _ = synapses.insert(si, ti, segment, 1, permanence); // BlockFull would be a real, ignorable outcome at this density
+                    let _ = synapses.insert(si, ti, segment, 1, permanence, permanence); // BlockFull would be a real, ignorable outcome at this density
                 }
             }
         }
@@ -188,6 +188,7 @@ fn build_network(seed: u64) -> Network {
         punish_amount: 0.05,
         burst_target_segment: 0,
         burst_sprout_permanence: 0.15,
+        burst_sprout_weight: 0.05,
         recently_active_window_ticks: 10,
         modulator_index: None,
     };
@@ -459,6 +460,7 @@ fn prediction_accuracy_rises_across_exposures_across_seeds() {
             punish_amount: 0.2,
             burst_target_segment: 0,
             burst_sprout_permanence: 0.1,
+            burst_sprout_weight: 0.05,
             recently_active_window_ticks: 20,
             modulator_index: None,
         };
