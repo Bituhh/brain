@@ -28,18 +28,35 @@
 // weight, causal-window edge, elimination window, and the four fix flags)
 // reused verbatim -- 15 parameters in total, larger than B4's 11.
 //
-// BUDGET -- NOT YET VALIDATED BY SYNTHETIC-LANDSCAPE SIMULATION. B4's own
-// budget was chosen only after simulating the search on synthetic landscapes
-// (two hills, a hill needing several parameters at once, a hill beyond the
-// initial range, a needle) and measuring how often each candidate budget
-// found the known peak -- see tune-b4-values.ts's own header. That exercise
-// has NOT been repeated for B5's larger 15-parameter space; the FULL_BUDGET
-// below scales B4's own numbers up by roughly the ratio of neighbour counts
-// (15 vs 11 parameters -> ~30 vs ~18 neighbours per point) as a placeholder,
-// not a measured choice. Re-run scripts/b4-search/search.test.ts's own
-// synthetic-landscape technique against this space before trusting this
-// budget's coverage on a real multi-day run; this file's SMOKE mode below
-// only proves the wiring runs end to end, not that the budget is adequate.
+// BUDGET, validated 2026-09-15 the same way B4's was (a throwaway
+// scripts/simulate-b5-budget.ts, not checked in, mirroring
+// tune-b4-values.ts's own precedent of recording only the conclusion here):
+// four synthetic landscapes over this file's actual 15-parameter space --
+// two separated hills (voteReferenceWeight x learningRate), a hill needing
+// three parameters aligned at once (voteReferenceWeight x
+// coincidenceThreshold x predictiveLearningTarget), a hill whose peak sits
+// beyond coincidenceThreshold's initial top level, and a narrow, off-grid
+// needle (voteReferenceWeight x unsilenceWeight) -- each with per-seed noise
+// (+-2.5 points) and 12 runs per candidate budget.
+//
+// RESULT: on the first three landscapes, four candidate budgets (screen
+// configs 30/60/100/140, refine rounds 3/4/6/8) all found the peak equally
+// well (within 1-2 points of each other, all comfortably above the stated
+// peak once the held-out stage's own optimistic bias is accounted for) --
+// search quality was flat across a 4.6x range of trial cost (~750 to ~1900
+// trials/run). On the needle, EVERY budget failed equally (all landed
+// around 15-17% of the true peak, i.e. found nothing) -- the same "a peak
+// that narrow is a known limit of any sampling search" conclusion B4's own
+// simulation reached, not something a bigger budget buys back.
+//
+// CHOSEN: the "smaller" candidate (60 screen configs, 4 refine rounds, 12
+// max hill checks -- roughly HALF B4's own per-neighbour-scaled placeholder)
+// -- performed identically to the larger candidates on every landscape that
+// showed any signal at all, so there is no measured reason to pay for more.
+// `refineStarts`/`finalists`/`neighbourPromote` are kept at B4's own values
+// (not cut further, unlike the "tiny" candidate that was also tried) as a
+// margin against a real landscape having more distinct hills than any of
+// these four synthetic ones modelled.
 //
 // SEEDS. Same three-set discipline as B4: selection seeds 1-5 choose
 // everything up to the finalists; held-out seeds 6-10 choose the winner
@@ -82,18 +99,18 @@ const paths = {
   worker: here("./b4-search/trial.worker.ts"),
 };
 
-/** ~1.7x B4's own FULL_BUDGET, an unvalidated placeholder -- see this file's own header. */
+/** Validated by synthetic-landscape simulation -- see this file's own header. */
 const FULL_BUDGET: Budget = {
-  screenConfigs: 100,
+  screenConfigs: 60,
   sampleSeed: 20260915,
   screenSeeds: [1n, 2n],
   fullSeeds: [1n, 2n, 3n, 4n, 5n],
   heldOutSeeds: [6n, 7n, 8n, 9n, 10n],
   confirmSeeds: [11n, 12n, 13n, 14n, 15n],
-  promoteTop: 30,
+  promoteTop: 18,
   refineStarts: 4,
-  maxHillChecks: 20,
-  refineRounds: 6,
+  maxHillChecks: 12,
+  refineRounds: 4,
   neighbourPromote: 6,
   finalists: 4,
   clearWinSeeds: 4,
