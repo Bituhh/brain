@@ -42,7 +42,7 @@ function walk(dir, out = []) {
   return out;
 }
 
-const allTestFiles = walk(path.join(repoRoot, "packages"));
+const allTestFiles = [...walk(path.join(repoRoot, "packages")), ...walk(path.join(repoRoot, "scripts"))];
 const isSlow = (file) => file.includes(".slow.test.");
 const selected = allTestFiles.filter((file) => (tier === "slow" ? isSlow(file) : !isSlow(file)));
 

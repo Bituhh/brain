@@ -18,6 +18,9 @@
 
 use crate::offset_slice::OffsetSlice;
 
+/// [`SynapseArena::silent_since`]'s "this synapse is not silent" value.
+pub const NOT_SILENT: u32 = u32::MAX;
+
 /// Source-major synapse storage (SYN-1).
 pub struct SynapseArena {
     pub target_neuron: Vec<u32>,
@@ -58,6 +61,29 @@ pub struct SynapseArena {
     /// post-spike-triggered touch happened without an intervening
     /// delivery.
     pub eligibility_updated_at: Vec<u32>,
+    /// The tick this synapse became *silent*, or [`NOT_SILENT`] (PLAN.md B4,
+    /// README §12 decision 12). A silent synapse is the biological "silent
+    /// synapse": a structural contact with NMDA-type but no AMPA-type
+    /// receptors, so it passes no current at rest and cannot itself help
+    /// initiate a dendritic spike, but is still a site where pairing-induced
+    /// LTP happens -- and that LTP is exactly what unsilences it (Isaac,
+    /// Nicoll & Malenka 1995; Liao, Hessler & Malinow 1995). Silent is a
+    /// discrete *state*, not a weight range: once unsilenced, a synapse
+    /// stays unsilenced, so global multiplicative scaling
+    /// (`HomeostaticScaling`, consolidation's downscale) can never re-silence
+    /// a mature synapse by shrinking its weight.
+    ///
+    /// Who sets what: `insert`/`restore_slot` default to [`NOT_SILENT`] --
+    /// ordinary graph-construction wiring is an established connectome, not
+    /// a fresh contact, and B3's `NewbornMaturation` inputs deliberately stay
+    /// that way too (see decision 12 for why). `StructuralPlasticity::sprout`
+    /// and `PredictiveLearning::reinforce_or_sprout_burst` mark each synapse
+    /// they create silent at its creation tick. `Scheduler::deliver`
+    /// unsilences a silent synapse the first time it delivers with `weight`
+    /// at or above the scheduler's unsilence threshold.
+    /// `StructuralPlasticity::prune` eliminates a synapse still silent too
+    /// long after this tick.
+    pub silent_since: Vec<u32>,
     occupied: Vec<bool>,
     cap_per_neuron: u32,
     /// `target_neuron -> synapse ids targeting it`, appended to on every
@@ -96,6 +122,7 @@ impl SynapseArena {
             eligibility: Vec::new(),
             last_active: Vec::new(),
             eligibility_updated_at: Vec::new(),
+            silent_since: Vec::new(),
             occupied: Vec::new(),
             cap_per_neuron,
             target_index: Vec::new(),
@@ -122,6 +149,7 @@ impl SynapseArena {
             + self.eligibility.capacity() * size_of::<f32>()
             + self.last_active.capacity() * size_of::<u32>()
             + self.eligibility_updated_at.capacity() * size_of::<u32>()
+            + self.silent_since.capacity() * size_of::<u32>()
             + self.occupied.capacity() * size_of::<bool>();
         let target_index_bytes = self.target_index.capacity() * size_of::<Vec<u32>>()
             + self.target_index.iter().map(|v| v.capacity() * size_of::<u32>()).sum::<usize>();
@@ -142,6 +170,7 @@ impl SynapseArena {
             self.eligibility.resize(needed, 0.0);
             self.last_active.resize(needed, u32::MAX);
             self.eligibility_updated_at.resize(needed, u32::MAX);
+            self.silent_since.resize(needed, NOT_SILENT);
             self.occupied.resize(needed, false);
         }
         if self.target_index.len() < neuron_count {
@@ -183,6 +212,7 @@ impl SynapseArena {
                 self.eligibility[slot] = 0.0;
                 self.last_active[slot] = u32::MAX;
                 self.eligibility_updated_at[slot] = u32::MAX;
+                self.silent_since[slot] = NOT_SILENT; // see this field's own doc comment -- a creator of a fresh contact marks it silent itself
                 let t = target_neuron as usize;
                 if self.target_index.len() <= t {
                     self.target_index.resize(t + 1, Vec::new());
@@ -220,6 +250,7 @@ impl SynapseArena {
         eligibility: f32,
         last_active: u32,
         eligibility_updated_at: u32,
+        silent_since: u32,
     ) -> Result<(), SynapseError> {
         let slot = id as usize;
         if slot >= self.occupied.len() {
@@ -237,6 +268,7 @@ impl SynapseArena {
         self.eligibility[slot] = eligibility;
         self.last_active[slot] = last_active;
         self.eligibility_updated_at[slot] = eligibility_updated_at;
+        self.silent_since[slot] = silent_since;
         let t = target_neuron as usize;
         if self.target_index.len() <= t {
             self.target_index.resize(t + 1, Vec::new());
@@ -316,6 +348,7 @@ impl SynapseArena {
         let mut eligibility_rest = self.eligibility.as_mut_slice();
         let mut last_active_rest = self.last_active.as_mut_slice();
         let mut eligibility_updated_at_rest = self.eligibility_updated_at.as_mut_slice();
+        let mut silent_since_rest = self.silent_since.as_mut_slice();
         let mut occupied_rest = self.occupied.as_mut_slice();
         let mut target_index_rest = self.target_index.as_mut_slice();
 
@@ -344,6 +377,8 @@ impl SynapseArena {
             last_active_rest = rest;
             let (eligibility_updated_at, rest) = eligibility_updated_at_rest.split_at_mut(synapse_len);
             eligibility_updated_at_rest = rest;
+            let (silent_since, rest) = silent_since_rest.split_at_mut(synapse_len);
+            silent_since_rest = rest;
             let (occupied, rest) = occupied_rest.split_at_mut(synapse_len);
             occupied_rest = rest;
             let (target_index, rest) = target_index_rest.split_at_mut(neuron_len);
@@ -359,6 +394,7 @@ impl SynapseArena {
                 eligibility: OffsetSlice::new(synapse_base, eligibility),
                 last_active: OffsetSlice::new(synapse_base, last_active),
                 eligibility_updated_at: OffsetSlice::new(synapse_base, eligibility_updated_at),
+                silent_since: OffsetSlice::new(synapse_base, silent_since),
                 occupied: OffsetSlice::new(synapse_base, occupied),
                 target_index: OffsetSlice::new(neuron_base, target_index),
             });
@@ -380,6 +416,7 @@ impl SynapseArena {
             eligibility: OffsetSlice::whole(&mut self.eligibility),
             last_active: OffsetSlice::whole(&mut self.last_active),
             eligibility_updated_at: OffsetSlice::whole(&mut self.eligibility_updated_at),
+            silent_since: OffsetSlice::whole(&mut self.silent_since),
             occupied: OffsetSlice::whole(&mut self.occupied),
             target_index: OffsetSlice::whole(&mut self.target_index),
         }
@@ -401,6 +438,7 @@ pub struct SynapseArenaViewMut<'a> {
     pub eligibility: OffsetSlice<'a, f32>,
     pub last_active: OffsetSlice<'a, u32>,
     pub eligibility_updated_at: OffsetSlice<'a, u32>,
+    pub silent_since: OffsetSlice<'a, u32>,
     occupied: OffsetSlice<'a, bool>,
     /// Indexed by *target neuron*, not synapse id -- see
     /// [`SynapseArena::split_views_mut`]'s doc comment.
@@ -508,6 +546,7 @@ impl<'a> SynapseArenaViewMut<'a> {
                 self.eligibility[slot] = 0.0;
                 self.last_active[slot] = u32::MAX;
                 self.eligibility_updated_at[slot] = u32::MAX;
+                self.silent_since[slot] = NOT_SILENT; // see `SynapseArena::silent_since`'s doc comment
                 self.target_index[target_neuron as usize].push(slot as u32);
                 return Ok(slot as u32);
             }

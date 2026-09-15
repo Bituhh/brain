@@ -15,3 +15,6 @@ crates/brain-napi/npm/
 # OS
 .DS_Store
 Thumbs.db
+
+# B4 value search: smoke-run outputs are plumbing checks, never results
+scripts/tune-b4-values.smoke.*

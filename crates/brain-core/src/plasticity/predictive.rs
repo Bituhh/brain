@@ -266,7 +266,12 @@ impl PredictiveLearning {
                 None => {
                     // Structural, one-time value -- not a reinforcement
                     // event, so not modulator-scaled (Requirement 1 AC2).
-                    let _ = synapses.insert(source, neuron, segment, 1, self.params.burst_sprout_permanence, self.params.burst_sprout_weight);
+                    if let Ok(id) = synapses.insert(source, neuron, segment, 1, self.params.burst_sprout_permanence, self.params.burst_sprout_weight) {
+                        // PLAN.md B4: a fresh contact is born silent, exactly
+                        // like `StructuralPlasticity::sprout`'s -- see
+                        // `SynapseArena::silent_since`'s doc comment.
+                        synapses.silent_since[id as usize] = tick;
+                    }
                     // BlockFull is a legitimate, expected outcome
                     // (Requirement 11.3), matching structural.rs's
                     // convention -- silently skip.
@@ -441,6 +446,24 @@ mod tests {
         assert!(sprouted.is_some(), "must sprout a new synapse from the recently-active neighbour");
         assert_eq!(synapses.permanence[sprouted.unwrap() as usize], 0.6, "must start at burst_sprout_permanence, structurally connected by construction");
         assert_eq!(synapses.weight[sprouted.unwrap() as usize], 0.05, "must start at burst_sprout_weight, near-zero so it only transmits a trickle");
+    }
+
+    /// PLAN.md B4: a burst-sprouted synapse is born silent at the tick it
+    /// was sprouted, the same state `StructuralPlasticity::sprout` gives its
+    /// own new contacts.
+    #[test]
+    fn unpredicted_spike_sprout_is_born_silent_at_its_creation_tick() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        neurons.last_spike[0] = 90;
+
+        let tracker = PredictingSegmentTracker::new();
+        let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.0, true, 100, 2, NEUTRAL_MODULATORS);
+
+        let sprouted = synapses.occupied_in_block(0).find(|&id| synapses.target_neuron[id as usize] == 1).unwrap();
+        assert_eq!(synapses.silent_since[sprouted as usize], 100, "a burst sprout must be silent from the tick it was created");
     }
 
     #[test]

@@ -29,11 +29,13 @@ import {
   type InhibitionHomeostasisConfig,
   type GrowthConfig,
   type NewbornMaturationConfig,
+  type SilentSynapsesConfig,
   type ProbeOptionsFfi,
   type ProbeDataFfi,
   type SegmentSampleFfi,
   type WeightSampleFfi,
   type MetricsSnapshotFfi,
+  type StructuralStatsFfi,
 } from "@brain/napi";
 import { openSync, writeSync, fsyncSync, closeSync, renameSync, readFileSync } from "node:fs";
 
@@ -56,6 +58,7 @@ export type {
   InhibitionHomeostasisConfig,
   GrowthConfig,
   NewbornMaturationConfig,
+  SilentSynapsesConfig,
 };
 
 /** A probe's configuration (OBS-1, Phase 6 Requirement 4). */
@@ -68,6 +71,7 @@ export type SegmentSample = SegmentSampleFfi;
 export type WeightSample = WeightSampleFfi;
 /** The on-demand arena-level metrics scan (OBS-2, Phase 6 Requirement 5). */
 export type MetricsSnapshot = MetricsSnapshotFfi;
+export type StructuralStats = StructuralStatsFfi;
 
 /** What one consolidation pass did (Requirement 12). */
 export type ConsolidationReport = ConsolidationReportFfi;
@@ -178,6 +182,13 @@ export interface SimulationOptions {
    */
   newbornMaturation?: NewbornMaturationConfig;
   /**
+   * Silent synapses (PLAN.md B4, fix 1, README §12 decision 12): a fresh
+   * contact made by structural plasticity or burst-sprouting passes no
+   * current and casts no dendritic vote until STDP pushes its weight to
+   * `unsilenceWeight`. Omit to keep pre-B4 transmission exactly.
+   */
+  silentSynapses?: SilentSynapsesConfig;
+  /**
    * Number of native threads `PartitionRuntime` should use (Requirement 7
    * AC1, Phase 4 RUN-4). Omit or pass 1 for today's exact single-threaded
    * behaviour -- the default, and the only mode `snapshot()`/`restore()`
@@ -226,6 +237,9 @@ function hashConfig(lif: LifConfig, options: SimulationOptions): bigint {
       intrinsicHomeostasis: options.intrinsicHomeostasis ?? null,
       growth: options.growth ?? null,
       newbornMaturation: options.newbornMaturation ?? null,
+      // Only present when set, so every config hashed before this option
+      // existed still hashes the same and its snapshots still restore.
+      ...(options.silentSynapses !== undefined && { silentSynapses: options.silentSynapses }),
     },
     (_key, value) => (typeof value === "bigint" ? value.toString() : value),
   );
@@ -437,6 +451,7 @@ export class Simulation {
         options.inhibitionHomeostasis ?? null,
         options.growth ?? null,
         options.newbornMaturation ?? null,
+        options.silentSynapses ?? null,
         options.threadCount ?? null,
         options.totalNeurons ?? null,
       ),
@@ -484,6 +499,7 @@ export class Simulation {
       options.inhibitionHomeostasis ?? null,
       options.growth ?? null,
       options.newbornMaturation ?? null,
+      options.silentSynapses ?? null,
     );
     return new Simulation(native, lif, options);
   }
@@ -821,6 +837,16 @@ export class Simulation {
    */
   metricsSnapshot(): MetricsSnapshot {
     return this.#native.metricsSnapshot();
+  }
+
+  /**
+   * Structural plasticity counts (PLAN.md B4): sprouts, prunes, silent
+   * eliminations and unsilencings since construction, plus how many
+   * synapses exist and are silent right now. Reporting only -- the totals
+   * reset on `restore`.
+   */
+  structuralStats(): StructuralStats {
+    return this.#native.structuralStats();
   }
 
   /**

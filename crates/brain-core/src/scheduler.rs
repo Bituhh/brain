@@ -34,11 +34,11 @@ use crate::neuron::{NeuronDynamics, NeuronStateMut};
 use crate::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
 use crate::plasticity::newborn::{NewbornMaturation, NewbornMaturationParams, NewbornMaturationRawState, NewbornWiringParams};
 use crate::plasticity::predictive::{PredictingSegmentTracker, PredictiveLearning, PredictiveLearningParams};
-use crate::plasticity::structural::StructuralPlasticity;
+use crate::plasticity::structural::{StructuralPlasticity, StructuralTotals};
 use crate::plasticity::{LocalContext, Modulators, NeuronLocal, RuleChain, SynapseMut};
 use crate::probe::Probe;
 use crate::segment::{BinaryCoincidence, Depolarisation, SegmentConfig, SegmentModel, SegmentState, FEEDFORWARD_SEGMENT};
-use crate::synapse::{SynapseArena, SynapseArenaViewMut};
+use crate::synapse::{SynapseArena, SynapseArenaViewMut, NOT_SILENT};
 
 /// Always-on metrics window (Requirement 5.1, Phase 6): OBS-2 frames the
 /// incremental meters as "cheap enough to leave permanently on", so
@@ -142,6 +142,33 @@ pub struct StepReport {
     /// trigger. Lets a caller (FFI, tests) observe a growth event without
     /// polling `NeuronArena::live_count()` every tick.
     pub grown: Vec<u32>,
+}
+
+/// How silent synapses behave on delivery (PLAN.md B4, fix 1, README §12
+/// decision 12). A silent synapse (`SynapseArena::silent_since`) is a fresh
+/// contact that has not been potentiated yet: the brain's AMPA-lacking
+/// "silent synapse", which passes no current and cannot help initiate a
+/// dendritic spike, but is still where pairing-induced LTP happens. That LTP
+/// is what unsilences it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SilentSynapseParams {
+    /// A silent synapse is unsilenced, permanently, the first time it
+    /// delivers with `weight` at or above this. `0.0` unsilences every
+    /// silent synapse on its very first delivery.
+    pub unsilence_weight: f32,
+    /// Ablation switch. `false` is the biological behaviour: a still-silent
+    /// synapse delivers nothing. `true` lets it transmit exactly as a
+    /// non-silent one would -- the pre-B4 behaviour -- while silent-state
+    /// bookkeeping (and so `StructuralPlasticity`'s silent-synapse
+    /// elimination) keeps running, which is what lets each of B4's fixes be
+    /// measured in isolation.
+    pub silent_transmits: bool,
+}
+
+impl SilentSynapseParams {
+    /// Transmission identical to before B4: every silent synapse is
+    /// unsilenced on its first delivery, so none is ever gated.
+    pub const PRE_B4: SilentSynapseParams = SilentSynapseParams { unsilence_weight: 0.0, silent_transmits: true };
 }
 
 /// A spike-delivery effect owed to a neuron owned by another partition
@@ -255,6 +282,15 @@ pub struct Scheduler {
     /// full decay after any elapsed tick, i.e. the original one-tick-only
     /// window; [`Scheduler::with_segment_coincidence_window`] widens it.
     segment_count_decay_per_tick: f32,
+    /// How silent synapses behave (PLAN.md B4, README §12 decision 12) --
+    /// see [`SilentSynapseParams`] and `SynapseArena::silent_since`. Set via
+    /// [`Self::with_silent_synapses`]; the default reproduces pre-B4
+    /// transmission exactly.
+    silent_synapses: SilentSynapseParams,
+    /// How many silent synapses this scheduler has unsilenced so far
+    /// (PLAN.md B4). Reporting only: nothing reads it, and it is not
+    /// snapshot state.
+    unsilenced_total: u64,
     /// `None` means every segment evaluates against
     /// `SegmentConfig::params.threshold` exactly as it always has
     /// (dendritic-threshold-homeostasis spec, Requirement 2) -- the default,
@@ -450,6 +486,8 @@ impl Scheduler {
             segment_last_touched_tick: Vec::new(),
             segment_touched: Vec::new(),
             segment_count_decay_per_tick: 0.0,
+            silent_synapses: SilentSynapseParams::PRE_B4,
+            unsilenced_total: 0,
             segment_threshold_homeostasis: None,
             segment_threshold: Vec::new(),
             segment_rate_estimate: Vec::new(),
@@ -549,6 +587,25 @@ impl Scheduler {
     pub fn with_segment_coincidence_window(mut self, tau_ticks: f32) -> Self {
         debug_assert!(tau_ticks > 0.0, "tau_ticks must be positive");
         self.segment_count_decay_per_tick = (-1.0 / tau_ticks).exp();
+        self
+    }
+
+    /// Configures how silent synapses (`SynapseArena::silent_since`) behave
+    /// on delivery (PLAN.md B4, fix 1) -- see [`SilentSynapseParams`].
+    /// How many silent synapses this scheduler has unsilenced so far -- see
+    /// the `unsilenced_total` field's doc comment.
+    pub fn unsilenced_total(&self) -> u64 {
+        self.unsilenced_total
+    }
+
+    /// The attached `StructuralPlasticity`'s running totals, if any.
+    pub fn structural_plasticity_totals(&self) -> Option<StructuralTotals> {
+        self.structural_plasticity.as_ref().map(StructuralPlasticity::totals)
+    }
+
+    pub fn with_silent_synapses(mut self, params: SilentSynapseParams) -> Self {
+        debug_assert!(params.unsilence_weight >= 0.0, "unsilence_weight must be non-negative");
+        self.silent_synapses = params;
         self
     }
 
@@ -1268,7 +1325,24 @@ impl Scheduler {
             // above is only the connectivity gate now -- the transmitted
             // magnitude is weight, §2.5's efficacy quantity.
             let signed_current = sign * synapses.weight[synapse_id as usize];
-            effects.push(DeliveryEffect { source_index, synapse_id, target_index: target, target_segment, signed_current });
+            // PLAN.md B4, fix 1 (README §12 decision 12): a silent synapse
+            // is unsilenced by the first delivery it makes at or above the
+            // unsilence weight -- the model's reading of LTP inserting AMPA
+            // receptors at a silent contact -- and stays unsilenced after.
+            // One still silent afterwards passes no current and casts no
+            // dendritic vote (no effect at all), unless `silent_transmits`
+            // is the ablation setting. Plasticity and `last_active` below
+            // still run either way: a silent synapse is exactly where
+            // pairing-induced LTP happens, so it must stay visible to STDP.
+            let silent_since = &mut synapses.silent_since[synapse_id as usize];
+            if *silent_since != NOT_SILENT && synapses.weight[synapse_id as usize] >= self.silent_synapses.unsilence_weight {
+                *silent_since = NOT_SILENT;
+                self.unsilenced_total += 1;
+            }
+            let still_silent = synapses.silent_since[synapse_id as usize] != NOT_SILENT;
+            if !still_silent || self.silent_synapses.silent_transmits {
+                effects.push(DeliveryEffect { source_index, synapse_id, target_index: target, target_segment, signed_current });
+            }
 
             // Plasticity credits this delivery regardless of which path it
             // took: a dendritic synapse still learns via STDP exactly like
@@ -1877,6 +1951,11 @@ mod tests {
             unused_ticks_before_reclaim: 1000,
             min_cross_partition_delay: 2,
             max_sprout_source_index: None,
+            sprout_timing: None,
+            seed: 0,
+            segments_per_neuron: 1,
+            spread_sprout_segments: false,
+            silent_elimination_ticks: None,
         };
         let mut sched = Scheduler::new(2, 0.2).with_structural_plasticity(StructuralPlasticity::new(sp_params, FixedNeighbourhoods::new(10, 1)));
         sched.step::<Lif>(&mut neurons, &mut synapses, &params); // tick 0: gate not yet due
@@ -1933,6 +2012,11 @@ mod tests {
                     unused_ticks_before_reclaim: 1_000_000,
                     min_cross_partition_delay: 2,
                     max_sprout_source_index: None,
+                    sprout_timing: None,
+                    seed: 0,
+                    segments_per_neuron: 1,
+                    spread_sprout_segments: false,
+                    silent_elimination_ticks: None,
                 },
                 FixedNeighbourhoods::new(4, 2),
             ));
@@ -2389,6 +2473,132 @@ mod tests {
         sched.step::<Lif>(&mut neurons, &mut synapses, &params);
 
         assert!(neurons.membrane[b as usize] > 0.0, "FEEDFORWARD_SEGMENT must still drive the soma directly (Requirement 10 is additive)");
+    }
+
+    // -- Silent synapses (PLAN.md B4, fix 1, README §12 decision 12).
+
+    /// Builds a -> b on segment 0 (dendritic, threshold 1) plus a -> c on the
+    /// feedforward path, both carrying `weight`, and marks both silent iff
+    /// `silent`. Returns (neurons, synapses, a, b, c, dendritic_id).
+    fn silent_synapse_fixture(weight: f32, silent: bool) -> (NeuronArena, SynapseArena, u32, u32, u32, u32) {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(2);
+        let a = make_neuron(&mut neurons, 0.5, 1);
+        let b = make_neuron(&mut neurons, 100.0, 1);
+        let c = make_neuron(&mut neurons, 100.0, 1);
+        synapses.reserve_for_neurons(3);
+        let dendritic = synapses.insert(a, b, 0, 1, 0.9, weight).unwrap();
+        let feedforward = synapses.insert(a, c, FEEDFORWARD_SEGMENT, 1, 0.9, weight).unwrap();
+        if silent {
+            synapses.silent_since[dendritic as usize] = 0;
+            synapses.silent_since[feedforward as usize] = 0;
+        }
+        (neurons, synapses, a, b, c, dendritic)
+    }
+
+    fn run_one_delivery(sched: &mut Scheduler, neurons: &mut NeuronArena, synapses: &mut SynapseArena, a: u32) {
+        let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(50.0, 0.5);
+        sched.stimulate(neurons, a, 10.0);
+        sched.step::<Lif>(neurons, synapses, &params); // a spikes
+        sched.step::<Lif>(neurons, synapses, &params); // deliveries land
+    }
+
+    fn segments_one_threshold_one() -> SegmentConfig {
+        SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } }
+    }
+
+    #[test]
+    fn a_silent_synapse_below_the_unsilence_weight_delivers_nothing_on_either_path() {
+        let (mut neurons, mut synapses, a, b, c, dendritic) = silent_synapse_fixture(0.05, true);
+        let mut sched = Scheduler::new(4, 0.5)
+            .with_segments(segments_one_threshold_one())
+            .with_silent_synapses(SilentSynapseParams { unsilence_weight: 0.2, silent_transmits: false });
+        run_one_delivery(&mut sched, &mut neurons, &mut synapses, a);
+
+        assert_eq!(neurons.predictive[b as usize], 0.0, "a silent synapse must cast no dendritic vote");
+        assert_eq!(neurons.membrane[c as usize], 0.0, "a silent synapse must pass no feedforward current");
+        assert_ne!(synapses.silent_since[dendritic as usize], NOT_SILENT, "a delivery below the unsilence weight must leave it silent");
+        assert_eq!(sched.unsilenced_total(), 0);
+        assert_ne!(synapses.last_active[dendritic as usize], u32::MAX, "a silent synapse still delivers for plasticity's purposes");
+    }
+
+    #[test]
+    fn a_silent_synapse_at_the_unsilence_weight_is_unsilenced_and_then_transmits() {
+        let (mut neurons, mut synapses, a, b, c, dendritic) = silent_synapse_fixture(0.3, true);
+        let mut sched = Scheduler::new(4, 0.5)
+            .with_segments(segments_one_threshold_one())
+            .with_silent_synapses(SilentSynapseParams { unsilence_weight: 0.2, silent_transmits: false });
+        run_one_delivery(&mut sched, &mut neurons, &mut synapses, a);
+
+        assert_eq!(synapses.silent_since[dendritic as usize], NOT_SILENT, "delivering at or above the unsilence weight must unsilence it");
+        assert_eq!(sched.unsilenced_total(), 2, "both fixture synapses (dendritic and feedforward) were unsilenced, and each must be counted");
+        assert!(neurons.predictive[b as usize] > 0.0, "once unsilenced it must vote on the same delivery");
+        assert!(neurons.membrane[c as usize] > 0.0, "once unsilenced it must pass feedforward current on the same delivery");
+    }
+
+    /// Silent is a state, not a weight range: a synapse that shrinks back
+    /// below the unsilence weight after being unsilenced (as homeostatic
+    /// scaling or consolidation's downscale can do) keeps transmitting.
+    #[test]
+    fn an_unsilenced_synapse_whose_weight_later_falls_is_not_resilenced() {
+        let (mut neurons, mut synapses, a, b, _c, dendritic) = silent_synapse_fixture(0.3, true);
+        let mut sched = Scheduler::new(4, 0.5)
+            .with_segments(segments_one_threshold_one())
+            .with_silent_synapses(SilentSynapseParams { unsilence_weight: 0.2, silent_transmits: false });
+        run_one_delivery(&mut sched, &mut neurons, &mut synapses, a);
+        assert_eq!(synapses.silent_since[dendritic as usize], NOT_SILENT);
+
+        synapses.weight[dendritic as usize] = 0.01;
+        neurons.predictive[b as usize] = 0.0;
+        run_one_delivery(&mut sched, &mut neurons, &mut synapses, a);
+        assert_eq!(synapses.silent_since[dendritic as usize], NOT_SILENT, "a falling weight must not re-silence it");
+        assert_eq!(sched.unsilenced_total(), 2, "a synapse is unsilenced, and counted, only once -- the second delivery adds nothing");
+        assert!(neurons.predictive[b as usize] > 0.0, "it must still vote at the lower weight");
+    }
+
+    /// An established (never-silent) synapse is unaffected by any unsilence
+    /// weight, however high -- `BinaryCoincidenceParams::threshold` keeps
+    /// meaning exactly what it meant before B4 for it.
+    #[test]
+    fn a_non_silent_synapse_votes_regardless_of_the_unsilence_weight() {
+        let (mut neurons, mut synapses, a, b, c, _) = silent_synapse_fixture(0.05, false);
+        let mut sched = Scheduler::new(4, 0.5)
+            .with_segments(segments_one_threshold_one())
+            .with_silent_synapses(SilentSynapseParams { unsilence_weight: 0.9, silent_transmits: false });
+        run_one_delivery(&mut sched, &mut neurons, &mut synapses, a);
+
+        assert!(neurons.predictive[b as usize] > 0.0);
+        assert!(neurons.membrane[c as usize] > 0.0);
+    }
+
+    /// VAL-9-style ablation of the gate: with `silent_transmits` on, the same
+    /// silent synapse that delivered nothing above does transmit, while its
+    /// silent state is still tracked.
+    #[test]
+    fn ablation_silent_transmits_lets_a_silent_synapse_deliver_while_still_tracking_it() {
+        let (mut neurons, mut synapses, a, b, c, dendritic) = silent_synapse_fixture(0.05, true);
+        let mut sched = Scheduler::new(4, 0.5)
+            .with_segments(segments_one_threshold_one())
+            .with_silent_synapses(SilentSynapseParams { unsilence_weight: 0.2, silent_transmits: true });
+        run_one_delivery(&mut sched, &mut neurons, &mut synapses, a);
+
+        assert!(neurons.predictive[b as usize] > 0.0);
+        assert!(neurons.membrane[c as usize] > 0.0);
+        assert_ne!(synapses.silent_since[dendritic as usize], NOT_SILENT, "tracking must continue under the ablation");
+    }
+
+    /// No `with_silent_synapses` call must reproduce pre-B4 transmission: a
+    /// silent synapse is unsilenced by its first delivery, whatever its
+    /// weight.
+    #[test]
+    fn by_default_a_silent_synapse_is_unsilenced_by_its_first_delivery() {
+        let (mut neurons, mut synapses, a, b, c, dendritic) = silent_synapse_fixture(0.001, true);
+        let mut sched = Scheduler::new(4, 0.5).with_segments(segments_one_threshold_one());
+        run_one_delivery(&mut sched, &mut neurons, &mut synapses, a);
+
+        assert_eq!(synapses.silent_since[dendritic as usize], NOT_SILENT);
+        assert!(neurons.predictive[b as usize] > 0.0);
+        assert!(neurons.membrane[c as usize] > 0.0);
     }
 
     #[test]

@@ -19,7 +19,7 @@
   "scripts": {
     "build:native": "npm run build --workspace=@brain/napi",
     "build": "npm run build:native && npm run build --workspaces --if-present",
-    "typecheck": "tsc --build --pretty && tsc --noEmit -p packages/brain/tsconfig.test.json && tsc --noEmit -p packages/io/tsconfig.test.json && tsc --noEmit -p packages/viz/tsconfig.test.json",
+    "typecheck": "tsc --build --pretty && tsc --noEmit -p packages/brain/tsconfig.test.json && tsc --noEmit -p packages/io/tsconfig.test.json && tsc --noEmit -p packages/viz/tsconfig.test.json && tsc --noEmit -p scripts/b4-search/tsconfig.json",
     "test": "node scripts/run-ts-tests.mjs fast",
     "test:ts:slow": "node scripts/run-ts-tests.mjs slow",
     "test:fast": "cargo test --workspace && cargo clippy --workspace --tests -- -D warnings && npm run build && npm run typecheck && npm run test",

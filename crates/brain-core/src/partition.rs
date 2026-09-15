@@ -455,6 +455,12 @@ impl PartitionRuntime {
         self
     }
 
+    /// The shared `StructuralPlasticity`'s running totals, if attached
+    /// (PLAN.md B4, reporting only).
+    pub fn structural_plasticity_totals(&self) -> Option<crate::plasticity::structural::StructuralTotals> {
+        self.structural_plasticity.as_ref().map(StructuralPlasticity::totals)
+    }
+
     /// Opts into real parallel execution of stage 1 and stage 3 (RUN-4)
     /// over a dedicated `thread_count`-sized rayon pool. `thread_count <= 1`
     /// returns to the sequential path (RUN-8) -- both must (and, per

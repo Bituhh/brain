@@ -138,13 +138,14 @@ impl Scheduler {
         params: &ConsolidationParams,
         seed: u64,
     ) -> ConsolidationReport {
-        // Reserved for a future `ReplaySource` needing a stochastic choice
-        // (e.g. which of several candidate windows to replay -- Requirement
-        // 11.5's "any stochastic choice... SHALL be drawn from the existing
-        // derive_stream machinery"). `SpikeRaster::recent_events` is already
-        // a pure, deterministic function of its input with no tie to break,
-        // so this phase's only `ReplaySource` impl does not consume it.
-        let _ = seed;
+        // `SpikeRaster::recent_events` is a pure, deterministic function of
+        // its input with no stochastic choice to make, so this phase's only
+        // `ReplaySource` impl does not consume `seed` directly -- it is
+        // threaded through to `sp_params.seed` below instead (PLAN.md B4,
+        // fix 3), for RUN-3 completeness rather than any live behaviour
+        // here: "structural pass never sprouts, by construction" (this
+        // method's own doc comment) means `sprout`'s segment-assignment
+        // draw never actually runs during consolidation today.
 
         let events = source.recent_events(params.replay_window);
         if let Some(&(last_offset, _)) = events.last() {
@@ -202,6 +203,21 @@ impl Scheduler {
             unused_ticks_before_reclaim: params.unused_ticks_before_reclaim,
             min_cross_partition_delay: 1,
             max_sprout_source_index: None,
+            // PLAN.md B4 fixes 2/3: moot here -- "structural pass never
+            // sprouts, by construction" (this method's own doc comment,
+            // unchanged by B4), so neither the timing window nor the
+            // segment-spread draw ever runs.
+            sprout_timing: None,
+            seed,
+            segments_per_neuron: 1,
+            spread_sprout_segments: false,
+            // PLAN.md B4 fix 4: off. Sleep does prune in the brain, and
+            // eliminating still-silent contacts during this pass would be a
+            // defensible reading of it, but `ConsolidationParams` carries no
+            // elimination window and B4 did not ask this item to extend
+            // LRN-10's pass -- recorded as a follow-up in README §12
+            // decision 12 rather than guessed at here.
+            silent_elimination_ticks: None,
         };
         let mut sp = StructuralPlasticity::new(sp_params, FixedNeighbourhoods::new(1, 1));
         let report = sp.force_sweep(neurons, synapses, self.tick(), |_| 0);

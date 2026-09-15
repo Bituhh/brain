@@ -1239,7 +1239,13 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
       deadlock (PLAN.md item B2 re-verifies this against §13.12 item 10's own six-condition
       table). Left as an explicit open question: whether `prune` should ever consider weight (a
       connected-but-permanently-near-zero-weight synapse has no path to being pruned by permanence
-      alone today) — not attempted here.
+      alone today) — not attempted here. **Resolved 2026-09-14 by PLAN.md B4 (decision 12), and not
+      by reading weight:** a new contact is now born *silent* — a discrete state, not a weight range
+      — and is unsilenced by STDP potentiation; pruning removes a synapse that stays silent too
+      long. Reading weight directly was tried in B4's first pass and rejected: with no STDP in the
+      VAL-4 configuration no weight ever moved, so a weight-keyed rule could only ever switch
+      sprouting off, and global scaling can shrink a mature synapse's weight without it being any
+      less established.
     - Ordinary graph-construction wiring (`DistancePolicy`, `NativeSimulation::connect`) is
       unaffected in kind: weight defaults to the same value as permanence at insertion, so a
       freshly-built network's initial dynamics are bit-identical to before the split and only
@@ -1253,6 +1259,154 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     `tests/scale.rs`'s 100k-neuron/50M-synapse scenario now reports **≈1682 MB (≈1.64 GB)** total
     (6.2 MB neurons + 1675.8 MB synapses), up from the previously-measured ≈1.46 GB, comfortably
     within the 8 GB workstation-scale budget that test enforces.
+
+12. **Structural plasticity's four B4 fixes — new contacts are born silent, sprout along causal
+    timing, spread across segments, and are removed if they never switch on. Designed 2026-09-14
+    (PLAN.md item B4, closing §13.12 item 10's 2026-09-14 diagnosis), in two passes.** Decision
+    11's split made every sprout connected and STDP-visible from birth — the fix growth needed —
+    but left `StructuralPlasticity::sprout`/`prune` designed for the old inert-until-potentiated
+    semantics. Every design call below follows how the brain handles new synapses, and every value
+    B4 introduces was chosen by measurement, not by hand.
+
+    **The first pass was wrong in a way worth recording.** It gated dendritic votes on a weight
+    floor and pruned by weight, measured that fix 1 alone recovered condition C to 16.51% —
+    bit-for-bit identical per seed to sprouting disabled — and called that a recovery. Review found
+    the reason: `charPrediction.ts` ran with no STDP, so no weight ever moved, every sprout's weight
+    stayed at `sproutWeight` forever, and a weight gate simply switched sprouting off. A weight
+    floor also let homeostatic scaling or consolidation's downscale silence and prune *mature*
+    synapses by shrinking them. The second pass replaced that design; its first-pass sweep is kept
+    in `scripts/investigate-b4-fix-parameters.v1.results.md`.
+
+    - **Fix 1: a new contact is a silent synapse — a discrete state, not a weight range.** In the
+      brain a fresh synapse typically has NMDA-type but no AMPA-type receptors: it passes no current
+      at rest and cannot help initiate a dendritic spike, but it is exactly where pairing-induced
+      LTP happens, and that LTP inserts AMPA receptors and unsilences it (Isaac, Nicoll & Malenka
+      1995; Liao, Hessler & Malinow 1995). Modelled as `SynapseArena::silent_since` (the tick a
+      synapse became silent, or `NOT_SILENT`). `StructuralPlasticity::sprout` and
+      `PredictiveLearning::reinforce_or_sprout_burst` create silent synapses; graph-construction
+      wiring is an established connectome and is not silent. `Scheduler::deliver` unsilences a
+      silent synapse, permanently, the first time it delivers with weight at or above
+      `SilentSynapseParams::unsilence_weight`; until then it delivers nothing — no dendritic vote,
+      no feedforward current — while STDP and `last_active` still run, so it can still be
+      potentiated. Because silence is a state, global scaling can never re-silence a mature synapse,
+      and `BinaryCoincidenceParams::threshold` means exactly what it meant before for every
+      non-silent synapse. `silent_transmits` is an ablation switch. Default: every silent synapse
+      unsilences on its first delivery — pre-B4 transmission exactly.
+    - **Fix 2: sprout along a bounded causal window.** STDP strengthens a connection only when the
+      presynaptic cell fires shortly *before* the postsynaptic one, within tens of milliseconds, and
+      weakens it for the reverse order (Markram et al. 1997; Bi & Poo 1998). A contact worth keeping
+      is one STDP could go on to strengthen, so `sprout` creates `a -> b` only when `b`'s last spike
+      follows `a`'s by `min_gap_ticks..=max_gap_ticks`. Simultaneous spikes carry no order and
+      sprout in neither direction. The first pass had a minimum gap and no maximum, which let it
+      link pairs 50 characters apart — the opposite of "shortly before"; its "bigger gap is better"
+      trend was really "fewer sprouts is better". `sprout_timing: None` is pre-B4.
+    - **Fix 3: spread sprouts across segments** with `derive_stream(seed, source,
+      purpose::SPROUT_SEGMENT_ASSIGN, target)`, mirroring `graph.rs`'s construction-time
+      `SEGMENT_ASSIGN` draw exactly. Choosing a segment by the context a synapse should predict is
+      out of scope. `spread_sprout_segments: false` is pre-B4.
+    - **Fix 4: eliminate a synapse still silent after `silent_elimination_ticks`.** Most new spines
+      are transient and are lost within days unless they stabilise, and stabilising goes together
+      with becoming functional (Trachtenberg et al. 2002; Holtmaat et al. 2005; Knott et al. 2006).
+      It depends only on a synapse's own state, never on which mechanism made it, and it cannot touch
+      an established synapse because established synapses are never silent — so it cannot repeat
+      E3's blanket-floor harm, and scaling cannot trigger it. `None` is pre-B4.
+    - **Newborn neurons (B3) are deliberately left alone.** Adult-born neurons' early glutamatergic
+      synapses are in fact silent and are unsilenced by experience, but B3's `NewbornMaturation`
+      inputs are how a newborn fires at all, and this item's constraint was not to change them. They
+      stay non-silent; B3's temporary hyperexcitability is already this model's stand-in for how an
+      immature neuron integrates. Their *outputs*, sprouted like any other neuron's, are born silent.
+    - **Consolidation (LRN-10) does not eliminate silent synapses.** Sleep does prune in the brain,
+      and doing it there would be defensible, but `ConsolidationParams` carries no window and B4 did
+      not ask to extend LRN-10's pass — a follow-up, not a guess.
+
+    **Measured (`scripts/investigate-b4-fix-parameters.ts`, 5-seed protocol, condition C unless
+    noted; full data in `.results.md`).** Weights frozen, as in every earlier VAL-4 figure:
+
+    | condition | mean | note |
+    |---|---|---|
+    | every fix off | 6.40% | identical per seed to the pre-B4 control — the off switches are genuine |
+    | fix 1 alone, unsilence weight 0.1 / 0.2 / 0.3 | 16.51% each | with no STDP nothing unsilences, so this *is* sprouting switched off; the value cannot matter |
+    | fix 2 alone, window 1..2 / 1..4 / 1..8 / 1..16 / 1..64 | 10.66 / **11.36** / 8.44 / 8.31 / 5.88% | real, peaks at a 4-tick (two-character) window |
+    | fix 3 alone | 3.88% | **worse than doing nothing** |
+    | fix 4 alone, elimination after 400 / 2,000 / 10,000 ticks (silence tracked, not gated) | 1.80 / 1.79 / 1.86% | **much worse than doing nothing** |
+    | condition A (no structural plasticity), STDP off and six STDP settings | 17.37% each | identical per seed |
+
+    Two of these needed explaining rather than just recording. **STDP has no effect at all on
+    condition A**, not because it is broken — a diagnostic run at learning rate 0.5 changed ~13,800
+    synapse weights within 400 characters — but because every internal synapse in this network sits
+    on a dendritic segment, and segment votes ignore weight. In the VAL-4 network weight has no path
+    to the dynamics except B4's unsilencing. **Fix 4 alone collapses accuracy to ~1.8% on every seed
+    at every window**, the same floor E3's blanket prune reached. The most likely reading, not yet
+    instrumented: with silence tracked but not gated and weights frozen, every sprout is eventually
+    eliminated and the still-co-active pair re-sprouts a fresh contact at `sproutPermanence`, which
+    erases the permanence corrections LRN-8's punishment had already applied to it. Why fix 3 alone
+    hurts is also not instrumented; one plausible reading is that, without fix 1, spreading lets
+    loud, unproven sprouts reach coincidence on more segments instead of crowding onto one.
+
+    **STDP on, and the shipped values (`scripts/tune-b4-values.ts`, 2026-09-15; full data in
+    `scripts/tune-b4-values.results.md`).** Stage 3 of the sweep above was stopped twice. Choosing
+    STDP on condition A picked among exact ties. The redesign still chose and reported on the same
+    seeds, chose each value alone before combining, and hand-set the STDP grid. It was replaced by
+    one resumable search over every value together: STDP learning rate, time constant, depression
+    ratio, eligibility, unsilence weight, window, elimination window, and each of the four fixes on
+    or off. The search was a space-filling screen, then climbs from four distinct hills. A
+    hill-valley test decided which hills were distinct, and ranges extended when a winner sat at an
+    edge. Its budget was chosen by simulating the search on noisy synthetic landscapes. Seeds 1–5
+    chose; seeds 6–10 chose only among the four finalists; seeds 11–15 were never used to choose and
+    give every figure below. 905 trials, none failed.
+
+    The winner, shipped in `canonicalBrain.ts`: **fixes 1, 2 and 4 on, fix 3 off; unsilence weight
+    0.65, window 1..2 ticks, elimination after 20,000 ticks silent**, with STDP at learning rate
+    0.005, time constant 8, depression ratio 1, eligibility 500 (`charPrediction.ts`'s network).
+
+    | condition C, confirmation seeds 11–15 | mean |
+    |---|---|
+    | every fix off (the pre-B4 drag) | 3.58% |
+    | fix 1 alone / fix 2 alone (winner's values) | 11.77% / 10.70% |
+    | **the winner (fixes 1, 2, 4)** | **15.58%** |
+    | runner-up (fixes 1, 2; different values) | 14.94% — a statistical tie: the winner won on 3 of 5 seeds, not the 4 required |
+    | fixes 1, 2, 3 / all four | 9.22% / 9.03% |
+    | fixes 1, 3, 4 | 0.60% |
+    | the winner's exact config with sprouting disabled | 16.63% — better on all 5 seeds |
+    | sprouting disabled, weights frozen | 16.63% — identical per seed to the row above |
+    | condition A, no structural plasticity | 16.99% |
+
+    What this settles, and what it does not:
+    - **B4 removes almost all of the drag, but sprouting still does not help.** From 3.58% to 15.58%,
+      about a point below not sprouting at all. The regression test in
+      `char-prediction.slow.test.ts` pins the winner's selection-seed figure (16.50%). The winner is
+      kept rather than switching sprouting off: the mechanism is roughly neutral here, far from VAL-4's
+      trigram bar either way, it is how growth's newborn neurons (B3) wire in, and PLAN.md B5 builds
+      on it.
+    - **Fixes 1 and 2 carry the result together** (16.34% on selection seeds); either alone reaches
+      only about 11%.
+    - **Fix 3 lowers accuracy in every combination measured.** Every finalist had it off. It stays
+      implemented and off.
+    - **Fix 4 is effectively inert at the winner.** A 20,000-tick window rarely fires in a 30,000-tick
+      run: 186 eliminations against ~288,000 sprouts. Two of the four climbs switched it off, and at
+      shorter windows it was harmful (fixes 1, 3, 4: 0.60%). It is kept as found.
+    - **STDP still has almost no path to prediction.** Every top climb chose the lowest learning rate.
+      The winner with sprouting disabled is identical per seed to the frozen-weight control, so STDP
+      changes nothing once no synapse is silent. That is the weight-blind dendritic vote again: a
+      synapse unsilenced at 0.65 casts a full vote, and one below it none. **PLAN.md B5 (weight-aware
+      dendritic votes) exists because of this result.** It reopens decision 11's fixed-magnitude call
+      with a capped contribution, `min(weight / reference_weight, 1)`, that keeps
+      `coincidence_threshold`'s meaning for established synapses.
+
+    **Coverage.** Unit tests for each fix and its ablation (`scheduler.rs`, `structural.rs`,
+    `predictive.rs`); whole-network VAL-9 ablations in `tests/structural_b4.rs`, one per fix, each
+    asserting a property and that switching the fix off breaks it — including the property the first
+    pass could not show, that STDP unsilences a causal sprout which then predicts; a new golden
+    raster (`structural_plasticity_b4.raster`) whose fast-tier sibling asserts that switching off
+    any one fix changes it; snapshot format version 11 with round-trip and v10-migration tests; unit
+    tests for the value search itself (`scripts/b4-search/*.test.ts`, in the fast tier), including
+    a synthetic two-hill landscape where a one-step climb from the middle stops on the lower hill.
+    Existing golden rasters are unchanged, and deliberately so: the engine-mechanisms scenario's
+    sprouts sit below its connection threshold (pre-B1 semantics) and never transmit, so B4 could
+    not have changed it — the first pass's claim that it "exercised B4 for real" was wrong.
+
+    **Memory cost**: `silent_since` is +4 bytes/synapse — `tests/scale.rs` reports **≈1873 MB** for
+    100k neurons / 50M synapses, up from decision 11's ≈1682 MB, within the 8 GB budget.
 
 ## 12a. Open questions
 
@@ -2894,8 +3048,8 @@ Three claims, in decreasing order of confidence that they are unprecedented.
       criterion that targets specifically-unmatured sprouts by their own history (weight stuck near
       `sproutWeight`), not a stricter version of the existing floor applied uniformly.
 
-      **Consequence for priority among PLAN.md B4's four fixes.** Fixes 2 (weight-gated dendritic
-      coincidence) and 3 (temporally-directed, segment-spread sprout) target what a sprout *is* the
+      **Consequence for priority among PLAN.md B4's four fixes.** Fixes 1 (weight-gated dendritic
+      coincidence) and 2/3 (temporally-directed, segment-spread sprout) target what a sprout *is* the
       moment it is created — exactly the lever E1/E2 show matters. Fix 4 (usefulness-aware pruning)
       is a real, separately-motivated improvement (decision 11's own open question), but this
       experiment shows it is not a substitute for fixing sprout's placement logic, and a naive version
@@ -2915,6 +3069,31 @@ Three claims, in decreasing order of confidence that they are unprecedented.
       called an improvement or a regression from this measurement alone.
 
       Full per-trial data: `scripts/investigate-structural-plasticity-drag.results.md`.
+    - **Update, 2026-09-15: PLAN.md B4 closed — the drag is removed, but sprouting still does not
+      help.** An earlier version of this entry (2026-09-14) reported that a weight-gated dendritic vote
+      alone recovered condition C to 16.51%. That was B4's first pass, and it was wrong: the VAL-4
+      network ran without STDP, no weight ever moved, and the gate simply switched sprouting off. The
+      second pass redesigned fixes 1 and 4 around silent synapses and chose every value, STDP
+      included, with one resumable search, reporting on seeds never used to choose. See §12
+      decision 12 for the design and the full table. Headline, confirmation seeds 11–15: every fix off
+      **3.58%**; B4's winner (fixes 1, 2, 4) **15.58%**; the same config with sprouting disabled
+      **16.63%**; condition A **16.99%**. So sprout placement was indeed the cause, as this item
+      diagnosed. Fixed, it is roughly neutral: about a point below not sprouting, and far from
+      VAL-4's trigram bar either way. Fix 3 (segment spread) lowered accuracy in every combination.
+      Fix 4 is effectively inert at the winner.
+
+      **Why sprouting cannot yet add anything here:** mechanism 1 above, the weight-blind dendritic
+      vote, is still the root cause. B4 fix 1 only turned it into an on/off switch: a sprout has no
+      vote until its weight reaches the unsilence threshold, then a full one. The search pushed that
+      threshold high (0.65) and STDP's learning rate to the bottom of its range, so few sprouts ever
+      vote. With sprouting off, STDP changes nothing at all. **PLAN.md B5 (weight-aware dendritic
+      votes)** takes this up: a delivery contributes `min(weight / reference_weight, 1)` to its
+      segment. A new synapse then earns influence gradually, while an established one still counts
+      as one full vote.
+
+      Still open, from the 2026-09-14 update above: whether fixed structural plasticity changes
+      growth's own conditions (B, D, E, F). B4's scope was condition C. B5 re-runs those conditions
+      at its own winner.
 11. **Polarity is a first-class concept in the type system and invisible to every mechanism that
     acts on it — found 2026-09-13 during a §2-against-§3–§9-against-code review.** NEU-4 and
     invariant 3 are correctly implemented at the point of transmission

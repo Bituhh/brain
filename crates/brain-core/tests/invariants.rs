@@ -17,10 +17,10 @@ use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
 use brain_core::plasticity::stdp::StdpParams;
-use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams};
+use brain_core::plasticity::structural::{SproutTimingWindow, StructuralPlasticity, StructuralPlasticityParams};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::{LocalContext, NeuronLocal, RuleChain, SynapseMut, DOPAMINE, NUM_MODULATORS};
-use brain_core::scheduler::Scheduler;
+use brain_core::scheduler::{Scheduler, SilentSynapseParams};
 use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig};
 use brain_core::snapshot;
 use brain_core::synapse::SynapseArena;
@@ -277,16 +277,26 @@ fn make_engine_scheduler() -> Scheduler {
         .with_intrinsic_homeostasis(IntrinsicHomeostasis::new(0.1, 0.9, 0.05, 0.1, 41))
         .with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(0.1, 0.9, 0.1, 1.0, 47))
         .with_inhibition_homeostasis(InhibitionHomeostasis::new(0.1, 0.9, 0.1, 1.0, 59, 4.0))
+        // PLAN.md B4: silent synapses on, sprouts transmitting (permanence
+        // at/above the 0.3 connection threshold), and every B4 fix live, so
+        // the continuation property below also covers `silent_since`
+        // round-tripping mid-run.
+        .with_silent_synapses(SilentSynapseParams { unsilence_weight: 0.15, silent_transmits: false })
         .with_structural_plasticity(StructuralPlasticity::new(
             StructuralPlasticityParams {
                 prune_floor: 0.05,
-                sprout_permanence: 0.1,
+                sprout_permanence: 0.35,
                 sprout_weight: 0.05,
                 min_activity_streak: 2,
                 sweep_interval_ticks: 33,
                 unused_ticks_before_reclaim: 1_000_000,
                 min_cross_partition_delay: 2,
                 max_sprout_source_index: None,
+                sprout_timing: Some(SproutTimingWindow { min_gap_ticks: 1, max_gap_ticks: 3 }),
+                seed: 7,
+                segments_per_neuron: 2,
+                spread_sprout_segments: true,
+                silent_elimination_ticks: Some(100),
             },
             FixedNeighbourhoods::new(8, 8),
         ))

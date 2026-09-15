@@ -87,6 +87,26 @@ export const WIDTH = 150;
 
 const K = Math.max(1, Math.round(WIDTH * TARGET_SPARSITY));
 
+/**
+ * PLAN.md B4's values (README §12 decision 12), the winner of
+ * `scripts/tune-b4-values.ts`'s search on VAL-4 condition C (results in
+ * `scripts/tune-b4-values.results.md`): fixes 1, 2 and 4 on, fix 3
+ * (segment spread) off -- it lowered accuracy in every combination the
+ * factorial measured. The search tuned these together with STDP at
+ * learning rate 0.005 on `charPrediction.ts`'s network; this constructor
+ * keeps its own generic STDP defaults below, so the unsilence weight here
+ * is the searched value, not one re-tuned for them. The 20,000-tick
+ * elimination window is long enough that fix 4 rarely fires in a
+ * 15,000-character run -- kept as found (README §12 decision 12).
+ */
+const B4_VALUES = {
+  unsilenceWeight: 0.65,
+  minTemporalGapTicks: 1,
+  maxTemporalGapTicks: 2,
+  spreadSproutSegments: false,
+  silentEliminationTicks: 20_000,
+} as const;
+
 /** The one column this constructor builds -- densely (not fully) wired internally, so plasticity has real candidate synapses to select from, mirroring `charPrediction.ts`'s own columnConfig rationale. */
 export function canonicalColumnConfig(): ColumnConfig {
   return {
@@ -113,6 +133,10 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
     inhibition: { neighbourhoodSize: WIDTH, k: K },
     // NEU-5/6
     segments: { segmentsPerNeuron: 2, coincidenceThreshold: 3 },
+    // PLAN.md B4 fix 1 (README §12 decision 12): a fresh sprout is silent --
+    // no current, no dendritic vote -- until STDP (on, below) potentiates it
+    // to `unsilenceWeight`. Value: see `B4_VALUES` above.
+    silentSynapses: { unsilenceWeight: B4_VALUES.unsilenceWeight },
     // LRN-2/3/4
     plasticity: {
       stdp: { aPlus: 0.01, aMinus: 0.01, tauPlus: 20, tauMinus: 20, windowTicks: 100 },
@@ -158,6 +182,13 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       minCrossPartitionDelay: 2,
       neighbourhoodSize: WIDTH,
       k: 5,
+      // PLAN.md B4 fixes 2-4 (README §12 decision 12). Values: see
+      // `B4_VALUES` above.
+      minTemporalGapTicks: B4_VALUES.minTemporalGapTicks,
+      maxTemporalGapTicks: B4_VALUES.maxTemporalGapTicks,
+      spreadSproutSegments: B4_VALUES.spreadSproutSegments,
+      seed,
+      silentEliminationTicks: B4_VALUES.silentEliminationTicks,
     },
     // NET-10. Not supported together with `threadCount > 1` (unset here,
     // so `threadCount` defaults to 1 -- single-threaded, matching every

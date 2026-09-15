@@ -48,6 +48,9 @@ import {
   type GrowthConfig,
   type StructuralPlasticityConfig,
   type NewbornMaturationConfig,
+  type SilentSynapsesConfig,
+  type PlasticityConfig,
+  type StructuralStats,
 } from "@brain/core";
 import { wrapColumnHandles, type ColumnHandle } from "../columns.ts";
 import { encodeChar, SUPPORTED_ALPHABET, type CharEncoderConfig } from "../encoders/text.ts";
@@ -198,6 +201,30 @@ export interface CharPredictionConfig {
    * matching every existing caller's behaviour exactly.
    */
   readonly segmentsPerNeuron?: number;
+  /**
+   * `SimulationOptions.silentSynapses` (PLAN.md B4, fix 1, README §12
+   * decision 12). `undefined` keeps pre-B4 transmission exactly.
+   */
+  readonly silentSynapses?: SilentSynapsesConfig;
+  /**
+   * Local STDP (LRN-2/3/4, `SimulationOptions.plasticity`). `undefined`
+   * (default) leaves every synapse's weight fixed for the whole run -- which
+   * is how every VAL-4 figure in README §13.12 before PLAN.md B4's second
+   * pass was measured. Added so B4 could test whether a silent sprout that
+   * STDP potentiates actually becomes useful: with weights frozen, no sprout
+   * can ever be unsilenced, so that question cannot be asked at all.
+   */
+  readonly plasticity?: PlasticityConfig;
+  /**
+   * Holds one neuromodulator channel at a constant level for the whole run,
+   * so `plasticity`'s three-factor rule behaves as plain STDP scaled by that
+   * level (Requirement 8.8's reference point is a level of 1.0). Brain
+   * basis: cortical plasticity runs under a standing (tonic) level of
+   * neuromodulators such as acetylcholine, not only under phasic bursts.
+   * Needs `plasticity` (the level decays with its `modulatorTauTicks`); has
+   * no effect without it.
+   */
+  readonly tonicModulator?: { readonly channel: number; readonly level: number };
 }
 
 const DEFAULT_COLLISION_MARGIN = 0.1;
@@ -286,6 +313,8 @@ export function buildNetwork(
   structuralPlasticity: StructuralPlasticityConfig | undefined = DEFAULT_CONFIG.structuralPlasticity,
   segmentsPerNeuron: number = DEFAULT_CONFIG.segmentsPerNeuron ?? DEFAULT_SEGMENTS_PER_NEURON,
   newbornMaturation: NewbornMaturationConfig | undefined = DEFAULT_CONFIG.newbornMaturation,
+  silentSynapses: SilentSynapsesConfig | undefined = DEFAULT_CONFIG.silentSynapses,
+  plasticity: PlasticityConfig | undefined = DEFAULT_CONFIG.plasticity,
 ): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 };
   const options: SimulationOptions = {
@@ -364,6 +393,9 @@ export function buildNetwork(
     // comment for why this, not `structuralPlasticity` alone, is what
     // makes `growth` actually do anything here.
     ...(newbornMaturation !== undefined && { newbornMaturation }),
+    // PLAN.md B4: see `CharPredictionConfig.silentSynapses`/`plasticity`.
+    ...(silentSynapses !== undefined && { silentSynapses }),
+    ...(plasticity !== undefined && { plasticity }),
     predictiveLearning: {
       significanceThreshold: 0.5,
       reinforceAmount: 0.08,
@@ -428,7 +460,20 @@ export interface TrialResult {
   readonly networkAccuracy: number;
   readonly trigramAccuracy: number;
   readonly sampleCount: number;
+  /**
+   * Structural plasticity counts at the end of the trial (PLAN.md B4):
+   * what actually happened -- how many sprouts formed, were unsilenced,
+   * pruned or eliminated -- so an accuracy figure can be read alongside it.
+   * Present only when `structuralPlasticity` is configured.
+   */
+  readonly structuralStats?: StructuralStats;
 }
+
+/** `runCharPredictionTrial`'s optional progress callback: characters processed so far, out of the total. */
+export type TrialProgress = (charactersDone: number, charactersTotal: number) => void;
+
+/** How often `runCharPredictionTrial` reports progress, in characters. */
+export const PROGRESS_EVERY_CHARACTERS = 250;
 
 /**
  * Streams `corpus` once through a freshly-built network (Requirement 9.1's
@@ -437,7 +482,7 @@ export interface TrialResult {
  * `SlidingWindowAccuracy` over the same window so the comparison is
  * apples-to-apples (Requirement 13.3).
  */
-export function runCharPredictionTrial(corpus: string, seed: bigint, config: CharPredictionConfig = DEFAULT_CONFIG): TrialResult {
+export function runCharPredictionTrial(corpus: string, seed: bigint, config: CharPredictionConfig = DEFAULT_CONFIG, onProgress?: TrialProgress): TrialResult {
   const encoderConfig = charEncoderConfig(config.width, config.density);
   const candidates = buildCandidates(encoderConfig);
   const { sim, column } = buildNetwork(
@@ -450,6 +495,8 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
     config.structuralPlasticity,
     config.segmentsPerNeuron ?? DEFAULT_SEGMENTS_PER_NEURON,
     config.newbornMaturation,
+    config.silentSynapses,
+    config.plasticity,
   );
   const collisionMargin = config.collisionMargin ?? DEFAULT_COLLISION_MARGIN;
   const trigram = new TrigramModel();
@@ -458,6 +505,17 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
 
   const source = charNextPairs(corpus);
   let context = "";
+  let charactersDone = 0;
+
+  // `tonicModulator`: inject the full level once, then after each input top
+  // it up by exactly what `ticksPerInput` ticks of decay removed, so the
+  // level sits at `level` at every top-up.
+  const tonic = config.tonicModulator;
+  const tonicTau = tonic !== undefined ? config.plasticity?.modulatorTauTicks[tonic.channel] : undefined;
+  const tonicTopUp = tonic !== undefined && tonicTau !== undefined ? tonic.level * (1 - Math.exp(-config.ticksPerInput / tonicTau)) : 0;
+  if (tonic !== undefined && tonicTau !== undefined) {
+    sim.injectModulator(tonic.channel, tonic.level);
+  }
 
   for (const step of streamThrough<CharNext, string>({
     source,
@@ -472,6 +530,9 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
   })) {
     const hit = step.predicted?.label === step.actual;
     networkAcc.record(hit);
+    if (tonic !== undefined && tonicTopUp > 0) {
+      sim.injectModulator(tonic.channel, tonicTopUp);
+    }
     // Requirement 2 AC2: closes the "never called at all" gap found during
     // this spec's own research -- `undefined` (default) skips this
     // entirely, matching today's behaviour exactly.
@@ -498,9 +559,19 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
     }
     trigram.observe(context, step.actual);
     context = (context + step.input.char).slice(-2);
+    charactersDone++;
+    if (onProgress !== undefined && charactersDone % PROGRESS_EVERY_CHARACTERS === 0) {
+      onProgress(charactersDone, source.length);
+    }
   }
 
-  return { seed, networkAccuracy: networkAcc.accuracy, trigramAccuracy: trigramAcc.accuracy, sampleCount: networkAcc.sampleCount };
+  return {
+    seed,
+    networkAccuracy: networkAcc.accuracy,
+    trigramAccuracy: trigramAcc.accuracy,
+    sampleCount: networkAcc.sampleCount,
+    ...(config.structuralPlasticity !== undefined && { structuralStats: sim.structuralStats() }),
+  };
 }
 
 /** decode() only ever reports a `DecodeResult` when confident (Requirement 7.2); non-decoded steps count as misses here, matching README's stated metric of a caller choosing to score "no guess" as wrong (`step.predicted?.label === step.actual` is `false` for both a wrong guess and no guess). */

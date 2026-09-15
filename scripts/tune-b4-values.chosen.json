@@ -1,0 +1,193 @@
+{
+  "generatedAt": "2026-09-15T18:42:12.445Z",
+  "winner": {
+    "learningRate": 0.005,
+    "stdpTauTicks": 8,
+    "depressionRatio": 1,
+    "eligibilityTauTicks": 500,
+    "unsilenceWeight": 0.65,
+    "maxGapTicks": 2,
+    "eliminationTicks": 20000,
+    "silentGate": 1,
+    "timingWindow": 1,
+    "spreadSegments": 0,
+    "silentElimination": 1
+  },
+  "confirmMean": 0.1558,
+  "heldOutMean": 0.163,
+  "clearWin": false,
+  "factorial": [
+    {
+      "fixes": {
+        "silentGate": false,
+        "timingWindow": false,
+        "spread": false,
+        "elimination": false
+      },
+      "selectionMean": 0.064,
+      "confirmMean": 0.0358
+    },
+    {
+      "fixes": {
+        "silentGate": true,
+        "timingWindow": false,
+        "spread": false,
+        "elimination": false
+      },
+      "selectionMean": 0.1155,
+      "confirmMean": 0.1177
+    },
+    {
+      "fixes": {
+        "silentGate": false,
+        "timingWindow": true,
+        "spread": false,
+        "elimination": false
+      },
+      "selectionMean": 0.1066,
+      "confirmMean": 0.10700000000000001
+    },
+    {
+      "fixes": {
+        "silentGate": true,
+        "timingWindow": true,
+        "spread": false,
+        "elimination": false
+      },
+      "selectionMean": 0.16340000000000002
+    },
+    {
+      "fixes": {
+        "silentGate": false,
+        "timingWindow": false,
+        "spread": true,
+        "elimination": false
+      },
+      "selectionMean": 0.0388,
+      "confirmMean": 0.0422
+    },
+    {
+      "fixes": {
+        "silentGate": true,
+        "timingWindow": false,
+        "spread": true,
+        "elimination": false
+      },
+      "selectionMean": 0.11140000000000001
+    },
+    {
+      "fixes": {
+        "silentGate": false,
+        "timingWindow": true,
+        "spread": true,
+        "elimination": false
+      },
+      "selectionMean": 0.0688
+    },
+    {
+      "fixes": {
+        "silentGate": true,
+        "timingWindow": true,
+        "spread": true,
+        "elimination": false
+      },
+      "selectionMean": 0.086,
+      "confirmMean": 0.09220000000000002
+    },
+    {
+      "fixes": {
+        "silentGate": false,
+        "timingWindow": false,
+        "spread": false,
+        "elimination": true
+      },
+      "selectionMean": 0.061399999999999996,
+      "confirmMean": 0.041100000000000005
+    },
+    {
+      "fixes": {
+        "silentGate": true,
+        "timingWindow": false,
+        "spread": false,
+        "elimination": true
+      },
+      "selectionMean": 0.0548
+    },
+    {
+      "fixes": {
+        "silentGate": false,
+        "timingWindow": true,
+        "spread": false,
+        "elimination": true
+      },
+      "selectionMean": 0.1051
+    },
+    {
+      "fixes": {
+        "silentGate": true,
+        "timingWindow": true,
+        "spread": false,
+        "elimination": true
+      },
+      "selectionMean": 0.165,
+      "confirmMean": 0.1558
+    },
+    {
+      "fixes": {
+        "silentGate": false,
+        "timingWindow": false,
+        "spread": true,
+        "elimination": true
+      },
+      "selectionMean": 0.047099999999999996
+    },
+    {
+      "fixes": {
+        "silentGate": true,
+        "timingWindow": false,
+        "spread": true,
+        "elimination": true
+      },
+      "selectionMean": 0.0031,
+      "confirmMean": 0.006
+    },
+    {
+      "fixes": {
+        "silentGate": false,
+        "timingWindow": true,
+        "spread": true,
+        "elimination": true
+      },
+      "selectionMean": 0.0764,
+      "confirmMean": 0.0915
+    },
+    {
+      "fixes": {
+        "silentGate": true,
+        "timingWindow": true,
+        "spread": true,
+        "elimination": true
+      },
+      "selectionMean": 0.088,
+      "confirmMean": 0.0903
+    }
+  ],
+  "references": [
+    {
+      "name": "condition C, every fix off, weights frozen (pre-B4 control)",
+      "confirmMean": 0.0358
+    },
+    {
+      "name": "condition C, sprouting disabled, weights frozen",
+      "confirmMean": 0.16629999999999998
+    },
+    {
+      "name": "condition A, no structural plasticity, weights frozen",
+      "confirmMean": 0.16990000000000002
+    },
+    {
+      "name": "the winner's exact config with sprouting disabled (does sprouting beat not sprouting, same STDP?)",
+      "confirmMean": 0.16629999999999998
+    }
+  ]
+}

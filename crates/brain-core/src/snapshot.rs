@@ -54,7 +54,7 @@ use crate::plasticity::{Modulators, NUM_MODULATORS};
 use crate::plasticity::newborn::NewbornMaturationRawState;
 use crate::scheduler::{Scheduler, SweepSchedulingRawState};
 use crate::segment::{BinaryCoincidenceParams, SegmentConfig};
-use crate::synapse::SynapseArena;
+use crate::synapse::{SynapseArena, NOT_SILENT};
 
 const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// Bumped 8 -> 9 (README §12's weight/permanence split, 2026-09-13, PLAN.md
@@ -174,7 +174,25 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// schema migration, partial loading, compatibility guarantees -- from
 /// Phase 0-3 to Phase 4; the round-trip mechanism itself (this module) was
 /// already in scope then and is unchanged in its v1 shape.
-pub const FORMAT_VERSION: u32 = 10;
+///
+/// Bumped 10 -> 11 (PLAN.md B4, README §12 decision 12) to add a
+/// per-synapse `silent_since` section, following the `weight` section's own
+/// version-9 precedent exactly: a new trailing section rather than an
+/// inline field, so the un-versioned synapse block's byte layout stays
+/// unchanged. A version <= 10 payload has no such section; `read_synapses`
+/// defaults every occupied synapse to `NOT_SILENT`. That is honest for
+/// graph-construction wiring and B3 newborn inputs (both born non-silent
+/// under B4 too), and the only available reading for any sprout a pre-B4
+/// snapshot holds: the silent state did not exist then, so nothing in that
+/// payload can say which contacts were still unproven.
+///
+/// Also added alongside this version: `read` rejects a payload of *any*
+/// version with bytes left over after that version's last section, as
+/// `Corrupt`. Before, trailing bytes were silently ignored, which let the
+/// version-migration tests strip the wrong number of bytes and still pass.
+/// No real writer ever emitted trailing bytes for its own version, so no
+/// snapshot that restored before this change stops restoring now.
+pub const FORMAT_VERSION: u32 = 11;
 /// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
 /// concrete and falsifiable: `read` migrates any snapshot from this
 /// version through `FORMAT_VERSION`. Widen this only alongside an actual
@@ -723,8 +741,12 @@ fn read_synapses(r: &mut Reader<'_>) -> Result<SynapseArena, SnapshotError> {
         // before README §12's split existed), and the base a version-9
         // payload's own weight section (see `read_synapse_weights`)
         // overwrites afterward.
+        // `silent_since` defaults to `NOT_SILENT` here -- the reading every
+        // payload with no silent-synapse section of its own gets (version <=
+        // 10, see `FORMAT_VERSION`'s doc comment), and the base a version-11
+        // payload's own section (see `read_synapse_silent_since`) overwrites.
         synapses
-            .restore_slot(id, target_neuron, target_segment, permanence, permanence, delay, eligibility, last_active, eligibility_updated_at)
+            .restore_slot(id, target_neuron, target_segment, permanence, permanence, delay, eligibility, last_active, eligibility_updated_at, NOT_SILENT)
             .map_err(|_| SnapshotError::Corrupt)?;
     }
     Ok(synapses)
@@ -762,6 +784,37 @@ fn read_synapse_weights(r: &mut Reader<'_>, synapses: &mut SynapseArena) -> Resu
             return Err(SnapshotError::Corrupt);
         }
         synapses.weight[id] = weight;
+    }
+    Ok(())
+}
+
+/// New in format version 11 (PLAN.md B4, README §12 decision 12): each
+/// occupied synapse's `silent_since`, same shape as [`write_synapse_weights`]
+/// exactly -- its own trailing section, recomputing the occupied-id list
+/// rather than threading it through.
+fn write_synapse_silent_since(w: &mut Writer, synapses: &SynapseArena, neuron_count: u32) {
+    let occupied: Vec<u32> = (0..neuron_count).flat_map(|source| synapses.occupied_in_block(source)).collect();
+    w.u32(occupied.len() as u32);
+    for id in occupied {
+        w.u32(id);
+        w.u32(synapses.silent_since[id as usize]);
+    }
+}
+
+/// Reads format version 11's silent-synapse section and overwrites the
+/// just-restored `synapses.silent_since` for each entry -- called only after
+/// `read_synapses` has already defaulted it to `NOT_SILENT`, which is what a
+/// version <= 10 payload (no section to read at all) leaves in place.
+/// Mirrors [`read_synapse_weights`] exactly.
+fn read_synapse_silent_since(r: &mut Reader<'_>, synapses: &mut SynapseArena) -> Result<(), SnapshotError> {
+    let count = r.u32()?;
+    for _ in 0..count {
+        let id = r.u32()? as usize;
+        let silent_since = r.u32()?;
+        if id >= synapses.silent_since.len() {
+            return Err(SnapshotError::Corrupt);
+        }
+        synapses.silent_since[id] = silent_since;
     }
     Ok(())
 }
@@ -884,6 +937,8 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
     write_synapse_weights(&mut w, synapses, neuron_count);
 
     write_newborn_maturation_state(&mut w, scheduler.newborn_maturation_raw_state().as_ref());
+
+    write_synapse_silent_since(&mut w, synapses, neuron_count);
 
     w.buf
 }
@@ -1049,6 +1104,20 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
     // in that snapshot is, definitionally, "mature."
     let newborn_maturation = if header.version >= 10 { read_newborn_maturation_state(&mut r)? } else { None };
 
+    // Format versions 1-10 have no silent-synapse section -- `read_synapses`
+    // above already defaulted every occupied synapse to `NOT_SILENT` (see
+    // `FORMAT_VERSION`'s doc comment for why that is the only available
+    // reading).
+    if header.version >= 11 {
+        read_synapse_silent_since(&mut r, &mut synapses)?;
+    }
+
+    // Leftover bytes mean the payload is not the shape its version claims
+    // (see `FORMAT_VERSION`'s doc comment).
+    if r.pos != bytes.len() {
+        return Err(SnapshotError::Corrupt);
+    }
+
     Ok(Restored {
         neurons,
         synapses,
@@ -1137,6 +1206,63 @@ mod tests {
         assert_eq!(restored.neurons.adaptation[1], 0.42);
     }
 
+    /// Rewrites a freshly written, current-version payload into a genuine
+    /// version-`version` one: strips exactly the bytes of every trailing
+    /// section introduced after `version`, measured by running the real
+    /// section writers against the same state, then sets the version tag.
+    /// Before this helper existed each migration test hand-computed the
+    /// bytes to strip and was silently wrong once a newer section was
+    /// appended after its own -- invisible until `read` began rejecting
+    /// leftover bytes (see `FORMAT_VERSION`'s doc comment).
+    fn downgrade_to_version(bytes: &[u8], neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Scheduler, columns: &ColumnRegistry, neuron_count: u32, version: u32) -> Vec<u8> {
+        fn measure(f: impl FnOnce(&mut Writer)) -> usize {
+            let mut w = Writer::new();
+            f(&mut w);
+            w.buf.len()
+        }
+        let (modulator_levels, modulator_last_updated_at) = scheduler.modulator_raw_state();
+        let (segment_counts, segment_last_touched_tick) = scheduler.segment_coincidence_raw_state();
+        let (segment_threshold, segment_rate_estimate, segment_last_depolarised_tick) = scheduler.segment_threshold_raw_state();
+        // (version that introduced the section, its size), in write order.
+        let sections: [(u32, usize); 10] = [
+            (2, measure(|w| write_columns(w, columns))),
+            (3, measure(|w| write_modulator_state(w, modulator_levels, modulator_last_updated_at))),
+            (4, measure(|w| write_adaptation(w, neurons))),
+            (5, measure(|w| write_segment_coincidence_state(w, segment_counts, segment_last_touched_tick))),
+            (6, measure(|w| write_segment_threshold_state(w, segment_threshold, segment_rate_estimate, segment_last_depolarised_tick))),
+            (7, measure(|w| write_growth_state(w, scheduler.growth_raw_state()))),
+            (8, measure(|w| write_sweep_scheduling_state(w, &scheduler.sweep_scheduling_raw_state()))),
+            (9, measure(|w| write_synapse_weights(w, synapses, neuron_count))),
+            (10, measure(|w| write_newborn_maturation_state(w, scheduler.newborn_maturation_raw_state().as_ref()))),
+            (11, measure(|w| write_synapse_silent_since(w, synapses, neuron_count))),
+        ];
+        assert_eq!(sections.last().unwrap().0, FORMAT_VERSION, "add the newest section to this helper when FORMAT_VERSION is bumped");
+        let strip: usize = sections.iter().filter(|(introduced, _)| *introduced > version).map(|(_, size)| size).sum();
+        let mut out = bytes[..bytes.len() - strip].to_vec();
+        out[6..10].copy_from_slice(&version.to_le_bytes());
+        out
+    }
+
+    /// The helper above must reproduce the real current-version payload when
+    /// asked for the current version, and a payload with leftover bytes must
+    /// be rejected -- together, what makes every migration test below real.
+    #[test]
+    fn a_payload_with_leftover_bytes_is_rejected_as_corrupt() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
+        assert_eq!(downgrade_to_version(&bytes, &neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, FORMAT_VERSION), bytes);
+
+        let mut padded = bytes.clone();
+        padded.push(0);
+        assert_eq!(read(&padded, 7).err(), Some(SnapshotError::Corrupt));
+
+        // An old-version payload with a newer section still attached is not
+        // a genuine old payload either.
+        let mut mislabelled = bytes.clone();
+        mislabelled[6..10].copy_from_slice(&10u32.to_le_bytes());
+        assert_eq!(read(&mislabelled, 7).err(), Some(SnapshotError::Corrupt));
+    }
+
     /// A snapshot written before format version 4 (NEU-8) existed has no
     /// adaptation section at all -- the only sound migration is "zeroed",
     /// matching `read_neurons`'s own default and what every pre-Phase-5.5
@@ -1148,11 +1274,8 @@ mod tests {
     #[test]
     fn a_version_3_snapshot_restores_with_zeroed_adaptation() {
         let (neurons, synapses, scheduler) = sample_network();
-        let mut bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
-        let adaptation_bytes = neurons.capacity_len() * size_of::<f32>();
-        let truncated_len = bytes.len() - adaptation_bytes;
-        bytes.truncate(truncated_len);
-        bytes[6..10].copy_from_slice(&3u32.to_le_bytes());
+        let full = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
+        let bytes = downgrade_to_version(&full, &neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 3);
 
         let restored = read(&bytes, 1).unwrap();
         assert_eq!(
@@ -1452,12 +1575,7 @@ mod tests {
     fn a_version_4_snapshot_restores_with_an_empty_coincidence_window_section() {
         let (neurons, synapses, scheduler) = sample_network();
         let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
-        // `sample_network` never configures segments, so the trailing
-        // section this test needs to strip is just its own 4-byte
-        // zero-length prefix (see `write_segment_coincidence_state`).
-        let truncated_len = bytes.len() - size_of::<u32>();
-        let mut truncated = bytes[..truncated_len].to_vec();
-        truncated[6..10].copy_from_slice(&4u32.to_le_bytes());
+        let truncated = downgrade_to_version(&bytes, &neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 4);
 
         let restored = read(&truncated, 7).unwrap();
         assert!(restored.segment_counts.is_empty(), "a version-4 snapshot has no coincidence-window section, so it must restore to an empty one");
@@ -1524,12 +1642,7 @@ mod tests {
     fn a_version_5_snapshot_restores_with_an_empty_segment_threshold_section() {
         let (neurons, synapses, scheduler) = sample_network();
         let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
-        // `sample_network` never configures segments, so the trailing
-        // section this test needs to strip is just its own 4-byte
-        // zero-length prefix (see `write_segment_threshold_state`).
-        let truncated_len = bytes.len() - size_of::<u32>();
-        let mut truncated = bytes[..truncated_len].to_vec();
-        truncated[6..10].copy_from_slice(&5u32.to_le_bytes());
+        let truncated = downgrade_to_version(&bytes, &neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 5);
 
         let restored = read(&truncated, 7).unwrap();
         assert!(restored.segment_threshold.is_empty(), "a version-5 snapshot has no segment-threshold section, so it must restore to an empty one");
@@ -1573,6 +1686,11 @@ mod tests {
                     unused_ticks_before_reclaim: 1_000_000,
                     min_cross_partition_delay: 2,
                     max_sprout_source_index: None,
+                    sprout_timing: None,
+                    seed: 0,
+                    segments_per_neuron: 1,
+                    spread_sprout_segments: false,
+                    silent_elimination_ticks: None,
                 },
                 FN::new(4, 2),
             ));
@@ -1617,16 +1735,7 @@ mod tests {
     fn a_version_7_snapshot_restores_with_no_sweep_scheduling_section() {
         let (neurons, synapses, scheduler) = sample_network();
         let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
-        // `sample_network`'s scheduler configures none of the five sweep
-        // mechanisms, so its sweep-scheduling section is exactly five
-        // zero-flag bytes (see `write_sweep_scheduling_state`); its weight
-        // section (README §12's split, format version 9, now the last
-        // section `write` appends) is a u32 count plus one (id, weight)
-        // pair for its one occupied synapse -- 4 + 4 + 4 = 12 bytes. Both
-        // must be stripped to land on a genuine version-7 shape.
-        let truncated_len = bytes.len() - 5 - 12;
-        let mut truncated = bytes[..truncated_len].to_vec();
-        truncated[6..10].copy_from_slice(&7u32.to_le_bytes());
+        let truncated = downgrade_to_version(&bytes, &neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
 
         let restored = read(&truncated, 7).unwrap();
         assert!(restored.sweep_scheduling.is_none(), "a version-7 snapshot has no sweep-scheduling section, so it must restore to None");
@@ -1642,12 +1751,7 @@ mod tests {
     fn a_version_8_snapshot_restores_with_weight_derived_from_permanence() {
         let (neurons, synapses, scheduler) = sample_network();
         let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
-        // `sample_network` has exactly one occupied synapse, so the weight
-        // section (see `write_synapse_weights`) is a u32 count plus one
-        // (id: u32, weight: f32) pair -- 4 + 4 + 4 = 12 bytes.
-        let truncated_len = bytes.len() - 12;
-        let mut truncated = bytes[..truncated_len].to_vec();
-        truncated[6..10].copy_from_slice(&8u32.to_le_bytes());
+        let truncated = downgrade_to_version(&bytes, &neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 8);
 
         let restored = read(&truncated, 7).unwrap();
         assert_eq!(restored.synapses.permanence[0], 0.6, "sanity: sample_network's synapse permanence");
@@ -1696,16 +1800,43 @@ mod tests {
     fn a_version_9_snapshot_restores_with_no_newborn_maturation_section() {
         let (neurons, synapses, scheduler) = sample_network();
         let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
-        // `sample_network`'s scheduler never configures newborn maturation,
-        // so its section is exactly one zero-flag byte (see
-        // `write_newborn_maturation_state`) -- the last thing `write`
-        // appends.
-        let truncated_len = bytes.len() - 1;
-        let mut truncated = bytes[..truncated_len].to_vec();
-        truncated[6..10].copy_from_slice(&9u32.to_le_bytes());
+        let truncated = downgrade_to_version(&bytes, &neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 9);
 
         let restored = read(&truncated, 7).unwrap();
         assert!(restored.newborn_maturation.is_none(), "a version-9 snapshot has no newborn-maturation section, so it must restore to None");
+    }
+
+    // -- Silent synapses (PLAN.md item B4, format version 11).
+
+    /// Every occupied synapse's `silent_since` round-trips exactly, both a
+    /// silent one and a non-silent one.
+    #[test]
+    fn round_trips_silent_synapse_state_exactly() {
+        let (neurons, mut synapses, scheduler) = sample_network();
+        synapses.reserve_for_neurons(2);
+        let silent = synapses.insert(1, 0, 0, 1, 0.4, 0.05).unwrap();
+        synapses.silent_since[silent as usize] = 1234;
+
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 1);
+        let restored = read(&bytes, 1).unwrap();
+
+        assert_eq!(restored.synapses.silent_since[silent as usize], 1234, "a silent synapse's silent_since must round-trip");
+        assert_eq!(restored.synapses.silent_since[0], NOT_SILENT, "a non-silent synapse must restore non-silent");
+    }
+
+    /// A version-10 (pre-B4) payload has no silent-synapse section: every
+    /// synapse restores non-silent, the only reading such a payload allows.
+    #[test]
+    fn a_version_10_snapshot_restores_every_synapse_as_not_silent() {
+        let (neurons, mut synapses, scheduler) = sample_network();
+        synapses.reserve_for_neurons(2);
+        let silent = synapses.insert(1, 0, 0, 1, 0.4, 0.05).unwrap();
+        synapses.silent_since[silent as usize] = 1234;
+        let bytes = write(&neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 7);
+        let truncated = downgrade_to_version(&bytes, &neurons, &synapses, &scheduler, &ColumnRegistry::new(), 2, 10);
+
+        let restored = read(&truncated, 7).unwrap();
+        assert!(restored.synapses.silent_since.iter().all(|&t| t == NOT_SILENT));
     }
 
     #[test]

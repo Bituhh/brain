@@ -7,7 +7,21 @@
 
 use crate::arena::NeuronArena;
 use crate::inhibition::FixedNeighbourhoods;
-use crate::synapse::SynapseArena;
+use crate::rng::derive_stream;
+use crate::synapse::{SynapseArena, NOT_SILENT};
+
+/// Purpose tags for `derive_stream` draws made by this module -- mirrors
+/// `newborn.rs`'s own scoped `purpose` module and `graph.rs`'s
+/// `purpose::SEGMENT_ASSIGN` precedent exactly (PLAN.md B4, fix 3).
+mod purpose {
+    /// Which of the target neuron's `segments_per_neuron` dendritic
+    /// segments a sprouted synapse lands on -- the sprout-time counterpart
+    /// to `graph::purpose::SEGMENT_ASSIGN`'s construction-time draw. A
+    /// distinct tag (not a shared stream with construction) so a sprout's
+    /// segment assignment is independent of whatever `graph.rs` drew for
+    /// the same `(source, target)` pair, should one ever already exist.
+    pub const SPROUT_SEGMENT_ASSIGN: u32 = 1;
+}
 
 pub struct StructuralPlasticityParams {
     /// Permanence at or below this is pruned (Requirement 11.1).
@@ -84,6 +98,69 @@ pub struct StructuralPlasticityParams {
     /// opinion on which neurons are "real" -- it only ever sees a plain
     /// index cutoff supplied from outside.
     pub max_sprout_source_index: Option<u32>,
+    /// The causal timing window a candidate pair must fall inside before
+    /// [`StructuralPlasticity::sprout`] creates a synapse, and in which
+    /// direction (PLAN.md B4, fix 2, README §12 decision 12). `None` is the
+    /// pre-B4 behaviour: any two co-active candidates sprout both `a -> b`
+    /// and `b -> a`, with no notion of which fired first.
+    pub sprout_timing: Option<SproutTimingWindow>,
+    /// This mechanism's own deterministic seed (PLAN.md B4, fix 3),
+    /// mirroring `GrowthConfig.seed`'s existing FFI precedent -- there is
+    /// no simulation-wide seed (RUN-3, README §12 decision 7: every
+    /// mechanism that draws randomness carries its own). Feeds
+    /// [`purpose::SPROUT_SEGMENT_ASSIGN`]'s draw in `sprout`; unused when
+    /// segments are not spread.
+    pub seed: u64,
+    /// How many dendritic segments each neuron has. This module has no
+    /// notion of segments of its own (dendritic evaluation is
+    /// `scheduler.rs`'s job), so the caller must supply the same value as
+    /// the scheduler's `SegmentConfig::segments_per_neuron`, the same
+    /// caller-coordinates-it convention `sprout_permanence`'s doc comment
+    /// documents for `connection_threshold`.
+    pub segments_per_neuron: u32,
+    /// Whether a sprout's target segment is drawn deterministically from
+    /// `(seed, source, target)` (PLAN.md B4, fix 3), following `graph.rs`'s
+    /// own construction-time `purpose::SEGMENT_ASSIGN` draw exactly, instead
+    /// of always landing on segment 0. `false` is the pre-B4 behaviour, kept
+    /// as an ablation switch. `segments_per_neuron <= 1` always resolves to
+    /// segment 0 either way, matching `graph.rs`'s own guard.
+    pub spread_sprout_segments: bool,
+    /// Eliminate a synapse still silent (`SynapseArena::silent_since`) this
+    /// many ticks after it became silent (PLAN.md B4, fix 4, README §12
+    /// decision 12): a second, independent prune criterion alongside the
+    /// permanence floor, not a change to it. `None` disables it (pre-B4).
+    ///
+    /// This is the brain's handling of new contacts: most newly formed
+    /// spines are transient and are lost within days unless they are
+    /// stabilised, and stabilisation goes together with becoming
+    /// functional (Trachtenberg et al. 2002; Holtmaat et al. 2005; Knott et
+    /// al. 2006). It depends only on a synapse's own state, not on which
+    /// mechanism created it. It cannot touch an established synapse at all,
+    /// because established synapses are never silent -- which is also why it
+    /// cannot repeat E3's confirmed-harmful blanket permanence-floor result
+    /// (README §13.12 item 10), and why homeostatic scaling shrinking a
+    /// mature synapse's weight can never trigger it.
+    pub silent_elimination_ticks: Option<u32>,
+}
+
+/// [`StructuralPlasticityParams::sprout_timing`]: a sprout `a -> b` is
+/// created only when `b`'s most recent spike follows `a`'s by at least
+/// `min_gap_ticks` and at most `max_gap_ticks`.
+///
+/// Brain basis: spike-timing-dependent plasticity strengthens a connection
+/// only when the presynaptic cell fires shortly *before* the postsynaptic
+/// one, inside a window of tens of milliseconds, and weakens it for the
+/// reverse order (Markram et al. 1997; Bi & Poo 1998). A new contact worth
+/// keeping is one STDP could go on to strengthen, so sprouting follows the
+/// same shape: causal order, bounded window. Pairs closer together than
+/// `min_gap_ticks` carry no usable order and sprout in neither direction.
+/// Pairs further apart than `max_gap_ticks` are not causally related on
+/// this timescale and do not sprout either.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SproutTimingWindow {
+    /// Must be at least 1: a gap of 0 carries no order.
+    pub min_gap_ticks: u32,
+    pub max_gap_ticks: u32,
 }
 
 pub struct StructuralPlasticity {
@@ -94,18 +171,40 @@ pub struct StructuralPlasticity {
     /// since the previous sweep. Reused across calls (ENG-9); grown
     /// lazily to track newly allocated neurons.
     activity_streak: Vec<u32>,
+    /// Running totals over every sweep this instance has run (PLAN.md B4).
+    /// Reporting only: nothing in the simulation reads them, and they are
+    /// not part of snapshot state, so they restart from zero after a
+    /// restore.
+    totals: StructuralTotals,
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StructuralSweepReport {
+    /// Removed by the permanence floor.
     pub pruned: u32,
+    /// Removed by PLAN.md B4's fix 4 (still silent after
+    /// `silent_elimination_ticks`). A synapse that meets both criteria in the
+    /// same sweep is counted once, as `pruned`.
+    pub eliminated: u32,
     pub sprouted: u32,
     pub reclaimed_neurons: u32,
 }
 
+/// [`StructuralPlasticity::totals`]: counts summed over every sweep.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StructuralTotals {
+    pub sprouted: u64,
+    pub pruned: u64,
+    pub eliminated: u64,
+}
+
 impl StructuralPlasticity {
     pub fn new(params: StructuralPlasticityParams, neighbourhoods: FixedNeighbourhoods) -> Self {
-        Self { params, neighbourhoods, last_swept_at: 0, activity_streak: Vec::new() }
+        debug_assert!(
+            params.sprout_timing.is_none_or(|w| w.min_gap_ticks >= 1 && w.min_gap_ticks <= w.max_gap_ticks),
+            "sprout_timing needs 1 <= min_gap_ticks <= max_gap_ticks"
+        );
+        Self { params, neighbourhoods, last_swept_at: 0, activity_streak: Vec::new(), totals: StructuralTotals::default() }
     }
 
     fn ensure_streak_capacity(&mut self, len: usize) {
@@ -132,25 +231,44 @@ impl StructuralPlasticity {
         }
     }
 
-    fn prune(&self, synapses: &mut SynapseArena, neuron_count: u32) -> u32 {
+    /// `tick` is this sweep's own tick, needed for PLAN.md B4's fix 4
+    /// silent-synapse elimination. Returns `(pruned, eliminated)` -- see
+    /// [`StructuralSweepReport`].
+    fn prune(&self, synapses: &mut SynapseArena, neuron_count: u32, tick: u32) -> (u32, u32) {
         let mut pruned = 0;
+        let mut eliminated = 0;
         for source in 0..neuron_count {
             let occupied: Vec<u32> = synapses.occupied_in_block(source).collect();
             for id in occupied {
-                if synapses.permanence[id as usize] <= self.params.prune_floor {
+                let i = id as usize;
+                let below_permanence_floor = synapses.permanence[i] <= self.params.prune_floor;
+                // PLAN.md B4, fix 4: a second, independent criterion -- see
+                // `silent_elimination_ticks`'s doc comment.
+                let silent_too_long = match self.params.silent_elimination_ticks {
+                    Some(limit) => synapses.silent_since[i] != NOT_SILENT && tick.saturating_sub(synapses.silent_since[i]) >= limit,
+                    None => false,
+                };
+                if below_permanence_floor {
                     synapses.remove(id);
                     pruned += 1;
+                } else if silent_too_long {
+                    synapses.remove(id);
+                    eliminated += 1;
                 }
             }
         }
-        pruned
+        (pruned, eliminated)
     }
 
     /// `partition_of` decides each sprouted synapse's delay: same-partition
     /// pairs (including the always-true case plain [`Self::maybe_sweep`]
     /// uses, `|_| 0`) get delay 1 as before; cross-partition pairs get
-    /// `max(1, min_cross_partition_delay)` (Requirement 4 AC2).
-    fn sprout(&self, synapses: &mut SynapseArena, neuron_count: u32, partition_of: &dyn Fn(u32) -> usize) -> u32 {
+    /// `max(1, min_cross_partition_delay)` (Requirement 4 AC2). `neurons` is
+    /// read only for `last_spike` (PLAN.md B4, fix 2's timing window) --
+    /// `activity_streak` above already carries this sweep's coarser
+    /// eligibility signal. `tick` is when each new synapse becomes silent
+    /// (`SynapseArena::silent_since`).
+    fn sprout(&self, neurons: &NeuronArena, synapses: &mut SynapseArena, neuron_count: u32, tick: u32, partition_of: &dyn Fn(u32) -> usize) -> u32 {
         let mut sprouted = 0;
         // Deterministic order (Requirement 11.10): iterate neighbourhoods
         // and their members by index, never by any hash-based structure.
@@ -171,12 +289,37 @@ impl StructuralPlasticity {
                     if a == b || self.activity_streak[b as usize] < self.params.min_activity_streak {
                         continue;
                     }
+                    // PLAN.md B4, fix 2: when a timing window is set, sprout
+                    // `a -> b` only if `b` fired after `a` inside it -- see
+                    // `SproutTimingWindow`'s doc comment. The reverse pair
+                    // `(b, a)`, visited later in this same loop, fails the
+                    // check by construction whenever `(a, b)` passes it
+                    // (`min_gap_ticks >= 1` means only one order can hold),
+                    // so no extra bookkeeping is needed.
+                    if let Some(window) = self.params.sprout_timing {
+                        let (a_spike, b_spike) = (neurons.last_spike[a as usize], neurons.last_spike[b as usize]);
+                        if a_spike == u32::MAX || b_spike == u32::MAX || b_spike <= a_spike {
+                            continue;
+                        }
+                        let gap = b_spike - a_spike;
+                        if gap < window.min_gap_ticks || gap > window.max_gap_ticks {
+                            continue;
+                        }
+                    }
                     let already_connected = synapses.occupied_in_block(a).any(|id| synapses.target_neuron[id as usize] == b);
                     if already_connected {
                         continue;
                     }
                     let delay = if partition_of(a) != partition_of(b) { self.params.min_cross_partition_delay.max(1) } else { 1 };
-                    if synapses.insert(a, b, 0, delay, self.params.sprout_permanence, self.params.sprout_weight).is_ok() {
+                    // PLAN.md B4, fix 3: see `spread_sprout_segments`.
+                    let segment = if !self.params.spread_sprout_segments || self.params.segments_per_neuron <= 1 {
+                        0
+                    } else {
+                        let mut segment_rng = derive_stream(self.params.seed, a, purpose::SPROUT_SEGMENT_ASSIGN, b);
+                        segment_rng.next_below(self.params.segments_per_neuron)
+                    };
+                    if let Ok(id) = synapses.insert(a, b, segment, delay, self.params.sprout_permanence, self.params.sprout_weight) {
+                        synapses.silent_since[id as usize] = tick; // PLAN.md B4: a fresh contact is born silent
                         sprouted += 1;
                     }
                     // BlockFull is a legitimate, expected outcome
@@ -269,11 +412,20 @@ impl StructuralPlasticity {
         self.last_swept_at = tick;
 
         let neuron_count = neurons.capacity_len() as u32;
-        let pruned = self.prune(synapses, neuron_count);
-        let sprouted = self.sprout(synapses, neuron_count, &partition_of);
+        let (pruned, eliminated) = self.prune(synapses, neuron_count, tick);
+        let sprouted = self.sprout(neurons, synapses, neuron_count, tick, &partition_of);
         let reclaimed_neurons = self.reclaim_unused_neurons(neurons, synapses, tick);
 
-        StructuralSweepReport { pruned, sprouted, reclaimed_neurons }
+        self.totals.sprouted += u64::from(sprouted);
+        self.totals.pruned += u64::from(pruned);
+        self.totals.eliminated += u64::from(eliminated);
+        StructuralSweepReport { pruned, eliminated, sprouted, reclaimed_neurons }
+    }
+
+    /// Counts summed over every sweep this instance has run -- see the
+    /// `totals` field's doc comment.
+    pub fn totals(&self) -> StructuralTotals {
+        self.totals
     }
 
     /// This sweep's own scheduling clock (RUN-9a, PLAN.md item A4). Note
@@ -345,6 +497,14 @@ mod tests {
             unused_ticks_before_reclaim: 1000,
             min_cross_partition_delay: 2,
             max_sprout_source_index: None,
+            // PLAN.md B4's fixes 2-4 all off: every pre-B4 test below keeps
+            // testing exactly the behaviour it always did, and each B4 test
+            // switches on only the fix it is about.
+            sprout_timing: None,
+            seed: 0,
+            segments_per_neuron: 1,
+            spread_sprout_segments: false,
+            silent_elimination_ticks: None,
         }
     }
 
@@ -361,6 +521,145 @@ mod tests {
         assert_eq!(report.pruned, 1);
         assert!(!synapses.is_occupied(weak));
         assert!(synapses.is_occupied(strong));
+    }
+
+    // -- PLAN.md B4 fix 4: silent-synapse elimination.
+
+    fn silent_elimination(limit: u32) -> StructuralPlasticityParams {
+        StructuralPlasticityParams { silent_elimination_ticks: Some(limit), ..default_params() }
+    }
+
+    /// A synapse still silent `silent_elimination_ticks` after it became
+    /// silent is eliminated -- with its permanence held comfortably above
+    /// `prune_floor`, so this criterion alone removes it.
+    #[test]
+    fn a_synapse_still_silent_after_the_window_is_eliminated_even_above_the_permanence_floor() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let id = synapses.insert(0, 1, 0, 1, 0.6, 0.05).unwrap();
+        synapses.silent_since[id as usize] = 0;
+
+        let mut sp = StructuralPlasticity::new(silent_elimination(50), FixedNeighbourhoods::new(10, 1));
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 100).unwrap();
+        assert_eq!((report.pruned, report.eliminated), (0, 1), "an elimination must be reported as one, not as a permanence prune");
+        assert!(!synapses.is_occupied(id));
+        assert_eq!(sp.totals().eliminated, 1);
+    }
+
+    #[test]
+    fn a_synapse_silent_for_less_than_the_window_survives() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let id = synapses.insert(0, 1, 0, 1, 0.6, 0.05).unwrap();
+        synapses.silent_since[id as usize] = 60; // only 40 ticks silent by tick 100
+
+        let mut sp = StructuralPlasticity::new(silent_elimination(50), FixedNeighbourhoods::new(10, 1));
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 100).unwrap();
+        assert_eq!((report.pruned, report.eliminated), (0, 0));
+        assert!(synapses.is_occupied(id));
+    }
+
+    /// An established (never silent) synapse can never be eliminated by this
+    /// criterion, however weak or old -- which is what keeps it from
+    /// repeating E3's blanket-floor harm, and why homeostatic scaling
+    /// shrinking weights cannot trigger it.
+    #[test]
+    fn a_non_silent_synapse_is_never_eliminated_however_weak_or_old() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let id = synapses.insert(0, 1, 0, 1, 0.6, 0.001).unwrap();
+
+        let mut sp = StructuralPlasticity::new(silent_elimination(50), FixedNeighbourhoods::new(10, 1));
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 1_000_000).unwrap();
+        assert_eq!((report.pruned, report.eliminated), (0, 0));
+        assert!(synapses.is_occupied(id));
+    }
+
+    /// The two prune criteria are independent: the permanence floor still
+    /// prunes a synapse this criterion would leave alone.
+    #[test]
+    fn the_permanence_floor_still_prunes_independently_of_silent_elimination() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let id = synapses.insert(0, 1, 0, 1, 0.05, 0.9).unwrap();
+
+        let mut sp = StructuralPlasticity::new(silent_elimination(50), FixedNeighbourhoods::new(10, 1));
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 100).unwrap();
+        assert_eq!((report.pruned, report.eliminated), (1, 0), "a permanence-floor prune must be reported as one, not as an elimination");
+        assert!(!synapses.is_occupied(id));
+    }
+
+    /// VAL-9-style ablation: with elimination off, the same long-silent
+    /// synapse that was eliminated above survives.
+    #[test]
+    fn ablation_without_silent_elimination_a_long_silent_synapse_survives() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let id = synapses.insert(0, 1, 0, 1, 0.6, 0.05).unwrap();
+        synapses.silent_since[id as usize] = 0;
+
+        let mut sp = StructuralPlasticity::new(default_params(), FixedNeighbourhoods::new(10, 1));
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 1_000_000).unwrap();
+        assert_eq!((report.pruned, report.eliminated), (0, 0));
+        assert!(synapses.is_occupied(id));
+    }
+
+    /// A silent synapse that is also below the permanence floor is counted
+    /// once, as a permanence prune.
+    #[test]
+    fn a_synapse_meeting_both_prune_criteria_is_counted_once_as_pruned() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let id = synapses.insert(0, 1, 0, 1, 0.01, 0.05).unwrap();
+        synapses.silent_since[id as usize] = 0;
+
+        let mut sp = StructuralPlasticity::new(silent_elimination(50), FixedNeighbourhoods::new(10, 1));
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 100).unwrap();
+        assert_eq!((report.pruned, report.eliminated), (1, 0));
+    }
+
+    /// `totals` sums sprouts, prunes and eliminations across sweeps.
+    #[test]
+    fn totals_accumulate_across_sweeps() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, silent_elimination_ticks: Some(15), ..default_params() };
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
+        neurons.last_spike[0] = 5;
+        neurons.last_spike[1] = 6;
+        let first = sp.maybe_sweep(&mut neurons, &mut synapses, 10).unwrap();
+        assert_eq!(first.sprouted, 2, "sanity: 0->1 and 1->0 sprout, both silent from tick 10");
+
+        // No further spikes: nothing sprouts again, and by tick 30 both
+        // sprouts have been silent for 20 >= 15 ticks.
+        let second = sp.maybe_sweep(&mut neurons, &mut synapses, 20).unwrap();
+        let third = sp.maybe_sweep(&mut neurons, &mut synapses, 30).unwrap();
+        assert_eq!(second.eliminated + third.eliminated, 2);
+        assert_eq!(sp.totals(), StructuralTotals { sprouted: 2, pruned: 0, eliminated: 2 });
+    }
+
+    /// A sprout is born silent at the sweep's own tick.
+    #[test]
+    fn a_sprout_is_born_silent_at_the_sweep_tick() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, ..default_params() };
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
+        neurons.last_spike[0] = 5;
+        neurons.last_spike[1] = 6;
+
+        sp.maybe_sweep(&mut neurons, &mut synapses, 10);
+
+        let id = synapses.occupied_in_block(0).find(|&id| synapses.target_neuron[id as usize] == 1).unwrap();
+        assert_eq!(synapses.silent_since[id as usize], 10);
     }
 
     #[test]
@@ -423,77 +722,161 @@ mod tests {
         neurons.last_spike[2] = u32::MAX;
 
         let report = sp.maybe_sweep(&mut neurons, &mut synapses, 10).unwrap();
-        assert_eq!(report.sprouted, 2, "expected 0->1 and 1->0, both directions are independent candidates");
+        assert_eq!(report.sprouted, 2, "with no timing window, 0->1 and 1->0 are independent candidates");
         assert!(synapses.occupied_in_block(0).any(|id| synapses.target_neuron[id as usize] == 1));
         assert!(synapses.occupied_in_block(1).any(|id| synapses.target_neuron[id as usize] == 0));
         assert!(synapses.occupied_in_block(0).all(|id| synapses.target_neuron[id as usize] != 2), "neuron 2 never fired, must not be a sprout candidate");
     }
 
-    /// **Characterization test, not a property being asserted as correct**
-    /// (PLAN.md B4, README §13.12 item 10's 2026-09-14 diagnosis update,
-    /// mechanism 2). Makes the current, load-bearing-but-questionable
-    /// assumption explicit and checkable: `sprout` links a co-active pair
-    /// with NO regard for which one fired first, even when firing order is
-    /// unambiguous (neuron 0 fires strictly before neuron 1 on every one of
-    /// three consecutive sweeps -- about as clear a "0 predicts 1" signal
-    /// as this coarse, sweep-granularity mechanism can produce). LRN-8's
-    /// predictive learning needs the opposite structure to mean anything: a
-    /// segment predicts BY being active before the spike it anticipates,
-    /// so "1 predicts 0" is backwards for a neuron that always fires after
-    /// 0, not merely uninformative. `sprout` creates it anyway, symmetric
-    /// with the useful direction. When PLAN.md B4 makes sprout temporally
-    /// directed, this test's own assertions should flip (a wrong-direction
-    /// sprout should stop being created) -- update it then, rather than
-    /// deleting it, so the property this item changes stays documented by a
-    /// concrete before/after rather than just this comment.
+    // -- PLAN.md B4 fix 2: the sprout timing window.
+
+    fn timing_window(min_gap_ticks: u32, max_gap_ticks: u32) -> StructuralPlasticityParams {
+        StructuralPlasticityParams {
+            min_activity_streak: 1,
+            sweep_interval_ticks: 100,
+            sprout_timing: Some(SproutTimingWindow { min_gap_ticks, max_gap_ticks }),
+            ..default_params()
+        }
+    }
+
+    /// Only the causal direction sprouts: neuron 0 fires 6 ticks before
+    /// neuron 1, inside the window, so `0 -> 1` forms and `1 -> 0` does not.
     #[test]
-    fn sprout_creates_a_synapse_in_the_wrong_temporal_direction_too_pre_b4() {
+    fn with_a_timing_window_only_the_causal_direction_sprouts() {
         let mut neurons = make_neurons(2);
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(2);
-        let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, ..default_params() };
-        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
-
-        // Neuron 0 fires strictly before neuron 1, every sweep -- an
-        // unambiguous "0 predicts 1" relationship, not a coincidence.
+        let mut sp = StructuralPlasticity::new(timing_window(1, 10), FixedNeighbourhoods::new(10, 1));
         neurons.last_spike[0] = 2;
         neurons.last_spike[1] = 8;
 
-        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 10).unwrap();
-        assert_eq!(report.sprouted, 2, "today: both directions sprout regardless of order -- PLAN.md B4 should make this 1 (0->1 only)");
-        assert!(
-            synapses.occupied_in_block(1).any(|id| synapses.target_neuron[id as usize] == 0),
-            "today: 1->0 (the temporally backwards direction, since 1 always fires AFTER 0) is created just as readily as 0->1 -- this is exactly what PLAN.md B4's temporal-direction fix removes"
-        );
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 100).unwrap();
+        assert_eq!(report.sprouted, 1);
+        assert!(synapses.occupied_in_block(0).any(|id| synapses.target_neuron[id as usize] == 1));
+        assert!(synapses.occupied_in_block(1).next().is_none(), "1 -> 0 runs against the firing order and must not sprout");
     }
 
-    /// Characterization test (PLAN.md B4, diagnosis mechanism 3): every
-    /// sprout lands on segment 0 specifically, regardless of which pair
-    /// created it -- so every sprout across a whole neighbourhood piles
-    /// onto the SAME segment's coincidence count, unlike construction-time
-    /// wiring (`graph.rs`'s `purpose::SEGMENT_ASSIGN`), which spreads real
-    /// synapses across segments deterministically. Update this test (it
-    /// should stop passing at segment 0 specifically) once B4 spreads
-    /// sprouted synapses across segments.
+    /// VAL-9-style ablation of fix 2: the same fixture with no window
+    /// sprouts both directions, the pre-B4 behaviour.
     #[test]
-    fn sprout_always_targets_segment_zero_pre_b4() {
+    fn ablation_without_a_timing_window_both_directions_sprout() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 100, ..default_params() };
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
+        neurons.last_spike[0] = 2;
+        neurons.last_spike[1] = 8;
+
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 100).unwrap();
+        assert_eq!(report.sprouted, 2);
+    }
+
+    /// Simultaneous spikes carry no order: neither direction sprouts.
+    #[test]
+    fn with_a_timing_window_simultaneous_spikes_sprout_neither_direction() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let mut sp = StructuralPlasticity::new(timing_window(1, 10), FixedNeighbourhoods::new(10, 1));
+        neurons.last_spike[0] = 7;
+        neurons.last_spike[1] = 7;
+
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 100).unwrap();
+        assert_eq!(report.sprouted, 0);
+    }
+
+    /// A gap below `min_gap_ticks` is ambiguous and sprouts neither way.
+    #[test]
+    fn with_a_timing_window_a_gap_below_the_minimum_sprouts_neither_direction() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let mut sp = StructuralPlasticity::new(timing_window(5, 10), FixedNeighbourhoods::new(10, 1));
+        neurons.last_spike[0] = 5;
+        neurons.last_spike[1] = 7;
+
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 100).unwrap();
+        assert_eq!(report.sprouted, 0);
+    }
+
+    /// A gap beyond `max_gap_ticks` is not causal on this timescale and
+    /// sprouts neither way.
+    #[test]
+    fn with_a_timing_window_a_gap_beyond_the_maximum_sprouts_neither_direction() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let mut sp = StructuralPlasticity::new(timing_window(1, 10), FixedNeighbourhoods::new(10, 1));
+        neurons.last_spike[0] = 2;
+        neurons.last_spike[1] = 50;
+
+        let report = sp.maybe_sweep(&mut neurons, &mut synapses, 100).unwrap();
+        assert_eq!(report.sprouted, 0);
+    }
+
+    /// Both window edges are inclusive.
+    #[test]
+    fn with_a_timing_window_both_edges_are_inclusive() {
+        for gap in [3u32, 10] {
+            let mut neurons = make_neurons(2);
+            let mut synapses = SynapseArena::new(4);
+            synapses.reserve_for_neurons(2);
+            let mut sp = StructuralPlasticity::new(timing_window(3, 10), FixedNeighbourhoods::new(10, 1));
+            neurons.last_spike[0] = 20;
+            neurons.last_spike[1] = 20 + gap;
+            let report = sp.maybe_sweep(&mut neurons, &mut synapses, 100).unwrap();
+            assert_eq!(report.sprouted, 1, "a gap of exactly {gap} must sprout");
+        }
+    }
+
+    // -- PLAN.md B4 fix 3: deterministic segment spread.
+
+    fn spread_fixture(spread: bool, seed: u64) -> SynapseArena {
         let mut neurons = make_neurons(3);
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(3);
-        let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, ..default_params() };
+        let params = StructuralPlasticityParams {
+            min_activity_streak: 1,
+            sweep_interval_ticks: 10,
+            segments_per_neuron: 8,
+            spread_sprout_segments: spread,
+            seed,
+            ..default_params()
+        };
         let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
         neurons.last_spike[0] = 5;
         neurons.last_spike[1] = 5;
         neurons.last_spike[2] = 5;
-
         sp.maybe_sweep(&mut neurons, &mut synapses, 10);
+        synapses
+    }
 
-        let sprouted: Vec<u32> = (0..3).flat_map(|src| synapses.occupied_in_block(src).collect::<Vec<_>>()).collect();
-        assert!(!sprouted.is_empty(), "sanity: at least one sprout must have occurred among 3 mutually co-active neurons");
-        assert!(
-            sprouted.iter().all(|&id| synapses.target_segment[id as usize] == 0),
-            "today: every sprout lands on segment 0 -- PLAN.md B4 should spread these across segments deterministically instead"
-        );
+    fn sprout_segments(synapses: &SynapseArena) -> Vec<(u32, u32, u32)> {
+        let mut out: Vec<(u32, u32, u32)> = (0..3u32)
+            .flat_map(|src| synapses.occupied_in_block(src).map(move |id| (src, id)).collect::<Vec<_>>())
+            .map(|(src, id)| (src, synapses.target_neuron[id as usize], synapses.target_segment[id as usize]))
+            .collect();
+        out.sort_unstable();
+        out
+    }
+
+    #[test]
+    fn spread_sprout_segments_draws_target_segments_deterministically() {
+        let first = sprout_segments(&spread_fixture(true, 42));
+        assert_eq!(first.len(), 6, "sanity: all six ordered pairs among three co-active neurons sprout");
+        assert!(first.iter().any(|&(_, _, seg)| seg != 0), "sprouts must not all land on segment 0");
+        assert!(first.iter().all(|&(_, _, seg)| seg < 8));
+        assert_eq!(first, sprout_segments(&spread_fixture(true, 42)), "same seed must give the same segment for every (source, target)");
+    }
+
+    /// VAL-9-style ablation of fix 3: with spreading off, every sprout lands
+    /// on segment 0, the pre-B4 behaviour.
+    #[test]
+    fn ablation_without_spread_sprout_segments_every_sprout_lands_on_segment_zero() {
+        let segments = sprout_segments(&spread_fixture(false, 42));
+        assert_eq!(segments.len(), 6);
+        assert!(segments.iter().all(|&(_, _, seg)| seg == 0));
     }
 
     #[test]

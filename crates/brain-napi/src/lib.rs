@@ -19,13 +19,13 @@ use brain_core::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeosta
 use brain_core::plasticity::newborn::{NewbornMaturationParams, NewbornWiringParams};
 use brain_core::plasticity::predictive::PredictiveLearningParams;
 use brain_core::plasticity::stdp::StdpParams;
-use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams};
+use brain_core::plasticity::structural::{SproutTimingWindow, StructuralPlasticity, StructuralPlasticityParams};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::RuleChain;
 use brain_core::probe::{Probe, ProbeOptions, SpikeRaster};
-use brain_core::scheduler::Scheduler;
+use brain_core::scheduler::{Scheduler, SilentSynapseParams};
 use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig, FEEDFORWARD_SEGMENT};
-use brain_core::synapse::SynapseArena;
+use brain_core::synapse::{SynapseArena, NOT_SILENT};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -231,6 +231,35 @@ impl SegmentsConfig {
     }
 }
 
+/// Silent synapses (PLAN.md B4, fix 1, README §12 decision 12) --
+/// `scheduler::SilentSynapseParams`'s FFI mirror. Omit to keep pre-B4
+/// transmission exactly: every silent synapse is unsilenced by its first
+/// delivery. Independent of `segments`: a silent synapse passes no current
+/// on the feedforward path either.
+#[napi(object)]
+pub struct SilentSynapsesConfig {
+    /// A silent synapse is unsilenced, permanently, the first time it
+    /// delivers with weight at or above this.
+    pub unsilence_weight: f64,
+    /// Ablation switch, default `false`: `true` lets a still-silent synapse
+    /// transmit as if it were not silent, while its silent state keeps being
+    /// tracked. See `SilentSynapseParams::silent_transmits`.
+    pub silent_transmits: Option<bool>,
+}
+
+impl SilentSynapsesConfig {
+    fn validate(&self) -> Result<()> {
+        if self.unsilence_weight.is_nan() || self.unsilence_weight < 0.0 {
+            return Err(Error::from_reason(format!("silentSynapses.unsilenceWeight must be >= 0, got {}", self.unsilence_weight)));
+        }
+        Ok(())
+    }
+
+    fn to_params(&self) -> SilentSynapseParams {
+        SilentSynapseParams { unsilence_weight: self.unsilence_weight as f32, silent_transmits: self.silent_transmits.unwrap_or(false) }
+    }
+}
+
 /// Predictive learning configuration (Requirement 12): omit to leave
 /// `predictive` state a *consequence* of segments (Step 8) with no
 /// learning attached to whether a prediction was later confirmed.
@@ -384,6 +413,65 @@ pub struct StructuralPlasticityConfig {
     /// never-decoded neurons wiring themselves *onto* the original,
     /// decoded population is a source of decode-time noise.
     pub max_sprout_source_index: Option<u32>,
+    /// `StructuralPlasticityParams::sprout_timing`'s FFI mirror (PLAN.md B4,
+    /// fix 2): set both or neither. Neither is the pre-B4 behaviour (every
+    /// co-active pair sprouts in both directions).
+    pub min_temporal_gap_ticks: Option<u32>,
+    pub max_temporal_gap_ticks: Option<u32>,
+    /// `StructuralPlasticityParams::spread_sprout_segments`'s FFI mirror
+    /// (PLAN.md B4, fix 3). Default `false`, the pre-B4 behaviour (every
+    /// sprout on segment 0). Requires `seed`.
+    pub spread_sprout_segments: Option<bool>,
+    /// `StructuralPlasticityParams::seed`'s FFI mirror (PLAN.md B4, fix 3),
+    /// mirroring `GrowthConfig.seed`'s shape. Only read when
+    /// `spreadSproutSegments` is on.
+    pub seed: Option<BigInt>,
+    /// `StructuralPlasticityParams::silent_elimination_ticks`'s FFI mirror
+    /// (PLAN.md B4, fix 4). Omit to disable, the pre-B4 behaviour.
+    pub silent_elimination_ticks: Option<u32>,
+}
+
+impl StructuralPlasticityConfig {
+    fn validate(&self) -> Result<()> {
+        match (self.min_temporal_gap_ticks, self.max_temporal_gap_ticks) {
+            (None, None) => {}
+            (Some(min), Some(max)) if min >= 1 && min <= max => {}
+            (Some(min), Some(max)) => {
+                return Err(Error::from_reason(format!(
+                    "structuralPlasticity needs 1 <= minTemporalGapTicks <= maxTemporalGapTicks, got {min} and {max}"
+                )))
+            }
+            _ => return Err(Error::from_reason("structuralPlasticity: set minTemporalGapTicks and maxTemporalGapTicks together, or neither")),
+        }
+        if self.spread_sprout_segments == Some(true) && self.seed.is_none() {
+            return Err(Error::from_reason("structuralPlasticity.spreadSproutSegments needs a seed"));
+        }
+        Ok(())
+    }
+
+    /// `segments_per_neuron` comes from the scheduler-wide `segments`
+    /// option, not this config: `StructuralPlasticityParams::segments_per_neuron`
+    /// must match it, and reading it from there is what guarantees they do.
+    fn to_params(&self, segments_per_neuron: u32) -> StructuralPlasticityParams {
+        StructuralPlasticityParams {
+            prune_floor: self.prune_floor as f32,
+            sprout_permanence: self.sprout_permanence as f32,
+            sprout_weight: self.sprout_weight as f32,
+            min_activity_streak: self.min_activity_streak,
+            sweep_interval_ticks: self.sweep_interval_ticks.max(1),
+            unused_ticks_before_reclaim: self.unused_ticks_before_reclaim,
+            min_cross_partition_delay: self.min_cross_partition_delay.min(u16::MAX as u32) as u16,
+            max_sprout_source_index: self.max_sprout_source_index,
+            sprout_timing: match (self.min_temporal_gap_ticks, self.max_temporal_gap_ticks) {
+                (Some(min_gap_ticks), Some(max_gap_ticks)) => Some(SproutTimingWindow { min_gap_ticks, max_gap_ticks }),
+                _ => None,
+            },
+            seed: self.seed.as_ref().map_or(0, |seed| seed.get_u64().1),
+            segments_per_neuron,
+            spread_sprout_segments: self.spread_sprout_segments.unwrap_or(false),
+            silent_elimination_ticks: self.silent_elimination_ticks,
+        }
+    }
 }
 
 /// Saturation-driven growth (NET-10, invariant 10) -- `OverlapSaturation`'s
@@ -623,6 +711,27 @@ pub struct MetricsSnapshotFfi {
     pub synapse_count: u32,
 }
 
+/// Structural plasticity counts (PLAN.md B4), for experiment reporting.
+/// Totals are summed since construction (or since the last `restore`, which
+/// resets them: they are reporting only, not snapshot state). Plain numbers
+/// rather than bigints: every count here stays far below 2^53.
+#[napi(object)]
+pub struct StructuralStatsFfi {
+    /// Synapses created by `StructuralPlasticity::sprout`.
+    pub sprouted_total: f64,
+    /// Synapses removed by the permanence floor.
+    pub pruned_total: f64,
+    /// Synapses removed for staying silent too long (fix 4).
+    pub eliminated_total: f64,
+    /// Silent synapses unsilenced by a delivery at or above the unsilence
+    /// weight (fix 1). Includes burst sprouts, which are also born silent.
+    pub unsilenced_total: f64,
+    /// Synapses silent right now.
+    pub silent_now: f64,
+    /// Synapses present right now.
+    pub occupied_now: f64,
+}
+
 impl ConsolidationConfig {
     fn resolve(&self) -> Result<ConsolidationParams> {
         if !self.downscale_target_total_weight.is_finite() || self.downscale_target_total_weight < 0.0 {
@@ -726,6 +835,7 @@ struct SchedulerConfig {
     inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
     growth: Option<GrowthConfig>,
     newborn_maturation: Option<NewbornMaturationConfig>,
+    silent_synapses: Option<SilentSynapsesConfig>,
 }
 
 /// `InhibitionConfig` -> `FixedNeighbourhoods`, shared by `build_scheduler`
@@ -750,6 +860,9 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
             params: BinaryCoincidenceParams { threshold: cfg.coincidence_threshold as u16 },
         });
     }
+    if let Some(cfg) = &config.silent_synapses {
+        scheduler = scheduler.with_silent_synapses(cfg.to_params());
+    }
     if let Some(cfg) = &config.predictive_learning {
         scheduler = scheduler.with_predictive_learning(cfg.to_params(), FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.neighbourhood_k));
     }
@@ -761,16 +874,7 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
         scheduler = scheduler.with_homeostatic_scaling(HomeostaticScaling::new(cfg.target_total_weight as f32, cfg.interval_ticks.max(1)));
     }
     if let Some(cfg) = &config.structural_plasticity {
-        let params = StructuralPlasticityParams {
-            prune_floor: cfg.prune_floor as f32,
-            sprout_permanence: cfg.sprout_permanence as f32,
-            sprout_weight: cfg.sprout_weight as f32,
-            min_activity_streak: cfg.min_activity_streak,
-            sweep_interval_ticks: cfg.sweep_interval_ticks.max(1),
-            unused_ticks_before_reclaim: cfg.unused_ticks_before_reclaim,
-            min_cross_partition_delay: cfg.min_cross_partition_delay.min(u16::MAX as u32) as u16,
-            max_sprout_source_index: cfg.max_sprout_source_index,
-        };
+        let params = cfg.to_params(config.segments.as_ref().map_or(1, |s| s.segments_per_neuron));
         scheduler = scheduler.with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k)));
     }
     if let Some(cfg) = &config.intrinsic_homeostasis {
@@ -1017,9 +1121,16 @@ impl NativeSimulation {
         inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
         growth: Option<GrowthConfig>,
         newborn_maturation: Option<NewbornMaturationConfig>,
+        silent_synapses: Option<SilentSynapsesConfig>,
         thread_count: Option<u32>,
         total_neurons: Option<u32>,
     ) -> Result<Self> {
+        if let Some(cfg) = &silent_synapses {
+            cfg.validate()?;
+        }
+        if let Some(cfg) = &structural_plasticity {
+            cfg.validate()?;
+        }
         let thread_count = thread_count.unwrap_or(1).max(1) as usize;
         // NET-10: partitioned mode is not supported (see `GrowthConfig`'s own
         // doc comment) -- every partition would run an independent copy of
@@ -1050,6 +1161,7 @@ impl NativeSimulation {
             inhibition_homeostasis,
             growth,
             newborn_maturation,
+            silent_synapses,
         };
         let runtime = if thread_count > 1 {
             let total_neurons = total_neurons.ok_or_else(|| {
@@ -1804,6 +1916,38 @@ impl NativeSimulation {
     /// `metrics.rs`'s own documented reason. Uses `self.last_spike_count`
     /// (updated at the end of the most recent `step()` call) rather than
     /// taking it as a parameter.
+    /// Structural plasticity counts (PLAN.md B4) -- see `StructuralStatsFfi`.
+    /// Totals are zero when structural plasticity is not configured, and
+    /// before a partitioned runtime has been built by its first `step()`.
+    #[napi]
+    pub fn structural_stats(&self) -> StructuralStatsFfi {
+        let (totals, unsilenced) = match &self.runtime {
+            Runtime::Single(scheduler) => (scheduler.structural_plasticity_totals(), scheduler.unsilenced_total()),
+            Runtime::Partitioned(state) => match &state.runtime {
+                Some(pr) => (pr.structural_plasticity_totals(), (0..pr.partition_count()).map(|p| pr.scheduler(p).unsilenced_total()).sum()),
+                None => (None, 0),
+            },
+        };
+        let totals = totals.unwrap_or_default();
+        let (mut silent_now, mut occupied_now) = (0u64, 0u64);
+        for source in 0..self.neurons.capacity_len() as u32 {
+            for id in self.synapses.occupied_in_block(source) {
+                occupied_now += 1;
+                if self.synapses.silent_since[id as usize] != NOT_SILENT {
+                    silent_now += 1;
+                }
+            }
+        }
+        StructuralStatsFfi {
+            sprouted_total: totals.sprouted as f64,
+            pruned_total: totals.pruned as f64,
+            eliminated_total: totals.eliminated as f64,
+            unsilenced_total: unsilenced as f64,
+            silent_now: silent_now as f64,
+            occupied_now: occupied_now as f64,
+        }
+    }
+
     #[napi]
     pub fn metrics_snapshot(&self) -> MetricsSnapshotFfi {
         let snapshot = brain_core::metrics::MetricsSnapshot::compute(&self.neurons, &self.synapses, self.last_spike_count);
@@ -1879,6 +2023,7 @@ impl NativeSimulation {
         inhibition_homeostasis: Option<InhibitionHomeostasisConfig>,
         growth: Option<GrowthConfig>,
         newborn_maturation: Option<NewbornMaturationConfig>,
+        silent_synapses: Option<SilentSynapsesConfig>,
     ) -> Result<Self> {
         // Note: no `synapse_cap_per_neuron` parameter here -- the snapshot
         // payload already carries it (`write_synapses` stores it, and
@@ -1900,6 +2045,10 @@ impl NativeSimulation {
                 params: BinaryCoincidenceParams { threshold: cfg.coincidence_threshold as u16 },
             });
         }
+        if let Some(cfg) = &silent_synapses {
+            cfg.validate()?;
+            scheduler = scheduler.with_silent_synapses(cfg.to_params());
+        }
         if let Some(cfg) = &predictive_learning {
             scheduler = scheduler
                 .with_predictive_learning(cfg.to_params(), FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.neighbourhood_k));
@@ -1913,16 +2062,8 @@ impl NativeSimulation {
             scheduler = scheduler.with_homeostatic_scaling(HomeostaticScaling::new(cfg.target_total_weight as f32, cfg.interval_ticks.max(1)));
         }
         if let Some(cfg) = &structural_plasticity {
-            let params = StructuralPlasticityParams {
-                prune_floor: cfg.prune_floor as f32,
-                sprout_permanence: cfg.sprout_permanence as f32,
-                sprout_weight: cfg.sprout_weight as f32,
-                min_activity_streak: cfg.min_activity_streak,
-                sweep_interval_ticks: cfg.sweep_interval_ticks.max(1),
-                unused_ticks_before_reclaim: cfg.unused_ticks_before_reclaim,
-                min_cross_partition_delay: cfg.min_cross_partition_delay.min(u16::MAX as u32) as u16,
-                max_sprout_source_index: cfg.max_sprout_source_index,
-            };
+            cfg.validate()?;
+            let params = cfg.to_params(segments.as_ref().map_or(1, |s| s.segments_per_neuron));
             scheduler = scheduler.with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k)));
         }
         // NEU-7: this mechanism's own tuning state (`last_applied_at`) now

@@ -55,6 +55,7 @@ graph TD
     B2["B2 · Verify growth deadlock dissolved<br/><i>1 session + runs</i>"]
     B3["B3 · Newborn neurons: pre-wired + hyperexcitable<br/><i>2–3 sessions + runs</i>"]
     B4["B4 · Structural plasticity: sequence-aware sprout,<br/>usefulness-aware prune<br/><i>2–3 sessions + runs</i>"]
+    B5["B5 · Weight-aware dendritic votes<br/><i>2–4 sessions + runs</i>"]
 
     C1["C1 · Wire consolidation into the loop<br/><i>1 session + runs</i>"]
     C2["C2 · Noradrenaline from prediction error<br/><i>1–2 sessions</i>"]
@@ -84,7 +85,11 @@ graph TD
     B1 --> B2
     B2 --> B3
     B3 --> B4
-    B4 --> D3
+    B4 --> B5
+    B5 --> D3
+    B5 -.-> C1
+    B5 -.-> C2
+    B5 -.-> D2
     B3 -.-> E1
     B1 --> C1
     B1 --> D1
@@ -134,10 +139,22 @@ alone, no growth) regressed from Phase A's 13.04% to 6.40% at the point B1 lande
 sprout connected and STDP-visible from birth (the fix growth genuinely needed), but nothing about
 *where* or *how* `StructuralPlasticity::sprout` places a synapse was designed for that — it was
 tuned when a fresh sprout was inert until potentiated, and is now live from the first sweep. README
-§13.12 item 10's 2026-09-14 diagnosis update names three specific mechanisms sharing that one root
+§13.12 item 10's 2026-09-14 diagnosis update names four specific mechanisms sharing that one root
 cause. It gates D3 for the same reason B3 does: D3's re-tune should start from a structural
 plasticity mechanism that has been fixed, not one with a known, already-measured drag baked in —
 tuning around it now would fit parameters to a defect rather than to the network's actual behaviour.
+
+**B5 exists because B4's own value search showed sprouting cannot help while dendritic votes
+ignore weight** (added 2026-09-15, as B4 closed). With every B4 value and STDP searched together,
+the best structural-plasticity configuration reached 15.58% on confirmation seeds, against 16.63%
+for the same configuration with sprouting disabled. The search chose the lowest STDP learning rate
+and a high unsilence weight, so few sprouts ever vote, and with sprouting off STDP changed nothing at
+all. A segment counts each delivery as ±1 whatever the synapse's weight, so B4's silent gate could
+only be an on/off switch. B5 gives each delivery a capped, weight-scaled contribution. It gates D3
+hard: a weighted vote changes what every segment threshold responds to, and tuning the 80:20
+network first would mean tuning twice. It is strongly preferred before C1, C2 and D2, because each
+of those changes or learns weights, and whether weight reaches predictions changes what each of
+them does.
 
 **Phase G is housekeeping** found during the same verification. G1 needs only A3 and is best done
 before D3, which is when vetoed segments first become visible. G2 waits for A4 and B1, because both
@@ -160,11 +177,12 @@ wide change to the arena addressing scheme that cross-partition routing depends 
 | **B2** | Verify the NET-10 growth deadlock is dissolved | B1 | 1 session | ~1 hour of runs |
 | **B3** | Newborn neurons arrive pre-wired to active inputs and hyperexcitable, then mature or die | B2 | 2–3 sessions | **1 design call** + hours of runs |
 | **B4** | Structural plasticity sprouts by sequence and prunes by usefulness, not just co-activity/permanence | B3 | 2–3 sessions | **3 design calls** + hours of runs |
+| **B5** | Dendritic votes weigh each synapse by its weight, capped, so a new synapse earns influence gradually | B4 | 2–4 sessions | **3 design calls** + ~1–2 days of runs |
 | **C1** | Wire `runConsolidation` into the streaming loop | B1 | 1 session | hours of runs |
 | **C2** | Drive noradrenaline from prediction error | A1 | 1–2 sessions | 1 design call |
 | **D1** | `polarity` in `NeuronLocal` + E/I-aware `rescale_one` | B1 | 1 session | — |
 | **D2** | Inhibitory STDP rule (Vogels-style) + ablation test | D1 | 2–3 sessions | — |
-| **D3** | Turn on 80:20 and re-tune | B2, C1, C2, D2 | 1 session | **1–3 weeks tuning** |
+| **D3** | Turn on 80:20 and re-tune | B2, B5, C1, C2, D2 | 1 session | **1–3 weeks tuning** |
 | **E1** | Persistent named brain that resumes | B1 | 2–3 sessions | — |
 | **F1** | Short-term plasticity (Tsodyks–Markram) | B1 | 2–3 sessions | tuning |
 | **F2** | Fix `cap_per_neuron`'s single-constant addressing | B1 | 3–5 sessions | **heavy review** |
@@ -206,6 +224,16 @@ Standing context for every session. The prompts reference this section rather th
 - **Zero AI/ML dependencies** (ENG-5/6), Rust core ≈ `rayon` only, TS shell nothing at runtime.
 - **When you finish, update `README.md`** — the relevant §11 phase status and/or §13.12 item — in the
   document's existing voice. Then update this file's status for the item.
+- **Log the Status table row for the item you're working on AS YOU GO, not only at the end** — set
+  `Status` to `in progress` and record a start timestamp the moment you begin, then update the
+  `Duration` cell again at natural checkpoints (finishing a design call, kicking off a long
+  background run, wrapping up). Get the start time from the user or an actual `date`/logged
+  timestamp — **never infer it from filesystem metadata** (a working directory's creation time, a
+  file's mtime): A2's own footnote records a ~30-minute error from exactly that shortcut. This
+  matters most for items with real wall-clock cost (background experiment runs, multi-hour
+  batteries) — B2's and B3's own Status rows are both measured this way, and the discipline is what
+  makes those numbers trustworthy enough for a future session's time estimates to lean on, instead
+  of every item's cost being reconstructed after the fact from guesswork.
 
 ---
 
@@ -678,8 +706,21 @@ corrected where they said the split alone would dissolve the deadlock; and NET-1
 
 ```
 Read README.md LRN-2, LRN-7, LRN-8, §12 decision 11 in full, §13.12 item 10's 2026-09-14 diagnosis
-update (the three-mechanism finding, not the VAL-4 table above it), and PLAN.md §4. Assumes B3 has
+update AND its own further 2026-09-14 "confirmed by experiment" update immediately below it (both,
+not just the VAL-4 table above them), and PLAN.md §4 (including the status-tracking rule — this item
+is exactly the multi-session-scale, real-runs-involved shape that rule exists for). Assumes B3 has
 landed.
+
+**The confirming experiments below are ALREADY DONE — do not re-run them.** A first pass through
+this item (2026-09-14) ran experiments 1, 2, and one not originally listed here (a stricter prune
+floor) before writing any of the four fixes, specifically to avoid designing all four blind and
+finding out later that one didn't matter. Full results:
+`scripts/investigate-structural-plasticity-drag.results.md`, discussed in README §13.12 item 10.
+Headline numbers, condition C (structural plasticity alone, no growth), 5-seed protocol: control
+6.40%, sprout reverted to sub-threshold (pre-B1) 13.04%, sprout disabled entirely 16.51% (against a
+17.37% baseline), prune floor raised 0.05→0.15 with sprout unchanged **1.78% — worse than doing
+nothing**. Only the REMAINING EXPERIMENTS below (testing THE TASK's fix 1 and fix 2 once built, each
+in isolation) remain to actually run — see THE TASK's fix priority, informed directly by this result.
 
 WHY THIS ITEM EXISTS. B3 closed the two locks that kept growth's neurons inert and, as a side
 effect, ran the official VAL-4 battery for the first time since B1 landed. Condition C (structural
@@ -688,7 +729,7 @@ identical configuration. B1 did not touch `StructuralPlasticity::sprout`'s or `p
 all; what changed is that a fresh sprout is now connected and STDP-visible from the sweep it is
 created, instead of sitting invisible below `connection_threshold` until potentiated. Every design
 choice `sprout`/`prune` currently embodies was made against the *old* semantics. README §13.12 item
-10's 2026-09-14 update names three specific consequences, read directly from the current
+10's 2026-09-14 update names four specific consequences, read directly from the current
 implementation:
 
 1. DENDRITIC VOTES ARE WEIGHT-BLIND. `Scheduler::apply_local_effect`'s dendritic branch
@@ -725,6 +766,16 @@ THE TASK. Four sub-fixes, each with its own design call — propose each, get th
 then build. Read the diagnosis update's full reasoning for each before starting; do not treat the
 summary above as the whole finding.
 
+**Priority, from the confirming experiments, not merely from how the list below is numbered.**
+Disabling sprout entirely already recovers 16.51% of a 17.37% baseline — sprout's own placement is
+carrying almost the whole regression, and pruning alone (no sprout at all) is nearly harmless. Fixes
+1 and 2 below (dendritic weight-gating, temporal direction) are therefore the load-bearing pair; treat
+them as the item's real center of mass. Fix 3 (segment spreading) is a smaller, more mechanical
+change bundled in because it touches the same `sprout` call site. Fix 4 (pruning) is real and
+separately motivated (decision 11's own open question) but is NOT a substitute for fixes 1/2 — see
+its own task entry below for why a naive version of it is actively harmful, confirmed by experiment,
+not merely a concern.
+
 1. WEIGHT-GATE DENDRITIC COINCIDENCE, WITHOUT RETUNING EVERY EXISTING THRESHOLD. Decision 11
    explicitly rejected scaling `segment_counts` by weight magnitude, because every threshold in this
    codebase (`BinaryCoincidenceParams::threshold`, `segmentThresholdHomeostasis`'s targets) was tuned
@@ -748,37 +799,45 @@ summary above as the whole finding.
    scheme. This is the narrow, tractable half of "which segment" — choosing a segment that matches
    the *context* a synapse should predict (closer to NET-6 feedback or a clustering signal) is
    explicitly out of scope here; do not attempt it.
-4. GIVE PRUNE A SECOND CRITERION: SYNAPSES THAT NEVER MATURED. A synapse connected for a long time
-   (structurally, permanence-wise) whose weight never moved meaningfully above its sprout-time value
-   is a standing cost with no benefit — decision 11's own open question. Decide what "never matured"
-   means with the state this module already has available (`last_active`, `eligibility_updated_at`,
-   or a new per-synapse field if genuinely needed — justify before adding one, since it is a
-   `SynapseArena` width increase, the same class of change B1 was) and add it as a second, independent
-   prune condition alongside the existing permanence floor. State whether this should also apply to
-   ordinary (non-sprouted) synapses or only ones `sprout` itself created.
+4. GIVE PRUNE A SECOND CRITERION: SYNAPSES THAT NEVER MATURED. **Confirmed harmful in its naive
+   form — do not just raise `prune_floor`.** The confirming experiments (above) tested exactly that:
+   condition C with `pruneFloor` raised 0.05→0.15, sprout otherwise untouched, landed at 1.78% —
+   *worse* than the 6.40% control, because `prune` has no notion of "sprouted vs. original" and a
+   blanket stricter floor destroys genuinely useful synapses the original population's own
+   construction and STDP already built, right alongside the noisy sprouts. The fix has to be
+   *selective*: a synapse connected for a long time (structurally, permanence-wise) whose weight
+   never moved meaningfully above its sprout-time value is a standing cost with no benefit — decision
+   11's own open question, now with a measured reason the crude version doesn't work. Decide what
+   "never matured" means with the state this module already has available (`last_active`,
+   `eligibility_updated_at`, or a new per-synapse field if genuinely needed — justify before adding
+   one, since it is a `SynapseArena` width increase, the same class of change B1 was) and add it as a
+   second, independent prune condition alongside the existing permanence floor — not a change to the
+   floor itself. State whether this should also apply to ordinary (non-sprouted) synapses or only
+   ones `sprout` itself created.
 
-CONFIRM THE DIAGNOSIS BEFORE COMMITTING TO ALL FOUR FIXES. The diagnosis update is explicit that it
-is read from code, not yet re-measured. Before or alongside building the fixes, run the confirming
-experiments below — if one of the four mechanisms turns out not to matter, say so and narrow scope
-rather than shipping an unmeasured fix for it anyway.
+EXPERIMENTS DONE SO FAR (do not repeat — see this prompt's own opening note and
+`scripts/investigate-structural-plasticity-drag.results.md`): sub-threshold sprout revert (13.04%,
+reproduces Phase A almost exactly), sprout disabled entirely (16.51%, near baseline), a stricter
+prune floor alone (1.78%, worse than doing nothing). Together these establish that sprout's own
+placement carries the regression and a naive prune-floor fix does not help — they do NOT tell you
+how to build fixes 1/2/3 (the design calls above are still genuinely open), only that building them
+is worth doing and building fix 4 as a blanket floor change is not.
 
-EXPERIMENTS (run in parallel, separate OS processes — condition C alone, no growth, so each is far
-cheaper than B3's own battery):
-1. Condition C with today's code but `sproutPermanence` reverted to a sub-threshold value (e.g. 0.1,
-   Phase A's original) — if accuracy returns to roughly 13%, that isolates "live sprouts" as the
-   cause in general, independent of which specific mechanism among 1-4 is responsible.
-2. Condition C with sprouting disabled entirely (`prune` only, `sprout` a no-op) — isolates whether
-   pruning alone is safe, or whether pruning itself also regresses accuracy.
-3. Condition C with fix 2 (weight-gated dendritic coincidence) applied alone, sprout/prune otherwise
-   unchanged from today — tests the "loud vote" hypothesis in isolation.
-4. Condition C with fix 3 (temporally-directed sprout) applied alone — tests the "wrong-direction
+REMAINING EXPERIMENTS, to run once the corresponding fix exists — condition C alone, no growth, so
+each is far cheaper than B3's own battery; a shared worker-thread pool (this repo's own established
+pattern, `investigate-growth-regression.worker.ts`/`investigate-structural-plasticity-drag.ts`) gets
+real parallelism without the contention a naive higher-concurrency attempt already measured on this
+machine (see either script's own header):
+1. Condition C with fix 1 (weight-gated dendritic coincidence) applied alone, fixes 2-4 and
+   `sprout`/`prune` otherwise unchanged from today — tests the "loud vote" hypothesis in isolation.
+2. Condition C with fix 2 (temporally-directed sprout) applied alone — tests the "wrong-direction
    synapse" hypothesis in isolation.
-5. Once the above narrow down which mechanism(s) matter, the corresponding combination of fixes,
-   condition C, to confirm the fix actually recovers accuracy before re-running the full B/D/E/F
-   battery.
+3. Once the above narrow down which mechanism(s) matter most, the corresponding combination of
+   fixes, condition C, to confirm the fix actually recovers accuracy before re-running the full
+   B/D/E/F battery (and, separately, fix 4 alone in its now-selective (not blanket-floor) form,
+   condition C, to confirm it does not repeat the harmful result the naive version produced).
 Report every experiment's result, including ones that show no effect — a fix that cannot be shown to
-matter is not yet load-bearing (VAL-9's own standard), and this item's job is to find out which of
-the four actually carries the regression, not to ship all four regardless.
+matter is not yet load-bearing (VAL-9's own standard).
 
 TESTS.
 - Unit tests for each fix in isolation, in `structural.rs`'s own test module, following its existing
@@ -787,10 +846,13 @@ TESTS.
   given the same seed; a synapse that never matures gets pruned by the new criterion even with
   permanence held fixed above the floor; an already-mature synapse's dendritic vote is unaffected by
   the weight gate.
-- A regression test locking in the actual finding from the experiments above — whichever mechanism(s)
-  turn out to matter, assert condition C's accuracy on the 5-seed protocol is measurably closer to
-  Phase A's 13.04% than to B3's 6.40%, so a future change that reintroduces this regression is caught
-  automatically rather than requiring another manual investigation.
+- A regression test locking in the actual finding from the experiments above — assert condition C's
+  accuracy on the 5-seed protocol is measurably closer to the 16.51% ceiling the confirming
+  experiments already established (sprout disabled entirely) than to B3's 6.40%, not merely "better
+  than 6.40%" — a fix that recovers only partway to that ceiling without a documented reason why is
+  probably leaving one of the four mechanisms unaddressed. This locks in the finding so a future
+  change that reintroduces the regression is caught automatically rather than requiring another
+  manual investigation.
 - VAL-9 ablations for whichever fixes the experiments confirm matter, following B3's own precedent.
 
 CONSTRAINTS. Invariant 1 (locality): every fix here stays within `StructuralPlasticity`'s existing
@@ -803,12 +865,132 @@ unlike Phase A's items, since this is exactly the "some mechanism I fixed instea
 case `npm run test:golden:regen`'s own guidance describes; explain why each changed raster's
 divergence is the intended fix, not a side effect.
 
-DONE WHEN. The four design calls are made and recorded; the confirming experiments have identified
-which mechanism(s) actually carry the regression; condition C's accuracy is measurably improved and
-locked in by a regression test; the new unit tests and VAL-9 ablations pass; `npm run test:fast` and
-`npm run test:slow` are green; and README §12 decision 11 (the weight-blind-coincidence rationale)
-and §13.12 item 10 (the diagnosis this item worked from) are updated with the confirmed result,
-honestly, whichever fixes turned out to matter and whichever did not.
+DONE WHEN. The four design calls are made and recorded; the remaining confirming experiments (fixes
+1/2 in isolation, then combined) have been run and reported, building on — not repeating — the
+sprout-revert/sprout-disabled/prune-floor results already recorded; condition C's accuracy is
+measurably improved toward the 16.51% ceiling and locked in by a regression test; the new unit tests
+and VAL-9 ablations pass; `npm run test:fast` and `npm run test:slow` are green; and README §12
+decision 11 (the weight-blind-coincidence rationale) and §13.12 item 10 (the diagnosis and the
+confirming-experiment update this item worked from) are updated with the final result, honestly,
+whichever fixes turned out to matter and whichever did not. This file's own Status row for B4 should
+already carry a start timestamp and running duration updates from the point work began (house rules,
+§4) — finalise it here rather than filling it in only now.
+```
+
+---
+
+### B5 — Weight-aware dendritic votes
+
+```
+Read README.md NEU-5, NEU-6, LRN-2, LRN-6, LRN-8, §12 decisions 11 and 12 in full (decision 12's
+"STDP on, and the shipped values" section is why this item exists), §13.12 item 10's 2026-09-15
+update, §13.12 item 11(a) (the fixed-1.0-magnitude rationale this item reopens), and PLAN.md §4.
+Then read this item's spec, already written and approved for implementation:
+.claude/scratch/weight-aware-dendritic-votes/requirements.md and design.md. Assumes B4 has landed.
+This is a multi-session item with long background runs: log the Status row as you go (§4).
+
+WHY THIS ITEM EXISTS. A dendritic segment counts each delivery as ±1
+(`Scheduler::apply_local_effect`, crates/brain-core/src/scheduler.rs: `self.segment_counts[composite]
++= signed_current.signum()`), and `BinaryCoincidence::evaluate` fires once the count reaches the
+threshold. A synapse's weight never reaches that tally. B4's value search
+(`scripts/tune-b4-values.results.md`) measured what this costs once sprouting is live, on
+confirmation seeds never used to choose:
+- B4's best configuration: 15.58%. The same configuration with sprouting disabled: 16.63%, better on
+  all 5 seeds. Condition A (no structural plasticity): 16.99%.
+- The search picked the lowest STDP learning rate in range and an unsilence weight of 0.65: it did
+  best by keeping almost every sprout out of the vote.
+- With sprouting disabled, the winner's accuracy was bit-identical per seed with STDP on or off.
+  STDP has no path to prediction except B4's on/off unsilencing.
+In the brain a new spine starts small and contributes a small potential. Dendritic spikes respond to
+summed depolarisation on the branch, not to a count of synapses. This item lets weight set how much a
+delivery contributes, so a new synapse earns influence gradually and STDP shapes predictions.
+
+THE TASK. The spec's design is the starting point, not a prescription to follow blindly. Confirm or
+revise each design call below with the user before building it. Record the outcome in a new README
+§12 decision. If you revise the design, update design.md (and requirements.md first, if the change
+contradicts a requirement), keeping the two in sync.
+
+1. THE CONTRIBUTION RULE. Spec: `sign × min(weight / reference_weight, 1)` on the dendritic path
+   only, as `segment::DendriticVote::{Count, Weighted { reference_weight }}` on `SegmentConfig`,
+   `Count` the default and bit-identical. The cap is what answers decision 11's objection: a synapse
+   at or above the reference weight still counts exactly 1, so `coincidence_threshold` keeps meaning
+   "this many established synapses" and segment-threshold homeostasis needs no unit change. A raw
+   weighted sum is the `reference_weight = 1.0` case. State plainly what a vote now means for an
+   established synapse, a new sprout and an inhibitory synapse.
+2. WHICH VARIABLE PREDICTIVE LEARNING ADJUSTS. B1 put reinforce/punish on permanence because count
+   votes could not see weight, and weight-only adjustment collapsed VAL-4 to 0. That reason no
+   longer holds under weighted votes. Make the target configurable (`Permanence` default, `Weight`,
+   `Both`) and decide by measurement, not by carrying B1's call forward. Two facts to address:
+   `adjust_segment_permanence` (crates/brain-core/src/plasticity/predictive.rs) adjusts every
+   synapse on the segment, not only the ones that contributed; and a weight-punished synapse keeps
+   transmitting and is never pruned, while a permanence-punished one can disconnect.
+3. WHAT WEIGHT-RESCALING NOW DOES TO PREDICTIONS. Homeostatic scaling (LRN-6) renormalises each
+   neuron's total incoming weight, and consolidation's downscale uses the same code. Under weighted
+   votes both reach predictions directly. Measure scaling on and off. Also measure B4's silent gate
+   on and ablated (`silentTransmits: true`): under a graded vote it may be redundant. Record the
+   result either way. Design a remedy only if data shows a cost.
+
+IMPLEMENTATION (the design doc has file-level detail): `segment.rs` (`DendriticVote`),
+`scheduler.rs` (`apply_local_effect`, probe recording of fractional tallies), `predictive.rs`
+(learning target), `snapshot.rs` (`FORMAT_VERSION` 11→12, migration to `Count`/`Permanence`),
+`crates/brain-napi/src/lib.rs` (`SegmentsConfig.voteReferenceWeight`, validated, included in
+`matches()`; `PredictiveLearningConfig.learningTarget`), `packages/brain/src/index.ts`,
+`packages/io/src/milestone/charPrediction.ts` (config options, threaded into both the column's and the
+scheduler's `segments`), and `canonicalBrain.ts` (adopt weighted votes only if they win on
+confirmation seeds under the clear-win rule; record the decision either way).
+
+EXPERIMENTS. Every value is chosen by measurement, reusing B4's search rather than rebuilding it:
+- Generalise `scripts/b4-search/` so `runSearch` takes its space and condition builders as
+  parameters. B4's existing search tests must pass unchanged, which is the proof the refactor
+  preserved behaviour. Add `scripts/b5-search/{space,conditions}.ts` and `scripts/tune-b5-values.ts`.
+- The space: reference weight, with count mode as one of its levels; coincidence threshold; STDP
+  learning rate, time constant, depression ratio and eligibility; predictive-learning target;
+  homeostatic scaling on/off; and B4's four fix flags with their values. Each of these changes
+  meaning under weighted votes.
+- The seed discipline B4 settled: selection 1–5, held-out 6–10 choosing only among finalists,
+  confirmation 11–15 only for reporting.
+- Choose the budget by simulating the search on synthetic landscapes first, as `tune-b4-values.ts`'s
+  header records. This space is larger, so do not copy B4's numbers.
+- Report on confirmation seeds: condition A in count mode and at the winner's vote settings;
+  condition C at the winner; the winner with sprouting disabled; B4's count-mode winner (the config in
+  `char-prediction.slow.test.ts`). Together these answer the question this item exists for: does
+  sprouting beat not sprouting once votes are weighted?
+- Run a factorial at the winner: vote mode × silent gate × learning target.
+- Then re-run README §13.12 item 10's growth conditions B, D, E and F at the winner on the 5-seed
+  protocol. Growth is where new wiring should earn its keep, and no item has re-run them since B3.
+- Smoke-run everything end to end before launching a long run, and give the user the launch command.
+  Report every result, including ones that show no effect or a loss (VAL-9's standard).
+
+TESTS (the design doc's Testing Strategy lists each one):
+- Unit tests for the contribution rule, its cap, zero weight, inhibition, count-mode identity and
+  validation.
+- A scheduler test that two synapses at half the reference weight do not complete a threshold-2
+  coincidence that two established synapses do.
+- Learning-target unit tests; snapshot round-trip, migration and hash-mismatch tests.
+- An invariants property test; a partitioned-vs-single-threaded determinism case.
+- A VAL-9 ablation in `tests/dendritic_votes_b5.rs`: a weak new distractor synapse cannot complete
+  a coincidence in weighted mode, and switching to count mode lets it.
+- A new golden scenario with a fast-tier sibling. Every existing golden raster must reproduce
+  unchanged (count mode is the default); if one changes, that is a bug, not a regen.
+- FFI validation tests; the generalised search's tests.
+- A slow-tier regression test that reproduces the winner's selection-seed figure within ±0.5 points.
+
+CONSTRAINTS.
+- Invariant 1 (locality): the contribution is computed from the delivery's own `signed_current` at
+  the receiving scheduler, and `DeliveryEffect` already carries it across partitions, so no new
+  boundary state is needed. Keep it that way.
+- Keep `excitatoryFraction: 1.0` everywhere it is today; the 80:20 population is D3's.
+- The segment's output stays binary. A graded depolarisation output is a separate, later item.
+- Do not change B3's `NewbornMaturation` inputs. They land on `FEEDFORWARD_SEGMENT` and are
+  unaffected, but note any interaction you find.
+
+DONE WHEN. The three design calls are confirmed with the user and recorded (a new README §12
+decision, with decision 11 and §13.12 item 11(a) pointing to it). The mechanism, FFI surface and
+snapshot migration are built. The search, factorial and growth re-run have been run and reported
+honestly, whichever way they fell. `canonicalBrain.ts` and the slow regression test reflect the
+result. All new tests pass. `npm run test:fast` and `npm run test:slow` are green. README §13.12
+item 10 records whether weighted votes changed sprouting's net effect. This file's Status row for B5
+carries a start timestamp and running updates from the point work began (§4).
 ```
 
 ---
@@ -981,7 +1163,7 @@ plus LRN-2's status record the new rule.
 
 ```
 Read README.md §2.4, NEU-4, NET-2, §13.12 items 1, 2 and 11, §13.13(a), and §11 Phase 7/8 status.
-Then PLAN.md §4. Assumes A2, B1, B2, B4, C1, C2, D1 and D2 have all landed.
+Then PLAN.md §4. Assumes A2, B1, B2, B4, B5, C1, C2, D1 and D2 have all landed.
 
 WHAT THIS IS. Every parameter in this repository was found with `excitatoryFraction: 1.0` — no run
 has ever used the 80:20 ratio NEU-4 specifies (README §13.12 item 11d). This item turns it on. The
@@ -1463,7 +1645,8 @@ partitioned.
 | B1 | done | 2026-09-14 01:13 +0100 | not reliably measured¶ | New `weight` field split from `permanence` end to end (`synapse.rs`, `scheduler.rs`, `plasticity/*.rs`, `snapshot.rs` format version 8→9, `brain-napi`, `packages/brain`/`io`/`viz`); design decision + gotcha recorded at README §12 decision 11; outcome recorded at §13.12 item 12 and §11 Phase 7 status; VAL-4 re-measured at 18.03% (was 17.37%), still not met |
 | B2 | done | 2026-09-14 11:03 +0100 | ~3h46min‖ | `scripts/investigate-growth-regression.ts` re-run post-B1 (corrected `sproutPermanence`/new `sproutWeight`, parallelised via `investigate-growth-regression.worker.ts`); **finding: the deadlock is NOT dissolved** — B–F still bit-identical to C at every seed, direct instrumentation shows grown neurons acquire zero synapses and never fire across the full run; root cause is a still-shut sprout eligibility gate (`activity_streak`), a different lock than the one B1 closed — see README §13.12 item 10's 2026-09-14 update and §11 Phase 7 status |
 | B3 | done | 2026-09-14 14:33 +0100 | ~3h08min** | Closed the two locks B1 left shut (README §13.12 item 10's 2026-09-14 update): new `crates/brain-core/src/plasticity/newborn.rs` (`NewbornMaturation`) wires a newborn's inputs from recently-active neurons onto `FEEDFORWARD_SEGMENT`, places it at their coordinate centroid, and gives it a temporary hyperexcitability window that relaxes over a maturation window, reclaiming it if it never integrates; `FORMAT_VERSION` 9→10 with migration; found and fixed a real pre-existing bug along the way (`NeuronArena::free` never disconnected a freed neuron's synapses — fixed via new `SynapseArena::disconnect_neuron`, shared with `StructuralPlasticity::reclaim_unused_neurons`). Verified at three levels: 5 unit tests, 6 whole-network integration tests (`tests/newborn_integration.rs` — incl. both VAL-9 ablations and an A4-style mid-maturation snapshot-continuation test, which caught a test-harness alternation-phase bug, not an engine one), and the official 5-seed × 6-condition VAL-4 battery (`scripts/investigate-growth-regression.ts`, same protocol as B2). **Result: the deadlock is confirmed dissolved — B–F are no longer bit-identical to C or each other for the first time across Phase A/B2/B3 — but the newly-functional capacity does not help VAL-4**: burst-pace growth (7.45%/7.00%) lands slightly above structural-plasticity-alone (6.40%), gentle-pace (4.51%/4.52%) lands below it, none approach baseline (17.37%) — honestly reported per Requirement 13.6, not spun. Invariant 10 is met for functional capacity (grown neurons fire and wire bidirectionally) for the first time; whether that capacity helps this specific task is a separate, now-answered "not with this configuration." `npm run test:fast` green throughout. README §13.12 items 10 and 12 plus §11 Phase 7 status all corrected and updated — see README for the full account and the per-condition/per-window data in `scripts/investigate-growth-regression.{results,samples}.md`. |
-| B4 | not started (confirming experiments done) | | | added 2026-09-14; 4 design calls, gates D3. `scripts/investigate-structural-plasticity-drag.ts` confirmed the diagnosis and narrowed priority before any code: sprout disabled outright recovers to 16.51% (near baseline 17.37%, vs. control's 6.40%), sub-threshold sprout (pre-B1) reproduces Phase A's 13.04% almost exactly, and a naively stricter prune floor makes it *worse* (1.78%) — sprout's own placement (fixes 2/3) is the load-bearing lever, fix 4 (pruning) is real but not a substitute and must be selective, not a blanket floor change. See README §13.12 item 10's 2026-09-14 update. Implementation (the 4 fixes themselves) not yet started. |
+| B4 | done | 2026-09-15 20:55 +0100 | not reliably measured as one figure†† | Second pass (reopened 2026-09-14 19:11 +0100 after a review against this item's own prompt) replaced the first pass's weight-gated design, whose headline result was an artefact of running without STDP. Built: silent synapses (`SynapseArena::silent_since`, `SilentSynapseParams`), a bounded causal sprout window, deterministic segment spread, silent-synapse elimination, snapshot `FORMAT_VERSION` 10→11 with migration, FFI + TS surface, structural counters, unit tests per fix, VAL-9 ablations (`tests/structural_b4.rs`), and a new golden raster (`structural_plasticity_b4.raster`; existing rasters reproduced unchanged). Values chosen by `scripts/tune-b4-values.ts`, a resumable search over every value and fix flag together with STDP, with unit-tested search logic (`scripts/b4-search/`), a budget chosen by simulation, and confirmation seeds never used to choose; 905 trials, 0 failed. **Result, confirmation seeds: every fix off 3.58%; winner (fixes 1, 2, 4; spread off; unsilence 0.65, window 1..2, elimination 20,000) 15.58%; same config with sprouting disabled 16.63%; condition A 16.99%.** The drag is removed but sprouting is roughly neutral, about a point below not sprouting; fix 3 hurts everywhere; fix 4 is effectively inert at the winner. Kept as found (user's call, 2026-09-15). Shipped in `canonicalBrain.ts`; locked by `char-prediction.slow.test.ts`. Weight-blind dendritic votes remain the root cause, so B5 was added. See README §12 decision 12 and §13.12 item 10. Full B/D/E/F growth battery not re-run (condition C scope); moved to B5. |
+| B5 | not started | | | Spec: `.claude/scratch/weight-aware-dendritic-votes/{requirements,design}.md` (generated 2026-09-15). Gates D3; preferred before C1, C2, D2. |
 | C1 | not started | | | |
 | C2 | not started | | | |
 | D1 | not started | | | |
@@ -1492,3 +1675,5 @@ partitioned.
 **B3's duration is measured from its logged start (2026-09-14 11:25 +0100, given by the user mid-session, per †'s lesson) to completion (14:33 +0100, `date` at the time this row was finalised) — ~3h08min. Updated periodically through the session per the user's request to track it live: research/design ~15 min, Rust core + FFI + TS implementation and testing ~1h, then the official 30-trial VAL-4 battery running in the background (~2h12min wall-clock, per its own logged per-condition timings) while README/PLAN.md write-up proceeded in parallel rather than blocking on it. Unlike B1, this is a fairly faithful measurement of elapsed session time throughout, matching ‖'s own B2 precedent.
 
 ‖B2's duration is measured from this session's actual start (07:17 +0100, given at the start of the prompt) to 11:03 +0100 (`date` at the time this row was written) — ~3h46min, including the README/PLAN.md/`growth.rs`/`structural.rs`/`predictive.rs` reading phase, writing and smoke-testing the instrumented+parallelised script, and two full runs of the official battery: a first attempt at a worker pool sized to `os.cpus().length` (20) that stalled under contention (killed after ~70 min with only 5 of 30 trials done — see README §13.12 item 10's 2026-09-14 update for the CPU-telemetry diagnosis), and a second, successful run at a pool capped to 6 (~2h18min wall-clock for the full 30-trial battery plus three instrumented single-seed runs). Most of this item's wall-clock is machine time, not review time — unlike B1, this duration is a fairly faithful measurement of elapsed session time throughout.
+
+††B4's duration cannot honestly be given as one figure, per †'s and ¶'s lessons: the item ran in two passes across two days and several context compactions. What is logged: the first pass ran 2026-09-14 17:06–18:03 +0100 (~57 min, `date`), and its result was later found to be an artefact. The second pass started 19:11 +0100 (`date`). Stages 0–2 of `investigate-b4-fix-parameters.ts` ran ~2 h, and stage 3 was stopped twice. `tune-b4-values.ts` ran unattended 2026-09-15 07:36–19:42 +0100, ~12 h 06 min: 905 trials, far faster than the ~50 h the simulations' trial counts suggested, because real trials averaged ~2.5 min rather than the ~20 min estimated from stage 3's slowest configurations. The run's own log stamps UTC, one hour behind +0100. B4 was finalised at 20:55 +0100 on 2026-09-15 (`date`). An earlier version of this note reported the first pass alone as the whole item.

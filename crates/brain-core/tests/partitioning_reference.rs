@@ -394,6 +394,11 @@ fn structural_plasticity() -> StructuralPlasticity {
         unused_ticks_before_reclaim: 10_000,
         min_cross_partition_delay: 2,
         max_sprout_source_index: None,
+        sprout_timing: None,
+        seed: 0,
+        segments_per_neuron: 1,
+        spread_sprout_segments: false,
+        silent_elimination_ticks: None,
     };
     StructuralPlasticity::new(params, FixedNeighbourhoods::new(COLUMN_SIZE, 2))
 }
