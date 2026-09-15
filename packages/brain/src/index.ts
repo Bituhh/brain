@@ -12,7 +12,7 @@ import {
   type LifConfig,
   type InhibitionConfig,
   type SegmentsConfig,
-  type PredictiveLearningConfig,
+  type PredictiveLearningConfig as NapiPredictiveLearningConfig,
   type ColumnConfig,
   type VotingGroupConfig,
   type GatingGroupConfig,
@@ -43,7 +43,6 @@ export type {
   LifConfig,
   InhibitionConfig,
   SegmentsConfig,
-  PredictiveLearningConfig,
   ColumnConfig,
   VotingGroupConfig,
   GatingGroupConfig,
@@ -59,6 +58,17 @@ export type {
   GrowthConfig,
   NewbornMaturationConfig,
   SilentSynapsesConfig,
+};
+
+/**
+ * Predictive learning configuration (Requirement 12) -- the native
+ * `learningTarget` field is a plain `string` in the generated bindings (no
+ * `napi(string_enum)` on the Rust side), narrowed here to the three values
+ * `PredictiveLearningConfig::validate()` actually accepts (PLAN.md B5,
+ * README §12 decision 13). Omit for `"permanence"`, today's behaviour.
+ */
+export type PredictiveLearningConfig = Omit<NapiPredictiveLearningConfig, "learningTarget"> & {
+  learningTarget?: "permanence" | "weight" | "both";
 };
 
 /** A probe's configuration (OBS-1, Phase 6 Requirement 4). */

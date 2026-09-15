@@ -11,9 +11,22 @@
 //      were never used to choose anything
 //   5. factorial: all 16 on/off combinations of the four fixes at the winner
 //   6. references on the held-out seeds
+//
+// PLAN.md B5: `runSearch` itself is now item-agnostic. Everything that
+// named PLAN.md B4's own condition shape directly (`searchCondition`,
+// `conditionLabel`, the four-fix factorial, the reference conditions) is a
+// `SearchHooks` parameter instead of a hardcoded import, defaulting to B4's
+// own hooks (`defaultB4Hooks`) so every existing call site -- including
+// every test in `search.test.ts`, none of which passes a `hooks` argument --
+// resolves to exactly what it always did. `N` (the point's own parameter-
+// name union) and `TCondition`/`TCombo` are separate generic parameters for
+// the same reason `space.ts`'s `Point<N>` is generic: a caller with its own
+// parameter names and its own condition/combo shapes (`scripts/b5-search/`)
+// supplies its own hooks and gets full type safety, while B4's own callers
+// need not specify anything and see no change at all.
 
-import { ALL_FIXES, conditionLabel, NO_FIXES, searchCondition, type Condition, type Fixes } from "./conditions.ts";
-import { pointKey, type Point, type Space } from "./space.ts";
+import { ALL_FIXES, conditionLabel as b4ConditionLabel, NO_FIXES, searchCondition, type Condition, type Fixes } from "./conditions.ts";
+import { pointKey, type ParamName, type Point, type Space } from "./space.ts";
 
 export interface Budget {
   readonly screenConfigs: number;
@@ -47,68 +60,69 @@ export interface Budget {
   readonly clearWinSeeds: number;
 }
 
-export interface EvalRequest {
-  readonly condition: Condition;
+export interface EvalRequest<TCondition = Condition> {
+  readonly condition: TCondition;
   readonly seed: bigint;
 }
 
 /** Per-seed accuracy, or `undefined` for a trial that failed. */
 export type Evaluation = ReadonlyMap<bigint, number | undefined>;
 
-/** Runs (or recalls) every request, then returns each condition's per-seed results, keyed by `conditionLabel`. */
-export type Evaluate = (stage: string, requests: readonly EvalRequest[]) => Promise<(condition: Condition) => Evaluation>;
+/** Runs (or recalls) every request, then returns each condition's per-seed results, keyed by the caller's own `conditionLabel`. */
+export type Evaluate<TCondition = Condition> = (stage: string, requests: readonly EvalRequest<TCondition>[]) => Promise<(condition: TCondition) => Evaluation>;
 
-export interface Scored {
-  readonly point: Point;
+export interface Scored<N extends string = ParamName> {
+  readonly point: Point<N>;
   readonly perSeed: readonly number[];
   readonly mean: number;
 }
 
-export interface RefinementStep {
+export interface RefinementStep<N extends string = ParamName> {
   readonly start: number;
   /** Set when this climb stepped onto a point an earlier climb reached, and was abandoned as the same hill. */
   readonly mergedInto?: number;
   readonly round: number;
-  readonly from: Point;
+  readonly from: Point<N>;
   readonly fromMean: number;
-  readonly to: Point | undefined;
+  readonly to: Point<N> | undefined;
   readonly toMean: number | undefined;
 }
 
-export interface HillCheck {
-  readonly candidate: Scored;
+export interface HillCheck<N extends string = ParamName> {
+  readonly candidate: Scored<N>;
   /** Climb numbers whose tops the candidate was checked against. */
   readonly against: readonly number[];
   /** The first climb found on the same hill, or `undefined` when the candidate is on a new hill. */
   readonly sameHillAs: number | undefined;
 }
 
-export interface FactorialRow {
-  readonly fixes: Fixes;
-  readonly selection: Scored | undefined;
+/** `fixes` holds whatever the caller's own factorial combo type is (B4: `Fixes`; a different item: its own shape) -- named for B4's own historical field, not renamed generically, so `report.ts` (B4-specific, unchanged by this generalisation) reads it unmodified. */
+export interface FactorialRow<N extends string = ParamName, TCombo = Fixes> {
+  readonly fixes: TCombo;
+  readonly selection: Scored<N> | undefined;
   /** Confirmation-seed scores, for the informative rows only. */
-  readonly confirm: Scored | undefined;
+  readonly confirm: Scored<N> | undefined;
 }
 
-export interface SearchOutcome {
-  readonly screened: readonly Scored[];
-  readonly promoted: readonly Scored[];
-  readonly hillChecks: readonly HillCheck[];
-  readonly refinement: readonly RefinementStep[];
-  readonly finalists: readonly { readonly selection: Scored; readonly heldOut: Scored | undefined }[];
+export interface SearchOutcome<N extends string = ParamName, TCombo = Fixes> {
+  readonly screened: readonly Scored<N>[];
+  readonly promoted: readonly Scored<N>[];
+  readonly hillChecks: readonly HillCheck<N>[];
+  readonly refinement: readonly RefinementStep<N>[];
+  readonly finalists: readonly { readonly selection: Scored<N>; readonly heldOut: Scored<N> | undefined }[];
   readonly winner:
     | {
-        readonly point: Point;
-        readonly heldOut: Scored;
+        readonly point: Point<N>;
+        readonly heldOut: Scored<N>;
         /** The honest estimate of the winner's accuracy. */
-        readonly confirm: Scored | undefined;
-        readonly runnerUp: { readonly heldOut: Scored; readonly confirm: Scored | undefined } | undefined;
+        readonly confirm: Scored<N> | undefined;
+        readonly runnerUp: { readonly heldOut: Scored<N>; readonly confirm: Scored<N> | undefined } | undefined;
         /** Beat the runner-up on at least `clearWinSeeds` confirmation seeds. */
         readonly clear: boolean;
       }
     | undefined;
-  readonly factorial: readonly FactorialRow[];
-  readonly references: readonly { readonly name: string; readonly confirm: Scored | undefined }[];
+  readonly factorial: readonly FactorialRow<N, TCombo>[];
+  readonly references: readonly { readonly name: string; readonly confirm: Scored<N> | undefined }[];
   /** Points dropped from ranking because a trial failed. */
   readonly failed: readonly string[];
 }
@@ -125,7 +139,7 @@ export function pairedWins(a: readonly number[], b: readonly number[]): number {
 }
 
 /** Highest mean first; points whose trial failed are dropped by the caller. Ties keep their existing order, which is deterministic. */
-export function rank(scored: readonly Scored[]): Scored[] {
+export function rank<N extends string = ParamName>(scored: readonly Scored<N>[]): Scored<N>[] {
   return [...scored].sort((a, b) => b.mean - a.mean);
 }
 
@@ -151,7 +165,7 @@ export function hasValley(endA: number, endB: number, interior: readonly number[
   return interior.some((value) => value < floor);
 }
 
-/** All 16 on/off combinations of the four fixes, all-off first and all-on last. */
+/** All 16 on/off combinations of PLAN.md B4's own four fixes, all-off first and all-on last. */
 export function allFixCombinations(): Fixes[] {
   const out: Fixes[] = [];
   for (let mask = 0; mask < 16; mask++) {
@@ -160,16 +174,64 @@ export function allFixCombinations(): Fixes[] {
   return out;
 }
 
-export async function runSearch(space: Space, budget: Budget, evaluate: Evaluate, log: (line: string) => void): Promise<SearchOutcome> {
+function b4FixCount(f: Fixes): number {
+  return [f.silentGate, f.timingWindow, f.spread, f.elimination].filter(Boolean).length;
+}
+
+/**
+ * The parts of `runSearch` that name the caller's own condition/combo shape
+ * (PLAN.md B5). `toCondition` is what the search itself climbs on
+ * (`searchCondition`'s old role); `factorialCombos`/`toFactorialCondition`/
+ * `isFactorialConfirmRow` drive stage 5 (B4: the 16 fix combinations);
+ * `references` drives stage 6, handed the winner's point (or `undefined` if
+ * no winner was found) and a fallback point (the first screened point) to
+ * attach reference conditions to when there is no winner to attach them to.
+ */
+export interface SearchHooks<N extends string = ParamName, TCondition = Condition, TCombo = Fixes> {
+  readonly toCondition: (point: Point<N>) => TCondition;
+  readonly conditionLabel: (condition: TCondition) => string;
+  readonly factorialCombos: readonly TCombo[];
+  readonly toFactorialCondition: (point: Point<N>, combo: TCombo) => TCondition;
+  readonly isFactorialConfirmRow: (combo: TCombo) => boolean;
+  readonly references: (winnerPoint: Point<N> | undefined, fallbackPoint: Point<N>) => readonly { readonly name: string; readonly condition: TCondition }[];
+}
+
+/** PLAN.md B4's own hooks -- `runSearch`'s default, so every pre-B5 call site is unaffected. */
+export function defaultB4Hooks(): SearchHooks<ParamName, Condition, Fixes> {
+  return {
+    toCondition: searchCondition,
+    conditionLabel: b4ConditionLabel,
+    factorialCombos: allFixCombinations(),
+    toFactorialCondition: (point, fixes) => ({ kind: "C", point, fixes }),
+    // The rows that answer "what does each fix do": all off, each alone, all on, and all but each.
+    isFactorialConfirmRow: (fixes) => [0, 1, 3, 4].includes(b4FixCount(fixes)),
+    references: (winnerPoint) => [
+      { name: "condition C, every fix off, weights frozen (pre-B4 control)", condition: { kind: "C-off-frozen" } },
+      { name: "condition C, sprouting disabled, weights frozen", condition: { kind: "sprout-disabled-frozen" } },
+      { name: "condition A, no structural plasticity, weights frozen", condition: { kind: "A-frozen" } },
+      ...(winnerPoint !== undefined
+        ? [{ name: "the winner's exact config with sprouting disabled (does sprouting beat not sprouting, same STDP?)", condition: { kind: "sprout-disabled-at" as const, point: winnerPoint } }]
+        : []),
+    ],
+  };
+}
+
+export async function runSearch<N extends string = ParamName, TCondition = Condition, TCombo = Fixes>(
+  space: Space<N>,
+  budget: Budget,
+  evaluate: Evaluate<TCondition>,
+  log: (line: string) => void,
+  hooks: SearchHooks<N, TCondition, TCombo> = defaultB4Hooks() as unknown as SearchHooks<N, TCondition, TCombo>,
+): Promise<SearchOutcome<N, TCombo>> {
   const failed = new Set<string>();
 
-  const score = (condition: Condition, point: Point, seeds: readonly bigint[], results: (c: Condition) => Evaluation): Scored | undefined => {
+  const score = (condition: TCondition, point: Point<N>, seeds: readonly bigint[], results: (c: TCondition) => Evaluation): Scored<N> | undefined => {
     const byseed = results(condition);
     const perSeed: number[] = [];
     for (const seed of seeds) {
       const value = byseed.get(seed);
       if (value === undefined) {
-        failed.add(conditionLabel(condition));
+        failed.add(hooks.conditionLabel(condition));
         return undefined;
       }
       perSeed.push(value);
@@ -177,10 +239,10 @@ export async function runSearch(space: Space, budget: Budget, evaluate: Evaluate
     return { point, perSeed, mean: mean(perSeed) };
   };
 
-  const evaluatePoints = async (stage: string, points: readonly Point[], seeds: readonly bigint[]): Promise<Scored[]> => {
-    const requests = points.flatMap((point) => seeds.map((seed) => ({ condition: searchCondition(point), seed })));
+  const evaluatePoints = async (stage: string, points: readonly Point<N>[], seeds: readonly bigint[]): Promise<Scored<N>[]> => {
+    const requests = points.flatMap((point) => seeds.map((seed) => ({ condition: hooks.toCondition(point), seed })));
     const results = await evaluate(stage, requests);
-    return points.map((point) => score(searchCondition(point), point, seeds, results)).filter((s): s is Scored => s !== undefined);
+    return points.map((point) => score(hooks.toCondition(point), point, seeds, results)).filter((s): s is Scored<N> => s !== undefined);
   };
 
   const pct = (x: number | undefined) => (x === undefined ? "n/a" : `${(x * 100).toFixed(2)}%`);
@@ -197,11 +259,11 @@ export async function runSearch(space: Space, budget: Budget, evaluate: Evaluate
   const promoted = rank(await evaluatePoints("promote", toPromote, budget.fullSeeds));
 
   // Every point with a full-seed score, by key -- refinement adds to it.
-  const full = new Map<string, Scored>(promoted.map((s) => [pointKey(s.point), s]));
+  const full = new Map<string, Scored<N>>(promoted.map((s) => [pointKey(s.point), s]));
 
   // Screen-seed means, which every point on a hill check is compared on
   // (comparing a 5-seed mean against a 2-seed one would mix in seed luck).
-  const onScreenSeeds = async (stage: string, points: readonly Point[]): Promise<Map<string, number>> => {
+  const onScreenSeeds = async (stage: string, points: readonly Point<N>[]): Promise<Map<string, number>> => {
     const unique = [...new Map(points.map((p) => [pointKey(p), p])).values()];
     return new Map((await evaluatePoints(stage, unique, budget.screenSeeds)).map((s) => [pointKey(s.point), s.mean]));
   };
@@ -212,9 +274,9 @@ export async function runSearch(space: Space, budget: Budget, evaluate: Evaluate
   // top is on that climb's hill and is skipped. A climb that steps onto a
   // point an earlier climb reached is on that climb's hill too: it stops
   // and does not count as a distinct hill.
-  const refinement: RefinementStep[] = [];
-  const hillChecks: HillCheck[] = [];
-  const tops: { climb: number; top: Scored }[] = [];
+  const refinement: RefinementStep<N>[] = [];
+  const hillChecks: HillCheck<N>[] = [];
+  const tops: { climb: number; top: Scored<N> }[] = [];
   const reachedBy = new Map<string, number>(); // point key -> climb number
   let climbs = 0;
   log(`[stage] refine: up to ${budget.refineStarts} distinct hills from ${promoted.length} promoted points, at most ${budget.maxHillChecks} hill checks`);
@@ -262,7 +324,7 @@ export async function runSearch(space: Space, budget: Budget, evaluate: Evaluate
       const promotedNeighbours = await evaluatePoints(`${stage} (promote)`, screenedNeighbours.slice(0, budget.neighbourPromote).map((s) => s.point), budget.fullSeeds);
       for (const s of promotedNeighbours) full.set(pointKey(s.point), s);
       // Already-scored neighbours (from promotion or earlier climbs) compete too.
-      const known = space.neighbours(current.point).map((p) => full.get(pointKey(p))).filter((s): s is Scored => s !== undefined);
+      const known = space.neighbours(current.point).map((p) => full.get(pointKey(p))).filter((s): s is Scored<N> => s !== undefined);
       // Moves on a higher mean alone. Also requiring wins on 3 or 4 of the 5
       // seeds one by one was simulated (noisy synthetic landscapes, 12 runs
       // each): 3 of 5 changed nothing, 4 of 5 found worse peaks.
@@ -298,13 +360,13 @@ export async function runSearch(space: Space, budget: Budget, evaluate: Evaluate
   const [top, second] = rank(heldOutScores);
 
   // 4b. confirm the winner and runner-up on seeds never used to choose.
-  let winner: SearchOutcome["winner"];
+  let winner: SearchOutcome<N, TCombo>["winner"];
   if (top === undefined) {
     log("[stage] held-out: no finalist completed -- nothing to choose");
   } else {
     log(`[stage] confirm: winner (held-out ${pct(top.mean)})${second ? ` and runner-up (held-out ${pct(second.mean)})` : ""} on seeds ${budget.confirmSeeds.join(",")}`);
     const confirmScores = await evaluatePoints("confirm", [top, ...(second ? [second] : [])].map((s) => s.point), budget.confirmSeeds);
-    const confirmOf = (s: Scored) => confirmScores.find((c) => pointKey(c.point) === pointKey(s.point));
+    const confirmOf = (s: Scored<N>) => confirmScores.find((c) => pointKey(c.point) === pointKey(s.point));
     const winnerConfirm = confirmOf(top);
     const runnerUpConfirm = second ? confirmOf(second) : undefined;
     const clear = second === undefined || (winnerConfirm !== undefined && runnerUpConfirm !== undefined && pairedWins(winnerConfirm.perSeed, runnerUpConfirm.perSeed) >= budget.clearWinSeeds);
@@ -313,40 +375,35 @@ export async function runSearch(space: Space, budget: Budget, evaluate: Evaluate
     log(`[stage] confirm: winner ${shown} on confirmation seeds${runnerUpConfirm ? `, runner-up ${pct(runnerUpConfirm.mean)}` : ""}${clear ? "" : " -- NOT a clear win over the runner-up; reported as a tie"}`);
   }
 
-  // 5. factorial of the four fixes at the winner's values
-  const factorial: FactorialRow[] = [];
+  // 5. factorial of the caller's own combos at the winner's point (B4: the four fixes)
+  const factorial: FactorialRow<N, TCombo>[] = [];
   if (winner !== undefined) {
     const at = winner.point;
-    const combos = allFixCombinations();
-    const conditions = combos.map((fixes): Condition => ({ kind: "C", point: at, fixes }));
-    log(`[stage] factorial: ${combos.length} fix combinations x ${budget.fullSeeds.length} seeds`);
+    const combos = hooks.factorialCombos;
+    const conditions = combos.map((combo) => hooks.toFactorialCondition(at, combo));
+    log(`[stage] factorial: ${combos.length} combinations x ${budget.fullSeeds.length} seeds`);
     const selectionResults = await evaluate("factorial", conditions.flatMap((condition) => budget.fullSeeds.map((seed) => ({ condition, seed }))));
-    // Confirmation seeds for the rows that answer "what does each fix do":
-    // all off, each alone, all on, and all but each.
-    const count = (f: Fixes) => [f.silentGate, f.timingWindow, f.spread, f.elimination].filter(Boolean).length;
-    const confirmRows = conditions.filter((c) => c.kind === "C" && [0, 1, 3, 4].includes(count(c.fixes)));
-    log(`[stage] factorial confirm: ${confirmRows.length} rows x ${budget.confirmSeeds.length} seeds`);
-    const confirmResults = await evaluate("factorial confirm", confirmRows.flatMap((condition) => budget.confirmSeeds.map((seed) => ({ condition, seed }))));
+    const confirmCombos = combos.filter((combo) => hooks.isFactorialConfirmRow(combo));
+    const confirmConditions = confirmCombos.map((combo) => hooks.toFactorialCondition(at, combo));
+    log(`[stage] factorial confirm: ${confirmConditions.length} rows x ${budget.confirmSeeds.length} seeds`);
+    const confirmResults = await evaluate("factorial confirm", confirmConditions.flatMap((condition) => budget.confirmSeeds.map((seed) => ({ condition, seed }))));
     for (let i = 0; i < combos.length; i++) {
+      const combo = combos[i]!;
       const condition = conditions[i]!;
+      const isConfirmRow = hooks.isFactorialConfirmRow(combo);
       factorial.push({
-        fixes: combos[i]!,
+        fixes: combo,
         selection: score(condition, at, budget.fullSeeds, selectionResults),
-        confirm: confirmRows.includes(condition) ? score(condition, at, budget.confirmSeeds, confirmResults) : undefined,
+        confirm: isConfirmRow ? score(condition, at, budget.confirmSeeds, confirmResults) : undefined,
       });
     }
   }
 
   // 6. references on the confirmation seeds
-  const referenceConditions: { name: string; condition: Condition }[] = [
-    { name: "condition C, every fix off, weights frozen (pre-B4 control)", condition: { kind: "C-off-frozen" } },
-    { name: "condition C, sprouting disabled, weights frozen", condition: { kind: "sprout-disabled-frozen" } },
-    { name: "condition A, no structural plasticity, weights frozen", condition: { kind: "A-frozen" } },
-    ...(winner !== undefined ? [{ name: "the winner's exact config with sprouting disabled (does sprouting beat not sprouting, same STDP?)", condition: { kind: "sprout-disabled-at" as const, point: winner.point } }] : []),
-  ];
+  const placeholder = winner?.point ?? sample[0]!;
+  const referenceConditions = hooks.references(winner?.point, placeholder);
   log(`[stage] references: ${referenceConditions.length} x ${budget.confirmSeeds.length} confirmation seeds`);
   const referenceResults = await evaluate("references", referenceConditions.flatMap(({ condition }) => budget.confirmSeeds.map((seed) => ({ condition, seed }))));
-  const placeholder = winner?.point ?? sample[0]!;
   const references = referenceConditions.map(({ name, condition }) => ({ name, confirm: score(condition, placeholder, budget.confirmSeeds, referenceResults) }));
 
   return { screened, promoted, hillChecks, refinement, finalists, winner, factorial, references, failed: [...failed] };

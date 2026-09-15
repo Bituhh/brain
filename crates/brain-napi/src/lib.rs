@@ -17,14 +17,14 @@ use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
 use brain_core::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
 use brain_core::plasticity::newborn::{NewbornMaturationParams, NewbornWiringParams};
-use brain_core::plasticity::predictive::PredictiveLearningParams;
+use brain_core::plasticity::predictive::{PredictiveLearningParams, SegmentLearningTarget};
 use brain_core::plasticity::stdp::StdpParams;
 use brain_core::plasticity::structural::{SproutTimingWindow, StructuralPlasticity, StructuralPlasticityParams};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::RuleChain;
 use brain_core::probe::{Probe, ProbeOptions, SpikeRaster};
 use brain_core::scheduler::{Scheduler, SilentSynapseParams};
-use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig, FEEDFORWARD_SEGMENT};
+use brain_core::segment::{BinaryCoincidenceParams, DendriticVote, SegmentConfig, FEEDFORWARD_SEGMENT};
 use brain_core::synapse::{SynapseArena, NOT_SILENT};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -221,13 +221,50 @@ pub struct SegmentsConfig {
     /// How many simultaneously-active synapses on one segment are needed
     /// for it to depolarise its neuron (`segment.rs`'s `BinaryCoincidence`).
     pub coincidence_threshold: u32,
+    /// PLAN.md B5 (README §12 decision 13): omit for `segment::DendriticVote::Count`
+    /// (every existing caller's behaviour, bit-identical to pre-B5). When
+    /// set, a dendritic delivery contributes `sign × min(weight /
+    /// voteReferenceWeight, 1)` to its segment's tally instead of `sign ×
+    /// 1` -- a synapse at or above this weight still casts a full vote,
+    /// same as count mode; a weaker one votes fractionally. Validated by
+    /// `validate()`: must be finite and in `(0, 1]`.
+    pub vote_reference_weight: Option<f64>,
 }
 
 impl SegmentsConfig {
-    const NONE: SegmentsConfig = SegmentsConfig { segments_per_neuron: 0, coincidence_threshold: 0 };
+    const NONE: SegmentsConfig = SegmentsConfig { segments_per_neuron: 0, coincidence_threshold: 0, vote_reference_weight: None };
 
     fn matches(&self, other: &SegmentsConfig) -> bool {
-        self.segments_per_neuron == other.segments_per_neuron && self.coincidence_threshold == other.coincidence_threshold
+        self.segments_per_neuron == other.segments_per_neuron
+            && self.coincidence_threshold == other.coincidence_threshold
+            && self.vote_reference_weight == other.vote_reference_weight
+    }
+
+    fn validate(&self) -> Result<()> {
+        if let Some(r) = self.vote_reference_weight {
+            if !r.is_finite() || r <= 0.0 || r > 1.0 {
+                return Err(Error::from_reason(format!("segments.voteReferenceWeight must be finite and in (0, 1], got {r}")));
+            }
+        }
+        Ok(())
+    }
+
+    /// `segment::SegmentConfig`'s `vote` field, following Requirement 1.6's
+    /// `(0, 1]` bound -- `validate()` must have already been called on
+    /// this value (every construction site below does).
+    fn dendritic_vote(&self) -> DendriticVote {
+        match self.vote_reference_weight {
+            Some(r) => DendriticVote::Weighted { reference_weight: r as f32 },
+            None => DendriticVote::Count,
+        }
+    }
+
+    fn segment_config(&self) -> SegmentConfig {
+        SegmentConfig {
+            segments_per_neuron: self.segments_per_neuron,
+            params: BinaryCoincidenceParams { threshold: self.coincidence_threshold as u16 },
+            vote: self.dendritic_vote(),
+        }
     }
 }
 
@@ -291,10 +328,36 @@ pub struct PredictiveLearningConfig {
     /// "nearby" for structural discovery than for k-WTA competition.
     pub neighbourhood_size: u32,
     pub neighbourhood_k: u32,
+    /// PLAN.md B5 (README §12 decision 13): which variable reinforce/punish
+    /// adjusts -- `"permanence"` (omit for this, today's behaviour, bit-
+    /// identical), `"weight"`, or `"both"`. Re-decided under weighted
+    /// dendritic votes rather than carried forward from decision 11's
+    /// permanence-only finding -- see `predictive::SegmentLearningTarget`'s
+    /// doc comment.
+    pub learning_target: Option<String>,
 }
 
 impl PredictiveLearningConfig {
+    fn validate(&self) -> Result<()> {
+        if let Some(t) = &self.learning_target {
+            if !matches!(t.as_str(), "permanence" | "weight" | "both") {
+                return Err(Error::from_reason(format!(
+                    "predictiveLearning.learningTarget must be \"permanence\", \"weight\" or \"both\", got {t:?}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     fn to_params(&self) -> PredictiveLearningParams {
+        let learning_target = match self.learning_target.as_deref() {
+            None | Some("permanence") => SegmentLearningTarget::Permanence,
+            Some("weight") => SegmentLearningTarget::Weight,
+            Some("both") => SegmentLearningTarget::Both,
+            // `validate()` must have already rejected anything else -- see
+            // every construction site below, which calls it first.
+            Some(other) => unreachable!("invalid learningTarget {other:?} should have been rejected by validate()"),
+        };
         PredictiveLearningParams {
             significance_threshold: self.significance_threshold as f32,
             reinforce_amount: self.reinforce_amount as f32,
@@ -304,6 +367,7 @@ impl PredictiveLearningConfig {
             burst_sprout_weight: self.burst_sprout_weight as f32,
             recently_active_window_ticks: self.recently_active_window_ticks,
             modulator_index: self.modulator_index.map(|v| v as usize),
+            learning_target,
         }
     }
 }
@@ -855,10 +919,7 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
         scheduler = scheduler.with_inhibition(build_inhibition(cfg));
     }
     if let Some(cfg) = &config.segments {
-        scheduler = scheduler.with_segments(SegmentConfig {
-            segments_per_neuron: cfg.segments_per_neuron,
-            params: BinaryCoincidenceParams { threshold: cfg.coincidence_threshold as u16 },
-        });
+        scheduler = scheduler.with_segments(cfg.segment_config());
     }
     if let Some(cfg) = &config.silent_synapses {
         scheduler = scheduler.with_silent_synapses(cfg.to_params());
@@ -1131,6 +1192,12 @@ impl NativeSimulation {
         if let Some(cfg) = &structural_plasticity {
             cfg.validate()?;
         }
+        if let Some(cfg) = &segments {
+            cfg.validate()?;
+        }
+        if let Some(cfg) = &predictive_learning {
+            cfg.validate()?;
+        }
         let thread_count = thread_count.unwrap_or(1).max(1) as usize;
         // NET-10: partitioned mode is not supported (see `GrowthConfig`'s own
         // doc comment) -- every partition would run an independent copy of
@@ -1286,17 +1353,14 @@ impl NativeSimulation {
             // disabled and nothing saying so.
             if !cfg.segments.matches(&self.scheduler_segments) {
                 return Err(Error::from_reason(format!(
-                    "column {i}'s segments ({}/{} = segmentsPerNeuron/coincidenceThreshold) do not match this simulation's scheduler-wide segment configuration ({}/{}). Every column shares one `Scheduler`, which runs a single segment scheme set once via `SimulationOptions.segments` (or none at all) -- pass the same values here, or {{segmentsPerNeuron: 0, coincidenceThreshold: 0}} if this column does not use dendritic segments.",
-                    cfg.segments.segments_per_neuron, cfg.segments.coincidence_threshold,
-                    self.scheduler_segments.segments_per_neuron, self.scheduler_segments.coincidence_threshold,
+                    "column {i}'s segments ({}/{}/{:?} = segmentsPerNeuron/coincidenceThreshold/voteReferenceWeight) do not match this simulation's scheduler-wide segment configuration ({}/{}/{:?}). Every column shares one `Scheduler`, which runs a single segment scheme set once via `SimulationOptions.segments` (or none at all) -- pass the same values here, or {{segmentsPerNeuron: 0, coincidenceThreshold: 0}} if this column does not use dendritic segments.",
+                    cfg.segments.segments_per_neuron, cfg.segments.coincidence_threshold, cfg.segments.vote_reference_weight,
+                    self.scheduler_segments.segments_per_neuron, self.scheduler_segments.coincidence_threshold, self.scheduler_segments.vote_reference_weight,
                 )));
             }
             let coords: Vec<[f32; 3]> =
                 (0..cfg.neuron_count).map(|j| [cfg.base_x as f32 + j as f32, cfg.base_y as f32, cfg.base_z as f32]).collect();
-            let segment_config = SegmentConfig {
-                segments_per_neuron: cfg.segments.segments_per_neuron,
-                params: BinaryCoincidenceParams { threshold: cfg.segments.coincidence_threshold as u16 },
-            };
+            let segment_config = cfg.segments.segment_config();
             let spec = builder.build_column(
                 &mut self.neurons,
                 &mut self.synapses,
@@ -2040,16 +2104,15 @@ impl NativeSimulation {
             scheduler = scheduler.with_inhibition(build_inhibition(cfg));
         }
         if let Some(cfg) = &segments {
-            scheduler = scheduler.with_segments(SegmentConfig {
-                segments_per_neuron: cfg.segments_per_neuron,
-                params: BinaryCoincidenceParams { threshold: cfg.coincidence_threshold as u16 },
-            });
+            cfg.validate()?;
+            scheduler = scheduler.with_segments(cfg.segment_config());
         }
         if let Some(cfg) = &silent_synapses {
             cfg.validate()?;
             scheduler = scheduler.with_silent_synapses(cfg.to_params());
         }
         if let Some(cfg) = &predictive_learning {
+            cfg.validate()?;
             scheduler = scheduler
                 .with_predictive_learning(cfg.to_params(), FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.neighbourhood_k));
         }

@@ -51,7 +51,15 @@ const MAX_DELAY: u16 = 6;
 const CONNECTION_THRESHOLD: f32 = 0.3;
 
 fn segments() -> SegmentConfig {
-    SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 2 } }
+    SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 2 })
+}
+
+/// PLAN.md B5 (README §12 decision 13): same shape as `segments()`, in
+/// weighted mode -- used by this file's own dedicated weighted-vote
+/// determinism test below, not the count-mode tests above (which stay on
+/// `segments()` so this file keeps its existing count-mode coverage too).
+fn segments_weighted() -> SegmentConfig {
+    SegmentConfig::weighted(1, BinaryCoincidenceParams { threshold: 2 }, 0.7)
 }
 
 fn plasticity() -> RuleChain {
@@ -71,7 +79,7 @@ fn lif_params() -> LifParams {
 /// cross-partition current delivery, cross-partition segment coincidence,
 /// and (with plasticity enabled on every scenario) both cross-partition
 /// `on_delivery` and `on_post_spike`.
-fn build_network(seed: u64) -> (NeuronArena, SynapseArena, ColumnRegistry, Range<u32>, Range<u32>) {
+fn build_network(seed: u64, segments: SegmentConfig) -> (NeuronArena, SynapseArena, ColumnRegistry, Range<u32>, Range<u32>) {
     let mut neurons = NeuronArena::new();
     let mut synapses = SynapseArena::new(COLUMN_SIZE * 4);
     let builder = GraphBuilder::new(seed);
@@ -80,8 +88,8 @@ fn build_network(seed: u64) -> (NeuronArena, SynapseArena, ColumnRegistry, Range
     let internal_policy = DistancePolicy { p0: 0.3, length_scale: 3.0, delay_min: 1, delay_max: 2, initial_permanence: 0.4 };
     let coords_a: Vec<[f32; 3]> = (0..COLUMN_SIZE).map(|i| [i as f32, 0.0, 0.0]).collect();
     let coords_b: Vec<[f32; 3]> = (0..COLUMN_SIZE).map(|i| [i as f32, 1.0, 0.0]).collect();
-    let a = builder.build_column(&mut neurons, &mut synapses, &coords_a, 1.0, 0.8, &internal_policy, COLUMN_SIZE, 2, segments());
-    let b = builder.build_column(&mut neurons, &mut synapses, &coords_b, 1.0, 0.8, &internal_policy, COLUMN_SIZE, 2, segments());
+    let a = builder.build_column(&mut neurons, &mut synapses, &coords_a, 1.0, 0.8, &internal_policy, COLUMN_SIZE, 2, segments);
+    let b = builder.build_column(&mut neurons, &mut synapses, &coords_b, 1.0, 0.8, &internal_policy, COLUMN_SIZE, 2, segments);
     let a_range = a.neuron_range.clone();
     let b_range = b.neuron_range.clone();
     columns.register(a);
@@ -124,10 +132,14 @@ struct RunOutcome {
 }
 
 fn run_plain_scheduler(seed: u64) -> RunOutcome {
-    let (mut neurons, mut synapses, _columns, _a, _b) = build_network(seed);
+    run_plain_scheduler_with_segments(seed, segments())
+}
+
+fn run_plain_scheduler_with_segments(seed: u64, segments: SegmentConfig) -> RunOutcome {
+    let (mut neurons, mut synapses, _columns, _a, _b) = build_network(seed, segments);
     let mut sched = Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
         .with_inhibition(FixedNeighbourhoods::new(COLUMN_SIZE, 2))
-        .with_segments(segments())
+        .with_segments(segments)
         .with_plasticity(plasticity(), [500.0; NUM_MODULATORS]);
     let params = lif_params();
 
@@ -155,7 +167,11 @@ enum ExecutorChoice {
 }
 
 fn run_partitioned(seed: u64, partition_count: usize, executor: ExecutorChoice) -> RunOutcome {
-    let (mut neurons, mut synapses, columns, a_range, b_range) = build_network(seed);
+    run_partitioned_with_segments(seed, partition_count, executor, segments())
+}
+
+fn run_partitioned_with_segments(seed: u64, partition_count: usize, executor: ExecutorChoice, segments: SegmentConfig) -> RunOutcome {
+    let (mut neurons, mut synapses, columns, a_range, b_range) = build_network(seed, segments);
     let plan = if partition_count == 1 { PartitionPlan::single(TOTAL_NEURONS) } else { PartitionPlan::contiguous(&columns, partition_count) };
 
     let schedulers: Vec<Scheduler> = (0..plan.partition_count())
@@ -163,7 +179,7 @@ fn run_partitioned(seed: u64, partition_count: usize, executor: ExecutorChoice) 
             let range = plan.range_of(p);
             Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
                 .with_inhibition(FixedNeighbourhoods::with_base(range.start, COLUMN_SIZE.min(range.end - range.start), 2))
-                .with_segments(segments())
+                .with_segments(segments)
                 .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
         })
         .collect();
@@ -258,6 +274,29 @@ fn two_partitions_match_the_unpartitioned_reference() {
     assert_identical_synapses(&plain.synapses, &two_partitions.synapses, TOTAL_NEURONS, "2-partition vs plain");
 }
 
+/// PLAN.md B5 (README §12 decision 13), Requirement 7.2: the same crux
+/// claim as the two count-mode tests above, under `DendriticVote::Weighted`
+/// specifically -- the contribution is computed from the delivery's own
+/// `signed_current` at the receiving scheduler (design.md's Architecture
+/// note), so it should need no new cross-partition boundary state, and this
+/// is the test that actually proves that rather than assumes it.
+#[test]
+fn weighted_vote_partitioning_matches_the_unpartitioned_reference() {
+    let seed = 7;
+    let plain = run_plain_scheduler_with_segments(seed, segments_weighted());
+    let two_partitions = run_partitioned_with_segments(seed, 2, ExecutorChoice::Sequential, segments_weighted());
+
+    assert_eq!(plain.spiked_per_tick, two_partitions.spiked_per_tick, "spiked sets must match every tick under weighted votes, partitioned or not");
+    assert_eq!(plain.vetoed_per_tick, two_partitions.vetoed_per_tick, "vetoed sets must match every tick under weighted votes, partitioned or not");
+    assert_identical_arenas(&plain.neurons, &two_partitions.neurons, "weighted-vote 2-partition vs plain");
+    assert_identical_synapses(&plain.synapses, &two_partitions.synapses, TOTAL_NEURONS, "weighted-vote 2-partition vs plain");
+
+    let two_threads = run_partitioned_with_segments(seed, 2, ExecutorChoice::Rayon(2), segments_weighted());
+    assert_eq!(plain.spiked_per_tick, two_threads.spiked_per_tick, "real threading must not change weighted-vote results either");
+    assert_identical_arenas(&plain.neurons, &two_threads.neurons, "weighted-vote 2-thread vs plain");
+    assert_identical_synapses(&plain.synapses, &two_threads.synapses, TOTAL_NEURONS, "weighted-vote 2-thread vs plain");
+}
+
 /// Requirement 8, Acceptance Criterion 1: the same seed/topology/input run
 /// at different *thread counts* (not just different partition counts) must
 /// be bit-identical -- real rayon-managed threads now, not the sequential
@@ -308,7 +347,7 @@ fn the_reference_scenario_actually_produces_activity_and_learning() {
     let any_spikes = outcome.spiked_per_tick.iter().any(|t| !t.is_empty());
     assert!(any_spikes, "test scenario must actually produce spikes for the comparison tests to be meaningful");
 
-    let (_, initial_synapses, _, _, _) = build_network(7);
+    let (_, initial_synapses, _, _, _) = build_network(7, segments());
     let moved = (0..TOTAL_NEURONS).any(|source| {
         outcome.synapses.occupied_in_block(source).any(|id| {
             let i = id as usize;
@@ -335,7 +374,7 @@ fn the_reference_scenario_actually_produces_activity_and_learning() {
 #[test]
 fn cross_column_spike_phase_is_identical_across_partitioning_and_threading() {
     let seed = 7;
-    let (_, _, _, a_range, b_range) = build_network(seed);
+    let (_, _, _, a_range, b_range) = build_network(seed, segments());
 
     fn phase_lag_series(outcome: &RunOutcome, a_range: &Range<u32>, b_range: &Range<u32>) -> Vec<Option<u32>> {
         let mut raster = SpikeRaster::new();
@@ -415,7 +454,7 @@ fn structural_plasticity() -> StructuralPlasticity {
 /// plain-scheduler and partitioned builds so their topologies still match
 /// exactly for the cross-comparison tests.
 fn build_network_with_prune_canary(seed: u64) -> (NeuronArena, SynapseArena, ColumnRegistry, Range<u32>, Range<u32>) {
-    let (neurons, mut synapses, columns, a_range, b_range) = build_network(seed);
+    let (neurons, mut synapses, columns, a_range, b_range) = build_network(seed, segments());
     let canary = synapses.occupied_in_block(a_range.start).next().expect("column a's first neuron must have at least one outgoing synapse");
     synapses.permanence[canary as usize] = 0.01;
     (neurons, synapses, columns, a_range, b_range)
@@ -639,7 +678,7 @@ fn reward_broadcasts_correctly_across_a_partition_boundary_containing_a_gating_e
 /// reason.
 #[test]
 fn the_always_on_plasticity_scenario_actually_prunes_or_sprouts() {
-    let (_, initial_synapses, _, _, _) = build_network(7);
+    let (_, initial_synapses, _, _, _) = build_network(7, segments());
     let initial_occupied: u32 = (0..TOTAL_NEURONS).map(|s| initial_synapses.occupied_in_block(s).count() as u32).sum();
 
     let outcome = run_plain_scheduler_with_always_on_plasticity(7);

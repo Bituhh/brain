@@ -539,6 +539,100 @@ test("Simulation.predictiveView is a bulk zero-copy view, independent of membran
   assert.ok(predictiveView[b]! > 0, "predictiveView must reflect b's dendritic depolarisation with no re-fetch");
 });
 
+// -- PLAN.md B5 (README §12 decision 13): weight-aware dendritic votes,
+// exposed through the real compiled addon.
+
+test("SegmentsConfig.voteReferenceWeight: weighted mode changes whether a weak synapse's coincidence depolarises the target (Requirement 1, 10's FFI layer)", () => {
+  // `connect`'s single `permanence` argument sets weight to the same value
+  // at insertion (README §12 decision 11's construction-time convention),
+  // so a low/high permanence here is also a low/high weight -- no separate
+  // weight-poke call is needed. connectionThreshold is set low enough that
+  // even the weak synapse's permanence clears it and actually transmits.
+  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.5 };
+  const weakWeight = 0.05;
+  const referenceWeight = 0.8;
+
+  const countSim = Simulation.create(lif, {
+    maxDelay: 1,
+    connectionThreshold: 0.02,
+    synapseCapPerNeuron: 1,
+    segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1 },
+  });
+  const ca = countSim.allocateNeuron(0.5, 1);
+  const cb = countSim.allocateNeuron(100.0, 1);
+  countSim.connect(ca, cb, 0, 1, weakWeight);
+  countSim.stimulate(ca, 10.0);
+  countSim.step();
+  countSim.step();
+  assert.ok(countSim.predictiveView()[cb]! > 0, "count mode must depolarise from a single weak-weight delivery -- it ignores weight entirely");
+
+  const weightedSim = Simulation.create(lif, {
+    maxDelay: 1,
+    connectionThreshold: 0.02,
+    synapseCapPerNeuron: 1,
+    segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1, voteReferenceWeight: referenceWeight },
+  });
+  const wa = weightedSim.allocateNeuron(0.5, 1);
+  const wb = weightedSim.allocateNeuron(100.0, 1);
+  weightedSim.connect(wa, wb, 0, 1, weakWeight);
+  weightedSim.stimulate(wa, 10.0);
+  weightedSim.step();
+  weightedSim.step();
+  assert.equal(weightedSim.predictiveView()[wb]!, 0, "weighted mode must NOT depolarise from the same weak-weight delivery alone (0.05/0.8 < the threshold-1 requirement)");
+});
+
+test("SegmentsConfig.voteReferenceWeight: Simulation.create rejects an out-of-range value (Requirement 1.6)", () => {
+  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
+  const base = { maxDelay: 1, connectionThreshold: 0.3, synapseCapPerNeuron: 1 };
+  for (const voteReferenceWeight of [0, -0.1, 1.5, NaN, Infinity]) {
+    assert.throws(
+      () => Simulation.create(lif, { ...base, segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1, voteReferenceWeight } }),
+      /voteReferenceWeight/,
+      `voteReferenceWeight=${voteReferenceWeight} must be rejected`,
+    );
+  }
+});
+
+test("PredictiveLearningConfig.learningTarget: Simulation.create rejects an unrecognised value (Requirement 5.1)", () => {
+  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
+  assert.throws(
+    () =>
+      Simulation.create(lif, {
+        maxDelay: 1,
+        connectionThreshold: 0.3,
+        synapseCapPerNeuron: 1,
+        predictiveLearning: {
+          significanceThreshold: 0.5,
+          reinforceAmount: 0.1,
+          punishAmount: 0.1,
+          burstTargetSegment: 0,
+          burstSproutPermanence: 0.5,
+          burstSproutWeight: 0.05,
+          recentlyActiveWindowTicks: 10,
+          neighbourhoodSize: 4,
+          neighbourhoodK: 1,
+          // @ts-expect-error -- deliberately invalid, this is what the test asserts is rejected
+          learningTarget: "nonsense",
+        },
+      }),
+    /learningTarget/,
+  );
+});
+
+test("Simulation.buildColumns refuses a column whose voteReferenceWeight disagrees with the scheduler-wide one (Requirement 8.1)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.3, synapseCapPerNeuron: 1, segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1, voteReferenceWeight: 0.8 } },
+  );
+  assert.throws(
+    () =>
+      sim.buildColumns(1n, [
+        columnConfig({ segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1, voteReferenceWeight: 0.5 } }), // disagrees: 0.5 vs the scheduler's 0.8
+      ]),
+    /segments/,
+  );
+});
+
 test("Simulation.membraneView is cached per epoch, not re-minted on every access (Requirement 8.4)", () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },

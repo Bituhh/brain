@@ -1197,18 +1197,19 @@ impl Scheduler {
     ///    to the SST-interneuron biology §13.13(a) names, and is exactly as
     ///    cheap as routing inhibitory deliveries into a separate channel the
     ///    segment model would then also have to consult.
-    ///  - The step stays a fixed 1.0 magnitude (HTM's binary coincidence
+    ///  - The step stayed a fixed 1.0 magnitude (HTM's binary coincidence
     ///    reading) rather than being scaled by `signed_current`'s permanence
-    ///    magnitude: `BinaryCoincidenceParams::threshold` was tuned as a
-    ///    count of coincident synapses, not a sum of permanences, and every
-    ///    network in this repository today is 100% excitatory
-    ///    (`excitatoryFraction: 1.0`), where permanence-weighting would
-    ///    silently change every existing threshold's meaning and every
-    ///    golden raster along with it. Using `signum` instead of `1.0`
-    ///    reproduces the exact pre-fix count on that all-excitatory
-    ///    population (permanence is always positive whenever a delivery
-    ///    reaches here, so `signum` is always `+1.0`) while giving inhibition
-    ///    the opposite, equally-binary step.
+    ///    magnitude, from this fix (README §13.12 item 11a) until PLAN.md
+    ///    B5 (README §12 decision 13): `BinaryCoincidenceParams::threshold`
+    ///    was tuned as a count of coincident synapses, not a sum of
+    ///    permanences/weights, and weighting it in unconditionally would
+    ///    have silently changed every existing threshold's meaning and
+    ///    every golden raster along with it. B5 makes the magnitude a
+    ///    per-`SegmentConfig` choice (`segment::DendriticVote`) instead of a
+    ///    global one: `Count` (the default) is exactly this fixed-1.0 step
+    ///    via `signum`, bit-identical to before B5; `Weighted` scales by
+    ///    weight, capped at 1.0, so an established synapse still counts as
+    ///    exactly one vote and the threshold's meaning survives for it.
     ///
     /// Never called directly by [`Self::deliver`] -- only via
     /// [`Self::apply_delivery_effects`], so every effect (whether it
@@ -1250,10 +1251,10 @@ impl Scheduler {
                 self.segment_touched.push(composite as u32);
                 self.segment_last_touched_tick[composite] = self.tick;
             }
-            // README §13.12 item 11a: signum, not the raw current -- see
-            // this method's doc comment for why the magnitude stays fixed
-            // at 1.0 while the sign now reaches the segment.
-            self.segment_counts[composite] += signed_current.signum();
+            // README §13.12 item 11a / §12 decision 13 (PLAN.md B5): the
+            // per-segment vote mode decides the magnitude -- see this
+            // method's doc comment.
+            self.segment_counts[composite] += config.vote.contribution(signed_current);
         } else {
             self.input_accum[target as usize] += signed_current;
             self.dirty.insert(target);
@@ -1998,7 +1999,7 @@ mod tests {
     #[test]
     fn restore_sweep_scheduling_state_with_no_section_reconstructs_last_applied_at_on_each_mechanisms_own_interval() {
         let mut sched = Scheduler::new(2, 0.2)
-            .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } })
+            .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 }))
             .with_homeostatic_scaling(HomeostaticScaling::new(1.0, 50))
             .with_intrinsic_homeostasis(IntrinsicHomeostasis::new(0.1, 0.9, 0.05, 0.1, 30))
             .with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(0.1, 0.9, 0.1, 1.0, 40))
@@ -2447,7 +2448,7 @@ mod tests {
         synapses.insert(a, b, 0, 1, 0.9, 0.9).unwrap(); // target_segment = 0, a real segment once configured
 
         let mut sched = Scheduler::new(4, 0.5)
-            .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 5 } });
+            .with_segments(SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 5 }));
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
         sched.stimulate(&neurons, a, 10.0);
         sched.step::<Lif>(&mut neurons, &mut synapses, &params); // a spikes
@@ -2466,7 +2467,7 @@ mod tests {
         synapses.insert(a, b, FEEDFORWARD_SEGMENT, 1, 0.9, 0.9).unwrap();
 
         let mut sched = Scheduler::new(4, 0.5)
-            .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 5 } });
+            .with_segments(SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 5 }));
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
         sched.stimulate(&neurons, a, 10.0);
         sched.step::<Lif>(&mut neurons, &mut synapses, &params);
@@ -2504,7 +2505,7 @@ mod tests {
     }
 
     fn segments_one_threshold_one() -> SegmentConfig {
-        SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } }
+        SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 })
     }
 
     #[test]
@@ -2601,6 +2602,122 @@ mod tests {
         assert!(neurons.membrane[c as usize] > 0.0);
     }
 
+    // -- Dendritic vote mode (PLAN.md B5, README §12 decision 13).
+
+    /// Two presynaptic neurons, `a1`/`a2`, each with one dendritic synapse
+    /// (delay 1, `weight`) onto `b`'s segment 0. Stimulating both `a1` and
+    /// `a2` enough to spike the same tick makes their deliveries coincide on
+    /// `b`'s segment on the following tick.
+    fn two_synapse_fixture(weight: f32) -> (NeuronArena, SynapseArena, u32, u32, u32) {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(2);
+        let a1 = make_neuron(&mut neurons, 0.5, 1);
+        let a2 = make_neuron(&mut neurons, 0.5, 1);
+        let b = make_neuron(&mut neurons, 100.0, 1); // never spikes itself
+        synapses.reserve_for_neurons(3);
+        synapses.insert(a1, b, 0, 1, 0.9, weight).unwrap();
+        synapses.insert(a2, b, 0, 1, 0.9, weight).unwrap();
+        (neurons, synapses, a1, a2, b)
+    }
+
+    fn run_coincident_delivery(sched: &mut Scheduler, neurons: &mut NeuronArena, synapses: &mut SynapseArena, a1: u32, a2: u32) {
+        // `.with_predictive(50.0, 0.5)`, matching `run_one_delivery`: the
+        // default `predictive_decay_per_tick` is 0.0 (predictive collapses
+        // to zero on the very next `integrate()` call, `neuron.rs`'s own
+        // documented default), which would zero out the very depolarisation
+        // this test checks for before it can be read back.
+        let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(50.0, 0.5);
+        sched.stimulate(neurons, a1, 10.0);
+        sched.stimulate(neurons, a2, 10.0);
+        sched.step::<Lif>(neurons, synapses, &params); // a1 and a2 both spike this tick
+        sched.step::<Lif>(neurons, synapses, &params); // both deliveries land on the same tick
+    }
+
+    /// Requirement 3.1, design.md's key test: two synapses at half the
+    /// reference weight do not complete a threshold-2 coincidence in
+    /// weighted mode (each contributes 0.5, summing to exactly the
+    /// threshold's boundary from below is not this case -- 1.0 < 2), but
+    /// the identical delivery completes it in count mode (each contributes
+    /// a full ±1, summing to 2).
+    #[test]
+    fn two_synapses_below_reference_weight_complete_a_threshold_two_coincidence_in_count_mode_but_not_weighted_mode() {
+        let reference_weight = 0.8;
+        let below_reference = 0.4; // half of reference_weight
+
+        let (mut neurons, mut synapses, a1, a2, b) = two_synapse_fixture(below_reference);
+        let mut count_sched =
+            Scheduler::new(4, 0.5).with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 2 }));
+        run_coincident_delivery(&mut count_sched, &mut neurons, &mut synapses, a1, a2);
+        assert!(neurons.predictive[b as usize] > 0.0, "count mode ignores weight -- two deliveries of any weight must still complete threshold 2");
+
+        let (mut neurons, mut synapses, a1, a2, b) = two_synapse_fixture(below_reference);
+        let mut weighted_sched = Scheduler::new(4, 0.5)
+            .with_segments(SegmentConfig::weighted(1, BinaryCoincidenceParams { threshold: 2 }, reference_weight));
+        run_coincident_delivery(&mut weighted_sched, &mut neurons, &mut synapses, a1, a2);
+        assert_eq!(
+            neurons.predictive[b as usize], 0.0,
+            "weighted mode: two synapses at half the reference weight sum to 1.0 (0.5 + 0.5), below threshold 2 -- must not depolarise"
+        );
+    }
+
+    /// Requirement 3.1: two synapses *at* the reference weight complete the
+    /// same threshold-2 coincidence in weighted mode as in count mode --
+    /// `coincidence_threshold` keeps meaning "this many established
+    /// synapses" for synapses that have reached the reference weight.
+    #[test]
+    fn two_synapses_at_reference_weight_complete_the_coincidence_in_both_modes() {
+        let reference_weight = 0.8;
+
+        let (mut neurons, mut synapses, a1, a2, b) = two_synapse_fixture(reference_weight);
+        let mut weighted_sched = Scheduler::new(4, 0.5)
+            .with_segments(SegmentConfig::weighted(1, BinaryCoincidenceParams { threshold: 2 }, reference_weight));
+        run_coincident_delivery(&mut weighted_sched, &mut neurons, &mut synapses, a1, a2);
+        assert!(neurons.predictive[b as usize] > 0.0, "two synapses at the reference weight must each cast a full vote, completing threshold 2 exactly as count mode would");
+    }
+
+    /// Requirement 4.1: a silent synapse contributes nothing in weighted
+    /// mode either -- B4's silent gate and B5's vote mode are independent
+    /// mechanisms.
+    #[test]
+    fn a_silent_synapse_contributes_nothing_in_weighted_mode() {
+        let (mut neurons, mut synapses, a, b, c, dendritic) = silent_synapse_fixture(0.05, true);
+        let mut sched = Scheduler::new(4, 0.5)
+            .with_segments(SegmentConfig::weighted(1, BinaryCoincidenceParams { threshold: 1 }, 0.8))
+            .with_silent_synapses(SilentSynapseParams { unsilence_weight: 0.2, silent_transmits: false });
+        run_one_delivery(&mut sched, &mut neurons, &mut synapses, a);
+
+        assert_eq!(neurons.predictive[b as usize], 0.0, "a silent synapse must cast no dendritic vote in weighted mode either");
+        assert_eq!(neurons.membrane[c as usize], 0.0);
+        assert_ne!(synapses.silent_since[dendritic as usize], NOT_SILENT);
+    }
+
+    /// Requirement 1.5: the vote mode only affects the dendritic path --
+    /// `FEEDFORWARD_SEGMENT` transmission is bit-identical regardless of it.
+    #[test]
+    fn weighted_mode_does_not_change_feedforward_transmission() {
+        fn membrane_after_one_feedforward_delivery(segments: SegmentConfig) -> f32 {
+            let mut neurons = NeuronArena::new();
+            let mut synapses = SynapseArena::new(1);
+            let a = make_neuron(&mut neurons, 0.5, 1);
+            let b = make_neuron(&mut neurons, 100.0, 1);
+            synapses.reserve_for_neurons(2);
+            synapses.insert(a, b, FEEDFORWARD_SEGMENT, 1, 0.9, 0.4).unwrap();
+
+            let mut sched = Scheduler::new(4, 0.5).with_segments(segments);
+            let params = LifParams::new(5.0, 0.0, 0.0, 0);
+            sched.stimulate(&neurons, a, 10.0);
+            sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+            sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+            neurons.membrane[b as usize]
+        }
+
+        let count = membrane_after_one_feedforward_delivery(SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 5 }));
+        let weighted = membrane_after_one_feedforward_delivery(SegmentConfig::weighted(2, BinaryCoincidenceParams { threshold: 5 }, 0.8));
+
+        assert!(count > 0.0, "sanity check: the feedforward delivery must actually add current");
+        assert_eq!(count, weighted, "feedforward transmission must be bit-identical regardless of the dendritic vote mode");
+    }
+
     #[test]
     fn segment_fires_independently_of_other_segments_on_the_same_neuron() {
         // Requirement 10.1, 10.2: multiple segments, each with its own
@@ -2625,7 +2742,7 @@ mod tests {
         }
 
         let mut sched = Scheduler::new(4, 0.5)
-            .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 5 } });
+            .with_segments(SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 5 }));
         let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(50.0, 0.5);
         for &s in segment0_sources.iter().chain(segment1_sources.iter()) {
             sched.stimulate(&neurons, s, 10.0);
@@ -2698,7 +2815,7 @@ mod tests {
     // in step 2, and the commit/veto classification in step 3), not just
     // `plasticity::predictive`'s isolated `resolve()` unit tests.
 
-    use crate::plasticity::predictive::PredictiveLearningParams;
+    use crate::plasticity::predictive::{PredictiveLearningParams, SegmentLearningTarget};
 
     fn predictive_learning_params() -> PredictiveLearningParams {
         PredictiveLearningParams {
@@ -2710,6 +2827,7 @@ mod tests {
             burst_sprout_weight: 0.05,
             recently_active_window_ticks: 20,
             modulator_index: None,
+            learning_target: SegmentLearningTarget::Permanence,
         }
     }
 
@@ -2729,7 +2847,7 @@ mod tests {
         }
 
         let mut sched = Scheduler::new(4, 0.4)
-            .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 5 } })
+            .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 5 }))
             .with_predictive_learning(predictive_learning_params(), FixedNeighbourhoods::new(10, 5));
         let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(1000.0, 0.9);
 
@@ -2770,7 +2888,7 @@ mod tests {
         }
 
         let mut sched = Scheduler::new(4, 0.4)
-            .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 5 } })
+            .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 5 }))
             .with_predictive_learning(predictive_learning_params(), FixedNeighbourhoods::new(10, 5));
         // A fast predictive decay and a reduction that still never lets
         // membrane at rest (0.0) cross the effective threshold on its own

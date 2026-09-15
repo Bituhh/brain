@@ -38,7 +38,7 @@ const TICKS: u32 = 60;
 const VOTE_SEGMENT: u32 = 0;
 
 fn segments() -> SegmentConfig {
-    SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } }
+    SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 })
 }
 
 fn no_internal_wiring() -> DistancePolicy {

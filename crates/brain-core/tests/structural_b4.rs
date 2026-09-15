@@ -83,7 +83,7 @@ fn run(setup: Setup, ticks: u32) -> Outcome {
         silent_elimination_ticks: setup.elimination,
     };
     let mut sched = Scheduler::new(4, 0.3)
-        .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 1 } })
+        .with_segments(SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 1 }))
         .with_silent_synapses(setup.silent)
         .with_structural_plasticity(StructuralPlasticity::new(structural, FixedNeighbourhoods::new(8, 8)));
     if setup.stdp {

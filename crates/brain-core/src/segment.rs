@@ -91,12 +91,98 @@ impl SegmentModel for BinaryCoincidence {
 /// caller opts in, with no retroactive reinterpretation of existing data.
 pub const FEEDFORWARD_SEGMENT: u32 = u32::MAX;
 
+/// How a dendritic delivery contributes to its segment's coincidence tally
+/// (PLAN.md B5, README §12 decision 13, reopening decision 11's and
+/// §13.12 item 11a's fixed-1.0-magnitude call).
+///
+/// `Count` is `apply_local_effect`'s pre-B5 behaviour: a delivery adds
+/// exactly its sign, whatever the synapse's weight. `Weighted` caps each
+/// delivery's magnitude at 1.0 instead of letting it through raw: a synapse
+/// at or above `reference_weight` still contributes exactly ±1 (identical to
+/// `Count` for an established synapse), and only a synapse *below* the
+/// reference weight -- new, weak, or depressed -- contributes fractionally.
+/// This is the design call decision 11 raised and B5 answers: the cap is
+/// what keeps `BinaryCoincidenceParams::threshold` meaning "this many
+/// established synapses" rather than turning it into "a summed weight",
+/// which is why `Weighted` is not a raw `sign × weight` sum. A raw sum is
+/// still reachable as the special case `reference_weight == 1.0`, since
+/// weight never exceeds 1.0 (SYN-4), so a search over `reference_weight`
+/// can still find it if it wins.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DendriticVote {
+    /// Each delivery adds its sign (±1), regardless of weight. Pre-B5
+    /// behaviour, and the default -- every existing configuration keeps
+    /// this and is bit-identical to before B5 (Requirement 2).
+    Count,
+    /// Each delivery adds `sign × min(weight / reference_weight, 1.0)`.
+    /// `reference_weight` must be finite and in `(0, 1]` -- enforced by
+    /// `SegmentConfig`'s constructors and, at the FFI boundary, by
+    /// `SegmentsConfig::validate()`.
+    Weighted { reference_weight: f32 },
+}
+
+impl DendriticVote {
+    /// The tally contribution for one delivery carrying `signed_current`
+    /// (`sign × weight`, already computed by `Scheduler::deliver`).
+    ///
+    /// `Count` returns `signed_current.signum()` -- exactly today's
+    /// expression (`scheduler.rs`'s `apply_local_effect`), including its
+    /// edge behaviour: a zero-weight delivery still contributes `+1.0`
+    /// (`0.0_f32.signum() == 1.0`), an existing quirk this mode
+    /// deliberately preserves rather than fixes, since fixing it would
+    /// change every golden raster count mode is required to reproduce.
+    ///
+    /// `Weighted` returns `signum × (|signed_current| / reference_weight)`,
+    /// capped at magnitude 1.0, and exactly `0.0` when `signed_current` is
+    /// `0.0` (unlike `Count`) -- a weight of zero casts no vote in weighted
+    /// mode, per Requirement 1.3.
+    #[inline]
+    pub fn contribution(self, signed_current: f32) -> f32 {
+        match self {
+            DendriticVote::Count => signed_current.signum(),
+            DendriticVote::Weighted { reference_weight } => {
+                if signed_current == 0.0 {
+                    0.0
+                } else {
+                    signed_current.signum() * (signed_current.abs() / reference_weight).min(1.0)
+                }
+            }
+        }
+    }
+}
+
 /// Configuration for `Scheduler::with_segments` (Requirement 10.1: every
 /// neuron gets the same fixed number of segments).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SegmentConfig {
     pub segments_per_neuron: u32,
     pub params: BinaryCoincidenceParams,
+    /// How a delivery contributes to this segment's coincidence tally
+    /// (PLAN.md B5). Defaults to `DendriticVote::Count` at every existing
+    /// construction site -- see `SegmentConfig::new` for the preferred way
+    /// to build one without repeating that default.
+    pub vote: DendriticVote,
+}
+
+impl SegmentConfig {
+    /// Builds a `SegmentConfig` in count mode -- the pre-B5 default.
+    /// Existing call sites using the struct literal directly are
+    /// unaffected; this exists so new call sites (the B5 search, tests)
+    /// don't have to repeat `vote: DendriticVote::Count` everywhere.
+    pub fn new(segments_per_neuron: u32, params: BinaryCoincidenceParams) -> Self {
+        SegmentConfig { segments_per_neuron, params, vote: DendriticVote::Count }
+    }
+
+    /// Builds a `SegmentConfig` in weighted mode. Panics (via `assert!`,
+    /// matching `SegmentThresholdHomeostasis::new`'s precedent) if
+    /// `reference_weight` is not finite and in `(0, 1]` (Requirement 1.6).
+    pub fn weighted(segments_per_neuron: u32, params: BinaryCoincidenceParams, reference_weight: f32) -> Self {
+        assert!(
+            reference_weight.is_finite() && reference_weight > 0.0 && reference_weight <= 1.0,
+            "reference_weight must be finite and in (0, 1], got {reference_weight}"
+        );
+        SegmentConfig { segments_per_neuron, params, vote: DendriticVote::Weighted { reference_weight } }
+    }
 }
 
 #[cfg(test)]
@@ -152,5 +238,85 @@ mod tests {
         // round up to one.
         let params = BinaryCoincidenceParams { threshold: 2 };
         assert_eq!(BinaryCoincidence::evaluate(1.9999, &SegmentState, &params), Depolarisation::NONE);
+    }
+}
+
+#[cfg(test)]
+mod dendritic_vote_tests {
+    use super::*;
+
+    #[test]
+    fn count_mode_returns_exactly_signum() {
+        assert_eq!(DendriticVote::Count.contribution(0.7), 1.0);
+        assert_eq!(DendriticVote::Count.contribution(-0.7), -1.0);
+        // Requirement 2/pre-B5 quirk, deliberately preserved: a zero-weight
+        // delivery still contributes +1.0 in count mode.
+        assert_eq!(DendriticVote::Count.contribution(0.0), 1.0);
+    }
+
+    #[test]
+    fn weighted_mode_below_reference_is_fractional() {
+        let vote = DendriticVote::Weighted { reference_weight: 0.5 };
+        assert_eq!(vote.contribution(0.25), 0.5);
+        assert_eq!(vote.contribution(0.1), 0.2);
+    }
+
+    #[test]
+    fn weighted_mode_at_reference_is_exactly_one() {
+        let vote = DendriticVote::Weighted { reference_weight: 0.5 };
+        assert_eq!(vote.contribution(0.5), 1.0);
+    }
+
+    #[test]
+    fn weighted_mode_above_reference_is_capped_at_one() {
+        let vote = DendriticVote::Weighted { reference_weight: 0.5 };
+        assert_eq!(vote.contribution(1.0), 1.0);
+        assert_eq!(vote.contribution(0.999_999), 1.0);
+    }
+
+    #[test]
+    fn weighted_mode_zero_weight_contributes_zero() {
+        let vote = DendriticVote::Weighted { reference_weight: 0.5 };
+        assert_eq!(vote.contribution(0.0), 0.0);
+    }
+
+    #[test]
+    fn weighted_mode_inhibitory_is_negative_with_the_same_magnitude_rule() {
+        let vote = DendriticVote::Weighted { reference_weight: 0.5 };
+        assert_eq!(vote.contribution(-0.25), -0.5);
+        assert_eq!(vote.contribution(-1.0), -1.0);
+    }
+
+    #[test]
+    fn weighted_mode_reference_weight_one_is_a_raw_weighted_sum() {
+        // Design.md: reference_weight = 1.0 is the raw-sum special case,
+        // since weight never exceeds 1.0 (SYN-4).
+        let vote = DendriticVote::Weighted { reference_weight: 1.0 };
+        assert_eq!(vote.contribution(0.3), 0.3);
+        assert_eq!(vote.contribution(1.0), 1.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "reference_weight")]
+    fn weighted_constructor_rejects_zero_reference_weight() {
+        SegmentConfig::weighted(1, BinaryCoincidenceParams { threshold: 1 }, 0.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "reference_weight")]
+    fn weighted_constructor_rejects_reference_weight_above_one() {
+        SegmentConfig::weighted(1, BinaryCoincidenceParams { threshold: 1 }, 1.5);
+    }
+
+    #[test]
+    #[should_panic(expected = "reference_weight")]
+    fn weighted_constructor_rejects_nan_reference_weight() {
+        SegmentConfig::weighted(1, BinaryCoincidenceParams { threshold: 1 }, f32::NAN);
+    }
+
+    #[test]
+    fn new_defaults_to_count_mode() {
+        let config = SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 5 });
+        assert_eq!(config.vote, DendriticVote::Count);
     }
 }

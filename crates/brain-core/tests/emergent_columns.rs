@@ -44,7 +44,7 @@ use brain_core::graph::{DistancePolicy, GraphBuilder};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
-use brain_core::plasticity::predictive::PredictiveLearningParams;
+use brain_core::plasticity::predictive::{PredictiveLearningParams, SegmentLearningTarget};
 use brain_core::plasticity::stdp::StdpParams;
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::{RuleChain, DOPAMINE, NUM_MODULATORS};
@@ -106,7 +106,7 @@ fn wire(synapses: &mut SynapseArena, seed: u64, sources: Range<u32>, targets: Ra
 }
 
 fn segments() -> SegmentConfig {
-    SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 2 } }
+    SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 2 })
 }
 
 fn no_internal_wiring() -> DistancePolicy {
@@ -128,6 +128,7 @@ fn predictive_learning_params() -> PredictiveLearningParams {
         burst_sprout_weight: 0.05,
         recently_active_window_ticks: 10,
         modulator_index: None,
+        learning_target: SegmentLearningTarget::Permanence,
     }
 }
 

@@ -69,12 +69,12 @@ fn run_predictive_trace(mut sched: Scheduler, mut neurons: NeuronArena, mut syna
 #[test]
 fn disabled_or_never_swept_is_bit_identical_to_not_attached_at_all() {
     let (neurons_a, synapses_a, source_a, target_a) = one_segment_topology();
-    let sched_a = Scheduler::new(4, CONNECTION_THRESHOLD).with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } });
+    let sched_a = Scheduler::new(4, CONNECTION_THRESHOLD).with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 }));
     let trace_never_attached = run_predictive_trace(sched_a, neurons_a, synapses_a, source_a, target_a, 50);
 
     let (neurons_b, synapses_b, source_b, target_b) = one_segment_topology();
     let sched_b = Scheduler::new(4, CONNECTION_THRESHOLD)
-        .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } })
+        .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 }))
         .with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(0.5, 0.1, 0.2, 0.1, 1_000_000)); // interval never elapses within 50 ticks
     let trace_attached_but_never_swept = run_predictive_trace(sched_b, neurons_b, synapses_b, source_b, target_b, 50);
 
@@ -110,7 +110,7 @@ fn segments_on_the_same_neuron_adjust_independently() {
     // stops, the observed rate decays toward 0 too, so the error each sweep
     // shrinks rather than reversing sign.
     let mut sched = Scheduler::new(4, CONNECTION_THRESHOLD)
-        .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 1 } })
+        .with_segments(SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 1 }))
         .with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(0.0, 0.1, 0.2, 0.1, 20));
     let params = lif_params();
 
@@ -148,7 +148,7 @@ fn identical_runs_produce_identical_threshold_sequences() {
     fn run() -> Vec<f32> {
         let (mut neurons, mut synapses, source, target) = one_segment_topology();
         let mut sched = Scheduler::new(4, CONNECTION_THRESHOLD)
-            .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } })
+            .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 }))
             .with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(0.5, 0.1, 0.2, 0.1, 10));
         let params = lif_params();
         let mut thresholds_over_time = Vec::new();

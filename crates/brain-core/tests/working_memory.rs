@@ -94,7 +94,7 @@ fn segments() -> SegmentConfig {
     // stimulation ever targets a non-feedforward segment), but every
     // column needs a `SegmentConfig` to build -- one segment is the
     // cheapest legal configuration.
-    SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: u16::MAX } }
+    SegmentConfig::new(1, BinaryCoincidenceParams { threshold: u16::MAX })
 }
 
 /// Builds a `COLUMN_SIZE`-neuron column with a `CLIQUE_SIZE`-neuron

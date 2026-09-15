@@ -10,7 +10,7 @@
 use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
-use brain_core::plasticity::predictive::PredictiveLearningParams;
+use brain_core::plasticity::predictive::{PredictiveLearningParams, SegmentLearningTarget};
 use brain_core::plasticity::DOPAMINE;
 use brain_core::scheduler::Scheduler;
 use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig};
@@ -58,9 +58,10 @@ impl Trial {
             burst_sprout_weight: 0.05,
             recently_active_window_ticks: 20,
             modulator_index: Some(DOPAMINE),
+            learning_target: SegmentLearningTarget::Permanence,
         };
         let mut sched = Scheduler::new(4, 0.3)
-            .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } })
+            .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 }))
             .with_predictive_learning(predictive_params, FixedNeighbourhoods::new(10, 5));
         let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(50.0, 0.5);
 

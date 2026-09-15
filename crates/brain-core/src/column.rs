@@ -156,7 +156,7 @@ mod tests {
         let len = range.end - range.start;
         ColumnSpec {
             inhibition: FixedNeighbourhoods::with_base(range.start, len, 1),
-            segments: SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 5 } },
+            segments: SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 5 }),
             neuron_range: range,
         }
     }

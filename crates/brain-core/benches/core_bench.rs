@@ -39,7 +39,7 @@ const COLUMN_COUNT: usize = 16;
 const TICKS_PER_ITERATION: u32 = 50;
 
 fn segments() -> SegmentConfig {
-    SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 5 } }
+    SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 5 })
 }
 
 /// `COLUMN_COUNT` columns of `COLUMN_SIZE` neurons each, with modest
@@ -378,7 +378,7 @@ const LOCALITY_COLUMN_COUNT: u32 = 32;
 /// the *same* topology those tests validated rather than a superficially
 /// similar one with dendritic prediction quietly added back in.
 fn locality_segments_disabled() -> SegmentConfig {
-    SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: u16::MAX } }
+    SegmentConfig::new(1, BinaryCoincidenceParams { threshold: u16::MAX })
 }
 
 /// Requirement 1(a)/(b)'s exact validated topology

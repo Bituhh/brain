@@ -53,7 +53,7 @@ use crate::inhibition::FixedNeighbourhoods;
 use crate::plasticity::{Modulators, NUM_MODULATORS};
 use crate::plasticity::newborn::NewbornMaturationRawState;
 use crate::scheduler::{Scheduler, SweepSchedulingRawState};
-use crate::segment::{BinaryCoincidenceParams, SegmentConfig};
+use crate::segment::{BinaryCoincidenceParams, DendriticVote, SegmentConfig};
 use crate::synapse::{SynapseArena, NOT_SILENT};
 
 const MAGIC: [u8; 6] = *b"BRAIN\0";
@@ -192,7 +192,28 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// version-migration tests strip the wrong number of bytes and still pass.
 /// No real writer ever emitted trailing bytes for its own version, so no
 /// snapshot that restored before this change stops restoring now.
-pub const FORMAT_VERSION: u32 = 11;
+///
+/// Bumped 11 -> 12 (PLAN.md B5, README §12 decision 13) to add each
+/// column's dendritic vote mode: a new trailing section
+/// (`write_column_votes`/`read_column_votes`), one `(u8 tag, f32
+/// reference_weight)` pair per column in registration order, rather than an
+/// in-place addition to `write_columns`'s existing block -- that section
+/// sits near the front of the payload, so only a new trailing section is
+/// something the truncate-from-the-end migration tests in this module can
+/// express, following `weight`/`silent_since`/`newborn_maturation`'s own
+/// precedent. This is per-column *configuration* that still needs
+/// byte-level persistence, unlike the scheduler-level `SegmentConfig` (see
+/// `Scheduler::with_segments`, never itself serialised) -- because columns
+/// are created dynamically by growth, not supplied fresh by the caller. A
+/// version <= 11 payload has no such section; `read_columns` already
+/// defaults every column to `DendriticVote::Count`, honest because the
+/// mechanism did not exist then and every pre-B5 column ran in exactly that
+/// mode. `PredictiveLearningParams::learning_target` needs no snapshot
+/// section at all -- like every other construction-only parameter, it is
+/// supplied fresh via `with_predictive_learning` at restore time, and its
+/// consistency with the snapshot is the FFI config hash's job
+/// (`packages/brain/src/index.ts`'s `hashConfig`), not this module's.
+pub const FORMAT_VERSION: u32 = 12;
 /// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
 /// concrete and falsifiable: `read` migrates any snapshot from this
 /// version through `FORMAT_VERSION`. Widen this only alongside an actual
@@ -824,6 +845,16 @@ fn read_synapse_silent_since(r: &mut Reader<'_>, synapses: &mut SynapseArena) ->
 /// buffer is not state, see `inhibition.rs`), and `SegmentConfig`. Absent
 /// entirely from a version-1 payload; `read`'s version dispatch supplies
 /// an empty `ColumnRegistry` for those instead of calling this.
+///
+/// Deliberately unchanged by format version 12 (PLAN.md B5): each column's
+/// vote mode is a *new trailing section* (`write_column_votes`, below),
+/// following the `weight`/`silent_since`/`newborn_maturation` precedent of
+/// appending rather than editing an existing un-versioned block in place
+/// (see `FORMAT_VERSION`'s version-11 doc comment for why) -- important
+/// here specifically because this section sits near the *front* of the
+/// payload, not the end, so an in-place per-column addition would not be
+/// something a truncate-from-the-end migration (`downgrade_to_version` in
+/// this module's own tests) could express at all.
 fn write_columns(w: &mut Writer, columns: &ColumnRegistry) {
     w.u32(columns.len() as u32);
     for column in columns.iter() {
@@ -854,10 +885,56 @@ fn read_columns(r: &mut Reader<'_>) -> Result<ColumnRegistry, SnapshotError> {
         registry.register(ColumnSpec {
             neuron_range: start..end,
             inhibition: FixedNeighbourhoods::with_base(base, size, k),
-            segments: SegmentConfig { segments_per_neuron, params: BinaryCoincidenceParams { threshold } },
+            segments: SegmentConfig { segments_per_neuron, params: BinaryCoincidenceParams { threshold }, vote: DendriticVote::Count },
         });
     }
     Ok(registry)
+}
+
+/// New in format version 12 (PLAN.md B5, README §12 decision 13): each
+/// column's [`DendriticVote`], written in the same order `write_columns`
+/// wrote (and `read_columns` will register) its columns -- a trailing
+/// section, not an in-place edit of `write_columns`'s block, per that
+/// function's own doc comment. One `(u8 tag, f32 reference_weight)` pair
+/// per column, tag 0 = `Count` (`reference_weight` written as `0.0`), tag 1
+/// = `Weighted`.
+fn write_column_votes(w: &mut Writer, columns: &ColumnRegistry) {
+    w.u32(columns.len() as u32);
+    for column in columns.iter() {
+        match column.segments.vote {
+            DendriticVote::Count => {
+                w.u8(0);
+                w.f32(0.0);
+            }
+            DendriticVote::Weighted { reference_weight } => {
+                w.u8(1);
+                w.f32(reference_weight);
+            }
+        }
+    }
+}
+
+/// Reads format version 12's column-vote section and overwrites each
+/// already-registered column's `segments.vote` in place (`read_columns`
+/// defaults every one to `Count`, which is what a version <= 11 payload --
+/// no section to read at all -- correctly leaves standing). Mirrors
+/// `read_synapse_silent_since`'s overwrite-after-the-fact shape.
+fn read_column_votes(r: &mut Reader<'_>, columns: &mut ColumnRegistry) -> Result<(), SnapshotError> {
+    let count = r.u32()? as usize;
+    if count != columns.len() {
+        return Err(SnapshotError::Corrupt);
+    }
+    for id in 0..count {
+        let tag = r.u8()?;
+        let reference_weight = r.f32()?;
+        let vote = match tag {
+            0 => DendriticVote::Count,
+            1 => DendriticVote::Weighted { reference_weight },
+            _ => return Err(SnapshotError::Corrupt),
+        };
+        columns.get_mut(id).expect("count already checked equal to columns.len()").segments.vote = vote;
+    }
+    Ok(())
 }
 
 /// New in format version 3 (Phase 5 Requirement 15.6): the neuromodulator
@@ -939,6 +1016,8 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
     write_newborn_maturation_state(&mut w, scheduler.newborn_maturation_raw_state().as_ref());
 
     write_synapse_silent_since(&mut w, synapses, neuron_count);
+
+    write_column_votes(&mut w, columns);
 
     w.buf
 }
@@ -1053,7 +1132,7 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
 
     // Format version 1 has no column section at all -- Requirement 9,
     // Acceptance Criterion 6: the only sound migration is "no columns".
-    let columns = if header.version >= 2 { read_columns(&mut r)? } else { ColumnRegistry::new() };
+    let mut columns = if header.version >= 2 { read_columns(&mut r)? } else { ColumnRegistry::new() };
 
     // Format versions 1 and 2 have no modulator-state section -- the only
     // sound migration is "zeroed, exactly like a fresh NeuromodulatorField"
@@ -1110,6 +1189,13 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
     // reading).
     if header.version >= 11 {
         read_synapse_silent_since(&mut r, &mut synapses)?;
+    }
+
+    // Format versions 1-11 have no column-vote section -- `read_columns`
+    // above already defaulted every column to `DendriticVote::Count`, the
+    // only available reading (the mechanism did not exist yet).
+    if header.version >= 12 {
+        read_column_votes(&mut r, &mut columns)?;
     }
 
     // Leftover bytes mean the payload is not the shape its version claims
@@ -1224,7 +1310,7 @@ mod tests {
         let (segment_counts, segment_last_touched_tick) = scheduler.segment_coincidence_raw_state();
         let (segment_threshold, segment_rate_estimate, segment_last_depolarised_tick) = scheduler.segment_threshold_raw_state();
         // (version that introduced the section, its size), in write order.
-        let sections: [(u32, usize); 10] = [
+        let sections: [(u32, usize); 11] = [
             (2, measure(|w| write_columns(w, columns))),
             (3, measure(|w| write_modulator_state(w, modulator_levels, modulator_last_updated_at))),
             (4, measure(|w| write_adaptation(w, neurons))),
@@ -1235,6 +1321,7 @@ mod tests {
             (9, measure(|w| write_synapse_weights(w, synapses, neuron_count))),
             (10, measure(|w| write_newborn_maturation_state(w, scheduler.newborn_maturation_raw_state().as_ref()))),
             (11, measure(|w| write_synapse_silent_since(w, synapses, neuron_count))),
+            (12, measure(|w| write_column_votes(w, columns))),
         ];
         assert_eq!(sections.last().unwrap().0, FORMAT_VERSION, "add the newest section to this helper when FORMAT_VERSION is bumped");
         let strip: usize = sections.iter().filter(|(introduced, _)| *introduced > version).map(|(_, size)| size).sum();
@@ -1510,7 +1597,7 @@ mod tests {
         }
         fn scheduler() -> Scheduler {
             Scheduler::new(4, 0.3)
-                .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 3 } })
+                .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 3 }))
                 .with_segment_coincidence_window(10.0)
         }
         let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(50.0, 0.0);
@@ -1597,7 +1684,7 @@ mod tests {
         synapses.insert(source, target, 0, 1, 0.9, 0.9).unwrap();
 
         let mut sched = Scheduler::new(4, 0.3)
-            .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } })
+            .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 }))
             .with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(0.0, 0.0, 0.2, 0.1, 5));
         let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(50.0, 0.0);
 
@@ -1671,7 +1758,7 @@ mod tests {
         let (neurons, synapses, _) = sample_network();
         let mut sched = Scheduler::new(4, 0.3)
             .with_inhibition(FN::new(4, 2))
-            .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } })
+            .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 }))
             .with_homeostatic_scaling(HomeostaticScaling::new(1.0, 50))
             .with_intrinsic_homeostasis(IntrinsicHomeostasis::new(0.1, 0.9, 0.05, 0.1, 50))
             .with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(0.1, 0.9, 0.1, 1.0, 100))
@@ -1839,6 +1926,56 @@ mod tests {
         assert!(restored.synapses.silent_since.iter().all(|&t| t == NOT_SILENT));
     }
 
+    // -- Dendritic vote mode (PLAN.md B5, format version 12).
+
+    fn sample_columns() -> ColumnRegistry {
+        let mut columns = ColumnRegistry::new();
+        columns.register(ColumnSpec {
+            neuron_range: 0..2,
+            inhibition: FixedNeighbourhoods::with_base(0, 2, 1),
+            segments: SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 3 }),
+        });
+        columns.register(ColumnSpec {
+            neuron_range: 2..4,
+            inhibition: FixedNeighbourhoods::with_base(2, 2, 1),
+            segments: SegmentConfig::weighted(1, BinaryCoincidenceParams { threshold: 3 }, 0.65),
+        });
+        columns
+    }
+
+    /// Each column's vote mode round-trips exactly, both `Count` and
+    /// `Weighted` in the same registry.
+    #[test]
+    fn round_trips_column_vote_modes_exactly() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let columns = sample_columns();
+
+        let bytes = write(&neurons, &synapses, &scheduler, &columns, 2, 1);
+        let restored = read(&bytes, 1).unwrap();
+
+        assert_eq!(restored.columns.get(0).unwrap().segments.vote, DendriticVote::Count);
+        assert_eq!(restored.columns.get(1).unwrap().segments.vote, DendriticVote::Weighted { reference_weight: 0.65 });
+    }
+
+    /// A version-11 (pre-B5) payload has no column-vote section: every
+    /// column restores in `Count` mode, the only reading such a payload
+    /// allows -- including the column that was actually written in
+    /// `Weighted` mode, since that information simply did not exist in a
+    /// version-11 snapshot.
+    #[test]
+    fn a_version_11_snapshot_restores_every_column_in_count_mode() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let columns = sample_columns();
+        let bytes = write(&neurons, &synapses, &scheduler, &columns, 2, 7);
+        let truncated = downgrade_to_version(&bytes, &neurons, &synapses, &scheduler, &columns, 2, 11);
+
+        let restored = read(&truncated, 7).unwrap();
+        assert_eq!(restored.columns.len(), 2);
+        for column in restored.columns.iter() {
+            assert_eq!(column.segments.vote, DendriticVote::Count, "a version-11 snapshot has no vote section, so every column must migrate to Count");
+        }
+    }
+
     #[test]
     fn unrecognised_version_fails_loudly_with_no_partial_load() {
         let (neurons, synapses, scheduler) = sample_network();
@@ -1926,12 +2063,12 @@ mod tests {
         columns.register(ColumnSpec {
             neuron_range: 0..1,
             inhibition: FixedNeighbourhoods::with_base(0, 1, 1),
-            segments: SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 5 } },
+            segments: SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 5 }),
         });
         columns.register(ColumnSpec {
             neuron_range: 1..2,
             inhibition: FixedNeighbourhoods::with_base(1, 1, 1),
-            segments: SegmentConfig { segments_per_neuron: 3, params: BinaryCoincidenceParams { threshold: 7 } },
+            segments: SegmentConfig::new(3, BinaryCoincidenceParams { threshold: 7 }),
         });
 
         let bytes = write(&neurons, &synapses, &scheduler, &columns, 2, 1);

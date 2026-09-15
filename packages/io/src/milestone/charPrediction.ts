@@ -50,6 +50,7 @@ import {
   type NewbornMaturationConfig,
   type SilentSynapsesConfig,
   type PlasticityConfig,
+  type HomeostaticScalingConfig,
   type StructuralStats,
 } from "@brain/core";
 import { wrapColumnHandles, type ColumnHandle } from "../columns.ts";
@@ -202,6 +203,19 @@ export interface CharPredictionConfig {
    */
   readonly segmentsPerNeuron?: number;
   /**
+   * `BinaryCoincidenceParams::threshold`, threaded into *both* `columnConfig`
+   * and `buildNetwork`'s scheduler-wide `segments` identically, same
+   * mismatch-refusal reasoning as `segmentsPerNeuron`. `undefined` defaults
+   * to `3`, this harness's long-standing fixed value. PLAN.md B5 (README §12
+   * decision 13): under weighted votes an established synapse still casts
+   * exactly one vote, so the threshold keeps meaning "this many established
+   * synapses" -- but a *mixed* population of established and still-weak
+   * synapses now reaches a given threshold differently than under count
+   * mode, so the B5 search treats this as a real, searched value rather than
+   * assuming `3` (chosen for count mode) still fits.
+   */
+  readonly coincidenceThreshold?: number;
+  /**
    * `SimulationOptions.silentSynapses` (PLAN.md B4, fix 1, README §12
    * decision 12). `undefined` keeps pre-B4 transmission exactly.
    */
@@ -225,6 +239,37 @@ export interface CharPredictionConfig {
    * no effect without it.
    */
   readonly tonicModulator?: { readonly channel: number; readonly level: number };
+  /**
+   * Weight-aware dendritic votes (PLAN.md B5, README §12 decision 13),
+   * threaded into *both* `columnConfig`'s own `segments` and `buildNetwork`'s
+   * scheduler-wide `SimulationOptions.segments` identically -- same
+   * mismatch-refusal reasoning as `segmentsPerNeuron` above.
+   * `undefined` (default) keeps `segment::DendriticVote::Count`, bit-identical
+   * to every configuration before this option existed. A value in `(0, 1]`
+   * switches to weighted mode: a delivery contributes `sign × min(weight /
+   * voteReferenceWeight, 1)` to its segment's tally instead of a fixed ±1.
+   */
+  readonly voteReferenceWeight?: number;
+  /**
+   * Which variable predictive learning's reinforce/punish adjusts (PLAN.md
+   * B5, README §12 decision 13). `undefined` (default) leaves it at
+   * `"permanence"`, today's behaviour, bit-identical. Re-decided under
+   * weighted votes rather than carried forward from decision 11's
+   * permanence-only finding -- see `PredictiveLearningConfig.learningTarget`'s
+   * own doc comment.
+   */
+  readonly predictiveLearningTarget?: "permanence" | "weight" | "both";
+  /**
+   * `SimulationOptions.homeostaticScaling` (LRN-6) -- never wired into this
+   * harness before PLAN.md B5 (README §12 decision 13, requirements.md
+   * Requirement 6): with weighted votes, a weight-renormalising sweep now
+   * reaches predictions directly (a rescaled synapse's dendritic
+   * contribution changes with it), so the B5 search measures this on/off
+   * rather than continuing to leave it entirely unmeasurable here.
+   * `undefined` (default) leaves it disabled, matching every caller before
+   * this field existed.
+   */
+  readonly homeostaticScaling?: HomeostaticScalingConfig;
 }
 
 const DEFAULT_COLLISION_MARGIN = 0.1;
@@ -265,8 +310,14 @@ function buildCandidates(config: CharEncoderConfig): Candidate<string>[] {
 }
 
 const DEFAULT_SEGMENTS_PER_NEURON = 2;
+const DEFAULT_COINCIDENCE_THRESHOLD = 3;
 
-export function columnConfig(width: number, segmentsPerNeuron: number = DEFAULT_SEGMENTS_PER_NEURON): ColumnConfig {
+export function columnConfig(
+  width: number,
+  segmentsPerNeuron: number = DEFAULT_SEGMENTS_PER_NEURON,
+  voteReferenceWeight: number | undefined = DEFAULT_CONFIG.voteReferenceWeight,
+  coincidenceThreshold: number = DEFAULT_CONFIG.coincidenceThreshold ?? DEFAULT_COINCIDENCE_THRESHOLD,
+): ColumnConfig {
   return {
     neuronCount: width,
     threshold: 0.5,
@@ -292,7 +343,12 @@ export function columnConfig(width: number, segmentsPerNeuron: number = DEFAULT_
     internalPolicy: { p0: 0.05, lengthScale: 100_000, delayMin: 1, delayMax: 1, initialPermanence: 0.4 },
     neighbourhoodSize: width,
     k: Math.max(1, Math.round(width * NETWORK_DENSITY)),
-    segments: { segmentsPerNeuron, coincidenceThreshold: 3 },
+    // PLAN.md B5: spread only if defined, `exactOptionalPropertyTypes`'s
+    // convention -- `undefined` must omit the field entirely so this and
+    // `buildNetwork`'s scheduler-wide `segments` (below) agree exactly on
+    // "count mode", the same mismatch `NativeSimulation.buildColumns`
+    // refuses to build silently through.
+    segments: { segmentsPerNeuron, coincidenceThreshold, ...(voteReferenceWeight !== undefined && { voteReferenceWeight }) },
   };
 }
 
@@ -315,6 +371,10 @@ export function buildNetwork(
   newbornMaturation: NewbornMaturationConfig | undefined = DEFAULT_CONFIG.newbornMaturation,
   silentSynapses: SilentSynapsesConfig | undefined = DEFAULT_CONFIG.silentSynapses,
   plasticity: PlasticityConfig | undefined = DEFAULT_CONFIG.plasticity,
+  voteReferenceWeight: number | undefined = DEFAULT_CONFIG.voteReferenceWeight,
+  predictiveLearningTarget: CharPredictionConfig["predictiveLearningTarget"] = DEFAULT_CONFIG.predictiveLearningTarget,
+  homeostaticScaling: HomeostaticScalingConfig | undefined = DEFAULT_CONFIG.homeostaticScaling,
+  coincidenceThreshold: number = DEFAULT_CONFIG.coincidenceThreshold ?? DEFAULT_COINCIDENCE_THRESHOLD,
 ): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 };
   const options: SimulationOptions = {
@@ -363,7 +423,10 @@ export function buildNetwork(
     // dendritic prediction never ran at all. `NativeSimulation.buildColumns`
     // now refuses to build when this and `columnConfig`'s `segments`
     // disagree, which is what caught this omission.
-    segments: { segmentsPerNeuron, coincidenceThreshold: 3 },
+    // PLAN.md B5: must agree with `columnConfig`'s own `segments` exactly
+    // (`NativeSimulation.buildColumns`'s mismatch refusal), so both read
+    // the same `voteReferenceWeight` parameter, spread only if defined.
+    segments: { segmentsPerNeuron, coincidenceThreshold, ...(voteReferenceWeight !== undefined && { voteReferenceWeight }) },
     // dendritic-threshold-homeostasis spec (README §13.12 items 6/7):
     // fixing the segment-0 collapse bug and letting both real segments
     // receive distinct wiring made accuracy *worse*, 13.22% -> 3.23%, and
@@ -396,6 +459,7 @@ export function buildNetwork(
     // PLAN.md B4: see `CharPredictionConfig.silentSynapses`/`plasticity`.
     ...(silentSynapses !== undefined && { silentSynapses }),
     ...(plasticity !== undefined && { plasticity }),
+    ...(homeostaticScaling !== undefined && { homeostaticScaling }),
     predictiveLearning: {
       significanceThreshold: 0.5,
       reinforceAmount: 0.08,
@@ -434,10 +498,14 @@ export function buildNetwork(
       // codebase (no named channel constant is exported across the FFI
       // boundary).
       ...(rewardSignal !== undefined && { modulatorIndex: 0 /* DOPAMINE */ }),
+      // PLAN.md B5: spread only if defined, `exactOptionalPropertyTypes`'s
+      // convention -- `undefined` leaves `SegmentLearningTarget::Permanence`,
+      // today's behaviour.
+      ...(predictiveLearningTarget !== undefined && { learningTarget: predictiveLearningTarget }),
     },
   };
   const sim = Simulation.create(lif, options);
-  const [handle] = sim.buildColumns(seed, [columnConfig(width, segmentsPerNeuron)]);
+  const [handle] = sim.buildColumns(seed, [columnConfig(width, segmentsPerNeuron, voteReferenceWeight, coincidenceThreshold)]);
   const [column] = wrapColumnHandles([handle!]);
   return { sim, column: column! };
 }
@@ -497,6 +565,10 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
     config.newbornMaturation,
     config.silentSynapses,
     config.plasticity,
+    config.voteReferenceWeight,
+    config.predictiveLearningTarget,
+    config.homeostaticScaling,
+    config.coincidenceThreshold,
   );
   const collisionMargin = config.collisionMargin ?? DEFAULT_COLLISION_MARGIN;
   const trigram = new TrigramModel();

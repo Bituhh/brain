@@ -852,7 +852,7 @@ mod tests {
     use crate::segment::{BinaryCoincidenceParams, SegmentConfig};
 
     fn segments() -> SegmentConfig {
-        SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 5 } }
+        SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 5 })
     }
 
     fn column(range: Range<u32>) -> ColumnSpec {

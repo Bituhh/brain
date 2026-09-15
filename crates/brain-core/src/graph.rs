@@ -598,7 +598,7 @@ mod tests {
         let builder = GraphBuilder::new(5);
         let coords = line_coords(20, 0.0);
         let policy = DistancePolicy { p0: 1.0, length_scale: 1.0, delay_min: 1, delay_max: 1, initial_permanence: 0.6 };
-        let multi_segment = SegmentConfig { segments_per_neuron: 3, params: BinaryCoincidenceParams { threshold: 2 } };
+        let multi_segment = SegmentConfig::new(3, BinaryCoincidenceParams { threshold: 2 });
 
         let column = builder.build_column(&mut neurons, &mut synapses, &coords, 1.0, 1.0, &policy, 20, 2, multi_segment);
 
@@ -623,7 +623,7 @@ mod tests {
     use crate::segment::BinaryCoincidenceParams;
 
     fn segments() -> SegmentConfig {
-        SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 5 } }
+        SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 5 })
     }
 
     #[test]

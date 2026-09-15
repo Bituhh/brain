@@ -41,7 +41,7 @@ fn build_topology() -> (NeuronArena, SynapseArena, u32, u32) {
 }
 
 fn segment_config() -> SegmentConfig {
-    SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: SEGMENT_THRESHOLD } }
+    SegmentConfig::new(1, BinaryCoincidenceParams { threshold: SEGMENT_THRESHOLD })
 }
 
 #[test]

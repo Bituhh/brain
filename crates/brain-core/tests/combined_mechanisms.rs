@@ -44,7 +44,7 @@ use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::plasticity::homeostatic::{HomeostaticScaling, SegmentThresholdHomeostasis};
-use brain_core::plasticity::predictive::PredictiveLearningParams;
+use brain_core::plasticity::predictive::{PredictiveLearningParams, SegmentLearningTarget};
 use brain_core::plasticity::stdp::StdpParams;
 use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams, StructuralSweepReport};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
@@ -188,7 +188,7 @@ struct RunResult {
 fn run(with_homeostasis: bool) -> RunResult {
     let Topology { mut neurons, mut synapses, sources, target, rival, cue, sprout_a, sprout_b, fan_in_synapses } = build_topology();
 
-    let segment_config = SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } };
+    let segment_config = SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 });
     let predictive_params = PredictiveLearningParams {
         significance_threshold: 0.5,
         reinforce_amount: 0.05,
@@ -198,6 +198,7 @@ fn run(with_homeostasis: bool) -> RunResult {
         burst_sprout_weight: 0.05,
         recently_active_window_ticks: 10,
         modulator_index: None,
+        learning_target: SegmentLearningTarget::Permanence,
     };
     let structural_params = StructuralPlasticityParams {
         prune_floor: PRUNE_FLOOR,

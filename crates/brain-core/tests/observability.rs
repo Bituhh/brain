@@ -124,7 +124,7 @@ fn attached_probes_record_only_their_own_neurons_dendritic_segment_activity() {
         synapses.insert(s, target, 1, 1, 0.9, 0.9).unwrap(); // segment 1: only 2 sources -> never reaches 5
     }
 
-    let mut sched = Scheduler::new(4, 0.5).with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 5 } });
+    let mut sched = Scheduler::new(4, 0.5).with_segments(SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 5 }));
     let params = LifParams::new(5.0, 0.0, 0.0, 0);
 
     sched.attach_probe(target, Probe::new(target, ProbeOptions { capacity: 10, record_membrane: false, weight_synapses: Vec::new(), record_segments: true }));

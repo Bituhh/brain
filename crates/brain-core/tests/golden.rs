@@ -25,7 +25,7 @@ use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::{RuleChain, DOPAMINE, NUM_MODULATORS};
 use brain_core::probe::SpikeRaster;
 use brain_core::scheduler::{Scheduler, SilentSynapseParams};
-use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig};
+use brain_core::segment::{BinaryCoincidenceParams, DendriticVote, SegmentConfig};
 use brain_core::synapse::SynapseArena;
 use std::fs;
 use std::path::PathBuf;
@@ -38,6 +38,10 @@ const ENGINE_MECHANISMS_TICKS: u32 = 500;
 
 const STRUCTURAL_B4_GOLDEN_PATH: &str = "tests/golden/structural_plasticity_b4.raster";
 const STRUCTURAL_B4_TICKS: u32 = 1500;
+
+const DENDRITIC_VOTES_GOLDEN_PATH: &str = "tests/golden/dendritic_votes_weighted.raster";
+const DENDRITIC_VOTES_REFERENCE_WEIGHT: f32 = 0.7;
+const DENDRITIC_VOTES_TICKS: u32 = 500;
 
 /// A small, fully deterministic scenario: a 6-neuron population (indices
 /// 0-2 excitatory drivers feeding 3-5 through fixed synapses), local
@@ -150,7 +154,7 @@ fn run_engine_mechanisms_scenario() -> SpikeRaster {
     };
 
     let mut sched = Scheduler::new(4, 0.3)
-        .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 2 } })
+        .with_segments(SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 2 }))
         .with_plasticity(plasticity, [500.0; NUM_MODULATORS])
         .with_homeostatic_scaling(HomeostaticScaling::new(2.0, 25))
         .with_intrinsic_homeostasis(IntrinsicHomeostasis::new(0.1, 0.9, 0.05, 0.1, 25))
@@ -178,6 +182,83 @@ fn run_engine_mechanisms_scenario() -> SpikeRaster {
         raster.record_tick(report.tick, &report.spiked);
     }
     raster
+}
+
+/// PLAN.md B5's golden coverage (README §12 decision 13): eight neurons,
+/// deliberately *non-uniform* synapse weight (`weight_for` below spans
+/// roughly 0.1-1.0 across pairs, unlike every earlier golden scenario's
+/// uniform weight) so a change to how weight reaches the dendritic tally is
+/// something this raster can actually see. Neurons 4-7 (the dendritic
+/// targets) also get a direct, *weak* stimulation each cycle -- below their
+/// own threshold alone, following `run_structural_plasticity_b4_scenario`'s
+/// own precedent ("a lone input must exceed ~3.9 to spike; a full dendritic
+/// prediction halves the threshold's reach, so a weak input can then"),
+/// because a purely-dendritic target (NEU-6: primes, never fires on its
+/// own) never spikes at all regardless of vote mode -- there would be
+/// nothing here for a vote-mode change to affect. STDP is live, so weight
+/// keeps moving throughout the run rather than sitting at its initial
+/// value. `dendritic_votes_weighted_scenario_is_sensitive_to_vote_mode`
+/// (fast tier) is the proof that this scenario is actually sensitive to the
+/// vote mode, the same discipline
+/// `structural_b4_scenario_is_sensitive_to_each_fix` established for B4's
+/// golden scenario.
+fn weight_for(source: u32, target: u32) -> f32 {
+    0.1 + 0.15 * ((source * 5 + target * 3) % 6) as f32
+}
+
+fn run_dendritic_votes_scenario(vote: DendriticVote) -> SpikeRaster {
+    let mut neurons = NeuronArena::new();
+    let mut ids = Vec::new();
+    for i in 0..8u32 {
+        ids.push(neurons.allocate(NeuronSpec { threshold: 0.6, polarity: 1, coords: [i as f32, 0.0, 0.0] }).index);
+    }
+    let mut synapses = SynapseArena::new(8);
+    synapses.reserve_for_neurons(neurons.capacity_len());
+    // Every context neuron (0-3) feeds every target (4-7), one tick's delay
+    // uniformly -- so however many of 0-3 spike on a given tick, their
+    // deliveries all land on the same tick at the target, which is what
+    // makes a same-segment coincidence possible at all.
+    for &source in &ids[0..4] {
+        for &target in &ids[4..8] {
+            let segment = if (source + target) % 2 == 0 { 0 } else { 1 };
+            let weight = weight_for(source, target);
+            synapses.insert(source, target, segment, 1, 0.6, weight).unwrap();
+        }
+    }
+
+    let stdp = StdpParams { a_plus: 0.05, a_minus: 0.05, tau_plus: 20.0, tau_minus: 20.0, window_ticks: 100 };
+    let plasticity = RuleChain::new(vec![Box::new(ThreeFactorStdp::new(ThreeFactorParams::new(stdp, 500.0, 1.0, DOPAMINE)))]);
+    let segments = SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 2 }, vote };
+
+    let mut sched = Scheduler::new(4, 0.3).with_segments(segments).with_plasticity(plasticity, [500.0; NUM_MODULATORS]);
+    sched.inject_modulator(DOPAMINE, 1.0);
+    // Same tau/predictive-reduction combination `run_structural_plasticity_
+    // b4_scenario` already validates: a lone weak input cannot spike a
+    // target on its own, but a full dendritic prediction halves the
+    // threshold's reach enough that it then can.
+    let params = LifParams::new(6.0, 0.0, 0.0, 1).with_predictive(20.0, 0.5);
+
+    let mut raster = SpikeRaster::new();
+    for tick in 0..DENDRITIC_VOTES_TICKS {
+        // A 16-tick cycle, mirroring `run_structural_plasticity_b4_scenario`:
+        // every context neuron fires hard together at phase 0 (so their
+        // deliveries can actually coincide on a target's segment), every
+        // target gets a weak direct drive at phase 4 it cannot spike from
+        // alone.
+        let phase = tick % 16;
+        match phase {
+            0 => ids[0..4].iter().for_each(|&id| sched.stimulate(&neurons, id, 5.0)),
+            4 => ids[4..8].iter().for_each(|&id| sched.stimulate(&neurons, id, 1.5)),
+            _ => {}
+        }
+        let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        raster.record_tick(report.tick, &report.spiked);
+    }
+    raster
+}
+
+fn dendritic_votes_golden_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(DENDRITIC_VOTES_GOLDEN_PATH)
 }
 
 /// Which of PLAN.md B4's four fixes [`run_structural_plasticity_b4_scenario`]
@@ -266,7 +347,7 @@ fn run_structural_plasticity_b4_scenario_with(switches: B4Switches, k: B4Knobs) 
     };
 
     let mut sched = Scheduler::new(4, 0.3)
-        .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: k.coincidence_threshold } })
+        .with_segments(SegmentConfig::new(2, BinaryCoincidenceParams { threshold: k.coincidence_threshold }))
         .with_silent_synapses(SilentSynapseParams { unsilence_weight: k.unsilence_weight, silent_transmits: !switches.silent_gate })
         .with_plasticity(plasticity, [500.0; NUM_MODULATORS])
         .with_structural_plasticity(StructuralPlasticity::new(structural_params, FixedNeighbourhoods::new(8, 8)));
@@ -352,6 +433,35 @@ fn structural_plasticity_b4_scenario_matches_golden_raster() {
     );
 }
 
+#[test]
+#[ignore = "slow tier: run via `npm run test:golden`"]
+fn dendritic_votes_weighted_scenario_matches_golden_raster() {
+    let raster = run_dendritic_votes_scenario(DendriticVote::Weighted { reference_weight: DENDRITIC_VOTES_REFERENCE_WEIGHT });
+    let actual = raster.export();
+    let path = dendritic_votes_golden_path();
+    let expected = fs::read(&path).unwrap_or_else(|e| panic!("failed to read golden raster at {}: {e}. If this scenario changed deliberately, regenerate it with `npm run test:golden:regen` and review the diff.", path.display()));
+    assert_eq!(
+        actual, expected,
+        "spike raster no longer matches the golden reference at {}. If this change is intentional, regenerate it with `npm run test:golden:regen` and review the resulting diff before committing.",
+        path.display()
+    );
+}
+
+/// Requirement 10.3's fast-tier sibling: proves the golden scenario above
+/// actually exercises the vote mode, the same discipline
+/// `structural_b4_scenario_is_sensitive_to_each_fix` established for B4.
+#[test]
+fn dendritic_votes_weighted_scenario_is_sensitive_to_vote_mode() {
+    let weighted = run_dendritic_votes_scenario(DendriticVote::Weighted { reference_weight: DENDRITIC_VOTES_REFERENCE_WEIGHT }).export();
+    let count = run_dendritic_votes_scenario(DendriticVote::Count).export();
+    // Not just a different byte count: in count mode, targets 4-7 spike
+    // (every dendritic coincidence completes, since count mode ignores
+    // weight); in weighted mode, at this scenario's weights and reference,
+    // none of them ever do -- confirmed directly while building this test,
+    // the property Requirement 10.2's ablation test names by name.
+    assert_ne!(weighted, count, "switching to count mode must change this scenario's raster -- otherwise it does not cover the vote mode at all");
+}
+
 /// Proves the B4 golden scenario actually covers B4 (the first pass's
 /// golden scenario did not -- see the engine-mechanisms scenario's own
 /// comment): switching off any one of the four fixes must change the
@@ -392,6 +502,12 @@ fn regenerate_golden_rasters() {
     fs::create_dir_all(b4_path.parent().unwrap()).unwrap();
     fs::write(&b4_path, b4_raster.export()).unwrap();
     eprintln!("Regenerated {}. Review the diff before committing.", b4_path.display());
+
+    let dendritic_votes_raster = run_dendritic_votes_scenario(DendriticVote::Weighted { reference_weight: DENDRITIC_VOTES_REFERENCE_WEIGHT });
+    let dendritic_votes_path = dendritic_votes_golden_path();
+    fs::create_dir_all(dendritic_votes_path.parent().unwrap()).unwrap();
+    fs::write(&dendritic_votes_path, dendritic_votes_raster.export()).unwrap();
+    eprintln!("Regenerated {}. Review the diff before committing.", dendritic_votes_path.display());
 }
 
 /// Provenance for `B4_KNOBS`: every configuration in this grid is run with

@@ -92,7 +92,7 @@
 use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
-use brain_core::plasticity::predictive::PredictiveLearningParams;
+use brain_core::plasticity::predictive::{PredictiveLearningParams, SegmentLearningTarget};
 use brain_core::plasticity::stdp::StdpParams;
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::{RuleChain, DOPAMINE, NUM_MODULATORS};
@@ -179,7 +179,7 @@ fn build_network(seed: u64) -> Network {
     // distinction the two subsets exist to carry. Requiring both winners'
     // synapses to coincide makes a downstream segment a genuine detector
     // of *which pair* fired, not just of any one member of it.
-    let segment_config = SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 2 } };
+    let segment_config = SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 2 });
     let stdp = StdpParams { a_plus: 0.02, a_minus: 0.02, tau_plus: 20.0, tau_minus: 20.0, window_ticks: 100 };
     let plasticity = RuleChain::new(vec![Box::new(ThreeFactorStdp::new(ThreeFactorParams::new(stdp, 2000.0, 1.0, DOPAMINE)))]);
     let predictive_params = PredictiveLearningParams {
@@ -191,6 +191,7 @@ fn build_network(seed: u64) -> Network {
         burst_sprout_weight: 0.05,
         recently_active_window_ticks: 10,
         modulator_index: None,
+        learning_target: SegmentLearningTarget::Permanence,
     };
     // Requirement 12.1's unpredicted-spike burst path is neighbourhood-scoped
     // (`reinforce_or_sprout_burst` searches within the *whole* symbol block,
@@ -463,9 +464,10 @@ fn prediction_accuracy_rises_across_exposures_across_seeds() {
             burst_sprout_weight: 0.05,
             recently_active_window_ticks: 20,
             modulator_index: None,
+        learning_target: SegmentLearningTarget::Permanence,
         };
         let mut sched = Scheduler::new(4, 0.3)
-            .with_segments(SegmentConfig { segments_per_neuron: 1, params: BinaryCoincidenceParams { threshold: 1 } })
+            .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 }))
             .with_predictive_learning(predictive_params, FixedNeighbourhoods::new(10, 5));
         let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(50.0, 0.5);
         let _ = seed; // deterministic scenario; seed varies only to prove no single-seed luck is load-bearing (Requirement 15.4)

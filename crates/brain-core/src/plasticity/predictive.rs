@@ -42,22 +42,57 @@ use crate::arena::NeuronArenaViewMut;
 use crate::inhibition::FixedNeighbourhoods;
 use crate::synapse::SynapseArenaViewMut;
 
+/// Which variable predictive learning's reinforce/punish (12.2/12.3) and
+/// the burst path's existing-synapse reinforcement (12.1) adjust (PLAN.md
+/// B5, README §12 decision 13). Re-decided under weighted dendritic votes,
+/// not carried forward from decision 11's permanence-only call: that call
+/// was made when a segment's coincidence count could not see weight at all
+/// (`apply_local_effect`'s fixed ±1 `signum` step), so a weight-only target
+/// was structurally invisible to prediction and measurably collapsed VAL-4
+/// accuracy to 0 (README §12 decision 11). Under `segment::DendriticVote::Weighted`
+/// that reason no longer holds -- weight now reaches the tally directly --
+/// so the B5 search re-tests all three rather than assuming the old result
+/// still applies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SegmentLearningTarget {
+    /// Adjust permanence only -- today's behaviour, bit-identical in count
+    /// mode. SYN-3's structural question: "is this synapse an active
+    /// detector."
+    #[default]
+    Permanence,
+    /// Adjust weight only. Under `Weighted` votes this reaches the tally
+    /// directly; under `Count` it is structurally invisible (decision 11's
+    /// finding) and predictive learning becomes a no-op.
+    Weight,
+    /// Adjust both permanence and weight by the same delta.
+    Both,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PredictiveLearningParams {
     /// `predictive_now` at or above this counts as "was predicted" for
     /// classification purposes (12.2 vs 12.3 apply; below it, 12.1 does).
     pub significance_threshold: f32,
-    /// Permanence delta applied to a correct prediction's segment (12.3).
-    /// **Deliberately permanence, not weight** (README §12's split,
-    /// 2026-09-13) -- see `adjust_segment_permanence`'s doc comment: a
-    /// dendritic segment's coincidence count is a binary, permanence-gated
-    /// signum step (`scheduler.rs`'s `apply_local_effect`), so only
-    /// permanence changes are visible to future predictions.
+    /// Delta applied to a correct prediction's segment (12.3), to the
+    /// variable(s) `learning_target` names. **Defaulted to permanence, not
+    /// weight** (README §12 decision 11, 2026-09-13; re-decided, not
+    /// assumed, by decision 13/PLAN.md B5) -- see `adjust_segment`'s doc
+    /// comment: before B5, a dendritic segment's coincidence count was a
+    /// binary, permanence-gated signum step (`scheduler.rs`'s
+    /// `apply_local_effect`), so only permanence changes were visible to
+    /// future predictions. `DendriticVote::Weighted` changes that; the
+    /// default stays permanence for count-mode bit-identity (Requirement
+    /// 5.2), not because weight is now known to be worse.
     pub reinforce_amount: f32,
-    /// Permanence delta *subtracted* from a false positive's segment
-    /// (12.2). Stored positive; applied as a subtraction. Same
-    /// permanence-not-weight reasoning as `reinforce_amount` above.
+    /// Delta *subtracted* from a false positive's segment (12.2), to the
+    /// variable(s) `learning_target` names. Stored positive; applied as a
+    /// subtraction. Same target as `reinforce_amount` above.
     pub punish_amount: f32,
+    /// Which variable(s) reinforce/punish (12.2/12.3) and the burst path's
+    /// existing-synapse reinforcement (12.1) adjust. Defaults to
+    /// `SegmentLearningTarget::Permanence`, today's behaviour, so every
+    /// existing caller is bit-identical (Requirement 5.2).
+    pub learning_target: SegmentLearningTarget,
     /// Which segment an unpredicted/burst spike (12.1) reinforces or
     /// sprouts onto. A plain configuration choice, not a reserved value
     /// like `segment::FEEDFORWARD_SEGMENT` -- any real dendritic segment
@@ -178,33 +213,82 @@ impl PredictiveLearning {
     /// outcome), not a silent correctness violation -- the alternative
     /// (indexing an out-of-range id) would have been the latter.
     ///
-    /// **Writes permanence, not weight -- a deliberate exception to README
-    /// §12's general weight/permanence split (2026-09-13), found while
-    /// verifying VAL-4 against this split.** `apply_local_effect`'s
-    /// dendritic branch (`scheduler.rs`) increments a segment's coincidence
-    /// count by `signed_current.signum()` -- a fixed ±1 step, per README
-    /// §13.12 item 11a's own binary-not-weighted design -- so a dendritic
-    /// synapse's contribution to future predictions depends only on
-    /// whether it clears `connection_threshold` (permanence), never on its
-    /// weight's magnitude. Predictive learning's entire purpose (LRN-8) is
-    /// to make a segment's contributing synapses more or less likely to
-    /// coincidence-detect *again*; writing weight here would be invisible
-    /// to that mechanism and silently disable dendritic prediction
-    /// learning (confirmed empirically: VAL-4 networkAccuracy on the
-    /// smoke-test corpus collapsed from a nonzero baseline to exactly 0
-    /// when this wrote weight instead). Unlike STDP (three_factor.rs),
-    /// which shapes feedforward current magnitude and is correctly
-    /// weight-side, this rule's causal target is SYN-3's structural
-    /// question -- "is this synapse an active detector" -- not §2.5's
-    /// efficacy question.
-    fn adjust_segment_permanence(&self, synapses: &mut SynapseArenaViewMut, neuron: u32, segment: u32, delta: f32) {
+    /// **Writes `self.params.learning_target`'s variable(s) -- permanence
+    /// by default, a deliberate exception to README §12's general
+    /// weight/permanence split (2026-09-13, decision 11), found while
+    /// verifying VAL-4 against that split, and re-decided rather than
+    /// assumed by PLAN.md B5 (decision 13).** Before B5, `apply_local_
+    /// effect`'s dendritic branch (`scheduler.rs`) incremented a segment's
+    /// coincidence count by `signed_current.signum()` -- a fixed ±1 step,
+    /// per README §13.12 item 11a's own binary-not-weighted design -- so a
+    /// dendritic synapse's contribution to future predictions depended only
+    /// on whether it cleared `connection_threshold` (permanence), never on
+    /// its weight's magnitude. Predictive learning's entire purpose (LRN-8)
+    /// is to make a segment's contributing synapses more or less likely to
+    /// coincidence-detect *again*; writing weight there was invisible to
+    /// that mechanism and silently disabled dendritic prediction learning
+    /// (confirmed empirically: VAL-4 networkAccuracy on the smoke-test
+    /// corpus collapsed from a nonzero baseline to exactly 0 when this
+    /// wrote weight instead of permanence, under count-mode votes). Under
+    /// `DendriticVote::Weighted`, weight reaches the tally directly, so B5's
+    /// search re-tests whether that finding still holds (Requirement 5.3)
+    /// rather than carrying decision 11's call forward past the reason it
+    /// was made. Unlike STDP (three_factor.rs), which shapes feedforward
+    /// current magnitude and is correctly weight-side regardless of vote
+    /// mode, this rule's causal target is SYN-3's structural question -- "is
+    /// this synapse an active detector" -- which is why `Permanence` stays
+    /// the default even though `Weight`/`Both` are now real options.
+    ///
+    /// **Adjusts every synapse on the segment, not only the ones that
+    /// contributed this tick's coincidence** -- unchanged by B5, and worth
+    /// stating plainly rather than silently carrying forward: no per-tick
+    /// contributor tracking exists (it would need new state -- see this
+    /// crate's `scheduler.rs` `segment_counts`, a per-composite scalar with
+    /// no memory of which synapse delivered), so a punished segment weakens
+    /// every incoming synapse on it, including ones that stayed silent this
+    /// tick. Left as found; built only if the B5 search shows it costs
+    /// accuracy (design.md's recorded call).
+    ///
+    /// **Under `Weight`/`Both`, a punished synapse keeps transmitting and is
+    /// never pruned by this rule** -- unlike `Permanence`, where a punished
+    /// synapse can fall below `connection_threshold` and later be pruned at
+    /// `prune_floor`. B4 fix 4 (silent-synapse elimination) only covers
+    /// synapses that are still silent, so a weight-punished, already-
+    /// unsilenced synapse has no removal path at all under `Weight`. Also
+    /// left as found, not closed here (design.md's recorded call).
+    fn adjust_segment(&self, synapses: &mut SynapseArenaViewMut, neuron: u32, segment: u32, delta: f32) {
         let ids: Vec<u32> = synapses
             .incoming(neuron)
             .filter(|&id| synapses.owns_synapse(id) && synapses.target_segment[id as usize] == segment)
             .collect();
         for id in ids {
-            let p = &mut synapses.permanence[id as usize];
-            *p = (*p + delta).clamp(0.0, 1.0);
+            self.apply_delta(synapses, id, delta);
+        }
+    }
+
+    /// Applies `delta` to one synapse's `learning_target` variable(s),
+    /// clamped to `[0, 1]` as every permanence/weight write in this crate
+    /// is. Shared by [`Self::adjust_segment`] (every synapse on a segment)
+    /// and [`Self::reinforce_or_sprout_burst`]'s existing-synapse branch (a
+    /// single, already-identified synapse) so both honour the same
+    /// `learning_target` (design.md: "Its reinforce branch uses the same
+    /// target").
+    fn apply_delta(&self, synapses: &mut SynapseArenaViewMut, id: u32, delta: f32) {
+        match self.params.learning_target {
+            SegmentLearningTarget::Permanence => {
+                let p = &mut synapses.permanence[id as usize];
+                *p = (*p + delta).clamp(0.0, 1.0);
+            }
+            SegmentLearningTarget::Weight => {
+                let w = &mut synapses.weight[id as usize];
+                *w = (*w + delta).clamp(0.0, 1.0);
+            }
+            SegmentLearningTarget::Both => {
+                let p = &mut synapses.permanence[id as usize];
+                *p = (*p + delta).clamp(0.0, 1.0);
+                let w = &mut synapses.weight[id as usize];
+                *w = (*w + delta).clamp(0.0, 1.0);
+            }
         }
     }
 
@@ -256,12 +340,11 @@ impl PredictiveLearning {
                 synapses.occupied_in_block(source).find(|&id| synapses.target_neuron[id as usize] == neuron && synapses.target_segment[id as usize] == segment);
             match existing {
                 Some(id) => {
-                    // Permanence, not weight -- see `adjust_segment_permanence`'s
-                    // doc comment: this is 12.1's reinforcement of an
-                    // *existing* dendritic detector, the same structural
-                    // question 12.2/12.3 answer.
-                    let p = &mut synapses.permanence[id as usize];
-                    *p = (*p + self.params.reinforce_amount * self.modulator_scale(modulators)).clamp(0.0, 1.0);
+                    // Same `learning_target` as 12.2/12.3 -- see
+                    // `adjust_segment`'s doc comment: this is 12.1's
+                    // reinforcement of an *existing* dendritic detector, the
+                    // same question 12.2/12.3 answer.
+                    self.apply_delta(synapses, id, self.params.reinforce_amount * self.modulator_scale(modulators));
                 }
                 None => {
                     // Structural, one-time value -- not a reinforcement
@@ -309,14 +392,14 @@ impl PredictiveLearning {
             (true, true) => {
                 // 12.3: correct prediction -- reinforce.
                 if let Some(segment) = tracker.get(neuron) {
-                    self.adjust_segment_permanence(synapses, neuron, segment, self.params.reinforce_amount * self.modulator_scale(modulators));
+                    self.adjust_segment(synapses, neuron, segment, self.params.reinforce_amount * self.modulator_scale(modulators));
                 }
                 PredictionOutcome::CorrectPrediction
             }
             (true, false) => {
                 // 12.2: false positive -- punish.
                 if let Some(segment) = tracker.get(neuron) {
-                    self.adjust_segment_permanence(synapses, neuron, segment, -self.params.punish_amount * self.modulator_scale(modulators));
+                    self.adjust_segment(synapses, neuron, segment, -self.params.punish_amount * self.modulator_scale(modulators));
                 }
                 PredictionOutcome::FalsePositive
             }
@@ -358,6 +441,7 @@ mod tests {
             burst_sprout_weight: 0.05,
             recently_active_window_ticks: 20,
             modulator_index: None,
+            learning_target: SegmentLearningTarget::Permanence,
         }
     }
 
@@ -378,6 +462,47 @@ mod tests {
 
         assert!((synapses.permanence[syn as usize] - 0.4).abs() < 1e-6, "correct prediction must reinforce permanence by reinforce_amount");
         assert_eq!(synapses.weight[syn as usize], 0.3, "predictive learning must not touch weight -- see adjust_segment_permanence's doc comment");
+    }
+
+    /// PLAN.md B5 (README §12 decision 13): `SegmentLearningTarget::Weight`
+    /// moves weight and leaves permanence untouched -- the mirror image of
+    /// the default `Permanence` target's own test above.
+    #[test]
+    fn weight_target_reinforces_weight_not_permanence() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let syn = synapses.insert(0, 1, 0, 1, 0.3, 0.3).unwrap();
+
+        let mut tracker = PredictingSegmentTracker::new();
+        tracker.record_fired(1, 0);
+
+        let params = PredictiveLearningParams { learning_target: SegmentLearningTarget::Weight, ..default_params() };
+        let pl = PredictiveLearning::new(params, FixedNeighbourhoods::new(10, 1));
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.9, true, 10, 2, NEUTRAL_MODULATORS);
+
+        assert_eq!(synapses.permanence[syn as usize], 0.3, "the Weight target must not touch permanence");
+        assert!((synapses.weight[syn as usize] - 0.4).abs() < 1e-6, "the Weight target must reinforce weight by reinforce_amount");
+    }
+
+    /// `SegmentLearningTarget::Both` moves both variables by the same
+    /// delta.
+    #[test]
+    fn both_target_reinforces_permanence_and_weight_together() {
+        let mut neurons = make_neurons(2);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(2);
+        let syn = synapses.insert(0, 1, 0, 1, 0.3, 0.3).unwrap();
+
+        let mut tracker = PredictingSegmentTracker::new();
+        tracker.record_fired(1, 0);
+
+        let params = PredictiveLearningParams { learning_target: SegmentLearningTarget::Both, ..default_params() };
+        let pl = PredictiveLearning::new(params, FixedNeighbourhoods::new(10, 1));
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 1, 0.9, true, 10, 2, NEUTRAL_MODULATORS);
+
+        assert!((synapses.permanence[syn as usize] - 0.4).abs() < 1e-6, "the Both target must reinforce permanence");
+        assert!((synapses.weight[syn as usize] - 0.4).abs() < 1e-6, "the Both target must reinforce weight");
     }
 
     #[test]
@@ -429,6 +554,26 @@ mod tests {
 
         assert!((synapses.permanence[syn as usize] - 0.4).abs() < 1e-6, "an existing synapse from a recently-active source must have its permanence reinforced");
         assert_eq!(synapses.weight[syn as usize], 0.3, "predictive learning must not touch weight");
+    }
+
+    /// design.md: "Its reinforce branch uses the same target" -- the burst
+    /// path's existing-synapse reinforcement (12.1) honours
+    /// `learning_target` exactly like 12.2/12.3's `resolve` path does.
+    #[test]
+    fn unpredicted_spike_reinforcement_of_an_existing_synapse_honours_the_weight_target() {
+        let mut neurons = make_neurons(3);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(3);
+        let syn = synapses.insert(0, 2, 0, 1, 0.3, 0.3).unwrap();
+        neurons.last_spike[0] = 9;
+
+        let tracker = PredictingSegmentTracker::new();
+        let params = PredictiveLearningParams { learning_target: SegmentLearningTarget::Weight, ..default_params() };
+        let pl = PredictiveLearning::new(params, FixedNeighbourhoods::new(10, 1));
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 2, 0.0, true, 10, 3, NEUTRAL_MODULATORS);
+
+        assert_eq!(synapses.permanence[syn as usize], 0.3, "the Weight target must not touch permanence, even on the burst path");
+        assert!((synapses.weight[syn as usize] - 0.4).abs() < 1e-6, "the Weight target must reinforce weight on the burst path too");
     }
 
     #[test]

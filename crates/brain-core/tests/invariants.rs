@@ -21,7 +21,7 @@ use brain_core::plasticity::structural::{SproutTimingWindow, StructuralPlasticit
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::{LocalContext, NeuronLocal, RuleChain, SynapseMut, DOPAMINE, NUM_MODULATORS};
 use brain_core::scheduler::{Scheduler, SilentSynapseParams};
-use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig};
+use brain_core::segment::{BinaryCoincidenceParams, DendriticVote, SegmentConfig};
 use brain_core::snapshot;
 use brain_core::synapse::SynapseArena;
 use proptest::prelude::*;
@@ -168,7 +168,7 @@ proptest! {
         // Threshold set far out of reach: this test reads the raw
         // coincidence count directly, not whether it crosses a threshold.
         let mut sched = Scheduler::new(2, 0.4)
-            .with_segments(SegmentConfig { segments_per_neuron, params: BinaryCoincidenceParams { threshold: 1000 } });
+            .with_segments(SegmentConfig::new(segments_per_neuron, BinaryCoincidenceParams { threshold: 1000 }));
         let params = LifParams::new(5.0, 0.0, 0.0, 0);
         sched.stimulate(&neurons, a, current);
         let report0 = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
@@ -182,6 +182,31 @@ proptest! {
         } else {
             prop_assert!(counts[composite] < 0.0, "inhibitory source must lower (veto) the segment's coincidence count, not raise it");
         }
+    }
+
+    /// PLAN.md B5 (README §12 decision 13), design.md's Testing Strategy:
+    /// in weighted mode, no single delivery's contribution ever exceeds
+    /// magnitude 1 (the cap), and a segment's tally after a sequence of
+    /// deliveries equals the capped sum of each delivery's own contribution
+    /// -- checked against the pure `DendriticVote::contribution` function
+    /// directly, the smallest code path that can exhibit the property
+    /// (this suite's own module doc), rather than through a full scheduler.
+    #[test]
+    fn weighted_vote_contribution_never_exceeds_one_and_the_tally_is_the_capped_sum(
+        reference_weight in 0.01f32..1.0,
+        deliveries in prop::collection::vec((prop_oneof![Just(1i8), Just(-1i8)], 0.0f32..1.0), 0..20),
+    ) {
+        let vote = DendriticVote::Weighted { reference_weight };
+        let mut tally = 0.0f32;
+        for &(sign, weight) in &deliveries {
+            let signed_current = sign as f32 * weight;
+            let contribution = vote.contribution(signed_current);
+            prop_assert!(contribution.abs() <= 1.0 + f32::EPSILON, "a single delivery's contribution ({contribution}) exceeded the cap of magnitude 1");
+            prop_assert!(contribution.signum() == signed_current.signum() || contribution == 0.0, "a delivery's contribution must carry its own sign, or be exactly zero");
+            tally += contribution;
+        }
+        let expected: f32 = deliveries.iter().map(|&(sign, weight)| vote.contribution(sign as f32 * weight)).sum();
+        prop_assert_eq!(tally, expected, "the tally must equal the capped sum of each delivery's own contribution, computed independently");
     }
 
     /// Requirement 7.1/7.2's ceiling, isolated from any specific network:
@@ -266,7 +291,7 @@ proptest! {
 fn make_engine_scheduler() -> Scheduler {
     Scheduler::new(4, 0.3)
         .with_inhibition(FixedNeighbourhoods::new(8, 4))
-        .with_segments(SegmentConfig { segments_per_neuron: 2, params: BinaryCoincidenceParams { threshold: 2 } })
+        .with_segments(SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 2 }))
         .with_plasticity(make_chain(), [500.0; NUM_MODULATORS])
         // Deliberately mutually non-aligned intervals -- a snapshot tick
         // drawn from a wide range then lands off *every* mechanism's
