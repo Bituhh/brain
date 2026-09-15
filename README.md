@@ -3516,6 +3516,7 @@ Prior art (§13):
 - [Why the Human Brain Project Went Wrong — and How to Fix It](https://www.scientificamerican.com/article/why-the-human-brain-project-went-wrong-and-how-to-fix-it/)
 - [FNS: an event-driven spiking neural network simulator](https://www.nature.com/articles/s41598-021-91513-8)
 - [NEST simulator](https://www.nest-simulator.org/)
+- [The Cascade-Correlation Learning Architecture — Fahlman & Lebiere 1990](https://proceedings.neurips.cc/paper/1989/hash/69adc1e107f7f7d035d7baf04342e1ca-Abstract.html)
 - [Critical Learning Periods in Deep Networks — Achille, Rovere & Soatto 2019](https://arxiv.org/abs/1711.08856)
 - [Critical Learning Periods for Multisensory Integration in Deep Networks](https://arxiv.org/abs/2210.04643)
 - [On the role of neurogenesis in overcoming catastrophic forgetting](https://arxiv.org/abs/1811.02113)
@@ -3551,3 +3552,13 @@ Mechanisms §3–§9 does not yet specify (§13.13, added 2026-09-13):
 - [Sleep and synaptic down-selection — Tononi & Cirelli, Eur. J. Neurosci. 2020](https://onlinelibrary.wiley.com/doi/abs/10.1111/ejn.14335)
 - [The Theta-Gamma Neural Code — Lisman & Jensen, Neuron 2013](https://www.sciencedirect.com/science/article/pii/S0896627313002316)
 - [EchoSpike Predictive Plasticity: An Online Local Learning Rule for Spiking Neural Networks (2024)](https://arxiv.org/abs/2405.13976)
+
+PLAN.md B4 — silent synapses and structural-plasticity timing (§12, added 2026-09-16):
+
+- [Evidence for silent synapses: implications for the expression of LTP — Isaac, Nicoll & Malenka, Neuron 1995](https://pubmed.ncbi.nlm.nih.gov/7646894/)
+- [Activation of postsynaptically silent synapses during pairing-induced LTP in CA1 region of hippocampal slice — Liao, Hessler & Malinow, Nature 1995](https://www.nature.com/articles/375400a0)
+- [Regulation of Synaptic Efficacy by Coincidence of Postsynaptic APs and EPSPs — Markram, Lübke, Frotscher & Sakmann, Science 1997](https://www.science.org/doi/abs/10.1126/science.275.5297.213)
+- [Synaptic Modifications in Cultured Hippocampal Neurons: Dependence on Spike Timing, Synaptic Strength, and Postsynaptic Cell Type — Bi & Poo, J. Neurosci. 1998](https://www.jneurosci.org/content/18/24/10464/tab-article-info)
+- [Long-term in vivo imaging of experience-dependent synaptic plasticity in adult cortex — Trachtenberg et al., Nature 2002](https://www.nature.com/articles/nature01273)
+- [Transient and Persistent Dendritic Spines in the Neocortex In Vivo — Holtmaat et al., Neuron 2005](https://www.cell.com/fulltext/S0896-6273(05)00004-8)
+- [Spine growth precedes synapse formation in the adult neocortex in vivo — Knott, Holtmaat, Wilbrecht, Welker & Svoboda, Nature Neuroscience 2006](https://www.nature.com/articles/nn1747)
