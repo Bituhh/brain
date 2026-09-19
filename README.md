@@ -2010,10 +2010,28 @@ here.
    architecture is unchanged (and not obviously wrong — Requirement 10.1 already asks for one fixed
    segment count network-wide), the bug was that a caller could express a *contradiction* with no
    error. `ColumnSpec.inhibition` has the identical shape (a per-column value nothing live reads,
-   `FixedNeighbourhoods` in the scheduler being the one real, global scheme) and is explicitly
-   **not** validated yet — flagged in `column.rs`'s doc comment as the next place this exact class
-   of bug can recur, deliberately left for whoever next touches per-column k-WTA configuration
-   rather than fixed speculatively here.
+   `FixedNeighbourhoods` in the scheduler being the one real, global scheme) and was explicitly
+   **not** validated at the time — flagged in `column.rs`'s doc comment as the next place this
+   exact class of bug can recur, deliberately left for whoever next touched per-column k-WTA
+   configuration rather than fixed speculatively.
+
+   **Closed 2026-09-19, in the audit before PLAN.md C1.** `build_columns` now refuses both
+   directions: a column whose `neighbourhoodSize`/`k` disagree with the scheduler's own scheme, and
+   a column claiming competition (`k < neighbourhoodSize`) when `SimulationOptions.inhibition` is
+   omitted so nothing enforces it. There is deliberately no `{0, 0}` sentinel matching the one
+   `segments` uses: `FixedNeighbourhoods::with_base` asserts both values are positive, so a zeroed
+   column would panic inside `build_column` rather than validate — `k == neighbourhoodSize` ("every
+   member may fire") is the representable way to declare no competition. `densityTarget` is not
+   compared, being a scheduler-level refinement of `k` (PLAN.md B3) a column cannot express.
+
+   The validation immediately caught a live instance of exactly the bug it was written for:
+   `packages/brain/test/boundary.test.ts`'s shared `columnConfig` helper declared `k: 1` of a
+   4-neuron neighbourhood while its simulations configured no inhibition at all — eight tests
+   building columns that claimed winner-take-all competition nothing ran. Corrected the same way
+   the 2026-09-11 fix corrected the `segments` equivalents: the claimed-but-inert value now states
+   the truth (`k == neighbourhoodSize`), and the one test that genuinely runs k-WTA overrides it to
+   match its own scheduler. Because the field is inert, no behaviour changed — which is also why
+   the contradiction could persist unnoticed for eight days.
 
    **The interaction risk (§13.12 item 2).** "The interaction of §4's rules is the hard part, not
    any individual rule" was flagged as a named risk before Phase 5 started and, checked against the

@@ -864,6 +864,19 @@ pub struct NativeSimulation {
     /// value this module already has fresh from the caller (see
     /// `SegmentsConfig`'s doc comment for why this validation exists at all).
     scheduler_segments: SegmentsConfig,
+    /// The local-inhibition scheme this instance's `Scheduler` actually
+    /// runs, as `(neighbourhood_size, k)`, or `None` if inhibition is
+    /// disabled. The exact counterpart of `scheduler_segments` above, and
+    /// it exists for the same reason: `ColumnSpec.inhibition` is bookkeeping
+    /// only (`graph.rs`'s `build_column` stores it and nothing live reads
+    /// it -- `FixedNeighbourhoods` in the scheduler is the one real scheme),
+    /// so a column claiming a different k-WTA scheme than the one running
+    /// used to build silently. README §12a item 8 flagged this as the next
+    /// place that exact class of bug could recur after `segments` was fixed;
+    /// `build_columns` now validates it. `density_target` is deliberately
+    /// not part of this comparison -- it is a scheduler-level refinement of
+    /// `k` (PLAN.md B3) that `ColumnConfig` cannot express at all.
+    scheduler_inhibition: Option<(u32, u32)>,
     /// Count of growth triggers observed so far (NET-10, Requirement 2.2)
     /// -- incremented in `step()` (`Runtime::Single` only, matching growth's
     /// overall scope) whenever `StepReport::grown` is non-empty. Exposed via
@@ -1099,6 +1112,15 @@ pub struct ColumnConfig {
     pub base_y: f64,
     pub base_z: f64,
     pub internal_policy: DistancePolicyConfig,
+    /// This column's k-WTA neighbourhood size and winner count. Like
+    /// `segments` below, these are **bookkeeping, not a live per-column
+    /// scheme** (`column.rs`'s `ColumnSpec` doc comment): the scheduler runs
+    /// one `FixedNeighbourhoods` for every neuron it owns, set via
+    /// `SimulationOptions.inhibition`. `build_columns` therefore requires
+    /// them either to restate that scheme exactly, or -- when no inhibition
+    /// is configured -- to declare no competition with `k ==
+    /// neighbourhoodSize`, refusing to build otherwise (README §12a item 8,
+    /// validated 2026-09-19).
     pub neighbourhood_size: u32,
     pub k: u32,
     pub segments: SegmentsConfig,
@@ -1214,6 +1236,7 @@ impl NativeSimulation {
         }
         let plasticity = plasticity.map(|cfg| cfg.resolve()).transpose()?;
         let scheduler_segments = segments.unwrap_or(SegmentsConfig::NONE);
+        let scheduler_inhibition = inhibition.as_ref().map(|cfg| (cfg.neighbourhood_size, cfg.k));
         let config = SchedulerConfig {
             max_delay,
             connection_threshold,
@@ -1247,6 +1270,7 @@ impl NativeSimulation {
             raster: SpikeRaster::new(),
             last_spike_count: 0,
             scheduler_segments,
+            scheduler_inhibition,
             growth_event_count: 0,
         })
     }
@@ -1357,6 +1381,38 @@ impl NativeSimulation {
                     cfg.segments.segments_per_neuron, cfg.segments.coincidence_threshold, cfg.segments.vote_reference_weight,
                     self.scheduler_segments.segments_per_neuron, self.scheduler_segments.coincidence_threshold, self.scheduler_segments.vote_reference_weight,
                 )));
+            }
+            // The same validation as `segments` above, for the same reason,
+            // on the field README §12a item 8 named as the next place this
+            // class of bug could recur (PLAN.md item A1's audit, 2026-09-19).
+            // `ColumnSpec.inhibition` is inert bookkeeping; the scheduler's
+            // own `FixedNeighbourhoods` is the only k-WTA scheme that runs.
+            // A column may therefore either restate the running scheme
+            // exactly, or -- when no inhibition runs at all -- declare no
+            // competition by setting `k == neighbourhoodSize`, i.e. every
+            // member of the neighbourhood may fire. What it may no longer do
+            // is claim a *different* scheme, or claim competition that
+            // nothing enforces, and build anyway.
+            //
+            // Unlike `segments`, there is no `{0, 0}` "none" sentinel here:
+            // `FixedNeighbourhoods::with_base` asserts both values are
+            // positive, so a zeroed column would panic inside `build_column`
+            // rather than validate. `k == neighbourhoodSize` is the
+            // equivalent statement in a representable form.
+            match self.scheduler_inhibition {
+                Some((size, k)) if cfg.neighbourhood_size != size || cfg.k != k => {
+                    return Err(Error::from_reason(format!(
+                        "column {i}'s inhibition ({}/{} = neighbourhoodSize/k) does not match this simulation's scheduler-wide inhibition ({size}/{k}). Every column shares one `Scheduler`, which runs a single k-WTA scheme set once via `SimulationOptions.inhibition` -- a column's own values are bookkeeping that nothing reads, so a mismatch here would silently run the scheduler's scheme instead of the one this column claims. Pass the same values.",
+                        cfg.neighbourhood_size, cfg.k,
+                    )));
+                }
+                None if cfg.k != cfg.neighbourhood_size => {
+                    return Err(Error::from_reason(format!(
+                        "column {i} declares local inhibition ({}/{} = neighbourhoodSize/k) but this simulation runs none -- `SimulationOptions.inhibition` was omitted, so no k-WTA is enforced anywhere and this column's own values are bookkeeping that nothing reads. Either configure `SimulationOptions.inhibition` with these values, or set k == neighbourhoodSize here to declare that this column has no winner-take-all competition.",
+                        cfg.neighbourhood_size, cfg.k,
+                    )));
+                }
+                _ => {}
             }
             let coords: Vec<[f32; 3]> =
                 (0..cfg.neuron_count).map(|j| [cfg.base_x as f32 + j as f32, cfg.base_y as f32, cfg.base_z as f32]).collect();
@@ -2248,6 +2304,7 @@ impl NativeSimulation {
             raster: SpikeRaster::new(),
             last_spike_count: 0,
             scheduler_segments: segments.unwrap_or(SegmentsConfig::NONE),
+            scheduler_inhibition: inhibition.as_ref().map(|cfg| (cfg.neighbourhood_size, cfg.k)),
             growth_event_count: 0,
         })
     }

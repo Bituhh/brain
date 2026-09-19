@@ -315,7 +315,15 @@ function columnConfig(overrides: Partial<ColumnConfig> = {}): ColumnConfig {
     baseZ: 0,
     internalPolicy: { p0: 0.0, lengthScale: 1.0, delayMin: 1, delayMax: 1, initialPermanence: 0.9 },
     neighbourhoodSize: 4,
-    k: 1,
+    // k == neighbourhoodSize: "no winner-take-all competition in this
+    // column". Most tests using this helper build a `Simulation` with
+    // `inhibition` omitted, so no k-WTA runs at all; the previous `k: 1`
+    // claimed competition nothing enforced -- `ColumnSpec.inhibition` is
+    // bookkeeping that nothing reads. `buildColumns` now refuses that
+    // contradiction (README §12a item 8, closed 2026-09-19), exactly as it
+    // already refused a mismatched `segments`. A test whose simulation does
+    // configure `inhibition` overrides both values to match it.
+    k: 4,
     // These wiring-shape/gating tests deliberately don't exercise
     // dendritic-segment dynamics (see the voting test below's own comment)
     // -- must match `Simulation.create`'s omitted `SimulationOptions.segments`
@@ -458,7 +466,9 @@ test("Simulation.buildColumns: threadCount > 1 reproduces threadCount 1's spike 
       ...(threadCount !== undefined ? { threadCount, totalNeurons } : {}),
     };
     const sim = Simulation.create(lif, options);
-    const columns = Array.from({ length: columnCount }, (_, i) => columnConfig({ neuronCount: columnSize, baseY: i * 100 }));
+    // k: 1 to match this simulation's own `inhibition` above -- the helper's
+    // default declares no competition, which this test does not want.
+    const columns = Array.from({ length: columnCount }, (_, i) => columnConfig({ neuronCount: columnSize, baseY: i * 100, k: 1 }));
     const handles = sim.buildColumns(3n, columns);
     const history: number[][] = [];
     for (let tick = 0; tick < 40; tick++) {
@@ -631,6 +641,37 @@ test("Simulation.buildColumns refuses a column whose voteReferenceWeight disagre
       ]),
     /segments/,
   );
+});
+
+// README §12a item 8's other half, closed 2026-09-19: `ColumnSpec.
+// inhibition` has the identical shape to the `segments` bug above -- a
+// per-column value nothing live reads, while the scheduler's own
+// `FixedNeighbourhoods` is the one real scheme -- and was explicitly left
+// unvalidated when `segments` was fixed. Both directions are refused now.
+test("Simulation.buildColumns refuses a column whose inhibition disagrees with the scheduler-wide one (README §12a item 8)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.3, synapseCapPerNeuron: 1, inhibition: { neighbourhoodSize: 4, k: 1 } },
+  );
+  assert.throws(
+    () => sim.buildColumns(1n, [columnConfig({ neighbourhoodSize: 4, k: 2 })]), // disagrees: k 2 vs the scheduler's 1
+    /inhibition/,
+  );
+});
+
+test("Simulation.buildColumns refuses a column claiming k-WTA competition when the simulation runs no inhibition at all (README §12a item 8)", () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.3, synapseCapPerNeuron: 1 }, // no `inhibition`
+  );
+  assert.throws(
+    () => sim.buildColumns(1n, [columnConfig({ neighbourhoodSize: 4, k: 1 })]), // claims 1-of-4 competition; nothing enforces it
+    /runs none/,
+  );
+  // k == neighbourhoodSize is the representable way to say "no competition"
+  // (a {0, 0} sentinel, `segments`' equivalent, would panic inside
+  // `FixedNeighbourhoods::with_base`, which asserts both are positive).
+  assert.doesNotThrow(() => sim.buildColumns(1n, [columnConfig({ neighbourhoodSize: 4, k: 4 })]));
 });
 
 test("Simulation.membraneView is cached per epoch, not re-minted on every access (Requirement 8.4)", () => {

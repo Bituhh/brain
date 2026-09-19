@@ -48,8 +48,16 @@ use std::ops::Range;
 /// caller who assumes either field independently configures this column's
 /// own live behaviour is mistaken in exactly the way
 /// `crates/brain-napi/src/lib.rs`'s `SegmentsConfig` doc comment describes
-/// for `segments` specifically (that FFI layer now validates it); no
-/// equivalent check exists yet for `inhibition`.
+/// for `segments` specifically. **Both are validated at the FFI layer as of
+/// 2026-09-19** (README §12a item 8, which had left `inhibition` explicitly
+/// unchecked): `NativeSimulation::build_columns` refuses a column whose
+/// `neighbourhood_size`/`k` disagree with the scheduler's own scheme, and
+/// refuses a column that claims competition (`k < neighbourhood_size`) when
+/// the scheduler runs no inhibition at all. There is no `{0, 0}` "none"
+/// sentinel for inhibition the way there is for segments, because
+/// `FixedNeighbourhoods::with_base` asserts both values are positive --
+/// `k == neighbourhood_size` ("every member may fire") is the representable
+/// equivalent.
 pub struct ColumnSpec {
     pub neuron_range: Range<u32>,
     pub inhibition: FixedNeighbourhoods,

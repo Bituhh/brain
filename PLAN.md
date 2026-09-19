@@ -26,7 +26,9 @@ no memory of this review.
 
 ## 1. How to use this
 
-Work top to bottom. Within a phase, items are independent unless the chart says otherwise; across
+**Start with `.claude/HANDOFF.md`** — a short, current summary of where things stand, what the last
+item actually concluded, and the cross-cutting facts that would otherwise make a prompt below
+misleading. Every item updates it on the way out (§4). Then work top to bottom. Within a phase, items are independent unless the chart says otherwise; across
 phases, the gates are real.
 
 Two scheduling facts that shape everything:
@@ -224,6 +226,16 @@ Standing context for every session. The prompts reference this section rather th
 - **Zero AI/ML dependencies** (ENG-5/6), Rust core ≈ `rayon` only, TS shell nothing at runtime.
 - **When you finish, update `README.md`** — the relevant §11 phase status and/or §13.12 item — in the
   document's existing voice. Then update this file's status for the item.
+- **Read `.claude/HANDOFF.md` first, and update it last** (added 2026-09-19, after B5's closing
+  audit found work that had gone stale between items). It is a short, *living* handoff: where things
+  stand, the current headline measurement, and the cross-cutting facts that have actually caused a
+  later item to do wrong work — the things that live in no single item's record because they belong
+  to none of them. It is not a log; it is pruned as aggressively as it is appended to, and item
+  detail stays in the Status rows here. The rule exists because the previous shape — a per-item
+  `RESUME.md` written for one in-flight item and deleted when it landed — told the *next* item
+  nothing, and because three of B5's own findings (weight now reaching dendritic prediction, growth
+  being blocked by index-block neighbourhoods, a standing test asserting a counter rather than a
+  mechanism) each invalidate assumptions that other items' prompts were written under.
 - **Log the Status table row for the item you're working on AS YOU GO, not only at the end** — set
   `Status` to `in progress` and record a start timestamp the moment you begin, then update the
   `Duration` cell again at natural checkpoints (finishing a design call, kicking off a long
@@ -1017,19 +1029,46 @@ THE TASK.
    metric trigger? Propose and justify.
 2. Measure VAL-4 with and without it, 5-seed protocol, parallelised.
 3. Note the known limitation: `runConsolidation` is Runtime::Single-only and returns an error in
-   partitioned mode (crates/brain-napi/src/lib.rs ~line 1862). Do NOT fix that here — record it as a
-   scoped follow-up. This item is about whether sleeping helps at all.
+   partitioned mode (`NativeSimulation::run_consolidation` in crates/brain-napi/src/lib.rs — search
+   the symbol, an earlier version of this prompt cited a line number that had already drifted by
+   ~480 lines). Do NOT fix that here — record it as a scoped follow-up. This item is about whether
+   sleeping helps at all.
 4. If it does not help, that is a real result. Report it in §13.12's existing honest-negative style
    rather than tuning until it does.
+
+WHAT CHANGED UNDER YOU SINCE THIS PROMPT WAS WRITTEN (added 2026-09-19, B5's closing audit — read
+this before designing anything).
+- **Consolidation now reaches dendritic prediction, and did not before.** Its global downscale is
+  `HomeostaticScaling::force_apply` (consolidation.rs), decision 11 routed homeostatic scaling to
+  `weight`, and B5 (README §12 decision 13) made `weight` the quantity a dendritic segment counts.
+  Before B5, a sleep cycle could not touch prediction at all — the path this item exists to exercise
+  was invisible to the metric this item measures. Now every sleep weakens every dendritic vote at
+  once until STDP regrows the weights. Treat "does sleeping help" as an open question with a real
+  mechanism behind it in both directions, and measure it; do not inherit any pre-B5 intuition.
+- **Decision 12's deferred question is now live**: consolidation does not eliminate silent synapses,
+  which was harmless when a silent synapse transmitted nothing. Post-B5 the canonical config runs
+  with the silent gate OFF, so a "silent" synapse still transmits at its own weight — there are
+  ~55,000 of them in a VAL-4 run. Decide explicitly whether consolidation's prune should see them.
+- **The baseline to measure against is B5's winner, not DEFAULT_CONFIG**: 19.05% on confirmation
+  seeds 11–15, 20.36% on selection seeds 1–5, pinned by `char-prediction.slow.test.ts`'s B5
+  regression test. Also report against the 16.56% "always guess space" mode baseline (§13.12 item
+  7) — B5's winner is the first configuration to clear it, and a consolidation cadence that drops
+  back below it has undone that, however good the before/after delta looks.
+- **Do not write a new experiment runner.** `scripts/investigate-b5-growth.ts` is the current
+  template: resumable, reuses `scripts/b4-search/`'s worker pool and checkpoint, and reads
+  already-measured reference rows out of a prior run's checkpoint instead of recomputing them.
+  Copy its shape.
 
 WORTH KNOWING. §13.13(h) also records that the downscale is UNIFORM
 (`HomeostaticScaling::force_apply` at a stricter target), whereas the biology's down-selection is
 selective — what survives is what was replayed. That is a separate, larger change. If uniform
 downscaling measurably hurts, say so and scope selective downscaling as its own item rather than
-attempting it here.
+attempting it here. Note this is now sharper than when it was written: uniform downscaling of
+`weight` is uniform downscaling of every dendritic vote.
 
 DONE WHEN. Consolidation runs as part of a real experiment, VAL-4 is measured both ways and reported
-honestly, and README §11's phase status plus §13.12 item 13 record the result.
+honestly, README §11's phase status plus §13.12 item 13 record the result, and PLAN.md's C1 row and
+`.claude/HANDOFF.md` are updated the way every item before it did (see §4).
 ```
 
 ---
