@@ -21,6 +21,13 @@ finished, and told the *next* item nothing.
   the prompt itself predates B5 and its assumptions moved.
 - **Phase A is closed** (A1–A4). Phase B is closed (B1–B5). Nothing in A or B is
   known-open except the items listed under "Known and deliberate" below.
+- **Every remaining prompt in PLAN.md §5 was verified against the code on
+  2026-09-19.** Six had drifted (D1 named the wrong field, D3 pointed at a
+  superseded harness, E1 at a stale snapshot version, F1 and F2 at stale facts,
+  D2 and F6 were incomplete) and now carry a dated "what changed" note. C2, F3,
+  F4, F5, G1 and G2 were checked and are accurate as written. If you find a
+  prompt claim that no longer matches the code, fix the prompt as part of your
+  item — that is how this stays true.
 
 ## The headline result so far
 

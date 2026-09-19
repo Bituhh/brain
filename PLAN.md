@@ -226,6 +226,11 @@ Standing context for every session. The prompts reference this section rather th
 - **Zero AI/ML dependencies** (ENG-5/6), Rust core ≈ `rayon` only, TS shell nothing at runtime.
 - **When you finish, update `README.md`** — the relevant §11 phase status and/or §13.12 item — in the
   document's existing voice. Then update this file's status for the item.
+- **Cite symbols, not line numbers.** A prompt or doc that says `~line 1862` rots silently: by
+  2026-09-19 that particular citation (C1's, for `run_consolidation`) was off by ~480 lines, G1's
+  for a probe cast by ~300, and D1's for `rescale_one` by 26. Name the function, type or test and
+  the file it lives in — `grep` finds those forever. A line number is at best a hint alongside a
+  symbol, never the address itself.
 - **Read `.claude/HANDOFF.md` first, and update it last** (added 2026-09-19, after B5's closing
   audit found work that had gone stale between items). It is a short, *living* handoff: where things
   stand, the current headline measurement, and the cross-cutting facts that have actually caused a
@@ -1122,10 +1127,12 @@ THE FINDING (README §13.12 item 11c). No plasticity rule reads `polarity`. Two 
 
 1. `ThreeFactorStdp` (crates/brain-core/src/plasticity/three_factor.rs) applies the excitatory STDP
    kernel to inhibitory synapses unchanged.
-2. `HomeostaticScaling::rescale_one` (crates/brain-core/src/plasticity/homeostatic.rs ~line 67) sums
-   excitatory and inhibitory incoming permanence into ONE total it renormalises toward a positive
+2. `HomeostaticScaling::rescale_one` (crates/brain-core/src/plasticity/homeostatic.rs) sums
+   excitatory and inhibitory incoming **weight** into ONE total it renormalises toward a positive
    target — so with a mixed population, adding inhibition to a neuron makes homeostasis scale UP its
-   excitation.
+   excitation. (This prompt said "permanence" until 2026-09-19: correct when written, wrong since
+   B1 split the two fields and routed homeostatic scaling to `weight` — README §12 decision 11.
+   The defect is unchanged in shape; only the field it operates on moved.)
 
 LRN-2 and LRN-6 are written as if every synapse were excitatory. This is latent only because nothing
 in the repo has ever run a mixed population (item 11d).
@@ -1141,6 +1148,15 @@ THE TASK. This item is the plumbing; D2 is the rule that uses it.
    must stop being true.
 3. Do NOT change STDP's behaviour in this item. Just make the sign reachable. D2 is where the
    inhibitory rule gets designed.
+
+WHAT CHANGED SINCE THIS PROMPT WAS WRITTEN (added 2026-09-19). Rescaling now reaches dendritic
+prediction. B5 (README §12 decision 13) made a delivery contribute `sign × min(weight /
+reference_weight, 1)` to its segment, and `rescale_one` moves exactly that `weight`. So whichever
+E/I-aware scheme you choose changes what every dendritic segment counts, not just how excitable a
+cell is — measured, not theoretical: turning homeostatic scaling off at B5's winner measured 17.2%
+against 20.2% (two selection seeds only, from the search checkpoint — indicative, not a confirmed
+five-seed figure). Say explicitly what your scheme does to inhibitory *votes*, which A2 made
+negative contributions to the same tally.
 
 CONSTRAINTS. This must be behaviour-preserving for the all-excitatory case — every existing test and
 every golden raster must pass UNCHANGED, because every network currently runs
@@ -1187,6 +1203,15 @@ THE TASK.
 6. Unit-test the kernel shape directly against the published curve, in the style of
    crates/brain-core/src/plasticity/stdp.rs's existing tests (VAL-1).
 
+WHAT CHANGED SINCE THIS PROMPT WAS WRITTEN (added 2026-09-19). An inhibitory rule that moves
+`weight` now tunes dendritic **veto strength**, not only somatic current. A2 made an inhibitory
+delivery subtract from its segment's coincidence tally, and B5 (README §12 decision 13) made the
+size of that subtraction `min(weight / reference_weight, 1)` rather than a fixed 1.0. So this rule
+has a second consumer that did not exist when the item was scoped: every inhibitory synapse on a
+dendritic segment. Decide deliberately whether your kernel should treat dendritic and somatic
+inhibitory synapses alike — and note the ablation in step 5 can now assert a dendritic property as
+well as an E/I-balance one.
+
 DO NOT turn on 80:20 in any existing experiment in this item — that is D3, and it is a separate,
 tuning-bound piece of work. Test the rule on its own dedicated fixtures so this session stays
 bounded.
@@ -1221,11 +1246,30 @@ THE TASK.
    prior instances of exactly this failure mode — a value tuned at one scale silently wrong at
    another — and both were only found because someone re-derived the parameter rather than reusing
    it. Assume every constant is now wrong until re-measured.
-3. Re-tune systematically, not by hand. scripts/tune-segments-and-threshold.ts is the existing
-   search harness; extend it rather than writing a new one. PARALLELISE TRIALS ACROSS CORES — seeds
-   are independent and this is the only real speedup available here.
-4. Use the official protocol throughout: 5 seeds, 15,000-character corpus slice, compared against
-   the trigram baseline (README §13.12 items 7–10 all use it, so results stay comparable).
+3. Re-tune systematically, not by hand. **Use `scripts/b4-search/` + `scripts/b5-search/`, not
+   `scripts/tune-segments-and-threshold.ts`** — this prompt named the latter until 2026-09-19, when
+   it was the only harness there was. B4 and B5 replaced it with a resumable, checkpointed,
+   worker-pooled search (space-filling screen → multi-start hill climbing → hill-valley checks →
+   held-out selection → confirmation seeds), generic over the item via `SearchHooks`/
+   `ConditionCodec`. `scripts/tune-b5-values.ts` is the worked example to copy; B5 added its own
+   space in `scripts/b5-search/` without forking the machinery, and you should do the same. Validate
+   the trial budget by simulating the search on synthetic landscapes first, as B4 and B5 both did —
+   both found quality flat across a ~4.6× range of budget, which is worth knowing before spending
+   weeks. PARALLELISE TRIALS ACROSS CORES — seeds are independent and this is the only real speedup
+   available here.
+4. Use the official protocol throughout: selection seeds 1–5, held-out 6–10 for choosing among
+   finalists only, confirmation seeds 11–15 for every reported figure, 15,000-character corpus
+   slice, compared against the trigram baseline (README §13.12 items 7–10 all use it, so results
+   stay comparable).
+4a. **Know which numbers you are defending** (added 2026-09-19). The space is bigger than this
+   prompt assumed: B5's own 15 parameters (reference weight, coincidence threshold,
+   predictive-learning target, homeostatic scaling, STDP, and B4's four structural fixes) were all
+   fitted at `excitatoryFraction: 1.0` and are all suspect once inhibition is real. The current bar
+   is **19.05%** on confirmation seeds (20.36% on selection seeds), and — more importantly — the
+   **16.56% "always guess space"** mode baseline (README §13.12 item 7), which B5's winner is the
+   first configuration in the project's history to clear. A mixed population that improves on some
+   internal delta but falls back below 16.56% has lost the only real ground gained; report against
+   that bar explicitly, not just against the previous configuration.
 5. Watch for a genuinely NEW result, not just a worse number: does E/I balance now produce sparsity
    without the k-WTA doing the work? README §13.13(a) notes that avalanche-size distributions are
    the measurable signature of the critical regime §2.4 invokes — that is a candidate new VAL test
@@ -1270,9 +1314,13 @@ THE TASK.
 4. Add a test that genuinely crosses a process boundary — create, feed, exit, re-open in a NEW
    process, feed more, and assert prior learning survived. An in-process round-trip does not
    demonstrate invariant 9.
-5. Decide where snapshots live on disk and how versions are handled when FORMAT_VERSION bumps again
-   (A4 takes it to 8 and B1 to 9). A brain meant to outlive the code needs a migration
-   story, not just a version check.
+5. Decide where snapshots live on disk and how versions are handled when FORMAT_VERSION bumps again.
+   **It is at 12** as of 2026-09-19 (A4 took it to 8, B1 to 9, B3 to 10, B4 to 11, B5 to 12 — this
+   prompt said "9" until then, which is the sort of number a migration story cannot be built on;
+   read `crates/brain-core/src/snapshot.rs`'s `FORMAT_VERSION` rather than trusting any prose,
+   including this sentence). Note the rate: four bumps in three days of items
+   (9 on 2026-09-14 through 12 on 2026-09-16). A brain meant to
+   outlive the code needs a migration story, not just a version check.
 
 WORTH FLAGGING. Once state is carried forward permanently, every future change becomes a MIGRATION
 rather than a config edit. Say clearly in the README which parts of the system are now
@@ -1292,8 +1340,9 @@ Read README.md §2.2, SYN-1, SYN-4, NET-12, §13.13(c), and §11 Phase 7's worki
 Then PLAN.md §4. Assumes B1 has landed.
 
 THE FINDING (README §13.13(c)). A synapse currently holds permanence, weight (after B1), delay, an
-eligibility trace and a last-active tick — but no per-synapse RECOVERY state. So a burst and an
-isolated spike of the same total count are indistinguishable downstream.
+eligibility trace, a last-active tick and a silent-since tick (after B4) — but no per-synapse
+RECOVERY state. So a burst and an isolated spike of the same total count are indistinguishable
+downstream.
 
 Tsodyks & Markram (PNAS 1997, cited in §14) showed that short-term depression and facilitation make
 the SAME presynaptic spike train mean different things at synapses with different recovery dynamics
@@ -1311,12 +1360,26 @@ THE TASK.
    the arena, following B1's precedent for widening the synapse representation.
 2. Apply them in `deliver` (crates/brain-core/src/scheduler.rs) so transmitted current reflects
    recent presynaptic history.
-3. Bump FORMAT_VERSION with a migration (there will be at least eight prior bumps in snapshot.rs to copy).
+3. Bump FORMAT_VERSION with a migration (it is at 12 as of 2026-09-19 — twelve prior bumps in
+   snapshot.rs to copy from, and B5's is the one to read first: a *trailing* section, because the
+   column block sits too early in the payload for the truncate-from-the-end migration tests to
+   express an in-place change).
 4. Keep it OFF by default initially, exactly as NEU-8's adaptation was introduced
    (`LifParams::new` vs `with_adaptation` in crates/brain-core/src/neuron.rs is the pattern) — so
    existing runs are bit-identical until a caller opts in.
 5. Unit-test the facilitation and depression curves against the published shapes (VAL-1), then
    measure VAL-4 with it on, 5-seed protocol.
+
+A DESIGN CALL B5 CREATED, WHICH THIS PROMPT PREDATES (added 2026-09-19). Decide explicitly whether
+short-term dynamics should modulate **dendritic votes**, and be aware the default answer is "yes,
+silently". `Scheduler::apply_local_effect`'s dendritic branch computes a segment's contribution from
+the *delivered signed current* — `config.vote.contribution(signed_current)` — not from the stored
+weight. So if step 2 applies utilisation/resources inside `deliver`, every depressed synapse
+automatically casts a proportionally smaller dendritic vote, and a facilitated one a larger (capped)
+vote. Under count mode that was a no-op; under B5's weighted votes it is a real change to what a
+coincidence threshold means. Either is defensible — short-term depression weakening a prediction is
+biologically reasonable — but it must be a decision with an ablation behind it, not a side effect
+discovered later.
 
 CONSTRAINTS. Determinism (RUN-3), no per-tick allocation (ENG-9), and this must not become a third
 writer of the same number B1 just finished separating — state clearly how STP's state relates to
@@ -1345,9 +1408,13 @@ ranges from neuron ranges; `boundary_neurons` and cross-partition `on_post_spike
 `SynapseArenaViewMut`.
 
 The cost: a mechanism wanting high fan-out on a small dedicated population (pattern separation for
-LRN-12) must raise the cap for EVERY neuron. README §12a item 5d's own figure — 500/neuron ×
-100k neurons is the measured ~1.46 GB, so a store wanting 4,000/neuron multiplies synapse memory
-roughly eightfold, paid by the 98% of neurons that do not need it.
+LRN-12) must raise the cap for EVERY neuron. §12a item 5d's original figure was ~1.46 GB for
+500/neuron × 100k neurons; **re-measure before quoting it** — `tests/scale.rs` reported ≈1682 MB
+after B1's `weight` (+4 bytes/synapse) and ≈1873 MB after B4's `silent_since` (+4 more), and this
+prompt quoted the pre-B1 number until 2026-09-19. The multiplier argument is unchanged and is the
+point: a store wanting 4,000/neuron multiplies synapse memory roughly eightfold, paid by the 98% of
+neurons that do not need it — and each of those bytes is now worth ~28% more than when this item
+was scoped.
 
 §12a item 5d is explicit that this was cheap before Phase 4 shipped and is not any more. It is the
 real blocker for LRN-12, not the interface-shape question that item originally focused on.
@@ -1546,7 +1613,12 @@ while it is scaffolding, but the cited model puts it INSIDE the column.
 THE TASK. This is a real redesign, not a fix — scope it explicitly before writing code.
 1. Give a column internal structure: distinct populations with distinct roles and defined
    inter-population connectivity, replacing the flat contiguous range.
-2. Make per-column configuration actually live, so `ColumnSpec`'s fields stop being inert.
+2. Make per-column configuration actually live, so `ColumnSpec`'s fields stop being inert. Note
+   (added 2026-09-19) that both fields are now **validated** at `NativeSimulation::build_columns`:
+   a column must restate the scheduler's own scheme exactly, or declare that it has none. That is a
+   guard against silently expressing a contradiction while they are inert (README §12a item 8), and
+   part of this item's job is removing it — once per-column config is live, restating the global
+   scheme is exactly the wrong requirement. Do not mistake the guard for the architecture.
 3. Rework lateral voting to connect output-layer populations rather than whole columns.
 4. Consider whether NET-9's location signal should move into the core — and be strict about
    invariant 8 if it does. A location signal is not a modality; a location signal that knows it is
