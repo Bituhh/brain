@@ -39,8 +39,15 @@ const DEFERRED = new Set([
   // NET-8 (emergent oscillations, could): nothing built -- expected for a could-priority item,
   // per §13.12 item 14's second bullet.
   'NET-8',
-  // NET-11 (critical periods, could): nothing built -- same bullet as NET-8, though item 4
-  // elsewhere in §13.12 rates its absence as higher-consequence than a bare "could" suggests.
+  // NET-11 (critical periods, could): PARTIALLY built, so this checker will report it as "now
+  // covered" -- it stays deferred deliberately. NET-11 asks for two things: a global plasticity
+  // rate that anneals with maturity (carried by LRN-5's neuromodulator field), and newly grown
+  // neurons re-entering high plasticity locally. PLAN.md B3's NewbornMaturation does a version of
+  // the second (temporary hyperexcitability over a maturation window) and cites NET-11 in
+  // newborn.rs/scheduler.rs/newborn_integration.rs, which is where the citations come from. The
+  // global annealing signal does not exist, and hyperexcitability is not a plasticity rate, so
+  // the requirement is not met. Do not remove just because the checker says otherwise -- see
+  // README §13.12 item 14's NET-11 bullet, corrected 2026-09-19.
   'NET-11',
   // LRN-12 (fast one-shot binding, should): interfaces prepared (ReplaySource is abstract for
   // exactly this reason), mechanism absent -- §13.12 item 14's third bullet. PLAN.md item F3 is

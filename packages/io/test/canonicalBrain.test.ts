@@ -46,11 +46,13 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
   const { sim, column } = buildCanonicalBrain(SEED);
 
   let spikeCountSum = 0;
+  let newbornSpikeCount = 0;
   for (let i = 0; i < TICKS; i++) {
     const pattern = PATTERNS[i % PATTERNS.length]!;
     column.stimulateSdr(sim, pattern, 10.0);
     const spiked = sim.step();
     spikeCountSum += spiked.length;
+    for (const neuron of spiked) if (neuron >= WIDTH) newbornSpikeCount++;
     // NET-10's collision signal, synthetic here (see canonicalBrain.ts's
     // own doc comment: this constructor has no candidate/decode step to
     // derive a real one from) -- purely to exercise the FFI path this
@@ -138,6 +140,49 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
   const liveCount = sim.liveNeuronCount();
   assert.ok(liveCount > WIDTH, `liveNeuronCount ${liveCount} must have grown past the constructed width ${WIDTH}`);
   assert.ok(liveCount <= WIDTH + 50, `liveNeuronCount ${liveCount} must never exceed growth's configured ceiling`);
+
+  // PLAN.md B3 (NET-11): growth's neurons must actually *integrate*, not
+  // just exist. Until 2026-09-19 this constructor configured `growth`
+  // without `newbornMaturation`, so every grown neuron had zero synapses
+  // and could never fire -- and the assertions above still passed, because
+  // they only checked the population counter moved. These check the
+  // mechanism instead: a newborn is wired from recently-active neurons,
+  // fires, and survives its maturation window (an unintegrated newborn is
+  // reclaimed, which `liveCount > WIDTH` above would then catch).
+  assert.ok(newbornSpikeCount > 0, "grown neurons must actually fire -- otherwise growth is allocating inert capacity (README §13.12 item 10's deadlock)");
+  const capPerNeuron = sim.synapseCapPerNeuron();
+  const targets = sim.synapseTargetNeuronView();
+  let ontoNewborn = 0;
+  let fromNewborn = 0;
+  let fromNewbornOntoOriginal = 0;
+  for (let slot = 0; slot < occupied.length; slot++) {
+    if (!occupied[slot]) continue;
+    const source = Math.floor(slot / capPerNeuron);
+    const target = targets[slot]!;
+    if (target >= WIDTH) ontoNewborn++;
+    if (source >= WIDTH) {
+      fromNewborn++;
+      if (target < WIDTH) fromNewbornOntoOriginal++;
+    }
+  }
+  assert.ok(ontoNewborn > 0, "newbornMaturation must wire inputs onto each grown neuron");
+  assert.ok(fromNewborn > 0, "a firing newborn must be able to sprout outputs of its own");
+
+  // A tripwire on a KNOWN LIMITATION, not a desired property (README §12
+  // decision 13, measured on VAL-4 at 800 neurons and reproduced here):
+  // `FixedNeighbourhoods` groups neurons into fixed index blocks, and
+  // grown neurons take indices past the original population's block, so
+  // sprouting can never connect a newborn *back* to the original
+  // population -- grown capacity can listen but never speak to it. If this
+  // assertion ever fails, the neighbourhood scheme has changed and that
+  // limitation is gone: update README §12 decision 13 and §13.12 item 10,
+  // which both record it as open.
+  assert.equal(
+    fromNewbornOntoOriginal,
+    0,
+    "expected zero newborn->original synapses (the fixed index-block neighbourhood limit, README §12 decision 13) -- " +
+      "a non-zero count here is good news that needs the README updated, not a regression",
+  );
 });
 
 test("the canonical brain's snapshot round-trips mid-run (RUN-9/RUN-9a)", async () => {

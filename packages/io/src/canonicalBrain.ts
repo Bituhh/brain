@@ -13,7 +13,7 @@
 // next latent gap shows up here instead of staying invisible.
 //
 // Modelled on `milestone/charPrediction.ts`, the closest thing that
-// existed before this -- with two deliberate departures, both explained
+// existed before this -- with three deliberate departures, all explained
 // below rather than silently copied or silently "fixed":
 //
 // 1. `excitatoryFraction` stays `1.0` here too. README §13.12 item 11
@@ -32,6 +32,18 @@
 //    opt-in the way `charPrediction.ts`'s tuning knobs are -- the point of
 //    a canonical constructor is that there is no "forgot to turn it on"
 //    path left to find.
+// 3. "Everything on" means every *mechanism* is live, not every *option*
+//    set to its most aggressive value. Two of PLAN.md B4's four structural-
+//    plasticity fixes are switched off here (fix 1's silent gate, fix 4's
+//    silent elimination) because B5's search measured both as losses at the
+//    values this constructor now ships -- see `B5_VALUES` below. They stay
+//    implemented, with their own ablation tests in `tests/structural_b4.rs`;
+//    what this module guarantees is that no mechanism is off by *oversight*.
+//    Distinguishing the two is the point: README §13.12 item 13's newest
+//    bullet records this module itself shipping `growth` without
+//    `newbornMaturation` for five days, which was an oversight, and its own
+//    standing test passing anyway because it asserted a counter rather than
+//    the mechanism.
 //
 // In scope (README §11 Phase 5/7, §3-§9): dendritic segments (NEU-5/6),
 // local inhibition (NET-2), STDP + eligibility + the three-factor rule
@@ -43,8 +55,11 @@
 // until now, reachable from no caller at all -- the same shape README
 // §13.12 item 13 names for consolidation and three neuromodulator
 // channels), per-segment threshold homeostasis, structural plasticity
-// (LRN-7), saturation-driven growth (NET-10), spike-frequency adaptation
-// (NEU-8), predictive learning (LRN-8), and one attached probe (OBS-1).
+// (LRN-7), saturation-driven growth (NET-10) together with newborn-neuron
+// integration (NET-11, PLAN.md B3 -- growth without it allocates neurons
+// that can never fire, see `newbornMaturation` below), spike-frequency
+// adaptation (NEU-8), predictive learning (LRN-8) with PLAN.md B5's
+// weighted dendritic votes, and one attached probe (OBS-1).
 // OBS-2 (`firingRate`/`predictionAccuracy`/`metricsSnapshot`) and OBS-3
 // (`rasterBytes`) need no construction-time toggle -- `Scheduler`/
 // `NativeSimulation` already record them unconditionally -- so there is
@@ -226,6 +241,33 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       coordsOriginY: 0,
       coordsOriginZ: 0,
       seed,
+    },
+    // PLAN.md B3 (NET-10/NET-11), added 2026-09-19: without this, `growth`
+    // above allocates neurons with zero synapses that can never receive
+    // current and never fire -- the deadlock README §13.12 item 10 spent
+    // three items diagnosing. This constructor was written (A1, 2026-09-13)
+    // the day before `newbornMaturation` existed and was never revisited,
+    // so it grew inert neurons and its own test only checked the counter
+    // moved: exactly the blind spot this module exists to prevent.
+    //
+    // Values scaled to *this* network, not copied from
+    // `investigate-growth-regression.ts`'s 800-neuron ones: k-WTA here
+    // allows K (3) spikes per tick, so a 10-tick window offers ~30
+    // candidates and a newborn draws 8 of them, where the larger network
+    // drew 24 of ~640. `inputPermanence`/`inputWeight` keep
+    // `structuralPlasticity`'s own sprout values' meaning (structurally
+    // connected from birth, near-zero efficacy). `maturationTicks` is
+    // short enough that a newborn's survival is actually decided inside
+    // the standing test's 400 ticks rather than after it.
+    newbornMaturation: {
+      inputWindowTicks: 10,
+      inputSubsetSize: 8,
+      inputPermanence: 0.4,
+      inputWeight: 0.15,
+      placementJitter: 1.0,
+      sweepIntervalTicks: 50,
+      maturationTicks: 150,
+      excitabilityThresholdFactor: 0.4,
     },
     // LRN-8
     predictiveLearning: {

@@ -1561,6 +1561,17 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     once votes are weighted; and a slow-tier regression test pinning the winner's selection-seed
     figure (20.36%), which reproduces it exactly.
 
+    **A consequence for PLAN.md C1 (consolidation), flagged here because it is easy to miss.**
+    `run_consolidation`'s global downscale is `HomeostaticScaling::force_apply`
+    (`consolidation.rs`), and decision 11 routed homeostatic scaling to **weight**. While votes
+    were weight-blind, a sleep cycle therefore could not touch dendritic prediction at all. It can
+    now: every consolidation pass rescales exactly the quantity a segment counts, so a sleep cycle
+    weakens every dendritic vote at once until STDP re-grows the weights. The same reasoning
+    applies to decision 12's deferred question — consolidation does not eliminate silent synapses
+    — which changes meaning now that a "silent" synapse still transmits at its own weight. Neither
+    is a defect today (nothing calls `runConsolidation` in a loop yet); both are C1's to measure
+    rather than assume, on the same protocol B5 used.
+
     **Memory cost**: none per synapse — the vote mode is one scheduler-wide parameter, and the
     reference weight is a single `f32` per column in the snapshot's new column-votes section.
 
@@ -3445,6 +3456,20 @@ Three claims, in decreasing order of confidence that they are unprecedented.
       `IntrinsicHomeostasisConfig`, `SimulationOptions.intrinsicHomeostasis`) and two new `Scheduler`
       unit tests. Unlike consolidation/neuromodulators above, this one is now fully wired end to
       end, not merely reachable.
+    - **The canonical constructor grew this same gap itself, and its own test hid it — found and
+      closed 2026-09-19, auditing for anything PLAN.md items A1–B5 left behind.**
+      `canonicalBrain.ts` (A1, 2026-09-13) configured `growth` but not `newbornMaturation`, which
+      B3 landed the following day and nobody came back for. Without it `apply_growth` allocates
+      neurons with **zero synapses** that can never receive current and never fire — §13.12 item
+      10's own deadlock, running inside the module whose entire purpose is that no mechanism is
+      left switched off. It survived five days because the standing test asserted only that
+      `growthEventCount()` moved and the population grew: a counter, not the mechanism. Now wired
+      (values scaled to this network's own k-WTA, not copied from the 800-neuron harness), and the
+      test asserts what actually matters — newborns fire, receive inputs, sprout outputs of their
+      own, and survive maturation. The lesson generalises past this one field: *a test that a
+      mechanism was configured is not a test that it does anything*, and an "everything on"
+      fixture needs a field-level audit against the config surface whenever a new mechanism lands,
+      not a reading of its own doc comment.
 
 14. **Four requirements have no implementation, and one claim is true only because the thing it
     claims about does not exist — found 2026-09-13, same review.** Stated together because the
@@ -3456,10 +3481,19 @@ Three claims, in decreasing order of confidence that they are unprecedented.
       makes a top-down projection *topologically* expressible, but nothing distinguishes a
       descending synapse from any other, and §2.7's "feedforward carries what was not predicted"
       has no counterpart in the delivery path. §13.13(b) is the relevant literature.
-    - **NET-8 (oscillations, *could*) and NET-11 (critical periods, *could*): nothing.** Expected
-      for a *could*, but item 4 already rates NET-11's absence as high-consequence rather than
-      low-priority, and item 10's own closing paragraph reaches for NET-11 as the right home for a
-      fix it declined to make.
+    - **NET-8 (oscillations, *could*): nothing.** Expected for a *could*.
+    - **NET-11 (critical periods, *could*): half of it now exists, which this entry claimed it did
+      not — corrected 2026-09-19.** NET-11 has two halves: a *global* plasticity rate that starts
+      high and anneals with maturity, carried by the neuromodulator field (LRN-5), and newly grown
+      neurons re-entering a high-plasticity state *locally*. PLAN.md B3 (2026-09-14) built a form
+      of the second one — `NewbornMaturation` gives a newborn a temporarily lowered firing
+      threshold that relaxes over a maturation window, and `newborn.rs`, `scheduler.rs` and
+      `tests/newborn_integration.rs` all cite NET-11 for it. It is hyperexcitability, not a raised
+      plasticity *rate*, so it is a neighbour of what NET-11 asks for rather than the thing itself
+      (§13.12 item 10's own closing paragraph says as much). **The global annealing signal is still
+      absent**, which is why NET-11 stays on the deferred list in
+      `scripts/check-requirement-coverage.mjs` — but "nothing" was wrong, and item 4 still rates
+      the remaining gap as higher-consequence than a bare *could* suggests.
     - **LRN-12 (fast one-shot binding, *should*): interfaces prepared, mechanism absent.** §12a
       item 5 did the expensive part — `ReplaySource` is abstract, so this is an added `impl`
       rather than a breaking change — and left the mechanism open. §13.13(d) proposes BTSP
