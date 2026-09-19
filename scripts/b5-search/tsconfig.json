@@ -4,5 +4,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["./**/*.ts", "../b4-search/**/*.ts", "../tune-b5-values.ts"]
+  "include": ["./**/*.ts", "../b4-search/**/*.ts", "../tune-b5-values.ts", "../investigate-b5-growth.ts"]
 }

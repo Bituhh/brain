@@ -536,6 +536,16 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     representation less discriminating, not more. VAL-4 remains **not met**, now with a lower
     recorded number than the previous entry; per Requirement 13.6 that lower number is the one that
     stands until a real tuning pass (out of this fix's scope, not attempted here) says otherwise.
+
+    **Superseded by the tuning passes that followed, 2026-09-15/16 — see §12 decisions 12 and 13.**
+    The 3.23% above stands as what *that* configuration measured, and is not the milestone's current
+    figure. PLAN.md B4 searched structural plasticity's own values (15.58% on confirmation seeds),
+    and B5 then made dendritic votes weight-aware and re-searched everything together: **19.05% mean
+    network accuracy on confirmation seeds 11–15 (20.36% on selection seeds 1–5)**, against trigram's
+    29.07%. VAL-4 remains **not met** — trigram is still well ahead — but this is the first
+    configuration recorded here that clearly beats the 16.56% "always guess the most common next
+    character" baseline §13.12 item 7 measured, which every earlier figure in this document failed
+    to clear.
 - **Phase 5.5 — working memory, action selection and reference frames.** **[R]** NET-12 (§12a item
   3, moved here from the abandoned Phase 4.5 plan — see above), built first since NET-13 needs its
   multi-tick hold; then NET-13 (§12a item 4), which also needs Phase 5's LRN-11 for the reward
@@ -1224,7 +1234,10 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
       (reward on/off, growth on/off alike), a floor effect a narrower unit test would not have
       caught. LRN-8's whole purpose is to make a segment's contributing synapses more or less
       likely to coincidence-detect again — a structural question, SYN-3's domain, not an efficacy
-      question — so it stays on permanence.
+      question — so it stays on permanence. **Reopened and re-decided by measurement, 2026-09-16
+      (decision 13):** once dendritic votes carry weight, routing LRN-8 to weight is no longer inert,
+      so the choice was searched rather than inherited. Permanence still wins (19.05% against 15.54%
+      for weight and 16.24% for both, confirmation seeds), and the target is now configurable.
     - **Newly-created synapses split asymmetrically.** `StructuralPlasticity::sprout` and
       `PredictiveLearning::reinforce_or_sprout_burst`'s new-synapse branch now insert with
       `permanence` at/just above `connection_threshold` (structurally connected immediately) and a
@@ -1407,6 +1420,149 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
 
     **Memory cost**: `silent_since` is +4 bytes/synapse — `tests/scale.rs` reports **≈1873 MB** for
     100k neurons / 50M synapses, up from decision 11's ≈1682 MB, within the 8 GB budget.
+
+13. **A dendritic vote is weighted by the synapse's weight, capped at one full vote — and with
+    that, sprouting finally helps. Designed 2026-09-15, measured 2026-09-16 (PLAN.md item B5,
+    closing §13.12 item 10's "sprouting still does not help" and reopening decision 11's
+    fixed-magnitude call).** Decision 12 ended with sprouting roughly neutral and a named cause:
+    `apply_local_effect` moved a segment's coincidence count by `signum` alone, so a synapse's
+    weight was invisible to the one pathway VAL-4's prediction is read from, and B4's fix 1 could
+    only turn a new contact's vote fully off or fully on. A delivery now adds
+    `sign × min(weight / reference_weight, 1)` instead (`segment::DendriticVote`, `Count` or
+    `Weighted { reference_weight }`), so a fresh sprout at `sproutWeight` 0.05 counts for a
+    twentieth of a vote and an established synapse still counts for exactly one — the threshold
+    keeps its meaning as "a count of coincident synapses" for every mature synapse, which is what
+    the binary reading was protecting in the first place (§13.12 item 11a).
+
+    Three design calls, settled before any measurement and unrevised:
+    - **Capped, not proportional.** Above `reference_weight` a synapse cannot shout: its
+      contribution saturates at 1.0. Without the cap, one strong synapse could clear a threshold of
+      3 alone, which is a different mechanism, not a graded version of this one.
+    - **Which field predictive learning moves is configurable** (`SegmentLearningTarget`:
+      `Permanence`, `Weight` or `Both`), defaulting to `Permanence`, and decided by measurement
+      rather than argument. Decision 11 found routing it to weight left prediction learning inert
+      *because* votes ignored weight; weighted votes remove that reason, so the question was
+      genuinely reopened rather than assumed settled.
+    - **Weight rescaling's interaction is measured, not designed around.** Homeostatic scaling now
+      does reach dendritic prediction (it moves weight, and weight is now a vote), so it was
+      searched as an on/off parameter instead of being pre-emptively fenced off.
+
+    **The search** (`scripts/tune-b5-values.ts`, full data in `scripts/tune-b5-values.results.md`).
+    Every value B4 chose changes meaning once votes are weighted, so none were assumed still right:
+    15 parameters together — reference weight (with count mode as one of its own levels),
+    coincidence threshold, predictive-learning target, homeostatic scaling on/off, and B4's own
+    eleven — on the same resumable machinery B4 used, generalised for the purpose (space-filling
+    screen, hill-valley checks, four climbs, range extension), with its budget again validated by
+    simulating the search on synthetic landscapes rather than guessed. Seeds 1–5 chose; 6–10 chose
+    only among the four finalists; 11–15, never used to choose, give every figure below. 1,025
+    trials, none failed.
+
+    The winner, shipped in `canonicalBrain.ts`: **weighted votes at reference weight 1.0,
+    coincidence threshold 3, predictive learning on permanence, homeostatic scaling on, B4's fix 2
+    at a 1..4-tick window, and fixes 1, 3 and 4 off**, with STDP at learning rate 0.02, time
+    constant 4, depression ratio 2, eligibility 50 (`charPrediction.ts`'s network).
+
+    | condition, confirmation seeds 11–15 | mean |
+    |---|---|
+    | **the winner (weighted votes, sprouting on)** | **19.05%** |
+    | condition A, no structural plasticity, count mode | 16.99% |
+    | the winner's exact config with sprouting disabled | 15.58% — worse on all 5 seeds |
+    | condition A at the winner's own vote settings | 15.58% — identical per seed to the row above |
+    | B4's count-mode winner (decision 12) | 15.58% |
+    | runner-up (count mode at the winner's other values) | 8.13% |
+    | "always guess space", zero learning, zero context | 16.56% (§13.12 item 7) |
+
+    The factorial that separates the three mechanisms, same seeds:
+
+    | vote mode | silent gate | learning target | mean |
+    |---|---|---|---|
+    | weighted | off | permanence | **19.05%** |
+    | weighted | off | both / weight | 16.24% / 15.54% |
+    | weighted | on | weight / both / permanence | 14.62% / 14.62% / 10.89% |
+    | count | on | both / permanence / weight | 10.03% / 6.88% / 5.57% |
+    | count | off | permanence / both | 8.13% / 8.13% |
+    | count | off | weight | 0.10% — decision 11's inert case, reproduced exactly |
+
+    What this settles, and what it does not:
+    - **Sprouting now helps, for the first time in this project.** 19.05% against 15.58% with the
+      same config and sprouting disabled — better on all five confirmation seeds — where B4's best
+      was about a point *below* its own sprout-disabled control. The mechanism §13.12 item 10 has
+      been chasing since 2026-09-11 does something useful once a new contact can earn influence
+      gradually instead of being switched on whole.
+    - **It is also the first VAL-4 configuration clearly above the mode baseline.** "Always guess
+      space" scores 16.56% on this slice and had matched or beaten every network figure in this
+      document (§13.12 item 7). 19.05% clears it by 2.5 points on the mean and on every
+      confirmation seed. That bar, not trigram's 29.07%, is the one that had never been cleared;
+      trigram remains far ahead. The search's own landscape makes the baseline's pull visible:
+      dozens of configurations sit at 16.4–16.5% with near-zero spread across seeds — that is the
+      network being decoded into "space" almost every step, not a tuning plateau.
+    - **Weighted votes are not a free win on their own.** Condition A (no sprouting) is *worse*
+      weighted than counted — 15.58% against 16.99%, worse on four of five seeds. Weighting only
+      pays where there are weak, new synapses whose influence needs grading; on a fixed connectome
+      it just dilutes established votes below a threshold tuned for whole ones.
+    - **B4's fix 1 (the silent gate) is now redundant and actively harmful**: 19.05% off against
+      10.89% on, at the winner's own values. Graded influence is the better version of the same
+      idea, so the gate stays implemented, off, as an ablation switch.
+    - **Fix 4 (eliminating still-silent synapses) flips from inert to very harmful**: on two
+      selection seeds, switching it on at the winner's 20,000-tick window drops 20.2% to 9.4%. With
+      the gate off and `unsilenceWeight` 0.3 rarely reached by STDP, ~55,000 sprouts are permanently
+      "silent" yet transmitting usefully, and fix 4 deletes exactly those. Off at the winner.
+    - **Homeostatic scaling earns its place now that weight reaches prediction**: off at the
+      winner's other values it measures 17.2% against 20.2% (two selection seeds). Decision 11's
+      worry — that rescaling would disturb dendritic prediction — is the right shape but the wrong
+      sign here: it helps.
+    - **Predictive learning stays on permanence** (19.05% vs 16.24% for both, 15.54% for weight),
+      so decision 11's call survives its own reopening — but for a weaker reason than before. It is
+      now a measured preference, not the structural impossibility the count-mode column shows
+      (0.10%).
+    - **The reference weight itself is flat, not knife-edged.** 1.0 and 0.8 measure 20.4% and 20.3%
+      on the selection seeds; the value is not delicately tuned.
+
+    **Growth still gains nothing, and why is now proven rather than suspected**
+    (`scripts/investigate-b5-growth.ts`, confirmation seeds, full data in its `.results.md`).
+    §13.12 item 10's growth battery, re-run at this winner:
+
+    | condition | mean | per seed vs condition C |
+    |---|---|---|
+    | C: structural plasticity, no growth | 19.05% | — |
+    | B: C + growth, burst pace | 19.05% | identical on all five seeds |
+    | E: C + growth, gentle pace | 19.05% | identical on all five seeds |
+    | F: C + growth, gentle pace, sprout-source-restricted | 19.12% | one seed better, one worse |
+    | D: C + growth, burst pace, sprout-source-restricted | 20.05% | four better, one tied |
+
+    An instrumented seed-11 run (throwaway diagnostic, not checked in) shows condition B's growth
+    working exactly as designed and still changing nothing: 400 neurons grown, firing on ~11,200 of
+    the 15,000 characters, receiving 33,104 synapses — and sending **zero** to any of the original
+    800. Its predicted character differs from condition C's on none of the 15,000 steps. The cause
+    is structural and applies to both sprouting paths: `FixedNeighbourhoods` groups neurons into
+    fixed blocks by index (`structural.rs`'s sweep and `predictive.rs`'s `neighbourhood_range` both
+    iterate `n..n+size`), grown neurons take indices from 800 up, and B3's newborn wiring connects
+    originals *to* newborns. So a grown neuron can listen to the original population and to its
+    fellow newborns, and can never speak to the population the prediction is decoded from. Growth
+    at this scale is capacity the readout cannot reach — a topology limit, not a tuning one, and
+    the reason every growth pace measures identically. **Condition D's +1.0 point is not evidence
+    against that, and is not claimed as growth helping: its mechanism was looked for and not
+    found.** D also ends with zero grown→original synapses, and the sprout-source restriction
+    *without* growth reproduces condition C bit-for-bit, so the restriction alone is not the cause
+    either; D diverges from C at character 4,751 on seed 11 and differs on 3,159 characters
+    thereafter, with a different growth history (20 growth events and 1,171 live neurons, against
+    B's 10 and 1,200). What carries that difference is unidentified. Recorded as measured, per
+    VAL-9's standard, and left open.
+
+    **Coverage.** Unit tests for the contribution rule, the cap, zero weight, inhibitory sign,
+    count-mode identity and invalid reference weights (`segment.rs`); threshold interaction and
+    silent-synapse cases (`scheduler.rs`); each learning target and the burst path
+    (`predictive.rs`); a VAL-9 ablation where a weak distractor cannot complete a coincidence
+    weighted but can in count mode (`tests/dendritic_votes_b5.rs`); a property test that no
+    contribution exceeds magnitude 1; a partitioned/threaded determinism case; a new golden raster
+    (`dendritic_votes_weighted.raster`) with a fast-tier sibling asserting count mode changes it;
+    snapshot format version 12 with round-trip and v11-migration tests; boundary and smoke tests
+    for the new config surface, including that homeostatic scaling is inert in count mode and live
+    once votes are weighted; and a slow-tier regression test pinning the winner's selection-seed
+    figure (20.36%), which reproduces it exactly.
+
+    **Memory cost**: none per synapse — the vote mode is one scheduler-wide parameter, and the
+    reference weight is a single `f32` per column in the snapshot's new column-votes section.
 
 ## 12a. Open questions
 
@@ -3091,9 +3247,29 @@ Three claims, in decreasing order of confidence that they are unprecedented.
       segment. A new synapse then earns influence gradually, while an established one still counts
       as one full vote.
 
-      Still open, from the 2026-09-14 update above: whether fixed structural plasticity changes
-      growth's own conditions (B, D, E, F). B4's scope was condition C. B5 re-runs those conditions
-      at its own winner.
+    - **Update, 2026-09-16: PLAN.md B5 closed — sprouting helps once votes carry weight, and
+      growth is blocked by topology, not tuning.** With a delivery contributing
+      `min(weight / reference_weight, 1)` to its segment (§12 decision 13), the searched winner
+      scores **19.05%** on confirmation seeds against **15.58%** for the same config with sprouting
+      disabled — better on all five seeds, and the reverse of B4's result. It is also the first
+      configuration in this document clearly above the 16.56% "always guess space" baseline item 7
+      names. So mechanism 1 above, the weight-blind dendritic vote, was indeed the whole of why
+      sprouting could not pay: a new contact needed to earn influence gradually, not be switched on
+      whole. B4's fix 1 (the silent gate), the on/off approximation of that, is now measurably
+      harmful and switched off.
+
+      **The growth battery (B, D, E, F) was re-run at that winner, closing the 2026-09-14 question
+      above — growth still changes nothing, and now the reason is known.** Conditions B and E
+      reproduce condition C's accuracy *identically on every seed*, despite growing 400 neurons that
+      fire on most characters and receive tens of thousands of synapses. An instrumented run found
+      why: grown neurons send **zero** synapses to the original population, because both sprouting
+      paths group neurons into fixed index blocks (`FixedNeighbourhoods`) and grown neurons take
+      indices past the original population's blocks. Newborn wiring (B3) connects originals to
+      newborns, never back. Grown capacity can therefore never reach the readout at this scale —
+      a topology limit. Condition D measured +1.0 point and its mechanism was looked for and not
+      found (it also ends with no grown→original synapse, and the same restriction without growth
+      reproduces C bit-for-bit); recorded, not claimed. Full data:
+      `scripts/investigate-b5-growth.results.md`, design and caveats in §12 decision 13.
 11. **Polarity is a first-class concept in the type system and invisible to every mechanism that
     acts on it — found 2026-09-13 during a §2-against-§3–§9-against-code review.** NEU-4 and
     invariant 3 are correctly implemented at the point of transmission
@@ -3128,7 +3304,12 @@ Three claims, in decreasing order of confidence that they are unprecedented.
         means `signum` reproduces the exact pre-fix `+= 1.0` on every delivery that exists today,
         and no golden raster moved. This is a real trade-off, not a free win — a
         near-threshold synapse and a barely-connected one now count identically — and is left as
-        the obvious next step if segment behaviour ever needs that resolution.
+        the obvious next step if segment behaviour ever needs that resolution. **Taken, 2026-09-16
+        — see §12 decision 13.** A delivery now contributes `sign × min(weight / reference_weight, 1)`,
+        which keeps this call's protected property exactly (an established synapse still counts as
+        one whole vote, so a threshold tuned as a count of coincident synapses still means that)
+        while giving a weak or brand-new synapse a fractional say. Count mode remains available and
+        is what every pre-B5 network measured.
 
     **(b) VAL-8 could not catch (a) — fixed 2026-09-13.** The Dale property test above allocates
     its synapse with `target_segment = 0` and never calls `with_segments`, so it exercised the

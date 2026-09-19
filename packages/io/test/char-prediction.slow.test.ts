@@ -143,3 +143,65 @@ test("condition C with B4's searched values reproduces the value search's own re
     "condition C must sit closer to the sprout-disabled ceiling than to the pre-B4 control",
   );
 });
+
+// PLAN.md B5 (README §12 decision 13): locks in the weighted-vote value
+// search's result the same way the B4 test above locks in B4's.
+// `scripts/tune-b5-values.ts` searched reference weight, coincidence
+// threshold, predictive-learning target, homeostatic scaling, STDP and B4's
+// four fixes together; its winner (below, exactly as that search ran it)
+// scored 20.36% on these five selection seeds and 19.05% on five
+// confirmation seeds never used to choose it -- above condition A in count
+// mode (16.99%), B4's count-mode winner (15.58%) and the same config with
+// sprouting disabled (15.58%), and the first VAL-4 configuration clearly
+// above "always guess space" (16.56% of this slice's next characters).
+// Deterministic per seed, so the band only absorbs float differences.
+test("condition C with B5's searched values reproduces the value search's own result (PLAN.md B5)", () => {
+  const corpus = fullCorpus.slice(0, SLICE_LENGTH);
+  const structuralPlasticity: StructuralPlasticityConfig = {
+    pruneFloor: 0.05,
+    sproutPermanence: 0.35,
+    sproutWeight: 0.05,
+    minActivityStreak: 3,
+    sweepIntervalTicks: 200,
+    unusedTicksBeforeReclaim: 10_000_000,
+    minCrossPartitionDelay: 1,
+    neighbourhoodSize: 100,
+    k: 10,
+    // fix 2: sprout only when the target fired 1..4 ticks after the source
+    minTemporalGapTicks: 1,
+    maxTemporalGapTicks: 4,
+    // fixes 3 (segment spread) and 4 (silent elimination) off
+  };
+  const trials = runCharPredictionTrials(corpus, [1n, 2n, 3n, 4n, 5n], {
+    ...DEFAULT_CONFIG,
+    structuralPlasticity,
+    // fix 1 off: silence is tracked but a silent synapse still transmits --
+    // weighted votes already keep a weak sprout quiet
+    silentSynapses: { unsilenceWeight: 0.3, silentTransmits: true },
+    plasticity: {
+      stdp: { aPlus: 0.01, aMinus: 0.02, tauPlus: 4, tauMinus: 4, windowTicks: 20 },
+      tauEligibilityTicks: 50,
+      learningRate: 0.02,
+      modulatorChannel: 1, // ACETYLCHOLINE, held by tonicModulator
+      modulatorTauTicks: [1000, 1000, 1000, 1000],
+    },
+    tonicModulator: { channel: 1, level: 1.0 },
+    coincidenceThreshold: 3,
+    voteReferenceWeight: 1.0,
+    predictiveLearningTarget: "permanence",
+    homeostaticScaling: { targetTotalWeight: 6.0, intervalTicks: 200 },
+  });
+  const assessment = assessMilestone(trials);
+
+  const SEARCH_RESULT = 0.2036; // scripts/tune-b5-values.results.md, factorial row "weighted / silent-gate off / permanence", seeds 1-5
+  const COUNT_MODE_AT_WINNER = 0.1136; // the same factorial's "count / silent-gate off / permanence" row, seeds 1-5
+  console.log(
+    `[PLAN.md B5] condition C mean network accuracy=${assessment.meanNetworkAccuracy.toFixed(4)} ` +
+      `(value search=${SEARCH_RESULT}, count mode at the winner's other values=${COUNT_MODE_AT_WINNER})`,
+  );
+  assert.ok(
+    Math.abs(assessment.meanNetworkAccuracy - SEARCH_RESULT) <= 0.005,
+    `expected condition C to reproduce the value search's ${SEARCH_RESULT} within half a point, got ${assessment.meanNetworkAccuracy.toFixed(4)} -- ` +
+      "a change to dendritic votes, structural plasticity, silent synapses, STDP or homeostatic scaling altered what B5's chosen configuration does",
+  );
+});

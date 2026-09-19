@@ -1,0 +1,151 @@
+{
+  "generatedAt": "2026-09-16T16:27:55.903Z",
+  "winner": {
+    "voteReferenceWeight": 1,
+    "coincidenceThreshold": 3,
+    "predictiveLearningTarget": 0,
+    "homeostaticScaling": 1,
+    "learningRate": 0.02,
+    "stdpTauTicks": 4,
+    "depressionRatio": 2,
+    "eligibilityTauTicks": 50,
+    "unsilenceWeight": 0.3,
+    "maxGapTicks": 4,
+    "eliminationTicks": 20000,
+    "silentGate": 0,
+    "timingWindow": 1,
+    "spreadSegments": 0,
+    "silentElimination": 0
+  },
+  "confirmMean": 0.19050000000000003,
+  "heldOutMean": 0.19270000000000004,
+  "clearWin": true,
+  "factorial": [
+    {
+      "combo": {
+        "voteMode": "count",
+        "silentGate": false,
+        "learningTarget": "permanence"
+      },
+      "selectionMean": 0.1136,
+      "confirmMean": 0.08130000000000001
+    },
+    {
+      "combo": {
+        "voteMode": "count",
+        "silentGate": false,
+        "learningTarget": "weight"
+      },
+      "selectionMean": 0.001,
+      "confirmMean": 0.001
+    },
+    {
+      "combo": {
+        "voteMode": "count",
+        "silentGate": false,
+        "learningTarget": "both"
+      },
+      "selectionMean": 0.1136,
+      "confirmMean": 0.08130000000000001
+    },
+    {
+      "combo": {
+        "voteMode": "count",
+        "silentGate": true,
+        "learningTarget": "permanence"
+      },
+      "selectionMean": 0.0651,
+      "confirmMean": 0.0688
+    },
+    {
+      "combo": {
+        "voteMode": "count",
+        "silentGate": true,
+        "learningTarget": "weight"
+      },
+      "selectionMean": 0.04410000000000001,
+      "confirmMean": 0.055700000000000006
+    },
+    {
+      "combo": {
+        "voteMode": "count",
+        "silentGate": true,
+        "learningTarget": "both"
+      },
+      "selectionMean": 0.12409999999999999,
+      "confirmMean": 0.10029999999999999
+    },
+    {
+      "combo": {
+        "voteMode": "weighted",
+        "silentGate": false,
+        "learningTarget": "permanence"
+      },
+      "selectionMean": 0.2036,
+      "confirmMean": 0.19050000000000003
+    },
+    {
+      "combo": {
+        "voteMode": "weighted",
+        "silentGate": false,
+        "learningTarget": "weight"
+      },
+      "selectionMean": 0.1621,
+      "confirmMean": 0.1554
+    },
+    {
+      "combo": {
+        "voteMode": "weighted",
+        "silentGate": false,
+        "learningTarget": "both"
+      },
+      "selectionMean": 0.1637,
+      "confirmMean": 0.16240000000000002
+    },
+    {
+      "combo": {
+        "voteMode": "weighted",
+        "silentGate": true,
+        "learningTarget": "permanence"
+      },
+      "selectionMean": 0.11039999999999998,
+      "confirmMean": 0.1089
+    },
+    {
+      "combo": {
+        "voteMode": "weighted",
+        "silentGate": true,
+        "learningTarget": "weight"
+      },
+      "selectionMean": 0.1646,
+      "confirmMean": 0.14620000000000002
+    },
+    {
+      "combo": {
+        "voteMode": "weighted",
+        "silentGate": true,
+        "learningTarget": "both"
+      },
+      "selectionMean": 0.1646,
+      "confirmMean": 0.14620000000000002
+    }
+  ],
+  "references": [
+    {
+      "name": "condition A, count mode",
+      "confirmMean": 0.16990000000000002
+    },
+    {
+      "name": "condition A, at the winner's own vote settings",
+      "confirmMean": 0.1558
+    },
+    {
+      "name": "the winner's exact config with sprouting disabled",
+      "confirmMean": 0.1558
+    },
+    {
+      "name": "B4's count-mode winner (char-prediction.slow.test.ts)",
+      "confirmMean": 0.1558
+    }
+  ]
+}

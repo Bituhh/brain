@@ -1,0 +1,28 @@
+[2026-09-16 16:54:04] === investigate-b5-growth starting: 6 workers, corpus 15000 characters, seeds 11, 12, 13, 14, 15 ===
+[2026-09-16 16:54:04] winner: C[fixes -2--] ref=1 thr=3 target=permanence homeo=1 lr=0.02 tau=4 dep=2 elig=50 unsil=0.3 gap=4 elim=20000
+[2026-09-16 16:54:04] 30 trials, 10 already measured, 20 to run
+[2026-09-16 16:55:04] [heartbeat] growth battery: 0/20 done, 6 running, elapsed 1m00s, stage ETA unknown until the first trial finishes -- B s11 88% 1m00s | B s12 87% 1m00s | B s13 88% 1m00s | B s14 88% 1m00s | B s15 87% 1m00s | D s11 87% 1m00s
+[2026-09-16 16:55:14] [done 1/20] B seed 11: 18.90% in 1m11s sprouted=79835 unsilenced=1479 eliminated=0 silentNow=78356
+[2026-09-16 16:55:15] [done 2/20] B seed 13: 21.45% in 1m11s sprouted=80469 unsilenced=1411 eliminated=0 silentNow=79058
+[2026-09-16 16:55:15] [done 3/20] B seed 14: 19.30% in 1m11s sprouted=81437 unsilenced=1454 eliminated=0 silentNow=79983
+[2026-09-16 16:55:16] [done 4/20] B seed 15: 17.50% in 1m13s sprouted=81218 unsilenced=1706 eliminated=0 silentNow=79512
+[2026-09-16 16:55:17] [done 5/20] D seed 11: 19.45% in 1m13s sprouted=59909 unsilenced=2167 eliminated=0 silentNow=55656
+[2026-09-16 16:55:17] [done 6/20] B seed 12: 18.10% in 1m13s sprouted=83337 unsilenced=1592 eliminated=0 silentNow=81745
+[2026-09-16 16:56:04] [heartbeat] growth battery: 6/20 done, 6 running, elapsed 2m00s, stage ETA 2m48s -- D s12 77% 0m49s | D s13 77% 0m49s | D s14 75% 0m49s | D s15 73% 0m47s | E s11 80% 0m47s | E s12 80% 0m47s
+[2026-09-16 16:56:20] [done 7/20] E seed 12: 18.10% in 1m02s sprouted=56552 unsilenced=1339 eliminated=0 silentNow=55213
+[2026-09-16 16:56:20] [done 8/20] E seed 11: 18.90% in 1m03s sprouted=56711 unsilenced=1263 eliminated=0 silentNow=55448
+[2026-09-16 16:56:24] [done 9/20] D seed 12: 20.30% in 1m09s sprouted=59082 unsilenced=1991 eliminated=0 silentNow=54977
+[2026-09-16 16:56:24] [done 10/20] D seed 13: 21.45% in 1m10s sprouted=59999 unsilenced=1940 eliminated=0 silentNow=55397
+[2026-09-16 16:56:27] [done 11/20] D seed 15: 19.15% in 1m11s sprouted=61924 unsilenced=2353 eliminated=0 silentNow=55975
+[2026-09-16 16:56:28] [done 12/20] D seed 14: 19.90% in 1m13s sprouted=59597 unsilenced=2299 eliminated=0 silentNow=54870
+[2026-09-16 16:57:04] [heartbeat] growth battery: 12/20 done, 6 running, elapsed 3m00s, stage ETA 1m33s -- E s13 77% 0m44s | E s14 77% 0m44s | E s15 70% 0m40s | F s11 68% 0m40s | F s12 67% 0m37s | F s13 67% 0m36s
+[2026-09-16 16:57:23] [done 13/20] E seed 13: 21.45% in 1m03s sprouted=56552 unsilenced=1137 eliminated=0 silentNow=55415
+[2026-09-16 16:57:24] [done 14/20] E seed 14: 19.30% in 1m04s sprouted=56328 unsilenced=1284 eliminated=0 silentNow=55044
+[2026-09-16 16:57:29] [done 15/20] E seed 15: 17.50% in 1m05s sprouted=57517 unsilenced=1196 eliminated=0 silentNow=56321
+[2026-09-16 16:57:33] [done 16/20] F seed 13: 21.45% in 1m05s sprouted=56552 unsilenced=1137 eliminated=0 silentNow=55415
+[2026-09-16 16:57:33] [done 17/20] F seed 12: 18.10% in 1m06s sprouted=56552 unsilenced=1339 eliminated=0 silentNow=55213
+[2026-09-16 16:57:34] [done 18/20] F seed 11: 18.50% in 1m10s sprouted=57496 unsilenced=1638 eliminated=0 silentNow=55858
+[2026-09-16 16:58:04] [heartbeat] growth battery: 18/20 done, 2 running, elapsed 4m00s, stage ETA 0m23s -- F s14 72% 0m41s | F s15 67% 0m40s
+[2026-09-16 16:58:25] [done 19/20] F seed 14: 19.30% in 1m03s sprouted=56328 unsilenced=1284 eliminated=0 silentNow=55044
+[2026-09-16 16:58:30] [done 20/20] F seed 15: 18.25% in 1m06s sprouted=57841 unsilenced=1632 eliminated=0 silentNow=56208
+[2026-09-16 16:58:30] === done: results in C:\projects\brain\scripts\investigate-b5-growth.results.md ===

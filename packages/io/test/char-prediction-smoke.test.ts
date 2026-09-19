@@ -192,3 +192,39 @@ test("runCharPredictionTrial reports progress in increasing steps, and structura
   assert.ok(seen.every((done) => done <= total));
   assert.equal(result.structuralStats, undefined);
 });
+
+// PLAN.md B5: each config option the weighted-vote search tunes must reach
+// the native scheduler and change something -- not just typecheck. One
+// deterministic baseline, then each option alone must diverge from it.
+test("B5's config options (voteReferenceWeight, predictiveLearningTarget, homeostaticScaling, coincidenceThreshold) each reach the scheduler, and scaling only matters once votes are weighted", () => {
+  const config = { ...DEFAULT_CONFIG, slidingWindow: 100 };
+  const baselineA = runCharPredictionTrial(corpus, 1n, config);
+  const baselineB = runCharPredictionTrial(corpus, 1n, config);
+  assert.deepEqual(baselineB, baselineA, "the unconfigured path must be bit-identical across repeated runs of the same seed/config");
+
+  const variants = {
+    // initial weights are 0.4, so each delivery casts 0.4 of a vote instead of 1
+    voteReferenceWeight: { voteReferenceWeight: 1.0 },
+    // reinforce/punish move weight, which count-mode votes ignore
+    predictiveLearningTarget: { predictiveLearningTarget: "weight" as const },
+    coincidenceThreshold: { coincidenceThreshold: 5 },
+  };
+  for (const [name, variant] of Object.entries(variants)) {
+    const result = runCharPredictionTrial(corpus, 1n, { ...config, ...variant });
+    assert.ok(Number.isFinite(result.networkAccuracy) && result.networkAccuracy >= 0 && result.networkAccuracy <= 1);
+    assert.notDeepEqual(result, baselineA, `configuring ${name} must produce a measurably different result from the unconfigured baseline`);
+  }
+
+  // Homeostatic scaling moves weight only, and every internal synapse here
+  // sits on a dendritic segment, so in count mode it cannot reach the
+  // dynamics at all (README §12 decision 12's finding for STDP, which has
+  // the same path). Weighted votes give it one.
+  const scaling = { homeostaticScaling: { targetTotalWeight: 2.0, intervalTicks: 20 } };
+  assert.deepEqual(runCharPredictionTrial(corpus, 1n, { ...config, ...scaling }), baselineA, "in count mode, homeostatic scaling must have no effect");
+  const weighted = { ...config, voteReferenceWeight: 1.0 };
+  assert.notDeepEqual(
+    runCharPredictionTrial(corpus, 1n, { ...weighted, ...scaling }),
+    runCharPredictionTrial(corpus, 1n, weighted),
+    "with weighted votes, configuring homeostaticScaling must produce a measurably different result",
+  );
+});

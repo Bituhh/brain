@@ -88,23 +88,37 @@ export const WIDTH = 150;
 const K = Math.max(1, Math.round(WIDTH * TARGET_SPARSITY));
 
 /**
- * PLAN.md B4's values (README §12 decision 12), the winner of
- * `scripts/tune-b4-values.ts`'s search on VAL-4 condition C (results in
- * `scripts/tune-b4-values.results.md`): fixes 1, 2 and 4 on, fix 3
- * (segment spread) off -- it lowered accuracy in every combination the
- * factorial measured. The search tuned these together with STDP at
- * learning rate 0.005 on `charPrediction.ts`'s network; this constructor
- * keeps its own generic STDP defaults below, so the unsilence weight here
- * is the searched value, not one re-tuned for them. The 20,000-tick
- * elimination window is long enough that fix 4 rarely fires in a
- * 15,000-character run -- kept as found (README §12 decision 12).
+ * PLAN.md B5's values (README §12 decision 13), the winner of
+ * `scripts/tune-b5-values.ts`'s search on VAL-4 condition C (results in
+ * `scripts/tune-b5-values.results.md`), which replace B4's (decision 12).
+ * Adopted under the clear-win rule: on the five confirmation seeds the
+ * winner (19.05%) beat condition A in count mode (16.99%) and B4's
+ * count-mode winner (15.58%) on every seed.
+ *
+ * Weighted dendritic votes with a reference weight of 1.0: a delivery casts
+ * `min(weight, 1)` of a vote, so a fresh sprout at `sproutWeight` 0.05
+ * counts for a twentieth of an established synapse. That graded influence
+ * is why the winner turns B4's fix 1 (the silent gate) *off*: with votes
+ * weighted, a new contact is already quiet without being switched off, and
+ * the factorial measured the gate on at the winner's other values as a loss
+ * (10.89% vs 19.05%). Silence is still tracked, so `unsilenceWeight` still
+ * counts unsilencing; it just no longer gates transmission. Fix 2's causal
+ * window widens to 1..4 ticks. Fixes 3 and 4 are off -- fix 4 was inert at
+ * B4's own 20,000-tick window and every B5 finalist but one had it off.
+ * Predictive learning stays on permanence (the default).
+ *
+ * The search tuned these together with STDP at learning rate 0.02 on
+ * `charPrediction.ts`'s network; this constructor keeps its own generic
+ * STDP defaults below, so these are the searched values, not ones re-tuned
+ * for them.
  */
-const B4_VALUES = {
-  unsilenceWeight: 0.65,
+const B5_VALUES = {
+  voteReferenceWeight: 1.0,
+  unsilenceWeight: 0.3,
+  silentTransmits: true,
   minTemporalGapTicks: 1,
-  maxTemporalGapTicks: 2,
+  maxTemporalGapTicks: 4,
   spreadSproutSegments: false,
-  silentEliminationTicks: 20_000,
 } as const;
 
 /** The one column this constructor builds -- densely (not fully) wired internally, so plasticity has real candidate synapses to select from, mirroring `charPrediction.ts`'s own columnConfig rationale. */
@@ -119,7 +133,9 @@ export function canonicalColumnConfig(): ColumnConfig {
     internalPolicy: { p0: 0.1, lengthScale: 100_000, delayMin: 1, delayMax: 3, initialPermanence: 0.4 },
     neighbourhoodSize: WIDTH,
     k: K,
-    segments: { segmentsPerNeuron: 2, coincidenceThreshold: 3 },
+    // Must match `canonicalSimulationOptions`'s own `segments` exactly --
+    // `buildColumns` refuses a mismatch.
+    segments: { segmentsPerNeuron: 2, coincidenceThreshold: 3, voteReferenceWeight: B5_VALUES.voteReferenceWeight },
   };
 }
 
@@ -131,12 +147,13 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
     synapseCapPerNeuron: WIDTH,
     // NET-2
     inhibition: { neighbourhoodSize: WIDTH, k: K },
-    // NEU-5/6
-    segments: { segmentsPerNeuron: 2, coincidenceThreshold: 3 },
-    // PLAN.md B4 fix 1 (README §12 decision 12): a fresh sprout is silent --
-    // no current, no dendritic vote -- until STDP (on, below) potentiates it
-    // to `unsilenceWeight`. Value: see `B4_VALUES` above.
-    silentSynapses: { unsilenceWeight: B4_VALUES.unsilenceWeight },
+    // NEU-5/6, with PLAN.md B5's weighted votes (README §12 decision 13).
+    // Value: see `B5_VALUES` above.
+    segments: { segmentsPerNeuron: 2, coincidenceThreshold: 3, voteReferenceWeight: B5_VALUES.voteReferenceWeight },
+    // PLAN.md B4 fix 1 (README §12 decision 12), switched off by B5: silence
+    // is tracked but a silent sprout still transmits, at its own weight.
+    // Values: see `B5_VALUES` above.
+    silentSynapses: { unsilenceWeight: B5_VALUES.unsilenceWeight, silentTransmits: B5_VALUES.silentTransmits },
     // LRN-2/3/4
     plasticity: {
       stdp: { aPlus: 0.01, aMinus: 0.01, tauPlus: 20, tauMinus: 20, windowTicks: 100 },
@@ -182,13 +199,12 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       minCrossPartitionDelay: 2,
       neighbourhoodSize: WIDTH,
       k: 5,
-      // PLAN.md B4 fixes 2-4 (README §12 decision 12). Values: see
-      // `B4_VALUES` above.
-      minTemporalGapTicks: B4_VALUES.minTemporalGapTicks,
-      maxTemporalGapTicks: B4_VALUES.maxTemporalGapTicks,
-      spreadSproutSegments: B4_VALUES.spreadSproutSegments,
+      // PLAN.md B4 fixes 2 and 3 (README §12 decision 12) at B5's values;
+      // fix 4 (silent elimination) off. See `B5_VALUES` above.
+      minTemporalGapTicks: B5_VALUES.minTemporalGapTicks,
+      maxTemporalGapTicks: B5_VALUES.maxTemporalGapTicks,
+      spreadSproutSegments: B5_VALUES.spreadSproutSegments,
       seed,
-      silentEliminationTicks: B4_VALUES.silentEliminationTicks,
     },
     // NET-10. Not supported together with `threadCount > 1` (unset here,
     // so `threadCount` defaults to 1 -- single-threaded, matching every
