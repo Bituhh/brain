@@ -1064,6 +1064,26 @@ this before designing anything).
   already-measured reference rows out of a prior run's checkpoint instead of recomputing them.
   Copy its shape.
 
+UNITS AND LIMITS THAT DECIDE WHETHER YOUR FIRST EXPERIMENT MEANS ANYTHING (added 2026-09-19; both
+verified in the code, neither recorded anywhere else).
+- **`replay_window` counts EVENTS, not ticks and not characters.** `ReplaySource::recent_events`
+  (consolidation.rs) returns individual `(tick, neuron)` spikes. At VAL-4 scale that is up to ~128
+  events per *character*: `charPrediction.ts` runs 800 neurons at `NETWORK_DENSITY` 0.08 over a
+  single neighbourhood, so k-WTA caps each tick at 64 winners, and `ticksPerInput` is 2. Every
+  existing caller passes `replayWindow: 100` (canonicalBrain.test.ts, and consolidation.rs's own
+  test default) — **less than one character of history**, which is fine for a plumbing test and
+  meaningless as a sleep. Size this deliberately and say what it is in characters.
+- **The replay source is capped at 200,000 events and trimmed to the most recent**
+  (`MAX_RASTER_EVENTS`, crates/brain-napi/src/lib.rs). At the rate above that is roughly the last
+  **1,500 characters** of a 15,000-character run — about 10%. A cadence spaced wider than that
+  replays only the tail of each interval, silently, with no error and no warning. If you want to
+  replay a full inter-sleep interval, the cadence and the cap have to be chosen together, or the cap
+  raised deliberately and its memory cost stated.
+- Related, and F3's problem rather than yours: replay comes from the `SpikeRaster` — the
+  "tape recorder" README §12a item 5(a) says "satisfies LRN-10 literally while bypassing the
+  mechanism LRN-12 exists to supply". Do not fix that here; do not claim a result that depends on
+  it being fixed.
+
 WORTH KNOWING. §13.13(h) also records that the downscale is UNIFORM
 (`HomeostaticScaling::force_apply` at a stricter target), whereas the biology's down-selection is
 selective — what survives is what was replayed. That is a separate, larger change. If uniform

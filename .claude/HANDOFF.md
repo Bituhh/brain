@@ -76,7 +76,14 @@ These are the ones that have actually caused wrong work, not a general list.
 5. **Never `import` or execute `scripts/tune-*.ts` to inspect it** — a bare import
    runs the real multi-hour search. Read the source, or use its documented
    `*_SMOKE=1` entry point.
-6. **Search/experiment logs are UTC** (`toISOString()`); this machine is UTC+1.
+6. **Consolidation's replay is measured in spike events, and the source is
+   capped.** `replay_window` counts individual `(tick, neuron)` events, not
+   ticks or characters — roughly 128 events per character at VAL-4 scale — and
+   the raster behind it holds only the most recent 200,000 events (~1,500
+   characters of a 15,000-character run). Every existing caller passes 100,
+   which is under one character. Sizing either by intuition produces a null
+   result that looks like a finding. (C1's prompt carries the arithmetic.)
+7. **Search/experiment logs are UTC** (`toISOString()`); this machine is UTC+1.
 
 ## Infrastructure worth reusing before writing anything new
 
