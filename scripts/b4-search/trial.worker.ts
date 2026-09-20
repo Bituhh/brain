@@ -14,9 +14,9 @@ interface TrialData {
 
 export type WorkerMessage =
   | { readonly type: "progress"; readonly done: number; readonly total: number }
-  | { readonly type: "result"; readonly accuracy: number; readonly structuralStats: unknown };
+  | { readonly type: "result"; readonly accuracy: number; readonly structuralStats: unknown; readonly consolidationStats: unknown };
 
 const { corpus, seed, config } = workerData as TrialData;
 const port = parentPort!;
 const result = runCharPredictionTrial(corpus, seed, config, (done, total) => port.postMessage({ type: "progress", done, total } satisfies WorkerMessage));
-port.postMessage({ type: "result", accuracy: result.networkAccuracy, structuralStats: result.structuralStats } satisfies WorkerMessage);
+port.postMessage({ type: "result", accuracy: result.networkAccuracy, structuralStats: result.structuralStats, consolidationStats: result.consolidationStats } satisfies WorkerMessage);

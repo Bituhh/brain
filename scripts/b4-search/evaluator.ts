@@ -11,7 +11,7 @@
 
 import { Worker } from "node:worker_threads";
 import type { StructuralStats } from "@brain/core";
-import type { CharPredictionConfig } from "../../packages/io/src/milestone/charPrediction.ts";
+import type { CharPredictionConfig, ConsolidationStats } from "../../packages/io/src/milestone/charPrediction.ts";
 import { Checkpoint, type TrialRecord } from "./checkpoint.ts";
 import { configKey, conditionLabel, toConfig, trialKey, type Condition } from "./conditions.ts";
 import { runJobs, type Job, type PoolOptions, type TrialOutput, type TrialRunner } from "./pool.ts";
@@ -42,7 +42,8 @@ export function workerRunner(workerPath: string, corpus: string): TrialRunner {
         } else {
           settled = true;
           const stats = message.structuralStats as StructuralStats | undefined;
-          resolve({ accuracy: message.accuracy, ...(stats !== undefined && { structuralStats: stats }) });
+          const consolidation = message.consolidationStats as ConsolidationStats | undefined;
+          resolve({ accuracy: message.accuracy, ...(stats !== undefined && { structuralStats: stats }), ...(consolidation !== undefined && { consolidationStats: consolidation }) });
           void worker.terminate();
         }
       });
@@ -98,6 +99,7 @@ export function makeEvaluate<TCondition = Condition>(options: EvaluatorOptions<T
           ok: result.ok,
           ...(result.output !== undefined && { accuracy: result.output.accuracy }),
           ...(result.output?.structuralStats !== undefined && { structuralStats: result.output.structuralStats }),
+          ...(result.output?.consolidationStats !== undefined && { consolidationStats: result.output.consolidationStats }),
           ...(result.error !== undefined && { error: result.error }),
           seconds: result.seconds,
           finishedAt: new Date().toISOString(),

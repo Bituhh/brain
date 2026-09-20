@@ -6,6 +6,7 @@
 // - retries, after which a trial is recorded as failed and the run carries on.
 
 import type { StructuralStats } from "@brain/core";
+import type { ConsolidationStats } from "../../packages/io/src/milestone/charPrediction.ts";
 
 export interface Job {
   readonly key: string;
@@ -18,6 +19,8 @@ export interface Job {
 export interface TrialOutput {
   readonly accuracy: number;
   readonly structuralStats?: StructuralStats;
+  /** PLAN.md C1: what the consolidation cadence did, when one was configured. Additive -- every pre-C1 caller leaves it absent. */
+  readonly consolidationStats?: ConsolidationStats;
 }
 
 export interface RunningTrial {

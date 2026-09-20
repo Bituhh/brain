@@ -6,6 +6,7 @@
 
 import { appendFileSync, existsSync, readFileSync, openSync, fsyncSync, closeSync } from "node:fs";
 import type { StructuralStats } from "@brain/core";
+import type { ConsolidationStats } from "../../packages/io/src/milestone/charPrediction.ts";
 
 export interface TrialRecord {
   readonly key: string;
@@ -14,6 +15,8 @@ export interface TrialRecord {
   readonly ok: boolean;
   readonly accuracy?: number;
   readonly structuralStats?: StructuralStats;
+  /** PLAN.md C1: what the consolidation cadence did, when one was configured. Additive -- a pre-C1 checkpoint line simply has no such field. */
+  readonly consolidationStats?: ConsolidationStats;
   readonly error?: string;
   readonly seconds: number;
   readonly finishedAt: string;

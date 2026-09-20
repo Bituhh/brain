@@ -546,6 +546,21 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     configuration recorded here that clearly beats the 16.56% "always guess the most common next
     character" baseline §13.12 item 7 measured, which every earlier figure in this document failed
     to clear.
+
+    **Consolidation now runs inside a real experiment, and it does not help — 2026-09-19, PLAN.md
+    C1.** This phase shipped LRN-10 with no streaming caller anywhere: §2.9 calls an offline phase
+    "a required operating state, not an optimisation", and VAL-4's run — the longest in the
+    repository — never slept. `packages/io/src/milestone/charPrediction.ts` now takes a
+    `consolidation` cadence (a fixed character interval, chosen over a metric trigger so the
+    intervention cannot be confounded with the quantity VAL-4 measures), and
+    `scripts/investigate-c1-consolidation.ts` measured VAL-4 with and without it over 12
+    conditions and 10 seeds. **Result: negative.** The two wider cadences (1,500 and 750
+    characters) move the figure by less than seed noise and in opposite directions on the two seed
+    sets; a 250-character cadence costs 5.5–7.0 points and drops below the "always guess space"
+    bar. Two of LRN-10's three components — the global downscale and the aggressive prune — are
+    measurably *inert* in this configuration. Consolidation is therefore not enabled in the
+    shipped VAL-4 values, and the 19.05%/20.36% figures above stand unchanged. Full reasoning, the
+    four mechanism findings behind the number, and what stays open: §13.12 item 13 and §12a item 9.
 - **Phase 5.5 — working memory, action selection and reference frames.** **[R]** NET-12 (§12a item
   3, moved here from the abandoned Phase 4.5 plan — see above), built first since NET-13 needs its
   multi-tick hold; then NET-13 (§12a item 4), which also needs Phase 5's LRN-11 for the reward
@@ -1328,9 +1343,19 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
       inputs are how a newborn fires at all, and this item's constraint was not to change them. They
       stay non-silent; B3's temporary hyperexcitability is already this model's stand-in for how an
       immature neuron integrates. Their *outputs*, sprouted like any other neuron's, are born silent.
-    - **Consolidation (LRN-10) does not eliminate silent synapses.** Sleep does prune in the brain,
-      and doing it there would be defensible, but `ConsolidationParams` carries no window and B4 did
-      not ask to extend LRN-10's pass — a follow-up, not a guess.
+    - **Consolidation (LRN-10) does not eliminate silent synapses — deferred by B4, resolved
+      2026-09-19 by PLAN.md C1 as "and it should not".** Sleep does prune in the brain, and doing
+      it there looked defensible, but two things settle it against. First, with decision 13's
+      canonical `silentTransmits: true`, silence is no longer a functional state: a "silent"
+      synapse delivers at its own weight and casts a weighted dendritic vote exactly like any
+      other, so eliminating on that flag eliminates on bookkeeping rather than on a property.
+      Second, B5 measured the same deletion on the *online* sweep — B4's fix 4 — and it cost
+      roughly 20.2% → 9.4%, precisely because ~55,000 usefully-transmitting sprouts carry the
+      flag; doing it on a sleep cadence is that deletion at a lower rate, not a different
+      experiment. `prune_floor` already sees every synapse by permanence, silent or not, which is
+      the criterion that means something here. Recorded in `consolidation.rs`'s own
+      `silent_elimination_ticks` comment. Separately, C1 measured that floor to have almost
+      nothing to act on either (§13.12 item 13).
 
     **Measured (`scripts/investigate-b4-fix-parameters.ts`, 5-seed protocol, condition C unless
     noted; full data in `.results.md`).** Weights frozen, as in every earlier VAL-4 figure:
@@ -2079,6 +2104,45 @@ here.
    6 no longer fits that description as of the same day: it did get a fix (see its own entry), and
    the fix's own empirical result (also see item 7's follow-up) is that 13.22% itself does not
    survive the correction either, dropping to 3.23%.
+
+9. **Three things LRN-10's replay is not, found 2026-09-19 while wiring consolidation into a real
+   experiment (PLAN.md C1) — recorded, deliberately not fixed there.** C1's question was whether
+   sleeping helps VAL-4; it does not (§13.12 item 13). These three are what that measurement
+   exposed about the mechanism itself, and each is its own scoped piece of work rather than a knob
+   on the one C1 measured.
+
+   **(a) Replay is not the learning the live path does.** `Scheduler::commit_and_schedule` runs
+   STDP and delivery scheduling for a replayed spike but, by its own documented decision, not
+   predictive-learning classification — a replayed event has no dendritic-segment evaluation, so
+   `predictive_before` has no well-defined value. Replay also never calls `step()`, so none of the
+   periodic sweeps (`HomeostaticScaling`, `StructuralPlasticity`, segment-threshold homeostasis)
+   runs during a replayed span, while `self.tick` advances past the schedule each of them gates
+   on. One sleep at C1's reference cadence is therefore roughly 1,500 ticks of STDP-only,
+   unregulated learning. C1 measured the consequence directly: with the online LRN-6 sweep left
+   on, a 750-character cadence costs 1.69 points on selection seeds and gains 0.09 on confirmation
+   seeds; with it off, the same cadence costs 8.32 and 7.45. Making
+   replay run the *same* learning a live tick runs is a real design question (which sweeps should
+   fire on a virtual clock? what is a replayed spike's predictive context?), not a parameter.
+
+   **(b) The replay source is almost entirely a recording of the *input*, not of the network.**
+   Measured on B5's winner over a full 15,000-character VAL-4 run: the externally stimulated tick
+   contributes a flat 64 events per character (k-WTA at k = 64, i.e. the encoder's own SDR), while
+   the purely internal prediction tick contributes 0.02 events per character over the first 1,500
+   characters, rising to 27.60 over the last 1,500 — total 64.02 rising to 91.60, mean 75.09.
+   Replaying this raster is therefore mostly re-presenting the corpus, which is new, quantified
+   evidence for item 5(a)'s "tape recorder, not the fast store §2.9 describes" objection rather
+   than a separate complaint. A `ReplaySource` backed by LRN-12's fast store (PLAN.md F3) is the
+   named successor; nothing about C1's negative result should be read as evidence about *that*.
+
+   **(c) `run_consolidation` is `Runtime::Single`-only.** `NativeSimulation::run_consolidation`
+   returns an error in partitioned mode (`threadCount > 1`), matching `snapshotBytes`/`restore`'s
+   own Phase 4 precedent: replaying a raster whose events may target any partition, correctly and
+   deterministically, through the cross-partition messaging path is materially more complex than
+   single-threaded replay. This was already documented at both the Rust and FFI levels and is
+   restated here because C1 is the first item for which it is a *capability* limit rather than a
+   note — a consolidating network cannot use RUN-4's threading. Scoped as PLAN.md's C1a row. It
+   is not urgent on VAL-4's own evidence: sleeping does not help at any cadence measured, so
+   nothing currently wants to sleep *and* scale.
 
 ---
 
@@ -3442,14 +3506,92 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     Phase 8's own Requirement 1 already names this shape for NET-10 growth ("fully built and
     tested in isolation, with zero callers anywhere"); it is not a one-off.
 
-    - **Consolidation never runs.** `run_consolidation` and the `runConsolidation` FFI surface
-      have no callers outside their own tests. §2.9 calls an offline phase "a required operating
-      state, not an optimisation", and VAL-4's streaming run — the longest-running experiment in
-      the repository, and the one §13.12 item 5's drift risk applies to — never sleeps. It is also
-      `Runtime::Single`-only, so it cannot run on the partitioned path at all. PLAN.md item A1's
-      standing test (`packages/io/test/canonicalBrain.test.ts`) now calls it once, closing the
-      "reachable from no caller at all" part of this finding without closing the larger one:
-      wiring it into an always-on streaming loop is PLAN.md's dedicated C1 item.
+    - **Consolidation never runs — closed 2026-09-19 by PLAN.md C1, and sleeping does not help.**
+      `run_consolidation` and the `runConsolidation` FFI surface had no callers outside their own
+      tests. §2.9 calls an offline phase "a required operating state, not an optimisation", and
+      VAL-4's streaming run — the longest-running experiment in the repository, and the one §13.12
+      item 5's drift risk applies to — never slept. PLAN.md item A1's standing test
+      (`packages/io/test/canonicalBrain.test.ts`) closed the "reachable from no caller at all"
+      part by calling it once; C1 closed the larger one by giving the VAL-4 streaming harness a
+      real sleep cadence (`CharPredictionConfig.consolidation`,
+      `packages/io/src/milestone/charPrediction.ts`) and measuring VAL-4 with and without it.
+      The measurement is a **negative result, and it is recorded as one** (Requirement 13.6):
+      **at no cadence tested does sleeping improve VAL-4, and frequent sleeping is catastrophic.**
+      Full data in `scripts/investigate-c1-consolidation.results.md` (12 conditions × 10 seeds,
+      15,000-character corpus, both seed sets); the headline rows, against B5's winner at 19.05%
+      on confirmation seeds 11–15 and 20.36% on selection seeds 1–5:
+
+      | cadence | confirmation seeds | selection seeds |
+      |---|---|---|
+      | no sleep (B5's winner) | 19.05% | 20.36% |
+      | sleep every 1,500 characters | 19.74% (+0.69) | 18.95% (−1.41) |
+      | sleep every 750 characters | 19.14% (+0.09) | 18.67% (−1.69) |
+      | sleep every 250 characters | **13.51% (−5.54)** | **13.41% (−6.95)** |
+
+      The two wider cadences move VAL-4 by less than seed-to-seed noise and **move it in opposite
+      directions on the two seed sets**, which is the honest description of "no effect". The
+      250-character cadence is not noise: it costs 5.5–7.0 points and lands **below the 16.56%
+      "always guess space" baseline** (item 7), i.e. it undoes the only real progress B5 made.
+      Four further findings came out of the same battery, each of which says something about the
+      mechanism rather than about tuning:
+
+      1. **Two of LRN-10's three components do nothing at all here.** Consolidation's global
+         downscale and its aggressive pruning pass are inert in this configuration, and the
+         battery shows it *exactly*: rows differing only in `downscaleTargetTotalWeight` (6.0
+         versus 3.0) or `pruneFloor` (0.05 versus 0.20) are **bit-identical on all ten seeds**,
+         separate trials under separate checkpoint keys (verified against the checkpoint, not
+         assumed from the table). Pushing the downscale six times stricter than the online sweep's
+         own target, to 1.0, is the only setting that leaks through at all, and it moves three of
+         ten seeds by at most 0.35 points. Note what this does *not* say: a **selective** downscale
+         (sparing what was replayed) changes the ratios within a neuron rather than only the
+         scale, and a total-renormalising sweep preserves ratios — so this finding is not evidence
+         about the version §13.13(h) actually asks for, which stays unbuilt and scoped as PLAN.md's
+         C1b. The uniform downscale is inert because
+         `HomeostaticScaling::force_apply` renormalises each neuron's incoming total to a target
+         and the *online* LRN-6 sweep (B5's winner runs one at target 6.0 every 200 ticks)
+         renormalises it straight back — multiplicative renormalisation composes, so the sleep's
+         downscale is erased rather than merely diluted. The prune is inert because there is
+         almost nothing below the floor to remove: at a floor of 0.34, under every sprout's own
+         birth permanence of 0.35, nineteen sleeps removed a mean of **6 synapses** (confirmation
+         seeds) and **20** (selection seeds) out of roughly 57,000 — and accuracy was still
+         bit-identical to the 0.05 and 0.20 rows. **Tononi & Cirelli's
+         synaptic-homeostasis argument (§13.13(h)) is the stated motivation for this item, and in
+         this configuration the online LRN-6 sweep is already discharging it** — the same battery
+         measures that sweep as worth 2.2 points (confirmation) and 3.2 points (selection) on its
+         own, on ten seeds rather than B5's two.
+      2. **What is left is replay, and replay is what hurts.** Removing the downscale's strictness
+         and raising the prune floor change nothing; shrinking the replay window does. Sleeping
+         while replaying only 100 events (the value every pre-C1 caller passed, under two
+         characters of this network's history) costs +0.22/−0.52 points — i.e. nothing.
+      3. **The damaging variable is how *often* the network goes offline, not how much it
+         replays.** Replaying 250 characters of history every 750 characters (19.43%/19.62%) and
+         replaying a full 750-character interval every 750 characters (19.14%/18.67%) both sit
+         near the reference, while replaying a *smaller* per-sleep window three times as often —
+         the 250-character cadence — collapses to 13.4%. Total replayed volume is roughly constant
+         across all three (≈14,000 characters over a 15,000-character run).
+      4. **Replay is not the learning the live path does, and that is structural, not a knob.**
+         `Scheduler::commit_and_schedule` deliberately runs STDP and delivery scheduling but
+         **not** predictive-learning classification (its own doc comment says why: a replayed
+         event has no dendritic-segment evaluation and so no well-defined `predictive_before`),
+         and replay never calls `step()`, so no homeostatic sweep, structural sweep or
+         segment-threshold sweep runs for the whole replayed span while the tick clock advances
+         past their schedules. A sleep is therefore ~1,500 ticks of STDP-only, unregulated
+         learning. The battery's own strongest evidence for this reading: with the online LRN-6
+         sweep switched off, the same 750-character cadence goes from −1.69 points to
+         **−7.45/−8.32 points** (9.40%/8.87% against a 16.85%/17.19% no-sleep reference of its
+         own) — remove the mechanism that cleans up after each sleep and sleeping becomes
+         ruinous. This is a limitation of how LRN-10's replay is wired, not evidence about sleep,
+         and it is scoped as a follow-up in §12a item 9 rather than fixed here.
+
+      Consolidation is therefore **not** enabled in `DEFAULT_CONFIG` or in B5's shipped values:
+      it is a measured non-improvement, and per Requirement 13.6 the honest response to that is to
+      record it, not to keep re-tuning until a number moves. What *is* shipped is the capability
+      and its evidence — the cadence itself, a fast-tier test that asserts the mechanism rather
+      than a counter (`char-prediction-smoke.test.ts`: sleeps happen on schedule, replay real
+      events, a floor above every synapse's initial permanence really prunes, and a cadence that
+      never fires leaves the run bit-identical), and the battery script. Still open, and recorded
+      rather than fixed: `run_consolidation` remains `Runtime::Single`-only and returns an error
+      in partitioned mode — see §12a item 9 and PLAN.md's C1a row.
     - **Three of four neuromodulator channels are dead.** Only `DOPAMINE` is ever injected or
       read; `ACETYLCHOLINE`, `NORADRENALINE` and `SEROTONIN` are declared constants with no
       producer and no consumer. LRN-5 lists four channels and the substrate honestly has one.
@@ -3709,10 +3851,27 @@ several are cheap against structures the core already has.
   subcycles within a theta cycle — the slot structure NET-8 names, and the mechanism by which
   replay preserves *order* rather than merely co-activation.
 - **Consequence here.** `consolidation.rs` implements replay-then-downscale faithfully, and
-  `ReplaySource` is correctly abstracted (§12a item 5(a)). Two gaps remain: the downscale is
-  uniform (`HomeostaticScaling::force_apply` at a stricter target) rather than selective, and no
-  experiment in this repository ever calls `runConsolidation` — §2.9 calls an offline phase a
-  required operating state, and VAL-4's streaming run never sleeps.
+  `ReplaySource` is correctly abstracted (§12a item 5(a)). The downscale is uniform
+  (`HomeostaticScaling::force_apply` at a stricter target) rather than selective — still true, and
+  now sharper than when it was written, since B5 made `weight` the quantity a dendritic segment
+  counts, so a uniform downscale of weight is a uniform weakening of every dendritic vote at once.
+  **Updated 2026-09-19 (PLAN.md C1): the second gap — "no experiment in this repository ever calls
+  `runConsolidation`" — is closed, and what closing it measured argues against this entry's own
+  framing of the problem.** VAL-4's streaming harness now has a sleep cadence and was measured with
+  and without it across 12 conditions and 10 seeds (§13.12 item 13): sleeping never helps, and
+  sleeping often is catastrophic. More pointedly for the synaptic-homeostasis hypothesis
+  specifically, consolidation's global downscale turned out to be **exactly inert** in the shipped
+  configuration — the online LRN-6 sweep renormalises each neuron's incoming total back to its own
+  target after every sleep, and multiplicative renormalisation composes, so downscaling at 6.0 and
+  at 3.0 produce bit-identical runs on all ten seeds (a six-times-stricter 1.0 leaks through on
+  three of ten, by at most 0.35 points). The runaway total synaptic strength Tononi &
+  Cirelli motivate is real and does cost this network 2.2–3.2 points when left uncorrected, but it
+  is the *online* sweep that corrects it here, not sleep. Making the downscale selective (what
+  survives is what was replayed) would change that, and remains unbuilt — it is the one change to
+  this entry's own mechanism that C1's result does not argue against, because C1 only ever measured
+  the uniform version, and a uniform downscale changes only *scale* where a selective one changes
+  the *ratios* within a neuron, which a total-renormalising sweep preserves. Scoped as PLAN.md's
+  **C1b** row, with that distinction recorded as reasoning rather than measurement.
 
 ---
 

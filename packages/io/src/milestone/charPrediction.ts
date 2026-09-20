@@ -270,6 +270,114 @@ export interface CharPredictionConfig {
    * this field existed.
    */
   readonly homeostaticScaling?: HomeostaticScalingConfig;
+  /**
+   * Offline consolidation (LRN-10, README §2.9) run on a cadence *during*
+   * the stream, rather than never (PLAN.md C1, README §13.12 item 13's
+   * first bullet). `undefined` (default) is every VAL-4 figure in this
+   * repository before C1 *and after it*: the network streams the whole
+   * corpus without ever sleeping.
+   *
+   * **Measured, and left off deliberately.** C1 ran twelve cadences over
+   * ten seeds (`scripts/investigate-c1-consolidation.ts`). Sleeping never
+   * improved VAL-4: cadences of 1,500 and 750 characters moved it by less
+   * than seed noise and in opposite directions on the two seed sets, and a
+   * 250-character cadence cost 5.5-7.0 points, dropping below the 16.56%
+   * "always guess space" baseline. Before switching this on in a shipped
+   * configuration, read README §13.12 item 13 -- in particular that two of
+   * LRN-10's three components (the global downscale and the aggressive
+   * prune) are measurably inert here, so what this option actually buys is
+   * replay, and replay is the part that costs.
+   */
+  readonly consolidation?: ConsolidationCadence;
+}
+
+/**
+ * When the streaming harness sleeps, and what one sleep does (PLAN.md C1).
+ *
+ * **Why a fixed character cadence rather than a metric trigger.** Three
+ * reasons, in order of weight. (1) Biology: sleep pressure in the
+ * synaptic-homeostasis account (Tononi & Cirelli 2020, README §13.13(h))
+ * accumulates with time *awake*, not with task performance -- an animal
+ * does not sleep because it got a prediction wrong. (2) Measurement: a
+ * trigger read off prediction accuracy would couple the intervention to
+ * the very quantity VAL-4 measures, so a configuration that sleeps more
+ * would also be a configuration that was doing worse, and neither a
+ * positive nor a negative result could be attributed. (3) Determinism
+ * (RUN-3): a fixed cadence is a pure function of the character index, so
+ * two runs at the same seed sleep at exactly the same points.
+ *
+ * **Why `replayWindow` and `everyCharacters` must be chosen together.**
+ * `replayWindow` counts individual `(tick, neuron)` spike *events*, not
+ * ticks and not characters (`ReplaySource::recent_events`), and the
+ * raster behind it is trimmed to the most recent `MAX_RASTER_EVENTS`
+ * (200,000) events in `crates/brain-napi/src/lib.rs`. A window smaller
+ * than one interval's worth of events replays only that interval's tail,
+ * and a cadence wider than the cap's worth does the same -- silently, with
+ * no error. `eventsPerCharacter` below is how a caller says what it
+ * measured, so `charactersReplayed` in the trial's own report can be
+ * stated in characters instead of left as a raw event count.
+ */
+export interface ConsolidationCadence {
+  /** Sleep after every this many characters. The final, trailing interval is deliberately not slept on -- a sleep after the last character cannot change any prediction, and would only cost time. */
+  readonly everyCharacters: number;
+  /** `ConsolidationConfig.replayWindow`, in spike **events** -- see this interface's own doc comment for why this is not a count of characters or ticks. */
+  readonly replayWindow: number;
+  /**
+   * `ConsolidationConfig.downscaleTargetTotalWeight`: the per-neuron
+   * incoming-weight total `HomeostaticScaling::force_apply` renormalises
+   * to. Note this is the *same* operation the online LRN-6 sweep runs
+   * (`homeostaticScaling` above), so if both are configured, the online
+   * sweep pulls every neuron back to its own target within one
+   * `intervalTicks` of waking -- a consolidation downscale is transient by
+   * construction in that configuration, and any effect it has must show up
+   * within that window.
+   */
+  readonly downscaleTargetTotalWeight: number;
+  /** `ConsolidationConfig.pruneFloor`, on permanence. README §12 decision 12: "typically stricter (higher) than whatever floor any online `StructuralPlasticity` uses, since this runs far less often and is meant to be aggressive." */
+  readonly pruneFloor: number;
+  /** Purely descriptive: measured spike events per character for *this* network, used only to turn `replayedSpikes` into `ConsolidationStats.charactersReplayed`. It changes no behaviour, and setting it to a worst-case rate makes that figure a lower bound rather than wrong. */
+  readonly eventsPerCharacter: number;
+}
+
+/**
+ * The inert half of `ConsolidationConfig` (PLAN.md C1). `run_consolidation`
+ * builds its own `StructuralPlasticity` with a `FixedNeighbourhoods` of
+ * size 1, so "structural pass never sprouts, by construction"
+ * (`consolidation.rs`'s own doc comment) -- `sproutPermanence`,
+ * `sproutWeight` and `minActivityStreak` are threaded through the FFI but
+ * can never run. They are fixed here rather than exposed on
+ * `ConsolidationCadence`, so that surface carries only knobs that do
+ * something. `unusedTicksBeforeReclaim` is *not* inert -- `force_sweep`
+ * does call `reclaim_unused_neurons` -- and is held at the same
+ * effectively-off value B5's winner uses for the online sweep, so a
+ * consolidation pass cannot silently delete neurons the online sweep has
+ * decided to keep.
+ */
+const CONSOLIDATION_FIXED = { sproutPermanence: 0.35, sproutWeight: 0.05, minActivityStreak: 1, unusedTicksBeforeReclaim: 10_000_000 } as const;
+
+/**
+ * The seed for the `sleepIndex`-th consolidation pass of a trial run at
+ * `seed` (RUN-3: no ambient randomness, and two runs at the same seed must
+ * sleep identically). Today it reaches only `StructuralPlasticityParams.
+ * seed`, whose one consumer is the sprout segment-assignment draw that
+ * "never sprouts, by construction" means never runs -- so this is
+ * completeness, not live behaviour, and is written down here rather than
+ * left as a magic expression at the call site.
+ */
+function consolidationSeed(seed: bigint, sleepIndex: number): bigint {
+  return seed * 1_000_003n + BigInt(sleepIndex);
+}
+
+/** What the consolidation cadence actually did over one trial (PLAN.md C1) -- reported so an accuracy figure can be read alongside the mechanism's own counts, rather than alongside the assumption that it ran. README §13.12 item 13's closing lesson: a test (or a results table) that a mechanism was *configured* is not one that it did anything. */
+export interface ConsolidationStats {
+  /** How many sleeps happened. */
+  readonly passes: number;
+  /** Summed `ConsolidationReport.replayedSpikes` -- the real number of events replayed, which is capped by whatever the raster actually held. */
+  readonly replayedSpikes: number;
+  /** `replayedSpikes` divided by `ConsolidationCadence.eventsPerCharacter`, i.e. how many characters of history the passes got through in total. A *lower* bound whenever `eventsPerCharacter` is set to a worst-case (late-run) rate, since early in a run each character contributes fewer events than that. */
+  readonly charactersReplayed: number;
+  /** Summed `ConsolidationReport.pruned`. */
+  readonly pruned: number;
 }
 
 const DEFAULT_COLLISION_MARGIN = 0.1;
@@ -535,6 +643,11 @@ export interface TrialResult {
    * Present only when `structuralPlasticity` is configured.
    */
   readonly structuralStats?: StructuralStats;
+  /**
+   * What the consolidation cadence did over the trial (PLAN.md C1).
+   * Present only when `consolidation` is configured.
+   */
+  readonly consolidationStats?: ConsolidationStats;
 }
 
 /** `runCharPredictionTrial`'s optional progress callback: characters processed so far, out of the total. */
@@ -578,6 +691,14 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
   const source = charNextPairs(corpus);
   let context = "";
   let charactersDone = 0;
+
+  // LRN-10 / README §2.9, PLAN.md C1. Accumulated here rather than read
+  // back off the simulation afterwards: `ConsolidationReport` is returned
+  // per call and nothing retains it.
+  const cadence = config.consolidation;
+  let sleeps = 0;
+  let replayedSpikes = 0;
+  let prunedBySleep = 0;
 
   // `tonicModulator`: inject the full level once, then after each input top
   // it up by exactly what `ticksPerInput` ticks of decay removed, so the
@@ -632,6 +753,24 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
     trigram.observe(context, step.actual);
     context = (context + step.input.char).slice(-2);
     charactersDone++;
+    // The sleep itself (LRN-10, README §2.9's "required operating state").
+    // Placed after the character is scored, so a sleep never falls between
+    // presenting a character and scoring its prediction; and skipped on the
+    // final character, where it could not affect any prediction. Every
+    // effect it has -- replayed STDP credit, the global weight downscale,
+    // the aggressive prune -- lands on the network the *next* character
+    // sees, which is the whole point.
+    if (cadence !== undefined && charactersDone % cadence.everyCharacters === 0 && charactersDone < source.length) {
+      sleeps++;
+      const report = sim.runConsolidation(consolidationSeed(seed, sleeps), {
+        replayWindow: cadence.replayWindow,
+        downscaleTargetTotalWeight: cadence.downscaleTargetTotalWeight,
+        pruneFloor: cadence.pruneFloor,
+        ...CONSOLIDATION_FIXED,
+      });
+      replayedSpikes += report.replayedSpikes;
+      prunedBySleep += report.pruned;
+    }
     if (onProgress !== undefined && charactersDone % PROGRESS_EVERY_CHARACTERS === 0) {
       onProgress(charactersDone, source.length);
     }
@@ -643,6 +782,14 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
     trigramAccuracy: trigramAcc.accuracy,
     sampleCount: networkAcc.sampleCount,
     ...(config.structuralPlasticity !== undefined && { structuralStats: sim.structuralStats() }),
+    ...(cadence !== undefined && {
+      consolidationStats: {
+        passes: sleeps,
+        replayedSpikes,
+        charactersReplayed: replayedSpikes / cadence.eventsPerCharacter,
+        pruned: prunedBySleep,
+      } satisfies ConsolidationStats,
+    }),
   };
 }
 

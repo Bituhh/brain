@@ -228,3 +228,48 @@ test("B5's config options (voteReferenceWeight, predictiveLearningTarget, homeos
     "with weighted votes, configuring homeostaticScaling must produce a measurably different result",
   );
 });
+
+// PLAN.md C1: the consolidation cadence (LRN-10, README §2.9) must reach
+// the native `runConsolidation` path and do something to the network --
+// not merely be present in the config. Written deliberately against the
+// *mechanism* rather than a counter, per README §13.12 item 13's closing
+// lesson (`canonicalBrain.ts` shipped `growth` without `newbornMaturation`
+// for five days behind a test that asserted `growthEventCount()` moved).
+test("a consolidation cadence sleeps on schedule, replays real events, prunes real synapses, and is inert when it never fires (PLAN.md C1)", () => {
+  const config = { ...DEFAULT_CONFIG, slidingWindow: 100 };
+  const baseline = runCharPredictionTrial(corpus, 1n, config);
+  assert.equal(baseline.consolidationStats, undefined, "an unconfigured cadence must report no consolidation stats at all");
+
+  // 92 events per character is the VAL-4-scale measurement (see
+  // `ConsolidationCadence`); this fixture slice is 400 characters, so a
+  // 100-character cadence gives three sleeps -- the fourth would land on
+  // the final character, where a sleep cannot affect any prediction and is
+  // deliberately skipped.
+  const cadence = { everyCharacters: 100, replayWindow: 100 * 92, downscaleTargetTotalWeight: 3.0, pruneFloor: 0.0, eventsPerCharacter: 92 };
+  const slept = runCharPredictionTrial(corpus, 1n, { ...config, consolidation: cadence });
+  const stats = slept.consolidationStats;
+  assert.ok(stats !== undefined, "a configured cadence must report consolidation stats");
+  assert.equal(stats.passes, 3, "400 characters at a 100-character cadence is three sleeps: the one on the last character is skipped");
+  assert.ok(stats.replayedSpikes > 0, "each sleep must actually replay recorded events, not run an empty pass");
+  assert.ok(stats.charactersReplayed > 0);
+  assert.notDeepEqual(
+    { accuracy: slept.networkAccuracy, samples: slept.sampleCount },
+    { accuracy: baseline.networkAccuracy, samples: baseline.sampleCount },
+    "sleeping must measurably change the run -- replay drives the same commit/delivery/plasticity path a live spike does",
+  );
+
+  // RUN-3: two runs of the same seed and cadence must agree exactly.
+  assert.deepEqual(runCharPredictionTrial(corpus, 1n, { ...config, consolidation: cadence }), slept, "a configured cadence must stay bit-identical across repeated runs of the same seed/config");
+
+  // The prune really reaches synapses, rather than the floor being a
+  // number nothing compares against: `columnConfig`'s `initialPermanence`
+  // is 0.4, so a floor above it must remove some.
+  const pruning = runCharPredictionTrial(corpus, 1n, { ...config, consolidation: { ...cadence, pruneFloor: 0.45 } });
+  assert.ok(pruning.consolidationStats!.pruned > 0, "a prune floor above every synapse's initial permanence must actually prune");
+
+  // A cadence wider than the corpus never fires, and a cadence that never
+  // fires must leave the run exactly as it was.
+  const never = runCharPredictionTrial(corpus, 1n, { ...config, consolidation: { ...cadence, everyCharacters: 10_000 } });
+  assert.equal(never.consolidationStats!.passes, 0);
+  assert.equal(never.networkAccuracy, baseline.networkAccuracy, "a cadence that never fires must not change the run at all");
+});

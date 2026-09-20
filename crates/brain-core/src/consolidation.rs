@@ -211,12 +211,21 @@ impl Scheduler {
             seed,
             segments_per_neuron: 1,
             spread_sprout_segments: false,
-            // PLAN.md B4 fix 4: off. Sleep does prune in the brain, and
-            // eliminating still-silent contacts during this pass would be a
-            // defensible reading of it, but `ConsolidationParams` carries no
-            // elimination window and B4 did not ask this item to extend
-            // LRN-10's pass -- recorded as a follow-up in README §12
-            // decision 12 rather than guessed at here.
+            // PLAN.md B4 fix 4: off, and PLAN.md C1 (2026-09-19) settles
+            // the follow-up README §12 decision 12 deferred here rather
+            // than leaving it open. Two reasons it stays off, not one.
+            // (1) With the canonical `silent_transmits: true` (README §12
+            // decision 13), silence is no longer a functional state: a
+            // "silent" synapse delivers at its own weight and casts a
+            // weighted dendritic vote exactly like any other, so
+            // eliminating on that flag eliminates on bookkeeping rather
+            // than on a property. (2) B5 measured the consequence of doing
+            // it anyway on the *online* sweep, which is the same deletion
+            // at a different cadence: accuracy fell from ~20.2% to ~9.4%,
+            // because ~55,000 usefully-transmitting sprouts carry the flag.
+            // `prune_floor` already sees every synapse by permanence,
+            // silent or not, which is the criterion that means something
+            // here.
             silent_elimination_ticks: None,
         };
         let mut sp = StructuralPlasticity::new(sp_params, FixedNeighbourhoods::new(1, 1));
