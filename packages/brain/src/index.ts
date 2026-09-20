@@ -30,6 +30,8 @@ import {
   type GrowthConfig,
   type NewbornMaturationConfig,
   type SilentSynapsesConfig,
+  type PredictionErrorCouplingConfig,
+  type ChannelDriveConfig,
   type ProbeOptionsFfi,
   type ProbeDataFfi,
   type SegmentSampleFfi,
@@ -58,6 +60,8 @@ export type {
   GrowthConfig,
   NewbornMaturationConfig,
   SilentSynapsesConfig,
+  PredictionErrorCouplingConfig,
+  ChannelDriveConfig,
 };
 
 /**
@@ -199,6 +203,22 @@ export interface SimulationOptions {
    */
   silentSynapses?: SilentSynapsesConfig;
   /**
+   * PLAN.md C2: drives neuromodulator channels from the network's own
+   * prediction error (LRN-5, LRN-8, README §2.5/§2.7). `undefined` (default)
+   * leaves every channel exactly as before C2 -- only ever written by an
+   * explicit `injectModulator`/`reward` call.
+   *
+   * One two-timescale estimate of the prediction-failure rate feeds two
+   * channels, because Yu & Dayan (2005) assign acetylcholine *expected*
+   * uncertainty and noradrenaline *unexpected* uncertainty, and those are the
+   * slow term and the (fast − slow) term of the same estimate.
+   *
+   * Needs `predictiveLearning` to do anything: the tally it reduces is
+   * produced by LRN-8's per-neuron classification, so without that nothing is
+   * ever classified and both signals stay at "no evidence".
+   */
+  predictionErrorCoupling?: PredictionErrorCouplingConfig;
+  /**
    * Number of native threads `PartitionRuntime` should use (Requirement 7
    * AC1, Phase 4 RUN-4). Omit or pass 1 for today's exact single-threaded
    * behaviour -- the default, and the only mode `snapshot()`/`restore()`
@@ -250,6 +270,7 @@ function hashConfig(lif: LifConfig, options: SimulationOptions): bigint {
       // Only present when set, so every config hashed before this option
       // existed still hashes the same and its snapshots still restore.
       ...(options.silentSynapses !== undefined && { silentSynapses: options.silentSynapses }),
+      ...(options.predictionErrorCoupling !== undefined && { predictionErrorCoupling: options.predictionErrorCoupling }),
     },
     (_key, value) => (typeof value === "bigint" ? value.toString() : value),
   );
@@ -462,6 +483,7 @@ export class Simulation {
         options.growth ?? null,
         options.newbornMaturation ?? null,
         options.silentSynapses ?? null,
+        options.predictionErrorCoupling ?? null,
         options.threadCount ?? null,
         options.totalNeurons ?? null,
       ),
@@ -510,6 +532,7 @@ export class Simulation {
       options.growth ?? null,
       options.newbornMaturation ?? null,
       options.silentSynapses ?? null,
+      options.predictionErrorCoupling ?? null,
     );
     return new Simulation(native, lif, options);
   }
@@ -581,6 +604,16 @@ export class Simulation {
    */
   modulatorLevels(): number[] {
     return this.#native.modulatorLevels();
+  }
+
+  /**
+   * PLAN.md C2's two derived signals, `[surprise, expected]` -- unexpected and
+   * expected uncertainty, both in `[0, 1]`, as the estimator currently reads
+   * them. Empty when no `predictionErrorCoupling` is configured; `-1` means
+   * "no evidence yet", deliberately distinguishable from a genuine `0`.
+   */
+  predictionErrorSignals(): number[] {
+    return this.#native.predictionErrorSignals();
   }
 
   /** Advances by one tick, returning the indices that spiked. */

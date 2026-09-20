@@ -32,6 +32,7 @@ fn correct_prediction_proportion_rises_across_exposures_to_a_repeating_sequence(
         burst_sprout_weight: 0.05,
         recently_active_window_ticks: 20,
         modulator_index: None,
+        gain_modulator_index: None,
         learning_target: SegmentLearningTarget::Permanence,
     };
     let mut sched = Scheduler::new(4, 0.3)
@@ -102,6 +103,7 @@ fn no_label_or_external_error_signal_is_needed_anywhere_in_this_path() {
         burst_sprout_weight: 0.05,
         recently_active_window_ticks: 20,
         modulator_index: None,
+        gain_modulator_index: None,
         learning_target: SegmentLearningTarget::Permanence,
     };
     let mut sched = Scheduler::new(4, 0.3)

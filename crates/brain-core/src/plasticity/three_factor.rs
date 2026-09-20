@@ -41,6 +41,27 @@ pub struct ThreeFactorParams {
     /// Which of `Modulators`' four channels drives this rule (LRN-5) --
     /// e.g. `plasticity::DOPAMINE`.
     pub modulator_index: usize,
+    /// A *second*, multiplicative broadcast scalar on the same update
+    /// (PLAN.md C2): `learning_rate x eligibility x modulators[modulator_index]
+    /// x modulators[gain_modulator_index]`. `None` -- every pre-existing
+    /// caller, and what [`ThreeFactorParams::new`] sets -- means "x 1.0",
+    /// bit-identical to before this field existed.
+    ///
+    /// Separate from `modulator_index` for the reason
+    /// `predictive::PredictiveLearningParams::gain_modulator_index` spells
+    /// out: that one *routes* (which signal licenses this change),
+    /// this one *scales* (how strongly anything being encoded right now is
+    /// encoded). The distinction is load-bearing here specifically because
+    /// the shipped VAL-4 configuration already uses `modulator_index` --
+    /// it routes on acetylcholine, held at a constant 1.0 by
+    /// `charPrediction.ts`'s `tonicModulator` -- so a surprise signal had
+    /// nowhere to go without displacing a channel already in use.
+    ///
+    /// LRN-4 is unaffected: `delta_w = eta x eligibility x modulator` still
+    /// holds, with the modulator being a product of two broadcast scalars,
+    /// which is itself a broadcast scalar carrying no per-synapse routing
+    /// information (LRN-5, invariant 2).
+    pub gain_modulator_index: Option<usize>,
 }
 
 impl ThreeFactorParams {
@@ -52,7 +73,18 @@ impl ThreeFactorParams {
             eligibility_decay_per_tick: (-1.0 / tau_eligibility_ticks).exp(),
             learning_rate,
             modulator_index,
+            gain_modulator_index: None,
         }
+    }
+
+    /// PLAN.md C2: opts this rule into a second, multiplicative broadcast
+    /// gain -- see [`Self::gain_modulator_index`]. Left off by
+    /// [`Self::new`] so every pre-existing caller stays bit-identical
+    /// (Requirement 5.2).
+    pub fn with_gain_channel(mut self, index: usize) -> Self {
+        debug_assert!(index < super::NUM_MODULATORS);
+        self.gain_modulator_index = Some(index);
+        self
     }
 }
 
@@ -77,7 +109,11 @@ impl ThreeFactorStdp {
 
     fn apply_modulated_update(&self, syn: &mut SynapseMut<'_>, ctx: &LocalContext) {
         let modulator = ctx.modulators[self.params.modulator_index];
-        let delta = self.params.learning_rate * *syn.eligibility * modulator;
+        // PLAN.md C2. `map_or(1.0, ..)` rather than a branch so the
+        // unconfigured case is arithmetically identical to the pre-C2
+        // expression, not merely close to it.
+        let gain = self.params.gain_modulator_index.map_or(1.0, |i| ctx.modulators[i]);
+        let delta = self.params.learning_rate * *syn.eligibility * modulator * gain;
         *syn.weight += delta;
     }
 }

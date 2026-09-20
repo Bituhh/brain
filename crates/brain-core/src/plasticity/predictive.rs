@@ -127,6 +127,26 @@ pub struct PredictiveLearningParams {
     /// one-time values, not a reinforcement event -- see
     /// `reinforce_or_sprout_burst`).
     pub modulator_index: Option<usize>,
+    /// A *second*, multiplicative broadcast scalar on the same deltas
+    /// (PLAN.md C2): `delta x modulators[modulator_index] x
+    /// modulators[gain_modulator_index]`. `None` -- every pre-existing
+    /// caller -- means "x 1.0", bit-identical to before this field existed.
+    ///
+    /// Separate from `modulator_index` above because the two answer
+    /// different questions, and collapsing them would make the second
+    /// unusable once the first is in use. `modulator_index` *routes*: it
+    /// names the channel whose level says this kind of change is warranted
+    /// at all (dopamine, once LRN-11's reward signal drives permanence).
+    /// This one *scales*: it names the channel whose level says how
+    /// strongly anything being encoded right now should be encoded --
+    /// noradrenaline's "surprise/arousal" (README §2.5), driven from the
+    /// network's own prediction-failure rate by
+    /// [`crate::neuromodulator::NoradrenalineCoupling`].
+    ///
+    /// Still one broadcast scalar as far as LRN-5 and invariant 2 are
+    /// concerned: a product of two values that each carry no per-synapse
+    /// routing information carries none either.
+    pub gain_modulator_index: Option<usize>,
 }
 
 /// Tracks per-neuron "which segment most recently fired" -- the
@@ -179,6 +199,71 @@ pub enum PredictionOutcome {
     NoPrediction,
 }
 
+/// A tick's worth of [`PredictionOutcome`]s, tallied (PLAN.md C2).
+///
+/// The counts are integers, and that is the point rather than an
+/// implementation detail: a partitioned runtime sums one of these per
+/// partition before deriving anything from it (`partition.rs`), and
+/// integer addition is associative, so the network-wide tally is identical
+/// however the neurons were split across partitions (RUN-6). Deriving a
+/// float per partition and averaging would not be.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PredictionOutcomeCounts {
+    /// 12.3: predicted and fired.
+    pub correct: u32,
+    /// 12.2: predicted but did not fire.
+    pub false_positive: u32,
+    /// 12.1: fired with no significant prediction.
+    pub unpredicted: u32,
+}
+
+impl PredictionOutcomeCounts {
+    /// Tallies one outcome. [`PredictionOutcome::NoPrediction`] is
+    /// deliberately not counted anywhere -- a neuron that neither
+    /// predicted nor fired is not evidence about prediction quality in
+    /// either direction, and including it in the denominator would make
+    /// the failure rate a measure of network *sparsity* instead.
+    pub fn record(&mut self, outcome: PredictionOutcome) {
+        match outcome {
+            PredictionOutcome::CorrectPrediction => self.correct += 1,
+            PredictionOutcome::FalsePositive => self.false_positive += 1,
+            PredictionOutcome::UnpredictedSpike => self.unpredicted += 1,
+            PredictionOutcome::NoPrediction => {}
+        }
+    }
+
+    /// Adds another tally into this one -- a partitioned runtime's
+    /// per-partition merge (RUN-6). Order-independent by construction.
+    pub fn merge(&mut self, other: Self) {
+        self.correct += other.correct;
+        self.false_positive += other.false_positive;
+        self.unpredicted += other.unpredicted;
+    }
+
+    pub fn total(&self) -> u32 {
+        self.correct + self.false_positive + self.unpredicted
+    }
+
+    /// The fraction of this tick's classified neurons whose prediction
+    /// failed, in `[0, 1]` -- README §2.7's prediction error, aggregated to
+    /// a single scalar before anything can route on it (LRN-5, invariant
+    /// 2).
+    ///
+    /// `None` when nothing was classified at all: there is no evidence
+    /// this tick, which is a different statement from "nothing failed", and
+    /// a caller that conflated the two would read a silent tick as a
+    /// confident prediction. [`crate::neuromodulator::NoradrenalineCoupling`]
+    /// drives toward its neutral baseline on such a tick.
+    pub fn failure_rate(&self) -> Option<f32> {
+        let total = self.total();
+        if total == 0 {
+            None
+        } else {
+            Some((self.false_positive + self.unpredicted) as f32 / total as f32)
+        }
+    }
+}
+
 pub struct PredictiveLearning {
     params: PredictiveLearningParams,
     neighbourhoods: FixedNeighbourhoods,
@@ -190,6 +275,10 @@ impl PredictiveLearning {
             params.modulator_index.is_none_or(|i| i < crate::plasticity::NUM_MODULATORS),
             "modulator_index must be a valid channel index"
         );
+        debug_assert!(
+            params.gain_modulator_index.is_none_or(|i| i < crate::plasticity::NUM_MODULATORS),
+            "gain_modulator_index must be a valid channel index"
+        );
         Self { params, neighbourhoods }
     }
 
@@ -197,7 +286,12 @@ impl PredictiveLearning {
     /// today's fixed amount (no `NeuromodulatorField` read at all);
     /// `Some(idx)` scales by the ambient level at that channel.
     fn modulator_scale(&self, modulators: crate::plasticity::Modulators) -> f32 {
-        self.params.modulator_index.map_or(1.0, |i| modulators[i])
+        let routed = self.params.modulator_index.map_or(1.0, |i| modulators[i]);
+        // PLAN.md C2: multiplicative, not a second additive term. "How
+        // strongly is this encoded" scales whatever the routing channel
+        // already licensed; it does not license a change of its own.
+        let gain = self.params.gain_modulator_index.map_or(1.0, |i| modulators[i]);
+        routed * gain
     }
 
     /// Requirement 12.2/12.3's reinforce/punish. `synapses.incoming(neuron)`
@@ -441,6 +535,7 @@ mod tests {
             burst_sprout_weight: 0.05,
             recently_active_window_ticks: 20,
             modulator_index: None,
+            gain_modulator_index: None,
             learning_target: SegmentLearningTarget::Permanence,
         }
     }

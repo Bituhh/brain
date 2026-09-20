@@ -19,3 +19,6 @@ Thumbs.db
 # B4/B5 value search: smoke-run outputs are plumbing checks, never results
 scripts/tune-b4-values.smoke.*
 scripts/tune-b5-values.smoke.*
+
+# Battery stdout redirects duplicate the run log the script writes itself
+scripts/*.stdout.log

@@ -128,6 +128,7 @@ fn predictive_learning_params() -> PredictiveLearningParams {
         burst_sprout_weight: 0.05,
         recently_active_window_ticks: 10,
         modulator_index: None,
+        gain_modulator_index: None,
         learning_target: SegmentLearningTarget::Permanence,
     }
 }

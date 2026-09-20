@@ -131,6 +131,7 @@
 use crate::arena::{NeuronArena, NeuronArenaViewMut};
 use crate::column::ColumnRegistry;
 use crate::neuron::NeuronDynamics;
+use crate::neuromodulator::PredictionErrorCoupling;
 use crate::plasticity::homeostatic::HomeostaticScaling;
 use crate::plasticity::structural::StructuralPlasticity;
 use crate::plasticity::{Modulators, NeuronLocal};
@@ -412,6 +413,22 @@ pub struct PartitionRuntime {
     /// (Requirement 4, Acceptance Criterion 2), exactly as the pre-existing
     /// `maybe_sweep_partitioned` was built for in Phase 4 Step 19.
     structural_plasticity: Option<StructuralPlasticity>,
+    /// `None` means PLAN.md C2's prediction-error coupling never runs --
+    /// every pre-C2 behaviour.
+    ///
+    /// One shared instance, like `homeostatic_scaling` above, but for a
+    /// sharper reason than "it needs the whole arena": it needs the whole
+    /// *network's* prediction-outcome tally, and it carries evolving state.
+    /// Each partition classifies only its own neurons, so a per-partition
+    /// coupling would both broadcast a different level in each partition and
+    /// advance its estimator N times per tick -- partitioned runs would stop
+    /// matching single-threaded ones twice over (RUN-3, RUN-6). `step`
+    /// therefore merges every partition's integer `PredictionOutcomeCounts`
+    /// into one tally, advances this **one** estimator with it, and then
+    /// drives every partition's field from it. Integer addition being
+    /// associative is what makes the tally independent of how neurons were
+    /// split.
+    prediction_error_coupling: Option<PredictionErrorCoupling>,
 }
 
 impl PartitionRuntime {
@@ -423,6 +440,17 @@ impl PartitionRuntime {
     /// otherwise.
     pub fn new(plan: PartitionPlan, schedulers: Vec<Scheduler>, synapses: &SynapseArena, neuron_count: u32) -> Self {
         assert_eq!(plan.partition_count(), schedulers.len(), "one Scheduler per partition is required");
+        // PLAN.md C2: refuse rather than silently ignore. A scheduler's own
+        // coupling is applied by `Scheduler::step`, which this runtime never
+        // calls, so accepting one here would reproduce README §12a item 8's
+        // "configured, and configures nothing" defect exactly. Use
+        // [`Self::with_noradrenaline_coupling`] instead -- it has to be a
+        // separate call regardless, because the tally must be merged across
+        // partitions first.
+        assert!(
+            !schedulers.iter().any(Scheduler::has_prediction_error_coupling),
+            "a Scheduler's own prediction-error coupling is inert inside a PartitionRuntime (it is applied by Scheduler::step, which this runtime never calls) --              configure it with PartitionRuntime::with_prediction_error_coupling, which merges the tally across partitions first (PLAN.md C2, RUN-6)"
+        );
         let boundary_neurons = boundary_neurons(&plan, synapses, neuron_count);
         let pending_post_spike = (0..schedulers.len()).map(|_| Vec::new()).collect();
         Self {
@@ -434,6 +462,7 @@ impl PartitionRuntime {
             executor: Executor::Sequential,
             homeostatic_scaling: None,
             structural_plasticity: None,
+            prediction_error_coupling: None,
         }
     }
 
@@ -453,6 +482,32 @@ impl PartitionRuntime {
     pub fn with_structural_plasticity(mut self, plasticity: StructuralPlasticity) -> Self {
         self.structural_plasticity = Some(plasticity);
         self
+    }
+
+    /// Enables PLAN.md C2's prediction-error coupling as an always-on,
+    /// opt-in part of `step()`, the partitioned counterpart to
+    /// [`Scheduler::with_prediction_error_coupling`]. See the field's own doc
+    /// comment for why the tally must be merged across every partition before
+    /// any partition's field is touched.
+    pub fn with_prediction_error_coupling(mut self, coupling: PredictionErrorCoupling) -> Self {
+        // Every partition's field, identically -- see
+        // `PredictionErrorCoupling::seed_baselines`. Seeding only partition 0
+        // would make the very first ticks partition-dependent (RUN-6).
+        for scheduler in &mut self.schedulers {
+            scheduler.seed_modulator_baselines(&coupling);
+        }
+        self.prediction_error_coupling = Some(coupling);
+        self
+    }
+
+    /// The shared coupling's evolving state, if attached (RUN-9a).
+    pub fn prediction_error_raw_state(&self) -> Option<crate::neuromodulator::PredictionErrorRawState> {
+        self.prediction_error_coupling.as_ref().map(PredictionErrorCoupling::raw_state)
+    }
+
+    /// The shared coupling's two derived signals, `(surprise, expected)`.
+    pub fn prediction_error_signals(&self) -> Option<(Option<f32>, Option<f32>)> {
+        self.prediction_error_coupling.as_ref().map(PredictionErrorCoupling::signals)
     }
 
     /// The shared `StructuralPlasticity`'s running totals, if attached
@@ -832,6 +887,31 @@ impl PartitionRuntime {
         // than `self.tick()`, matching the convention `Scheduler::step`'s own
         // equivalent hook and every existing hand-rolled test loop use.
         let tick = reports[0].tick;
+        // PLAN.md C2, and the one place this mechanism's determinism is
+        // actually decided: merge *first*, across every partition, then
+        // advance one estimator and drive every partition's field from it.
+        // Merging in partition-id order over integers is order-independent,
+        // so the tally -- and therefore the levels every partition broadcasts
+        // next tick -- is identical to the single-threaded run's
+        // (`tests/partitioning_reference.rs`). Placed alongside the other
+        // whole-network sweeps, and after `record_tick_observables`, for
+        // the same "end of tick, before the next one reads it" reason
+        // `Scheduler::step` places it after its own sweeps.
+        if let Some(mut coupling) = self.prediction_error_coupling.take() {
+            let mut merged = crate::plasticity::predictive::PredictionOutcomeCounts::default();
+            for report in &reports {
+                merged.merge(report.outcomes);
+            }
+            // Observe ONCE, from the merged tally, then drive every partition
+            // from that one estimator. Observing per partition would advance
+            // the estimator `partition_count` times per tick and make its
+            // decay depend on the partitioning (RUN-6).
+            coupling.observe(merged);
+            for p in 0..self.schedulers.len() {
+                self.schedulers[p].drive_modulators_from(&coupling, tick);
+            }
+            self.prediction_error_coupling = Some(coupling);
+        }
         if let Some(scaling) = &mut self.homeostatic_scaling {
             scaling.maybe_apply(neurons, synapses, tick);
         }

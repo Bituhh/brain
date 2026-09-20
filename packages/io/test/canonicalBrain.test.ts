@@ -6,7 +6,7 @@
 // assert anything the known, open defects (README §13.12 items 11-14)
 // would fail -- e.g. no claim about E/I balance or about growth/structural
 // plasticity *improving* anything, since neither is measured here. The
-// point is a fixture later items (A2, B1, C1, C2, D1-D3, ...) tighten as
+// point is a fixture later items (A2, B1, C1, C2, D1-D4, ...) tighten as
 // each fix lands, per this constructor's own module doc.
 
 import { test } from "node:test";
@@ -47,6 +47,8 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
 
   let spikeCountSum = 0;
   let newbornSpikeCount = 0;
+  // PLAN.md C2: per-tick samples of the two channels the coupling drives.
+  const drivenLevels: Array<[number, number]> = [];
   for (let i = 0; i < TICKS; i++) {
     const pattern = PATTERNS[i % PATTERNS.length]!;
     column.stimulateSdr(sim, pattern, 10.0);
@@ -60,18 +62,41 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
     sim.recordGrowthActivation(i % 3 === 0);
 
     if (i === Math.floor(TICKS / 4)) {
-      // LRN-11's dopamine channel, and LRN-5's other three -- exercised at
-      // least once each so this constructor does not repeat
-      // `charPrediction.ts`'s "only ever injects DOPAMINE" narrowness
-      // (see canonicalBrain.ts's module doc). Not derived from any real
-      // signal -- driving noradrenaline from prediction error is PLAN.md's
-      // dedicated C2 item, out of scope here.
+      // LRN-11's dopamine channel, plus serotonin, which still has no
+      // producer of its own (PLAN.md F19 records why it is deferred rather
+      // than built). Acetylcholine and noradrenaline are deliberately NOT
+      // injected by hand any more: PLAN.md C2 gave them a real producer, and
+      // a hand-held injection on top would be a second writer fighting it.
       sim.reward(1.0);
-      sim.injectModulator(1, 0.5); // ACETYLCHOLINE
-      sim.injectModulator(2, 0.5); // NORADRENALINE
       sim.injectModulator(3, 0.5); // SEROTONIN
     }
+    // PLAN.md C2: sample the two driven channels as the run proceeds, so the
+    // assertion below can be about the mechanism rather than about a counter
+    // (README §13.12 item 13's own lesson, which this very file learned the
+    // hard way with `growth` and `newbornMaturation`).
+    drivenLevels.push([sim.modulatorLevels()[1] ?? 0, sim.modulatorLevels()[2] ?? 0]);
   }
+
+  // PLAN.md C2: the coupling is live, not merely configured. Asserting that
+  // `modulatorLevels()` returns four finite numbers would pass for a network
+  // that never wrote the channels at all -- what makes this a test of the
+  // mechanism is that the two C2-driven channels MOVED, under nothing but the
+  // network's own prediction error, with no injection on either.
+  const achSeries = drivenLevels.map((l) => l[0] ?? 0);
+  const naSeries = drivenLevels.map((l) => l[1] ?? 0);
+  const spread = (v: number[]): number => Math.max(...v) - Math.min(...v);
+  assert.ok(
+    spread(achSeries) > 1e-6,
+    `acetylcholine must be driven by C2's coupling, not left flat -- spread ${spread(achSeries)} over ${achSeries.length} ticks`,
+  );
+  assert.ok(
+    spread(naSeries) > 1e-6,
+    `noradrenaline must be driven by C2's coupling, not left flat -- spread ${spread(naSeries)} over ${naSeries.length} ticks`,
+  );
+  assert.ok(
+    achSeries.every((l) => l >= 0) && naSeries.every((l) => l >= 0),
+    "a driven level must never go negative -- a negative modulator would invert the sign of every gated update",
+  );
 
   // OBS-2: always-on metrics are reachable and well-formed.
   const levels = sim.modulatorLevels();
@@ -302,4 +327,75 @@ test("the canonical brain is deterministic across repeated runs of the same seed
   const a = run();
   const b = run();
   assert.deepEqual(b, a, "two runs built from the identical seed must produce bit-identical per-tick spike counts and final live neuron count");
+});
+
+/**
+ * **A known gap, pinned so it cannot be forgotten: both of this constructor's
+ * *modulated* learning rules are wired correctly and inert, because the channel
+ * they route on has no producer.** Found 2026-09-20 while reviewing what PLAN.md
+ * C2 had actually switched on here.
+ *
+ * `plasticity.modulatorChannel` and `predictiveLearning.modulatorIndex` are both
+ * `0` — an *index* (DOPAMINE), not a level — and nothing in `canonicalBrain.ts`
+ * ever injects dopamine. The three-factor rule computes
+ * `delta = rate x eligibility x modulator` and predictive learning scales its
+ * reinforce/punish by the same level, so both multiply by exactly zero on every
+ * tick of every run this constructor produces.
+ *
+ * **This test deliberately asserts the broken state, not the desired one.** The
+ * alternative — asserting the level is non-zero — would be a test that fails
+ * today and gets skipped or deleted. Pinning the gap instead means PLAN.md C3
+ * (dopamine: a real reward *prediction error*) cannot land without coming here
+ * and flipping these assertions, which is the point.
+ *
+ * **The trap this closes** is the one README §13.12 item 13 keeps rediscovering
+ * in this very file: weight and permanence *do* move in the shipped
+ * configuration, so "the numbers changed" reads as "learning works". They move
+ * because of LRN-6 homeostatic scaling and the burst-sprout path, neither of
+ * which is modulator-gated. Asserting that something moved would pass for a
+ * network whose modulated rules are dead — which is exactly the situation.
+ */
+test("both modulated learning rules are inert until dopamine has a producer, and this pins that gap for PLAN.md C3", () => {
+  const DOPAMINE = 0;
+
+  function run(injectDopamine: boolean): { permanence: number; weight: number; dopamineWasEverNonZero: boolean } {
+    const { sim, column } = buildCanonicalBrain(SEED);
+    let dopamineWasEverNonZero = false;
+    for (let i = 0; i < TICKS; i++) {
+      if (injectDopamine) sim.reward(1.0);
+      column.stimulateSdr(sim, PATTERNS[i % PATTERNS.length]!, 10.0);
+      sim.step();
+      if ((sim.modulatorLevels()[DOPAMINE] ?? 0) !== 0) dopamineWasEverNonZero = true;
+    }
+    const metrics = sim.metricsSnapshot();
+    return { permanence: metrics.meanPermanence, weight: metrics.meanWeight, dopamineWasEverNonZero };
+  }
+
+  const shipped = run(false);
+  const driven = run(true);
+
+  // 1. The gap itself. C3 flips this.
+  assert.equal(
+    shipped.dopamineWasEverNonZero,
+    false,
+    "as shipped, nothing injects dopamine, so the level is exactly 0 on every tick -- if this now fails, a producer has appeared (PLAN.md C3) and the rest of this test should be rewritten to assert the mechanism rather than the gap",
+  );
+
+  // 2. The trap: state moves anyway, so "something changed" proves nothing.
+  assert.notEqual(shipped.weight, 0.4, "weight moves regardless -- LRN-6 homeostatic scaling renormalises it, with no modulator involved");
+  assert.ok(shipped.permanence > 0, "permanence moves regardless -- the burst-sprout path is deliberately not modulator-gated");
+
+  // 3. Both rules ARE correctly wired: supply the missing producer and both
+  //    variables take a different trajectory. This is what distinguishes
+  //    "inert because unwired" from "inert because undriven".
+  assert.notEqual(
+    driven.weight,
+    shipped.weight,
+    "with dopamine injected the three-factor rule finally contributes, so mean weight must differ -- if these are equal, LRN-2/3/4 is not merely undriven but disconnected",
+  );
+  assert.notEqual(
+    driven.permanence,
+    shipped.permanence,
+    "with dopamine injected predictive learning's reinforce/punish finally contributes, so mean permanence must differ -- if these are equal, LRN-8's 12.2/12.3 path is disconnected",
+  );
 });

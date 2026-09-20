@@ -51,6 +51,7 @@ use crate::column::{ColumnRegistry, ColumnSpec};
 use crate::growth::GrowthRawState;
 use crate::inhibition::FixedNeighbourhoods;
 use crate::plasticity::{Modulators, NUM_MODULATORS};
+use crate::neuromodulator::PredictionErrorRawState;
 use crate::plasticity::newborn::NewbornMaturationRawState;
 use crate::scheduler::{Scheduler, SweepSchedulingRawState};
 use crate::segment::{BinaryCoincidenceParams, DendriticVote, SegmentConfig};
@@ -213,7 +214,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// supplied fresh via `with_predictive_learning` at restore time, and its
 /// consistency with the snapshot is the FFI config hash's job
 /// (`packages/brain/src/index.ts`'s `hashConfig`), not this module's.
-pub const FORMAT_VERSION: u32 = 12;
+pub const FORMAT_VERSION: u32 = 13;
 /// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
 /// concrete and falsifiable: `read` migrates any snapshot from this
 /// version through `FORMAT_VERSION`. Widen this only alongside an actual
@@ -686,6 +687,41 @@ fn read_sweep_scheduling_state(r: &mut Reader<'_>) -> Result<SweepSchedulingRawS
 /// B3): unlike `write_sweep_scheduling_state`'s five independently-flagged
 /// mechanisms, there is exactly one mechanism here, so one flag byte
 /// suffices, matching `write_growth_state`'s single-flag precedent.
+/// PLAN.md C2's prediction-error estimator (version 13). A new *trailing*
+/// section with a presence byte, following `newborn_maturation`'s precedent
+/// exactly: absent in every version-12-and-earlier snapshot, and absent again
+/// whenever the scheduler carries no coupling, so a pre-C2 network's snapshot
+/// is unchanged in content as well as in behaviour.
+///
+/// Four f32s and nothing else. Deliberately *not* the decay constants: those
+/// are derived from caller-supplied `tau_fast_ticks`/`tau_slow_ticks` config,
+/// which this module requires to be supplied fresh on restore (see the module
+/// docs) rather than reconstructed from the file.
+fn write_prediction_error_state(w: &mut Writer, state: Option<&PredictionErrorRawState>) {
+    match state {
+        Some(s) => {
+            w.u8(1);
+            w.f32(s.fast_correct);
+            w.f32(s.fast_failure);
+            w.f32(s.slow_correct);
+            w.f32(s.slow_failure);
+        }
+        None => w.u8(0),
+    }
+}
+
+fn read_prediction_error_state(r: &mut Reader<'_>) -> Result<Option<PredictionErrorRawState>, SnapshotError> {
+    if r.u8()? != 1 {
+        return Ok(None);
+    }
+    Ok(Some(PredictionErrorRawState {
+        fast_correct: r.f32()?,
+        fast_failure: r.f32()?,
+        slow_correct: r.f32()?,
+        slow_failure: r.f32()?,
+    }))
+}
+
 fn write_newborn_maturation_state(w: &mut Writer, state: Option<&NewbornMaturationRawState>) {
     match state {
         Some(s) => {
@@ -1019,6 +1055,8 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
 
     write_column_votes(&mut w, columns);
 
+    write_prediction_error_state(&mut w, scheduler.prediction_error_raw_state().as_ref());
+
     w.buf
 }
 
@@ -1076,6 +1114,13 @@ pub struct Restored {
     /// (that call is already a no-op otherwise), matching
     /// `growth_state`'s own precedent exactly.
     pub newborn_maturation: Option<NewbornMaturationRawState>,
+    /// PLAN.md C2's prediction-error estimator state (version 13+). `None`
+    /// for an older snapshot, or when the snapshotting scheduler carried no
+    /// coupling -- either way, apply via
+    /// `Scheduler::restore_prediction_error_raw_state` only if present, and
+    /// note that method ignores it when the restoring scheduler was built
+    /// without a coupling of its own.
+    pub prediction_error: Option<PredictionErrorRawState>,
 }
 
 /// Restores a snapshot written by [`write`]. `expected_config_hash` must
@@ -1198,6 +1243,12 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
         read_column_votes(&mut r, &mut columns)?;
     }
 
+    // PLAN.md C2 (version 13): the newest trailing section, read last because
+    // it is written last -- read order and write order are the format, and a
+    // mismatch surfaces as `Corrupt` rather than as wrong values, which is the
+    // intended failure mode (Requirement 16.8's "fail loudly").
+    let prediction_error = if header.version >= 13 { read_prediction_error_state(&mut r)? } else { None };
+
     // Leftover bytes mean the payload is not the shape its version claims
     // (see `FORMAT_VERSION`'s doc comment).
     if r.pos != bytes.len() {
@@ -1221,6 +1272,7 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
         growth_state,
         sweep_scheduling,
         newborn_maturation,
+        prediction_error,
     })
 }
 
@@ -1310,7 +1362,7 @@ mod tests {
         let (segment_counts, segment_last_touched_tick) = scheduler.segment_coincidence_raw_state();
         let (segment_threshold, segment_rate_estimate, segment_last_depolarised_tick) = scheduler.segment_threshold_raw_state();
         // (version that introduced the section, its size), in write order.
-        let sections: [(u32, usize); 11] = [
+        let sections: [(u32, usize); 12] = [
             (2, measure(|w| write_columns(w, columns))),
             (3, measure(|w| write_modulator_state(w, modulator_levels, modulator_last_updated_at))),
             (4, measure(|w| write_adaptation(w, neurons))),
@@ -1322,6 +1374,7 @@ mod tests {
             (10, measure(|w| write_newborn_maturation_state(w, scheduler.newborn_maturation_raw_state().as_ref()))),
             (11, measure(|w| write_synapse_silent_since(w, synapses, neuron_count))),
             (12, measure(|w| write_column_votes(w, columns))),
+            (13, measure(|w| write_prediction_error_state(w, scheduler.prediction_error_raw_state().as_ref()))),
         ];
         assert_eq!(sections.last().unwrap().0, FORMAT_VERSION, "add the newest section to this helper when FORMAT_VERSION is bumped");
         let strip: usize = sections.iter().filter(|(introduced, _)| *introduced > version).map(|(_, size)| size).sum();
@@ -1875,6 +1928,62 @@ mod tests {
         let after = restored.newborn_maturation.expect("a version-10 snapshot must carry a newborn-maturation section");
 
         assert_eq!(after, seeded);
+    }
+
+    // -- Prediction-error coupling state (PLAN.md C2, format version 13).
+
+    /// C2's estimator carries the only state the coupling has, and RUN-9a
+    /// requires a restored run to be bit-identical -- which it cannot be if
+    /// the two leaky sums restart from zero, because `surprise` is the
+    /// *difference* of the two timescales and both would agree exactly again.
+    /// A run resumed from a snapshot would therefore report "nothing is
+    /// surprising" for as long as it took the fast estimate to pull away
+    /// again, which is a silent, plausible-looking wrong answer rather than a
+    /// crash. Hence a real section rather than a recomputation.
+    #[test]
+    fn round_trips_prediction_error_state_exactly() {
+        use crate::neuromodulator::{ChannelDrive, PredictionErrorCoupling, PredictionErrorRawState};
+        use crate::plasticity::NORADRENALINE;
+
+        let (neurons, synapses, _) = sample_network();
+        let mut sched = Scheduler::new(4, 0.3).with_prediction_error_coupling(
+            PredictionErrorCoupling::new(8.0, 120.0).with_unexpected(ChannelDrive::new(NORADRENALINE, 1.0, 2.0, 4.0)),
+        );
+
+        let seeded = PredictionErrorRawState { fast_correct: 3.25, fast_failure: 11.5, slow_correct: 40.0, slow_failure: 7.125 };
+        sched.restore_prediction_error_raw_state(seeded);
+
+        let bytes = write(&neurons, &synapses, &sched, &ColumnRegistry::new(), 2, 1);
+        let restored = read(&bytes, 1).unwrap();
+        let after = restored.prediction_error.expect("a version-13 snapshot must carry a prediction-error section");
+
+        assert_eq!(after, seeded);
+    }
+
+    /// A scheduler with no coupling writes the presence byte and nothing
+    /// else, so a pre-C2 network's snapshot gains one byte and no semantics.
+    #[test]
+    fn a_scheduler_without_a_coupling_writes_an_absent_prediction_error_section() {
+        let (neurons, synapses, _) = sample_network();
+        let sched = Scheduler::new(4, 0.3);
+        let bytes = write(&neurons, &synapses, &sched, &ColumnRegistry::new(), 2, 1);
+        let restored = read(&bytes, 1).unwrap();
+        assert!(restored.prediction_error.is_none(), "no coupling configured means no state to carry");
+    }
+
+    /// A version-12 payload predates the section entirely -- `read` must
+    /// supply `None` rather than misreading the following bytes, and
+    /// `Scheduler::restore_prediction_error_raw_state` then leaves a freshly
+    /// configured coupling at its own zero state, the only sound reading
+    /// since the mechanism did not exist when the snapshot was written.
+    #[test]
+    fn a_version_12_snapshot_restores_with_no_prediction_error_section() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let columns = ColumnRegistry::new();
+        let bytes = write(&neurons, &synapses, &scheduler, &columns, 2, 1);
+        let v12 = downgrade_to_version(&bytes, &neurons, &synapses, &scheduler, &columns, 2, 12);
+        let restored = read(&v12, 1).expect("a version-12 payload must still migrate");
+        assert!(restored.prediction_error.is_none(), "a version-12 snapshot has no prediction-error section, so it must restore to None");
     }
 
     /// A version-9 (pre-this-fix) payload has no newborn-maturation section

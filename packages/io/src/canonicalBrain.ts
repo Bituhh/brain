@@ -21,7 +21,7 @@
 //    currently counts as evidence *for* a dendritic prediction) and a
 //    homeostatic-scaling bug (mixing excitatory and inhibitory weight
 //    into one renormalised total). PLAN.md's dependency chart gates a
-//    genuine 80:20 population behind A2 (the segment-sign fix) and D1-D3
+//    genuine 80:20 population behind A2 (the segment-sign fix) and D1-D4
 //    (E/I-aware rescaling, inhibitory STDP, then a dedicated tuning pass)
 //    in that order -- turning it on here first would just rediscover item
 //    11 by accident instead of by A2's own dedicated design, and would
@@ -174,7 +174,22 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       stdp: { aPlus: 0.01, aMinus: 0.01, tauPlus: 20, tauMinus: 20, windowTicks: 100 },
       tauEligibilityTicks: 500,
       learningRate: 0.2,
+      // An *index*, not a level: DOPAMINE is channel 0 of four. Nothing in
+      // this module injects dopamine, so this rule's modulator is exactly 0
+      // on every tick and the whole three-factor update is multiplied away --
+      // a known, pinned gap, not an oversight. See `canonicalBrain.test.ts`'s
+      // "both modulated learning rules are inert" test and PLAN.md C3, which
+      // supplies the producer. The routing stays on dopamine deliberately:
+      // that is where the biology puts it (README §2.5), and re-pointing it at
+      // a channel that happens to have a producer would be fixing the symptom.
       modulatorChannel: 0, // DOPAMINE
+      // PLAN.md C2's second, multiplicative channel, the STDP counterpart to
+      // `predictiveLearning.gainModulatorIndex` below. Inert twice over until
+      // C3 lands -- `routed x gain` with `routed` at 0 is 0 whatever the gain
+      // -- but configured here because this module's contract is that no
+      // mechanism is off by *oversight*, and distinguishing the two is the
+      // point (see this file's doc comment).
+      gainModulatorChannel: 2, // NORADRENALINE
       modulatorTauTicks: [1000, 1000, 1000, 1000],
     },
     // LRN-6. Target chosen from this column's own wiring: ~p0*WIDTH ≈ 15
@@ -281,9 +296,38 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       burstSproutPermanence: 0.35,
       burstSproutWeight: 0.05,
       recentlyActiveWindowTicks: 10,
+      // Same index-not-a-level point, and the same pinned gap, as
+      // `plasticity.modulatorChannel` above: with no dopamine producer this
+      // scales every reinforce/punish delta by exactly 0, so LRN-8's 12.2/12.3
+      // path is inert here too. PLAN.md C3. (12.1's burst sprout is NOT
+      // modulator-gated and does still run, which is most of why this looks
+      // alive from the outside.)
       modulatorIndex: 0, // DOPAMINE -- LRN-4/LRN-5
+      // PLAN.md C2: the *second*, multiplicative channel. `modulatorIndex`
+      // above routes (which signal licenses the change); this one scales (how
+      // strongly anything being encoded right now is encoded). Noradrenaline,
+      // driven from the network's own prediction error by
+      // `predictionErrorCoupling` below.
+      gainModulatorIndex: 2, // NORADRENALINE
       neighbourhoodSize: 20,
       neighbourhoodK: 5,
+    },
+    // PLAN.md C2 (LRN-5): the two channels that had no producer before it.
+    // One two-timescale estimate of this network's own prediction-failure
+    // rate feeds both -- Yu & Dayan (2005) assign acetylcholine *expected*
+    // uncertainty and noradrenaline *unexpected* uncertainty, and those are
+    // the slow term and the (fast - slow) term of the same estimate.
+    //
+    // Timescales are scaled to this fixture, not copied from anywhere: the
+    // standing test runs several hundred ticks, so a fast constant of 50 and
+    // a slow one of 500 leave room for the two to diverge and reconverge
+    // within a run. `baseline: 1.0` is the level a `gain` of 0 would pin, and
+    // is what every pre-C2 caller effectively multiplied by.
+    predictionErrorCoupling: {
+      tauFastTicks: 50,
+      tauSlowTicks: 500,
+      unexpected: { channel: 2 /* NORADRENALINE */, baseline: 1.0, gain: 1.0, maxLevel: 4.0 },
+      expected: { channel: 1 /* ACETYLCHOLINE */, baseline: 1.0, gain: 1.0, maxLevel: 4.0 },
     },
   };
 }

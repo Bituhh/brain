@@ -284,7 +284,7 @@ Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (lat
 | LRN-2 | M | **STDP** with configurable asymmetric potentiation/depression windows and time constants. |
 | LRN-3 | M | **Eligibility traces**: pre/post coincidence writes a decaying trace on the synapse (τ on the order of seconds of simulated time). |
 | LRN-4 | M | **Three-factor rule**: Δw = η · eligibility · modulator. With modulator ≡ 1 this degenerates to plain STDP. |
-| LRN-5 | M | **Neuromodulator field**: a small set of named global/regional scalar signals (dopamine, acetylcholine, noradrenaline, serotonin) with their own decay dynamics, broadcast to neurons by region. Carries no per-synapse routing information. |
+| LRN-5 | M | **Neuromodulator field**: a small set of named global/regional scalar signals (dopamine, acetylcholine, noradrenaline, serotonin) with their own decay dynamics, broadcast to neurons by region. Carries no per-synapse routing information. **Status (PLAN.md C2, 2026-09-20): two of the four channels now have a real producer, and the field has more than one consumer for the first time.** `neuromodulator::PredictionErrorCoupling` derives *expected* uncertainty (acetylcholine) and *unexpected* uncertainty (noradrenaline) from one two-timescale estimate of the network's own prediction-failure rate — the slow term and the rectified (fast − slow) term, following Yu & Dayan (2005), whose split is why one estimator feeds two channels rather than two estimators feeding one each. The producer is `plasticity/predictive.rs`'s existing per-neuron classification (LRN-8), reduced to a scalar *before* anything reaches the field, so no per-neuron surprise term exists anywhere (invariant 2). Consumers: `ThreeFactorParams::gain_modulator_index` and `PredictiveLearningParams::gain_modulator_index`, a second **multiplicative** channel kept separate from the routing channel — that one names which signal *licenses* a change, this one how strongly anything being encoded right now *is* encoded. Dopamine still carries a raw reward rather than a reward *prediction error* (PLAN.md C3); serotonin still has no producer, deliberately (PLAN.md F19 records why). §13.12 item 13 has the measurement. |
 | LRN-6 | M | **Homeostatic synaptic scaling**: periodic multiplicative renormalisation of a neuron's incoming weights toward a target total, on a slow timescale. |
 | LRN-7 | M | **Structural plasticity**: prune synapses whose permanence falls below a floor; sprout new candidates from a co-active neuron toward targets in its neighbourhood, subject to a per-neuron synapse budget. |
 | LRN-8 | M | **Predictive learning**: when a neuron fires *unpredicted*, reinforce its active segments' synapses onto recently-active cells; when a segment predicts a firing that does not occur, punish it. This is the primary unsupervised signal — no labels required. |
@@ -920,7 +920,7 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     (LRN-8), and one attached probe (OBS-1); OBS-2/OBS-3 need no construction-time toggle and are
     read back by the standing test instead. `excitatoryFraction` stays `1.0` — see the module's own
     doc comment: PLAN.md's dependency chart gates a genuine 80:20 population behind A2 (the
-    segment-sign fix, item 11) and D1-D3 in that order, and turning it on here first would just
+    segment-sign fix, item 11) and D1-D4 in that order, and turning it on here first would just
     rediscover item 11 by accident rather than by A2's own dedicated design, and would make every
     fix in PLAN.md's closing window (§1: "those fixes produce no golden-raster churn *only* while
     every network runs `excitatoryFraction: 1.0`") expensive for no benefit.
@@ -2131,7 +2131,7 @@ here.
    characters, rising to 27.60 over the last 1,500 — total 64.02 rising to 91.60, mean 75.09.
    Replaying this raster is therefore mostly re-presenting the corpus, which is new, quantified
    evidence for item 5(a)'s "tape recorder, not the fast store §2.9 describes" objection rather
-   than a separate complaint. A `ReplaySource` backed by LRN-12's fast store (PLAN.md F3) is the
+   than a separate complaint. A `ReplaySource` backed by LRN-12's fast store (PLAN.md F6) is the
    named successor; nothing about C1's negative result should be read as evidence about *that*.
 
    **(c) `run_consolidation` is `Runtime::Single`-only.** `NativeSimulation::run_consolidation`
@@ -2140,9 +2140,81 @@ here.
    deterministically, through the cross-partition messaging path is materially more complex than
    single-threaded replay. This was already documented at both the Rust and FFI levels and is
    restated here because C1 is the first item for which it is a *capability* limit rather than a
-   note — a consolidating network cannot use RUN-4's threading. Scoped as PLAN.md's C1a row. It
+   note — a consolidating network cannot use RUN-4's threading. Scoped as PLAN.md's F8 row. It
    is not urgent on VAL-4's own evidence: sleeping does not help at any cadence measured, so
    nothing currently wants to sleep *and* scale.
+
+10. **What the other two neuromodulator channels should gate, and how — opened 2026-09-20 by
+    PLAN.md C2's own audit (`.claude/scratch/neuromodulators/investigation.md`).** C2 gave
+    noradrenaline and acetylcholine a producer. It did not settle what acetylcholine *routes*, and
+    it left dopamine carrying the wrong signal. Both are recorded here because each is a real design
+    fork rather than a missing line of code, and because §2.5 currently asserts all four channel
+    roles in one unsourced parenthetical that the audit found to be only partly right.
+
+    - **(a) Acetylcholine's second job, and the interface question under it.** Hasselmo's
+      encoding/retrieval account is two mechanisms in opposite directions: acetylcholine
+      presynaptically suppresses transmission at *recurrent/intracortical* synapses while sparing
+      *feedforward* input, and simultaneously *enhances* LTP at those same suppressed synapses. High
+      acetylcholine is therefore "encoding mode" — feedforward drives the activity, recurrent
+      connections do the learning. Building only one of the two halves is building a different
+      model, and saying so. The obstacle is not the mechanism but LRN-1: a `PlasticityRule` is handed
+      only `LocalContext` and `SynapseMut`, neither of which carries the synapse's target segment,
+      and *that narrowness is how invariant 1 is enforced structurally rather than by discipline*.
+      The data exists one level up (`SynapseArena.target_segment`, `segment::FEEDFORWARD_SEGMENT`).
+      Two ways through, and the choice is deliberately not made here: widen the interface with a
+      feedforward/recurrent discriminant (cheap; permanently widens the thing the invariant rests
+      on), or add a scheduler-invoked module following `plasticity/predictive.rs`'s existing
+      precedent (leaves the interface alone; costs a second place where plasticity happens outside
+      the rule chain). PLAN.md C7 is the decision, C8 the mechanism. **Note the overlap with F10's
+      segment role tag for NET-6 — that is the same distinction approached from a different
+      direction, and it should end up as one scheme rather than two.**
+
+      A second, smaller point the audit surfaced: Yu & Dayan give acetylcholine *expected*
+      uncertainty as well, which is the quantity C2 now drives it with. If acetylcholine later
+      becomes the feedforward/recurrent router, that second role needs somewhere to live or the
+      channel is doing two jobs at once.
+
+    - **(b) Dopamine carries a reward, not a reward *prediction error*, and it is switched off.**
+      `charPrediction.ts`'s `sim.reward(hit ? 1.0 : 0.0)` subtracts no expectation, so a network
+      that is right 90% of the time gets the same burst for an expected success as for a surprising
+      one. §2.5 says "dopamine = reward prediction error" and the substrate does not deliver one.
+      The fix is small — one running expected-reward term — and it is worth making *before* D4's
+      1–3 week re-tune rather than after, since tuning against a mislabelled signal is how a
+      measurement quietly stops meaning what it says. PLAN.md C3.
+
+      Where it should be routed is already right by accident and worth stating so it is not
+      "fixed": synaptic tagging and capture (Redondo & Morris 2011) is dopamine gating the
+      conversion of early-LTP into late-LTP — *persistence*, not strength — which against §12's
+      weight/permanence split is `permanence`, and
+      `PredictiveLearningParams::learning_target` already defaults there. The latent trap is the
+      other direction: several tests pass `ThreeFactorParams::new(..., DOPAMINE)`, and that rule
+      writes **weight**, which is the inverse of "permanently reinforced". Harmless while no
+      shipped configuration does it.
+
+      One honest caveat against the tidy three-way split: β-adrenergic (noradrenaline) receptors
+      are *also* required for the same plasticity-related-protein process. "Dopamine commits,
+      noradrenaline amplifies" is a defensible modelling simplification, not a description of the
+      biology, and is recorded as one.
+
+    - **(c) Whether serotonin and histamine earn a place at all.** Both are deferred with reasons
+      rather than omitted — PLAN.md F19 and F20. Serotonin's "prevents runaway excitation" reading
+      is *contradicted* by the evidence (elevated 5-HT amplifies synaptic noise and facilitates
+      epileptiform oscillations), and the stabiliser job is already held by LRN-6 plus NEU-7, which
+      C1's battery measured at 2.2–3.2 VAL-4 points. What 5-HT *is* well supported for — Doya's
+      discount factor, "patience" — has nowhere to attach until LRN-11 action selection exists.
+      Histamine's wake/sleep role is already modelled explicitly, and more strictly, as LRN-10's
+      consolidation phases. Neither absence is an oversight.
+
+    - **(d) Nitric oxide is not an LRN-5 channel, and cannot be made into one.**
+      `NeuromodulatorField::levels_at` takes a tick and nothing else — a unit test asserts there is
+      no argument it *could* route on — whereas a concentration field `NO(x, y, z, t)` is addressed
+      by position. It needs its own requirement for a spatial signalling class before any code
+      (PLAN.md F21). It does **not** violate invariant 2, and the instinct that it does is worth
+      correcting explicitly: a diffusing scalar concentration is *more* local than the existing
+      global broadcast, and is the limiting case of the "broadcast by region" this module's own
+      docs already reserve room for (`region_id`, currently always 0). What would violate the
+      invariant is if the diffusing quantity were an *error* term, or if the kernel became a way to
+      deliver per-synapse credit.
 
 ---
 
@@ -3099,7 +3171,7 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     are a pure function of a neuron's own recent local history, not a global credit-assignment signal,
     so invariant 1 is not violated; invariant 4 (sparsity) is untouched, since newborns keep their
     appended indices and existing inhibition-neighbourhood membership (redesigning that is PLAN.md
-    F6's scope, not this item's).
+    F15's scope, not this item's).
 
     **A real bug found and fixed while building this, worth recording on its own:**
     `NeuronArena::free` (`arena.rs`) flips a neuron's `alive` flag and pushes its index onto the free
@@ -3546,7 +3618,7 @@ Three claims, in decreasing order of confidence that they are unprecedented.
          (sparing what was replayed) changes the ratios within a neuron rather than only the
          scale, and a total-renormalising sweep preserves ratios — so this finding is not evidence
          about the version §13.13(h) actually asks for, which stays unbuilt and scoped as PLAN.md's
-         C1b. The uniform downscale is inert because
+         C11. The uniform downscale is inert because
          `HomeostaticScaling::force_apply` renormalises each neuron's incoming total to a target
          and the *online* LRN-6 sweep (B5's winner runs one at target 6.0 every 200 ticks)
          renormalises it straight back — multiplicative renormalisation composes, so the sleep's
@@ -3591,17 +3663,119 @@ Three claims, in decreasing order of confidence that they are unprecedented.
       events, a floor above every synapse's initial permanence really prunes, and a cadence that
       never fires leaves the run bit-identical), and the battery script. Still open, and recorded
       rather than fixed: `run_consolidation` remains `Runtime::Single`-only and returns an error
-      in partitioned mode — see §12a item 9 and PLAN.md's C1a row.
-    - **Three of four neuromodulator channels are dead.** Only `DOPAMINE` is ever injected or
-      read; `ACETYLCHOLINE`, `NORADRENALINE` and `SEROTONIN` are declared constants with no
-      producer and no consumer. LRN-5 lists four channels and the substrate honestly has one.
-      Worth recording because a producer for one of them already exists and is being discarded:
-      `plasticity/predictive.rs` classifies every dirty neuron per tick into correct prediction /
-      false positive / unpredicted spike, which is a locally-computable surprise signal of exactly
-      the kind §2.5 assigns to noradrenaline, aggregated nowhere. PLAN.md item A1's standing test
-      now calls `injectModulator` for the three dead channels once each and reads `modulatorLevels`
-      back — the FFI round-trip is reachable and well-formed, but this is not a producer: deriving
-      a real noradrenaline signal from prediction error stays PLAN.md's dedicated C2 item.
+      in partitioned mode — see §12a item 9 and PLAN.md's F8 row.
+    - **Three of four neuromodulator channels had no producer — closed 2026-09-20 by PLAN.md C2 for
+      two of them, and the measurement is a null on VAL-4 for one and unresolved for the other.**
+
+      The finding as originally written said "only `DOPAMINE` is ever injected or read". That was
+      already out of date when C2 opened and the correction matters, because it changes what the
+      item owed: B5's shipped configuration routes the three-factor rule on `ACETYLCHOLINE` and
+      holds that channel at a constant 1.0 by hand (`charPrediction.ts`'s `tonicModulator`). So the
+      real state was three tiers — dopamine with an opt-in producer and consumer, acetylcholine with
+      a live consumer fed a hand-held constant, and noradrenaline and serotonin with nothing.
+
+      **What C2 built.** `neuromodulator::PredictionErrorCoupling` reduces the per-neuron
+      classification `plasticity/predictive.rs` already performs (LRN-8) to a scalar and drives two
+      channels from it. One estimator, two channels, because Yu & Dayan (2005) assign acetylcholine
+      *expected* uncertainty and noradrenaline *unexpected* uncertainty and those are the slow term
+      and the rectified (fast − slow) term of the same two-timescale estimate of the failure rate.
+      The consumers are a **second, multiplicative** `gain_modulator_index` on `ThreeFactorParams`
+      and `PredictiveLearningParams`, deliberately separate from the existing routing index: that
+      one names which signal *licenses* a change, this one how strongly anything being encoded now
+      *is* encoded. Keeping them apart is what let a surprise signal be added without displacing the
+      acetylcholine channel the shipped configuration was already using.
+
+      **The result on VAL-4 is a null for noradrenaline, and it is a null with a diagnosed cause
+      rather than a shrug.** Full data in `scripts/investigate-c2-neuromodulators.results.md`
+      (6 conditions × 10 seeds, 15,000-character corpus, both seed sets), against B5's winner at
+      19.05% confirmation / 20.36% selection:
+
+      | condition | confirmation | selection |
+      |---|---|---|
+      | no coupling (B5's winner) | 19.05% | 20.36% |
+      | NA gates predictive learning | 19.28% (+0.23) | 20.36% (+0.00) |
+      | NA gates STDP | 19.46% (+0.41) | 20.29% (−0.07) |
+      | NA gates both | 19.46% (+0.41) | 20.29% (−0.07) |
+      | ACh driven, not held at 1.0 | **20.46% (+1.41)** | **19.66% (−0.70)** |
+
+      Every row moves less than seed-to-seed noise **and in opposite directions on the two seed
+      sets**, which is this repository's established description of "no effect" (item 13's own C1
+      entry set the standard). Nothing is adopted: `DEFAULT_CONFIG` and B5's shipped values are
+      unchanged and their figures still reproduce.
+
+      **Why noradrenaline did nothing, measured rather than assumed.** An accuracy table cannot tell
+      "inert here" from "active and unhelpful", so the signals themselves were instrumented
+      (`scripts/investigate-c2-signal-shape.ts`, a new `predictionErrorSignals()` readback): over
+      4,000 characters the surprise term is **exactly zero 89.5% of the time**, mean 0.0004, maximum
+      0.0141. Surprise is `max(0, fast − slow)` — a *change* detector — and English prose contains no
+      contingency switches, so the two timescales track each other. A multiplier that is exactly 1.0
+      for nine characters in ten cannot move an accuracy figure, which is why the NA rows reproduce
+      the reference *per seed identically* on all five selection seeds. **This is a fact about VAL-4
+      as a task, not about the mechanism**, and the two are worth keeping apart: the mechanism's own
+      behaviour is pinned by `tests/prediction_error_coupling.rs`, where a deliberate contingency
+      switch does produce surprise and a settled world does not.
+
+      The acetylcholine signal is the opposite: median 0.44, ranging roughly 0.2–0.9, never zero.
+      It is the only row that moves VAL-4 at all, and the two seed sets disagree about it by 2.1
+      points in opposite directions — so it is *also* not adopted, but "no effect" is a weaker claim
+      there than for noradrenaline, and it is recorded as unresolved at n=5 rather than settled.
+
+      **Two defects in C2's own work, both caught by a control rather than by reading, both worth
+      recording because each would have produced a plausible-looking wrong number.**
+
+      1. *The first design measured silence, not accuracy.* Averaging a per-tick failure *rate*
+         gives silent ticks a vote. On a two-neuron sequence the rate reached exactly 0 by the third
+         exposure and the derived level **rose anyway**, 0.5434 → 0.6138, because 4 of every 7 ticks
+         classified nothing and contributed a neutral value — the plateau was the duty cycle of
+         silence, and it got *worse* as the network improved. The fix is to smooth the three counts
+         and form the rate from the ratio, so a silent tick decays numerator and denominator alike.
+         **This generalises past C2: any scalar derived from per-tick event counts in this engine
+         needs event weighting, or it measures activity.**
+      2. *The first battery had to be discarded.* The field starts at zero and the level reaches its
+         baseline through an exponential moving average, so with `modulatorTauTicks` at 1000 every
+         gated delta was multiplied by ≈0 for thousands of ticks — the coupled rows measured
+         *suppressed early learning*, not modulation. `PredictionErrorCoupling::seed_baselines`
+         fixes it. What caught it was an inertness control that failed; the discarded checkpoint is
+         kept beside the new one as `.checkpoint.stale-v1.jsonl` rather than deleted.
+
+      The control itself had to be redesigned too, and the reason is worth stating because the
+      obvious control is wrong: a `gain` of 0 pins the *target* at the baseline but the level still
+      reaches it through float arithmetic, so `level × x` is only approximately `x` and a
+      30,000-tick run diverges from rounding alone. The control that *can* be exact is "coupling on,
+      nothing reading it", and it reproduced the reference bit-identically on all ten seeds.
+
+      **A third instance of this very item's shape, found in this very file while reviewing what C2
+      had switched on — 2026-09-20.** `canonicalBrain.ts` routes *both* modulated learning rules on
+      dopamine (`plasticity.modulatorChannel: 0` and `predictiveLearning.modulatorIndex: 0` — an
+      **index**, DOPAMINE being channel 0 of four, not a level) and nothing in that module injects
+      dopamine. The three-factor rule computes `rate × eligibility × modulator` and predictive
+      learning scales reinforce/punish by the same level, so **both multiply by exactly zero on
+      every tick**: LRN-2/3/4 and LRN-8's 12.2/12.3 path are configured and dead in the module whose
+      entire purpose is that no mechanism is left switched off. Measured, 400 ticks, dopamine off
+      versus injected: mean weight 0.184 → 0.541, mean permanence 0.373 → 0.503.
+
+      What made it invisible is the same thing every time: **state moves anyway.** Weight falls from
+      0.400 to 0.184 with dopamine at exactly zero, because LRN-6 homeostatic scaling renormalises
+      and the burst-sprout path (12.1, deliberately not modulator-gated) keeps running. "The numbers
+      changed" reads as "learning works". That is this item's own lesson — *a test that a mechanism
+      was configured is not a test that it does anything* — arriving for the third time in one file,
+      after `growth` without `newbornMaturation` and after C2's own gain channel, which was wired
+      into predictive learning and missed on the three-factor rule in the same sitting.
+
+      **Decision, and it is deliberately not the convenient one:** the routing stays on dopamine.
+      §2.5 is where it belongs, and re-pointing the rules at acetylcholine — which *does* have a
+      producer since C2 — would be fixing the symptom and quietly changing what the fixture means.
+      The gap is instead **pinned by a test that asserts the broken state on purpose**
+      (`canonicalBrain.test.ts`), so PLAN.md C3 cannot land without coming back and flipping it.
+      C3's prompt and `.claude/HANDOFF.md` fact 14 both carry the consequence: giving dopamine a
+      producer turns two dead mechanisms on for the first time, so anything C3 measures moves for
+      that reason as well as because the signal became an RPE, and the two must be separated or the
+      result is uninterpretable.
+
+      **Still open, recorded rather than fixed:** acetylcholine's *other* job (gating feedforward
+      against recurrent, which needs an interface decision under LRN-1), dopamine carrying a raw
+      reward rather than a prediction error, and whether serotonin and histamine earn a place at
+      all. All four are §12a item 10, scoped as PLAN.md C3, C7, C8, F19 and F20.
     - **`ColumnSpec::inhibition`/`segments` configure nothing.** Recorded here rather than only in
       `column.rs`'s own doc comment because it changes what NET-4's headline claim means — see
       item 14.
@@ -3871,7 +4045,7 @@ several are cheap against structures the core already has.
   this entry's own mechanism that C1's result does not argue against, because C1 only ever measured
   the uniform version, and a uniform downscale changes only *scale* where a selective one changes
   the *ratios* within a neuron, which a total-renormalising sweep preserves. Scoped as PLAN.md's
-  **C1b** row, with that distinction recorded as reasoning rather than measurement.
+  **C11** row, with that distinction recorded as reasoning rather than measurement.
 
 ---
 

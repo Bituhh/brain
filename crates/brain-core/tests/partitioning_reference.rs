@@ -31,13 +31,15 @@ use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::column::ColumnRegistry;
 use brain_core::graph::{DistancePolicy, GraphBuilder};
 use brain_core::inhibition::FixedNeighbourhoods;
+use brain_core::neuromodulator::{ChannelDrive, PredictionErrorCoupling};
+use brain_core::plasticity::predictive::{PredictiveLearningParams, SegmentLearningTarget};
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
 use brain_core::plasticity::homeostatic::HomeostaticScaling;
 use brain_core::plasticity::stdp::StdpParams;
 use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
-use brain_core::plasticity::{RuleChain, DOPAMINE, NUM_MODULATORS};
+use brain_core::plasticity::{Modulators, RuleChain, ACETYLCHOLINE, DOPAMINE, NORADRENALINE, NUM_MODULATORS};
 use brain_core::probe::SpikeRaster;
 use brain_core::scheduler::Scheduler;
 use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig, FEEDFORWARD_SEGMENT};
@@ -685,4 +687,164 @@ fn the_always_on_plasticity_scenario_actually_prunes_or_sprouts() {
     let final_occupied: u32 = (0..TOTAL_NEURONS).map(|s| outcome.synapses.occupied_in_block(s).count() as u32).sum();
 
     assert_ne!(initial_occupied, final_occupied, "structural plasticity must have pruned or sprouted at least one synapse for this scenario to be meaningful");
+}
+
+// ---------------------------------------------------------------------------
+// PLAN.md C2: prediction-error -> neuromodulator coupling across partitions.
+//
+// This is the scenario the pre-C2 file did not have: nothing here configured
+// predictive learning at all, so the classification C2's producer reads did
+// not happen, and the assertions below could not have caught a divergence.
+//
+// The determinism claim being tested is specific. Each partition holds its own
+// `NeuromodulatorField` copy (RUN-6), and each classifies only its own
+// neurons. A coupling that derived a level from one partition's own tally
+// would broadcast a different level in each partition AND advance its
+// estimator once per partition per tick. `PartitionRuntime::step` instead
+// merges every partition's *integer* `PredictionOutcomeCounts` into one tally,
+// advances ONE estimator, and drives every field from it. Integer addition is
+// associative, so the result cannot depend on how neurons were split -- and
+// since the levels feed `gain_modulator_index`, any drift would show up as
+// diverging weights and permanences, not merely as a diagnostic mismatch.
+// ---------------------------------------------------------------------------
+
+fn c2_predictive_params() -> PredictiveLearningParams {
+    PredictiveLearningParams {
+        significance_threshold: 0.5,
+        reinforce_amount: 0.05,
+        punish_amount: 0.05,
+        burst_target_segment: 0,
+        burst_sprout_permanence: 0.4,
+        burst_sprout_weight: 0.05,
+        recently_active_window_ticks: 20,
+        modulator_index: None,
+        // The level must reach behaviour, or this test would only compare a
+        // diagnostic readback and a divergence could hide.
+        gain_modulator_index: Some(NORADRENALINE),
+        learning_target: SegmentLearningTarget::Permanence,
+    }
+}
+
+fn c2_coupling() -> PredictionErrorCoupling {
+    PredictionErrorCoupling::new(8.0, 120.0)
+        .with_unexpected(ChannelDrive::new(NORADRENALINE, 1.0, 2.0, 4.0))
+        .with_expected(ChannelDrive::new(ACETYLCHOLINE, 1.0, 2.0, 4.0))
+}
+
+fn run_plain_scheduler_with_coupling(seed: u64) -> (RunOutcome, Vec<Modulators>) {
+    let (mut neurons, mut synapses, _columns, _a, _b) = build_network(seed, segments());
+    let mut sched = Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
+        .with_inhibition(FixedNeighbourhoods::new(COLUMN_SIZE, 2))
+        .with_segments(segments())
+        .with_predictive_learning(c2_predictive_params(), FixedNeighbourhoods::new(COLUMN_SIZE, 2))
+        .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
+        .with_modulator_tau_ticks([50.0; NUM_MODULATORS])
+        .with_prediction_error_coupling(c2_coupling());
+    let params = lif_params();
+
+    let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
+    let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
+    let mut levels = Vec::with_capacity(TICKS as usize);
+    for tick in 0..TICKS {
+        let (neuron, current) = stimulate_tick(tick);
+        sched.stimulate(&neurons, neuron, current);
+        let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        let mut spiked = report.spiked;
+        spiked.sort_unstable();
+        let mut vetoed = report.vetoed;
+        vetoed.sort_unstable();
+        spiked_per_tick.push(spiked);
+        vetoed_per_tick.push(vetoed);
+        levels.push(sched.modulator_levels());
+    }
+    (RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick }, levels)
+}
+
+fn run_partitioned_with_coupling(seed: u64, partition_count: usize, executor: ExecutorChoice) -> (RunOutcome, Vec<Modulators>) {
+    let (mut neurons, mut synapses, columns, _a, _b) = build_network(seed, segments());
+    let plan = if partition_count == 1 { PartitionPlan::single(TOTAL_NEURONS) } else { PartitionPlan::contiguous(&columns, partition_count) };
+
+    let schedulers: Vec<Scheduler> = (0..plan.partition_count())
+        .map(|p| {
+            let range = plan.range_of(p);
+            Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
+                .with_inhibition(FixedNeighbourhoods::with_base(range.start, COLUMN_SIZE.min(range.end - range.start), 2))
+                .with_segments(segments())
+                .with_predictive_learning(c2_predictive_params(), FixedNeighbourhoods::new(COLUMN_SIZE, 2))
+                .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
+                .with_modulator_tau_ticks([50.0; NUM_MODULATORS])
+            // deliberately NOT `with_prediction_error_coupling` -- see below
+        })
+        .collect();
+    let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS).with_prediction_error_coupling(c2_coupling());
+    runtime = match executor {
+        ExecutorChoice::Sequential => runtime.with_thread_count(1),
+        ExecutorChoice::Rayon(n) => runtime.with_thread_count(n),
+        ExecutorChoice::Pinned(n) => runtime.with_pinned_thread_count(n),
+    };
+    let params = lif_params();
+
+    let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
+    let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
+    let mut levels = Vec::with_capacity(TICKS as usize);
+    for tick in 0..TICKS {
+        let (neuron, current) = stimulate_tick(tick);
+        runtime.stimulate(&neurons, neuron, current);
+        let reports = runtime.step::<Lif>(&mut neurons, &mut synapses, &params);
+        let mut spiked: Vec<u32> = reports.iter().flat_map(|r| r.spiked.iter().copied()).collect();
+        spiked.sort_unstable();
+        let mut vetoed: Vec<u32> = reports.iter().flat_map(|r| r.vetoed.iter().copied()).collect();
+        vetoed.sort_unstable();
+        spiked_per_tick.push(spiked);
+        vetoed_per_tick.push(vetoed);
+        levels.push(runtime.modulator_levels());
+    }
+    (RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick }, levels)
+}
+
+#[test]
+fn prediction_error_coupling_is_identical_across_partitioning_and_threading() {
+    let seed = 99;
+    let (reference, reference_levels) = run_plain_scheduler_with_coupling(seed);
+
+    for (label, outcome, levels) in [
+        ("1 partition", run_partitioned_with_coupling(seed, 1, ExecutorChoice::Sequential).0, run_partitioned_with_coupling(seed, 1, ExecutorChoice::Sequential).1),
+        ("2 partitions", run_partitioned_with_coupling(seed, 2, ExecutorChoice::Sequential).0, run_partitioned_with_coupling(seed, 2, ExecutorChoice::Sequential).1),
+        ("2 partitions, 2 rayon threads", run_partitioned_with_coupling(seed, 2, ExecutorChoice::Rayon(2)).0, run_partitioned_with_coupling(seed, 2, ExecutorChoice::Rayon(2)).1),
+        ("2 partitions, 2 pinned threads", run_partitioned_with_coupling(seed, 2, ExecutorChoice::Pinned(2)).0, run_partitioned_with_coupling(seed, 2, ExecutorChoice::Pinned(2)).1),
+    ] {
+        assert_identical_arenas(&reference.neurons, &outcome.neurons, label);
+        assert_identical_synapses(&reference.synapses, &outcome.synapses, TOTAL_NEURONS, label);
+        assert_eq!(reference.spiked_per_tick, outcome.spiked_per_tick, "{label}: spike trains must match exactly");
+        assert_eq!(reference.vetoed_per_tick, outcome.vetoed_per_tick, "{label}: vetoed sets must match exactly");
+        assert_eq!(reference_levels, levels, "{label}: every partition must broadcast the same levels the single-threaded run does, tick for tick");
+    }
+}
+
+/// The scenario above is only evidence if it actually drives the coupling.
+/// Without this, a configuration that silently classified nothing would make
+/// every assertion above trivially true.
+#[test]
+fn the_coupling_scenario_actually_moves_the_levels() {
+    let (_, levels) = run_plain_scheduler_with_coupling(99);
+    let na: Vec<f32> = levels.iter().map(|l| l[NORADRENALINE]).collect();
+    let ach: Vec<f32> = levels.iter().map(|l| l[ACETYLCHOLINE]).collect();
+    let spread = |v: &[f32]| v.iter().cloned().fold(f32::MIN, f32::max) - v.iter().cloned().fold(f32::MAX, f32::min);
+    assert!(spread(&na) > 0.01, "the noradrenaline channel must actually move in this scenario: spread {}", spread(&na));
+    assert!(spread(&ach) > 0.01, "the acetylcholine channel must actually move in this scenario: spread {}", spread(&ach));
+}
+
+/// README §12a item 8's "configured, and configures nothing" defect, refused at
+/// the source: a `Scheduler` carrying its own coupling inside a
+/// `PartitionRuntime` would be applied by `Scheduler::step`, which the runtime
+/// never calls. It must panic rather than silently do nothing.
+#[test]
+#[should_panic(expected = "inert inside a PartitionRuntime")]
+fn a_partition_runtime_refuses_a_scheduler_carrying_its_own_coupling() {
+    let (_neurons, synapses, columns, _a, _b) = build_network(7, segments());
+    let plan = PartitionPlan::contiguous(&columns, 2);
+    let schedulers: Vec<Scheduler> = (0..plan.partition_count())
+        .map(|_| Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD).with_prediction_error_coupling(c2_coupling()))
+        .collect();
+    let _ = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS);
 }

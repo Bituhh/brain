@@ -29,7 +29,7 @@ use crate::arena::{NeuronArena, NeuronArenaViewMut, NeuronSpec};
 use crate::growth::{apply_growth, GrowthPolicy, GrowthRawState, PopulationStats};
 use crate::inhibition::FixedNeighbourhoods;
 use crate::metrics::{FiringRateMeter, PredictionAccuracyMeter};
-use crate::neuromodulator::NeuromodulatorField;
+use crate::neuromodulator::{NeuromodulatorField, PredictionErrorCoupling, PredictionErrorRawState};
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
 use crate::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
 use crate::plasticity::newborn::{NewbornMaturation, NewbornMaturationParams, NewbornMaturationRawState, NewbornWiringParams};
@@ -137,6 +137,17 @@ pub struct StepReport {
     /// metric) without that meter needing its own copy of the
     /// significance-threshold comparison.
     pub predicted_spikes: u32,
+    /// This tick's full prediction-outcome tally (PLAN.md C2) -- what
+    /// `predicted_spikes` above reports one field of. Always all-zero when
+    /// predictive learning is not configured, for the same reason
+    /// `predicted_spikes` is: nothing classifies anything.
+    ///
+    /// `predicted_spikes` is deliberately *not* replaced by
+    /// `outcomes.correct`, even though they are the same number by
+    /// construction: `metrics::PredictionAccuracyMeter` and several tests
+    /// read it, and C2 has no business changing what OBS-2 reports. A
+    /// debug assertion in `evaluate_and_resolve` holds the two together.
+    pub outcomes: crate::plasticity::predictive::PredictionOutcomeCounts,
     /// Neuron indices allocated by saturation-driven growth (NET-10) this
     /// tick, if any -- empty whenever growth is not configured or did not
     /// trigger. Lets a caller (FFI, tests) observe a growth event without
@@ -367,6 +378,22 @@ pub struct Scheduler {
     /// rate" true for a caller that only ever calls `step()`, mirroring
     /// `homeostatic_scaling`'s own rationale exactly.
     intrinsic_homeostasis: Option<IntrinsicHomeostasis>,
+    /// PLAN.md C2: drives the noradrenaline and acetylcholine channels from
+    /// this tick's own prediction-outcome tally, once per tick, at the end
+    /// of `step()`.
+    ///
+    /// **Inert inside a `PartitionRuntime`, deliberately, and it says so
+    /// out loud.** A partitioned runtime never calls `step()` -- it drives
+    /// `deliver`/`evaluate_and_resolve` itself -- so a coupling configured
+    /// here would silently do nothing there, which is exactly the
+    /// "configured but inert" shape README §12a item 8 records for
+    /// `ColumnSpec::inhibition`. Rather than repeat it,
+    /// `PartitionRuntime::new` refuses a scheduler carrying one, and
+    /// `PartitionRuntime::with_prediction_error_coupling` is the partitioned
+    /// spelling -- it has to be a separate call anyway, because the tally it
+    /// observes must be merged across every partition before any single
+    /// partition's field is touched (RUN-6).
+    prediction_error_coupling: Option<PredictionErrorCoupling>,
     /// Interactive observability (Requirement 4/6, Phase 6): keyed by
     /// neuron index, matching `Probe::new(neuron, options)`'s existing
     /// one-probe-per-neuron shape -- attaching a second probe to the same
@@ -498,6 +525,7 @@ impl Scheduler {
             homeostatic_scaling: None,
             structural_plasticity: None,
             intrinsic_homeostasis: None,
+            prediction_error_coupling: None,
             probes: HashMap::new(),
             firing_rate: FiringRateMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
             prediction_accuracy: PredictionAccuracyMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
@@ -705,6 +733,87 @@ impl Scheduler {
     pub fn with_intrinsic_homeostasis(mut self, homeostasis: IntrinsicHomeostasis) -> Self {
         self.intrinsic_homeostasis = Some(homeostasis);
         self
+    }
+
+    /// Enables PLAN.md C2's prediction-error coupling as an always-on,
+    /// opt-in part of `step()`, mirroring [`Self::with_intrinsic_homeostasis`]
+    /// exactly. Without this call neither the noradrenaline nor the
+    /// acetylcholine channel is ever written from prediction error, which is
+    /// every pre-C2 behaviour.
+    ///
+    /// See [`Self::prediction_error_coupling`] for why a `PartitionRuntime`
+    /// refuses a scheduler carrying one rather than accepting it and
+    /// ignoring it.
+    pub fn with_prediction_error_coupling(mut self, coupling: PredictionErrorCoupling) -> Self {
+        // Seed before storing: see `PredictionErrorCoupling::seed_baselines`
+        // for why a level ramping up from zero is a measurement confound and
+        // not merely untidy. Call this AFTER `with_plasticity`/
+        // `with_modulator_tau_ticks`, both of which replace the field.
+        coupling.seed_baselines(&mut self.modulators, 0);
+        self.prediction_error_coupling = Some(coupling);
+        self
+    }
+
+    /// Sets every neuromodulator channel's decay time constant without
+    /// configuring STDP (PLAN.md C2).
+    ///
+    /// Before C2 the only way to set these was [`Self::with_plasticity`],
+    /// because the only channel anything read was the one the three-factor
+    /// rule routed on. C2 gives the field a producer and a consumer that
+    /// are both independent of STDP, so "how fast does the noradrenaline
+    /// level track its target" became a question a caller can need to
+    /// answer without having a `RuleChain` to hand. Calling both is fine;
+    /// the later call wins, and `with_plasticity` resets the field, so call
+    /// this one *after* it.
+    pub fn with_modulator_tau_ticks(mut self, tau_ticks: crate::plasticity::Modulators) -> Self {
+        self.modulators = NeuromodulatorField::new(tau_ticks);
+        self
+    }
+
+    /// Whether this scheduler carries a C2 coupling -- read by
+    /// `PartitionRuntime::new` to refuse one it could only ignore.
+    pub fn has_prediction_error_coupling(&self) -> bool {
+        self.prediction_error_coupling.is_some()
+    }
+
+    /// The coupling's evolving state, for `snapshot.rs` (RUN-9a). `None` when
+    /// no coupling is configured, which is what keeps the snapshot section
+    /// absent rather than zero-filled for every pre-C2 caller.
+    pub fn prediction_error_raw_state(&self) -> Option<PredictionErrorRawState> {
+        self.prediction_error_coupling.as_ref().map(PredictionErrorCoupling::raw_state)
+    }
+
+    /// Overlays snapshotted estimator state onto a freshly-configured
+    /// coupling -- the C2 counterpart to
+    /// `restore_newborn_maturation_raw_state`. State for a scheduler built
+    /// *without* a coupling is ignored, matching this module's existing
+    /// convention that configuration is supplied fresh by the caller.
+    pub fn restore_prediction_error_raw_state(&mut self, state: PredictionErrorRawState) {
+        if let Some(c) = &mut self.prediction_error_coupling {
+            c.restore_raw_state(state);
+        }
+    }
+
+    /// The coupling's two derived signals, `(surprise, expected)`, for tests
+    /// and observability. `None` when no coupling is configured.
+    pub fn prediction_error_signals(&self) -> Option<(Option<f32>, Option<f32>)> {
+        self.prediction_error_coupling.as_ref().map(PredictionErrorCoupling::signals)
+    }
+
+    /// Drives this scheduler's own field from an *already advanced* coupling
+    /// (PLAN.md C2). `pub(crate)` only so `PartitionRuntime::step` can observe
+    /// once, with a merged network-wide tally, and then drive every partition
+    /// from that one estimator -- advancing a per-partition estimator would
+    /// make the level depend on how neurons were split (RUN-6).
+    /// Seeds this scheduler's own field to the coupling's baselines --
+    /// `pub(crate)` so `PartitionRuntime::with_prediction_error_coupling` can
+    /// do it for every partition identically.
+    pub(crate) fn seed_modulator_baselines(&mut self, coupling: &PredictionErrorCoupling) {
+        coupling.seed_baselines(&mut self.modulators, 0);
+    }
+
+    pub(crate) fn drive_modulators_from(&mut self, coupling: &PredictionErrorCoupling, tick: u32) {
+        coupling.drive(&mut self.modulators, tick);
     }
 
     /// Enables self-tuning k-WTA sparsity (inhibition-homeostasis spec,
@@ -1538,6 +1647,19 @@ impl Scheduler {
         if let Some(homeostasis) = &mut self.intrinsic_homeostasis {
             homeostasis.maybe_apply(neurons, report.tick);
         }
+        // PLAN.md C2: drive noradrenaline (unexpected uncertainty) and
+        // acetylcholine (expected uncertainty) from this tick's own
+        // prediction-outcome tally. Placed here, after resolution, so the
+        // level a plasticity rule reads on tick N reflects prediction
+        // errors up to and including tick N-1 -- a modulator that gated
+        // the very updates it was derived from would be reading the
+        // future, and the README §2.5 signal it models is a diffuse
+        // broadcast that arrives *after* the event, not during it.
+        if let Some(mut coupling) = self.prediction_error_coupling {
+            coupling.observe(report.outcomes);
+            coupling.drive(&mut self.modulators, report.tick);
+            self.prediction_error_coupling = Some(coupling);
+        }
         // dendritic-threshold-homeostasis spec, Requirement 1/2/6: a fifth
         // always-on, opt-in sweep alongside homeostatic_scaling/
         // structural_plasticity above. `0..segment_threshold.len()` is
@@ -1717,6 +1839,17 @@ impl Scheduler {
             self.predictive_scratch.resize(neurons.capacity_len(), 0.0);
         }
         let mut next_dirty = DirtySet::new();
+        // PLAN.md C2: the three `resolve` calls below (one here for an
+        // expired prediction, two in stage 3 for committed and vetoed
+        // candidates) already return which of Requirement 12's cases
+        // applied; before C2 only `CorrectPrediction` was kept, from one of
+        // the three, and the two failure cases were dropped on the floor.
+        // `NoradrenalineCoupling` is their consumer. Declared here rather
+        // than in stage 3 because the expired-prediction case is classified
+        // in *this* loop -- a tally that skipped it would under-count
+        // exactly the failures that decay quietly without ever reaching
+        // threshold, which is the subtlest third of the signal.
+        let mut outcomes = crate::plasticity::predictive::PredictionOutcomeCounts::default();
         for idx in self.dirty.iter() {
             let i = idx as usize;
             let input = std::mem::replace(&mut self.input_accum[i], 0.0);
@@ -1756,7 +1889,9 @@ impl Scheduler {
                     let predictive_after = neurons.predictive[i];
                     if pl.prediction_expired(predictive_before, predictive_after) {
                         let modulators = self.modulators.levels_at(self.tick);
-                        pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, false, self.tick, neurons.capacity_len() as u32, modulators);
+                        let outcome =
+                            pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, false, self.tick, neurons.capacity_len() as u32, modulators);
+                        outcomes.record(outcome);
                     }
                 }
             }
@@ -1848,6 +1983,7 @@ impl Scheduler {
                     let modulators = self.modulators.levels_at(self.tick);
                     let outcome =
                         pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, true, self.tick, neurons.capacity_len() as u32, modulators);
+                    outcomes.record(outcome);
                     if outcome == crate::plasticity::predictive::PredictionOutcome::CorrectPrediction {
                         predicted_spikes += 1;
                     }
@@ -1869,7 +2005,9 @@ impl Scheduler {
                 if let Some(pl) = &self.predictive_learning {
                     let predictive_before = self.predictive_scratch[i];
                     let modulators = self.modulators.levels_at(self.tick);
-                    pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, false, self.tick, neurons.capacity_len() as u32, modulators);
+                    let outcome =
+                        pl.resolve(neurons, synapses, &self.predicting_segment, idx, predictive_before, false, self.tick, neurons.capacity_len() as u32, modulators);
+                    outcomes.record(outcome);
                 }
             }
         }
@@ -1891,7 +2029,8 @@ impl Scheduler {
         // still_active was true) and committed spikes still in refractory.
         self.dirty = next_dirty;
 
-        let report = StepReport { tick: self.tick, spiked, vetoed, predicted_spikes, grown: Vec::new() };
+        debug_assert_eq!(outcomes.correct, predicted_spikes, "PLAN.md C2's tally and OBS-2's predicted_spikes count the same event and must not drift apart");
+        let report = StepReport { tick: self.tick, spiked, vetoed, predicted_spikes, outcomes, grown: Vec::new() };
         self.tick += 1;
         (report, post_spike_outbox)
     }
@@ -2827,6 +2966,7 @@ mod tests {
             burst_sprout_weight: 0.05,
             recently_active_window_ticks: 20,
             modulator_index: None,
+            gain_modulator_index: None,
             learning_target: SegmentLearningTarget::Permanence,
         }
     }

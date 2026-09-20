@@ -12,6 +12,7 @@ use brain_core::column::ColumnRegistry;
 use brain_core::consolidation::ConsolidationParams;
 use brain_core::graph::{DistancePolicy, GraphBuilder};
 use brain_core::growth::OverlapSaturation;
+use brain_core::neuromodulator::{ChannelDrive, PredictionErrorCoupling};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
@@ -321,6 +322,17 @@ pub struct PredictiveLearningConfig {
     /// Omit to leave reinforce/punish at their fixed amounts, matching
     /// every pre-existing caller's behaviour exactly.
     pub modulator_index: Option<u32>,
+    /// A *second*, multiplicative neuromodulator channel on the same deltas
+    /// (PLAN.md C2) -- `2` is `NORADRENALINE`. Omit to multiply by 1.0,
+    /// matching every pre-C2 caller exactly.
+    ///
+    /// Separate from `modulatorIndex` above because the two answer different
+    /// questions: that one *routes* (which signal licenses this change at
+    /// all), this one *scales* (how strongly anything being encoded right now
+    /// is encoded). Keeping them apart is what lets a surprise signal be added
+    /// without displacing a routing channel already in use -- which the
+    /// shipped VAL-4 configuration's tonically-held acetylcholine is.
+    pub gain_modulator_index: Option<u32>,
     /// Neighbourhood `size`/`k` used only by Requirement 12.1's
     /// unpredicted-spike burst path to find "recently active" neighbours
     /// to reinforce or sprout onto -- independent of the scheduler's own
@@ -367,8 +379,82 @@ impl PredictiveLearningConfig {
             burst_sprout_weight: self.burst_sprout_weight as f32,
             recently_active_window_ticks: self.recently_active_window_ticks,
             modulator_index: self.modulator_index.map(|v| v as usize),
+            gain_modulator_index: self.gain_modulator_index.map(|v| v as usize),
             learning_target,
         }
+    }
+}
+
+/// One channel's mapping from a PLAN.md C2 signal to a level.
+///
+/// `gain` of `0` pins the level at `baseline` exactly, for any input -- the
+/// VAL-9 ablation control, and at `baseline: 1.0` bit-identically the tonic
+/// hold `charPrediction.ts`'s `tonicModulator` maintains by hand.
+#[napi(object)]
+#[derive(Clone)]
+pub struct ChannelDriveConfig {
+    /// `0` DOPAMINE, `1` ACETYLCHOLINE, `2` NORADRENALINE, `3` SEROTONIN --
+    /// the same order `modulatorLevels` returns.
+    pub channel: u32,
+    pub baseline: f64,
+    pub gain: f64,
+    /// Upper clamp. The lower clamp is fixed at 0: a negative level would
+    /// flip the sign of every gated update, which is a change of meaning
+    /// rather than of rate.
+    pub max_level: f64,
+}
+
+/// PLAN.md C2: drives neuromodulator channels from the network's own
+/// prediction error (LRN-5, LRN-8, README §2.5/§2.7).
+///
+/// One two-timescale estimate of the prediction-failure rate feeds two
+/// channels, because Yu & Dayan (2005) assign acetylcholine *expected*
+/// uncertainty and noradrenaline *unexpected* uncertainty, and those are the
+/// slow term and the (fast − slow) term of the same estimate.
+///
+/// Omit `unexpected`/`expected` individually to leave that channel untouched.
+/// Omitting the whole config is every pre-C2 behaviour.
+#[napi(object)]
+#[derive(Clone)]
+pub struct PredictionErrorCouplingConfig {
+    /// Must be shorter than `tauSlowTicks`, or the surprise signal rectifies
+    /// to zero almost always -- a silent no-op rather than a loud failure.
+    pub tau_fast_ticks: f64,
+    pub tau_slow_ticks: f64,
+    /// Normally NORADRENALINE (channel `2`).
+    pub unexpected: Option<ChannelDriveConfig>,
+    /// Normally ACETYLCHOLINE (channel `1`).
+    pub expected: Option<ChannelDriveConfig>,
+}
+
+impl PredictionErrorCouplingConfig {
+    fn validate(&self) -> napi::Result<()> {
+        if self.tau_fast_ticks <= 0.0 || self.tau_slow_ticks <= self.tau_fast_ticks {
+            return Err(napi::Error::from_reason(format!(
+                "predictionErrorCoupling requires 0 < tauFastTicks < tauSlowTicks, got fast={} slow={}",
+                self.tau_fast_ticks, self.tau_slow_ticks
+            )));
+        }
+        for drive in [self.unexpected.as_ref(), self.expected.as_ref()].into_iter().flatten() {
+            if drive.channel as usize >= brain_core::plasticity::NUM_MODULATORS {
+                return Err(napi::Error::from_reason(format!(
+                    "predictionErrorCoupling channel must be below {}, got {}",
+                    brain_core::plasticity::NUM_MODULATORS, drive.channel
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn to_coupling(&self) -> PredictionErrorCoupling {
+        let mut c = PredictionErrorCoupling::new(self.tau_fast_ticks as f32, self.tau_slow_ticks as f32);
+        if let Some(d) = &self.unexpected {
+            c = c.with_unexpected(ChannelDrive::new(d.channel as usize, d.baseline as f32, d.gain as f32, d.max_level as f32));
+        }
+        if let Some(d) = &self.expected {
+            c = c.with_expected(ChannelDrive::new(d.channel as usize, d.baseline as f32, d.gain as f32, d.max_level as f32));
+        }
+        c
     }
 }
 
@@ -657,6 +743,12 @@ pub struct PlasticityConfig {
     /// Which of the four neuromodulator channels drives this rule (LRN-5)
     /// -- `0` is `DOPAMINE`, matching `modulatorLevels`' channel order.
     pub modulator_channel: u32,
+    /// A *second*, multiplicative neuromodulator channel on the same weight
+    /// update (PLAN.md C2) -- `2` is `NORADRENALINE`. Omit to multiply by
+    /// 1.0, matching every pre-C2 caller exactly. See
+    /// `PredictiveLearningConfig.gainModulatorIndex` for why routing and
+    /// scaling are separate fields.
+    pub gain_modulator_channel: Option<u32>,
     /// One decay time constant per neuromodulator channel, in ticks, in
     /// the same `DOPAMINE`/`ACETYLCHOLINE`/`NORADRENALINE`/`SEROTONIN`
     /// order `modulatorLevels` returns -- must have exactly four entries.
@@ -692,7 +784,16 @@ impl PlasticityConfig {
             tau_minus: self.stdp.tau_minus as f32,
             window_ticks: self.stdp.window_ticks,
         };
-        let rule_params = ThreeFactorParams::new(stdp, self.tau_eligibility_ticks as f32, self.learning_rate as f32, self.modulator_channel as usize);
+        let mut rule_params = ThreeFactorParams::new(stdp, self.tau_eligibility_ticks as f32, self.learning_rate as f32, self.modulator_channel as usize);
+        if let Some(gain) = self.gain_modulator_channel {
+            if gain as usize >= brain_core::plasticity::NUM_MODULATORS {
+                return Err(napi::Error::from_reason(format!(
+                    "gainModulatorChannel must be below {}, got {gain}",
+                    brain_core::plasticity::NUM_MODULATORS
+                )));
+            }
+            rule_params = rule_params.with_gain_channel(gain as usize);
+        }
         Ok(ResolvedPlasticity { rule_params, modulator_tau_ticks })
     }
 }
@@ -913,6 +1014,13 @@ struct SchedulerConfig {
     growth: Option<GrowthConfig>,
     newborn_maturation: Option<NewbornMaturationConfig>,
     silent_synapses: Option<SilentSynapsesConfig>,
+    /// PLAN.md C2. Deliberately **not** applied by `build_scheduler`: in
+    /// partitioned mode the coupling must live on the `PartitionRuntime` (it
+    /// merges the tally across partitions before driving any field), and
+    /// `PartitionRuntime::new` asserts that no scheduler carries one. Applied
+    /// at the two construction sites instead -- see `Runtime::Single`'s and
+    /// `ensure_partitioned`'s own call.
+    prediction_error_coupling: Option<PredictionErrorCouplingConfig>,
 }
 
 /// `InhibitionConfig` -> `FixedNeighbourhoods`, shared by `build_scheduler`
@@ -1205,6 +1313,7 @@ impl NativeSimulation {
         growth: Option<GrowthConfig>,
         newborn_maturation: Option<NewbornMaturationConfig>,
         silent_synapses: Option<SilentSynapsesConfig>,
+        prediction_error_coupling: Option<PredictionErrorCouplingConfig>,
         thread_count: Option<u32>,
         total_neurons: Option<u32>,
     ) -> Result<Self> {
@@ -1252,14 +1361,27 @@ impl NativeSimulation {
             growth,
             newborn_maturation,
             silent_synapses,
+            prediction_error_coupling,
         };
+        if let Some(cfg) = &config.prediction_error_coupling {
+            cfg.validate()?;
+        }
         let runtime = if thread_count > 1 {
             let total_neurons = total_neurons.ok_or_else(|| {
                 Error::from_reason("totalNeurons is required when threadCount > 1: PartitionRuntime must know the network's final neuron count upfront")
             })?;
             Runtime::Partitioned(Box::new(PartitionedState { thread_count, total_neurons, config, runtime: None }))
         } else {
-            Runtime::Single(Box::new(build_scheduler(&config)))
+            Runtime::Single(Box::new({
+                let mut scheduler = build_scheduler(&config);
+                // PLAN.md C2: applied here rather than in `build_scheduler`,
+                // because the partitioned path needs it on the runtime and
+                // `PartitionRuntime::new` refuses a scheduler carrying one.
+                if let Some(cfg) = &config.prediction_error_coupling {
+                    scheduler = scheduler.with_prediction_error_coupling(cfg.to_coupling());
+                }
+                scheduler
+            }))
         };
         Ok(Self {
             neurons: NeuronArena::new(),
@@ -1296,7 +1418,17 @@ impl NativeSimulation {
                 };
                 let schedulers: Vec<Scheduler> = (0..plan.partition_count()).map(|_| build_scheduler(&state.config)).collect();
                 state.runtime =
-                    Some(PartitionRuntime::new(plan, schedulers, &self.synapses, state.total_neurons).with_thread_count(state.thread_count));
+                    Some({
+                        let mut rt = PartitionRuntime::new(plan, schedulers, &self.synapses, state.total_neurons).with_thread_count(state.thread_count);
+                        // PLAN.md C2, RUN-6: the coupling lives on the runtime
+                        // so one estimator is advanced from the merged,
+                        // network-wide tally and every partition's field is
+                        // driven from it.
+                        if let Some(cfg) = &state.config.prediction_error_coupling {
+                            rt = rt.with_prediction_error_coupling(cfg.to_coupling());
+                        }
+                        rt
+                    });
             }
         }
     }
@@ -1733,6 +1865,33 @@ impl NativeSimulation {
         levels.iter().map(|&v| v as f64).collect()
     }
 
+    /// PLAN.md C2's two derived signals, `[surprise, expected]`, both in
+    /// `[0, 1]` -- *unexpected* and *expected* uncertainty as the estimator
+    /// currently reads them, before the field's own smoothing.
+    ///
+    /// Empty when no coupling is configured. Observability, not control: this
+    /// is what makes "the coupling did nothing on this corpus" a measurement
+    /// rather than an inference from a flat accuracy table, which is the
+    /// distinction §13.12 item 13's own lesson is about.
+    ///
+    /// A `-1.0` entry means "no evidence yet" (nothing classified at that
+    /// timescale) and is deliberately distinguishable from a genuine `0.0`,
+    /// which means "classified, and nothing failed".
+    #[napi]
+    pub fn prediction_error_signals(&self) -> Vec<f64> {
+        let signals = if self.is_partitioned() {
+            let Runtime::Partitioned(state) = &self.runtime else { unreachable!() };
+            state.runtime.as_ref().and_then(|pr| pr.prediction_error_signals())
+        } else {
+            let Runtime::Single(scheduler) = &self.runtime else { unreachable!() };
+            scheduler.prediction_error_signals()
+        };
+        match signals {
+            None => Vec::new(),
+            Some((surprise, expected)) => vec![surprise.map_or(-1.0, |v| v as f64), expected.map_or(-1.0, |v| v as f64)],
+        }
+    }
+
     /// Advances the simulation by exactly one tick, returning the indices
     /// of neurons that spiked (Requirement 5). In partitioned mode
     /// (`threadCount > 1`), this is every partition's `StepReport.spiked`
@@ -2144,6 +2303,7 @@ impl NativeSimulation {
         growth: Option<GrowthConfig>,
         newborn_maturation: Option<NewbornMaturationConfig>,
         silent_synapses: Option<SilentSynapsesConfig>,
+        prediction_error_coupling: Option<PredictionErrorCouplingConfig>,
     ) -> Result<Self> {
         // Note: no `synapse_cap_per_neuron` parameter here -- the snapshot
         // payload already carries it (`write_synapses` stores it, and
@@ -2283,7 +2443,20 @@ impl NativeSimulation {
         // configured; for a pre-version-10 snapshot (`restored.
         // newborn_maturation` is `None`), the only sound migration is "no
         // neuron is currently tracked as a newborn."
+        // PLAN.md C2: configuration is supplied fresh by the caller (this
+        // module's convention), the snapshot carries only the estimator's
+        // evolving state.
+        if let Some(cfg) = &prediction_error_coupling {
+            cfg.validate()?;
+            scheduler = scheduler.with_prediction_error_coupling(cfg.to_coupling());
+        }
         scheduler.restore_newborn_maturation_raw_state(restored.newborn_maturation, restored.tick);
+        // PLAN.md C2 (snapshot version 13). Ignored when the restoring
+        // scheduler was built without a coupling -- see
+        // `Scheduler::restore_prediction_error_raw_state`.
+        if let Some(state) = restored.prediction_error {
+            scheduler.restore_prediction_error_raw_state(state);
+        }
 
         Ok(Self {
             neurons: restored.neurons,

@@ -28,7 +28,7 @@
 //! history (`NeuronArena::last_spike`), not a global credit-assignment
 //! signal, and invariant 4 (enforced sparsity) is untouched -- newborns
 //! keep their appended arena indices and whatever inhibition neighbourhood
-//! that implies; this module does not redesign inhibition (PLAN.md F6).
+//! that implies; this module does not redesign inhibition (PLAN.md F15).
 
 use crate::arena::NeuronArena;
 use crate::ids::NeuronId;

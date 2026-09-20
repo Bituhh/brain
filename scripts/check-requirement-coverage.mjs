@@ -34,7 +34,7 @@ const thisFile = fileURLToPath(import.meta.url);
 const DEFERRED = new Set([
   // NET-6 (feedback carries predictions, should): no implementation, no test, no mention of the
   // id anywhere in crates/ or packages/ -- §13.12 item 14's first bullet. §13.13(b) and PLAN.md
-  // item F4 are the path to closing this, not this script.
+  // item F10 are the path to closing this, not this script.
   'NET-6',
   // NET-8 (emergent oscillations, could): nothing built -- expected for a could-priority item,
   // per §13.12 item 14's second bullet.
@@ -50,7 +50,7 @@ const DEFERRED = new Set([
   // README §13.12 item 14's NET-11 bullet, corrected 2026-09-19.
   'NET-11',
   // LRN-12 (fast one-shot binding, should): interfaces prepared (ReplaySource is abstract for
-  // exactly this reason), mechanism absent -- §13.12 item 14's third bullet. PLAN.md item F3 is
+  // exactly this reason), mechanism absent -- §13.12 item 14's third bullet. PLAN.md item F6 is
   // the path to closing this.
   'LRN-12',
 
@@ -82,6 +82,14 @@ const DEFERRED = new Set([
   // each partition owns a private `NeuromodulatorField`, and nothing in this crate uses an atomic
   // type at all (`grep -rn Atomic crates/brain-core/src` turns up nothing outside a test helper).
   // Not a new finding; carried here so the coverage checker does not re-flag an already-known gap.
+  //
+  // 2026-09-20 (PLAN.md C2): this checker now reports RUN-6 as "covered" because
+  // `tests/partitioning_reference.rs`'s new prediction-error scenario cites the id. It stays
+  // deferred, and the distinction matters: that test asserts every partition's private field
+  // broadcasts *identical* levels, which is a determinism property (RUN-3). RUN-6 asks for shared
+  // state behind atomics, and the field is still copied per partition with no atomic anywhere. A
+  // test citing an id is not a test of what the id requires -- the same lesson README §13.12 item
+  // 13 records for mechanisms, applied to requirements.
   'RUN-6',
   // RUN-7 (partition assignment minimises cross-partition edges): `PartitionRuntime::
   // cross_partition_edge_fraction` exists to measure exactly this, but nothing -- no test, no

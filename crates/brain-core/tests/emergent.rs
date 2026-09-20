@@ -191,6 +191,7 @@ fn build_network(seed: u64) -> Network {
         burst_sprout_weight: 0.05,
         recently_active_window_ticks: 10,
         modulator_index: None,
+        gain_modulator_index: None,
         learning_target: SegmentLearningTarget::Permanence,
     };
     // Requirement 12.1's unpredicted-spike burst path is neighbourhood-scoped
@@ -464,6 +465,7 @@ fn prediction_accuracy_rises_across_exposures_across_seeds() {
             burst_sprout_weight: 0.05,
             recently_active_window_ticks: 20,
             modulator_index: None,
+            gain_modulator_index: None,
         learning_target: SegmentLearningTarget::Permanence,
         };
         let mut sched = Scheduler::new(4, 0.3)

@@ -52,6 +52,7 @@ import {
   type PlasticityConfig,
   type HomeostaticScalingConfig,
   type StructuralStats,
+  type PredictionErrorCouplingConfig,
 } from "@brain/core";
 import { wrapColumnHandles, type ColumnHandle } from "../columns.ts";
 import { encodeChar, SUPPORTED_ALPHABET, type CharEncoderConfig } from "../encoders/text.ts";
@@ -239,6 +240,36 @@ export interface CharPredictionConfig {
    * no effect without it.
    */
   readonly tonicModulator?: { readonly channel: number; readonly level: number };
+  /**
+   * PLAN.md C2: drives noradrenaline (unexpected uncertainty) and
+   * acetylcholine (expected uncertainty) from the network's own
+   * prediction-failure rate, instead of holding a channel at a constant by
+   * hand. `undefined` (default) is every pre-C2 behaviour.
+   *
+   * **Interacts with `tonicModulator` and `plasticity.modulatorChannel`.**
+   * The shipped B5 values route the three-factor rule on channel 1
+   * (acetylcholine) and hold it at 1.0 via `tonicModulator`. Driving channel 1
+   * from here *replaces* that constant with a real signal -- which is the
+   * point, but it means the two must not both be configured for the same
+   * channel, or the tonic top-up will fight the coupling. `buildNetwork`
+   * refuses that combination rather than letting it produce a quietly wrong
+   * level.
+   */
+  readonly predictionErrorCoupling?: PredictionErrorCouplingConfig;
+  /**
+   * PLAN.md C2: which channel multiplies predictive learning's reinforce/punish
+   * deltas *on top of* whatever `predictiveLearning.modulatorIndex` routes on
+   * (`2` is NORADRENALINE). `undefined` (default) multiplies by 1.0, exactly
+   * as before C2. Meaningful only with `predictionErrorCoupling` driving that
+   * channel -- otherwise it multiplies by whatever constant the channel
+   * happens to hold.
+   */
+  readonly predictiveLearningGainChannel?: number;
+  /**
+   * PLAN.md C2: the same second channel for the three-factor STDP rule. See
+   * `predictiveLearningGainChannel` above.
+   */
+  readonly plasticityGainChannel?: number;
   /**
    * Weight-aware dendritic votes (PLAN.md B5, README §12 decision 13),
    * threaded into *both* `columnConfig`'s own `segments` and `buildNetwork`'s
@@ -483,6 +514,14 @@ export function buildNetwork(
   predictiveLearningTarget: CharPredictionConfig["predictiveLearningTarget"] = DEFAULT_CONFIG.predictiveLearningTarget,
   homeostaticScaling: HomeostaticScalingConfig | undefined = DEFAULT_CONFIG.homeostaticScaling,
   coincidenceThreshold: number = DEFAULT_CONFIG.coincidenceThreshold ?? DEFAULT_COINCIDENCE_THRESHOLD,
+  /**
+   * PLAN.md C2, grouped into one slot because the three move together: a
+   * coupling with no consumer changes nothing, and a gain channel with no
+   * coupling multiplies by whatever constant that channel happens to hold.
+   */
+  c2:
+    | Pick<CharPredictionConfig, "predictionErrorCoupling" | "predictiveLearningGainChannel" | "plasticityGainChannel">
+    | undefined = undefined,
 ): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 };
   const options: SimulationOptions = {
@@ -566,7 +605,12 @@ export function buildNetwork(
     ...(newbornMaturation !== undefined && { newbornMaturation }),
     // PLAN.md B4: see `CharPredictionConfig.silentSynapses`/`plasticity`.
     ...(silentSynapses !== undefined && { silentSynapses }),
-    ...(plasticity !== undefined && { plasticity }),
+    // PLAN.md C2: `gainModulatorChannel` is the three-factor rule's own
+    // second, multiplicative channel -- see `plasticityGainChannel`.
+    ...(plasticity !== undefined && {
+      plasticity: c2?.plasticityGainChannel !== undefined ? { ...plasticity, gainModulatorChannel: c2.plasticityGainChannel } : plasticity,
+    }),
+    ...(c2?.predictionErrorCoupling !== undefined && { predictionErrorCoupling: c2.predictionErrorCoupling }),
     ...(homeostaticScaling !== undefined && { homeostaticScaling }),
     predictiveLearning: {
       significanceThreshold: 0.5,
@@ -606,6 +650,9 @@ export function buildNetwork(
       // codebase (no named channel constant is exported across the FFI
       // boundary).
       ...(rewardSignal !== undefined && { modulatorIndex: 0 /* DOPAMINE */ }),
+      // PLAN.md C2: the *second*, multiplicative channel, separate from
+      // `modulatorIndex` above -- that one routes, this one scales.
+      ...(c2?.predictiveLearningGainChannel !== undefined && { gainModulatorIndex: c2.predictiveLearningGainChannel }),
       // PLAN.md B5: spread only if defined, `exactOptionalPropertyTypes`'s
       // convention -- `undefined` leaves `SegmentLearningTarget::Permanence`,
       // today's behaviour.
@@ -682,6 +729,11 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
     config.predictiveLearningTarget,
     config.homeostaticScaling,
     config.coincidenceThreshold,
+    {
+      ...(config.predictionErrorCoupling !== undefined && { predictionErrorCoupling: config.predictionErrorCoupling }),
+      ...(config.predictiveLearningGainChannel !== undefined && { predictiveLearningGainChannel: config.predictiveLearningGainChannel }),
+      ...(config.plasticityGainChannel !== undefined && { plasticityGainChannel: config.plasticityGainChannel }),
+    },
   );
   const collisionMargin = config.collisionMargin ?? DEFAULT_COLLISION_MARGIN;
   const trigram = new TrigramModel();
@@ -703,6 +755,20 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
   // `tonicModulator`: inject the full level once, then after each input top
   // it up by exactly what `ticksPerInput` ticks of decay removed, so the
   // level sits at `level` at every top-up.
+  // PLAN.md C2: refuse rather than silently produce a wrong level. A channel
+  // driven by the coupling AND topped up by a hand-held tonic level has two
+  // writers per tick, and the top-up drags it back toward a constant the
+  // coupling is trying to move -- README §12a item 8's "configured, and
+  // configures nothing" failure mode, one level up.
+  if (config.predictionErrorCoupling !== undefined && config.tonicModulator !== undefined) {
+    const driven = [config.predictionErrorCoupling.unexpected?.channel, config.predictionErrorCoupling.expected?.channel];
+    if (driven.includes(config.tonicModulator.channel)) {
+      throw new Error(
+        `channel ${config.tonicModulator.channel} is both driven by predictionErrorCoupling and held by tonicModulator; ` +
+          "pick one -- the tonic top-up would fight the coupling every character (PLAN.md C2)",
+      );
+    }
+  }
   const tonic = config.tonicModulator;
   const tonicTau = tonic !== undefined ? config.plasticity?.modulatorTauTicks[tonic.channel] : undefined;
   const tonicTopUp = tonic !== undefined && tonicTau !== undefined ? tonic.level * (1 - Math.exp(-config.ticksPerInput / tonicTau)) : 0;

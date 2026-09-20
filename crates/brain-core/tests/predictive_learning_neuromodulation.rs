@@ -58,6 +58,7 @@ impl Trial {
             burst_sprout_weight: 0.05,
             recently_active_window_ticks: 20,
             modulator_index: Some(DOPAMINE),
+            gain_modulator_index: None,
             learning_target: SegmentLearningTarget::Permanence,
         };
         let mut sched = Scheduler::new(4, 0.3)

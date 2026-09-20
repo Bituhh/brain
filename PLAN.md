@@ -37,7 +37,7 @@ Two scheduling facts that shape everything:
   bottleneck moves to wall-clock simulation and your judgment about what a result means. Estimates
   below separate the two.
 - **Phase A is a closing window.** Those fixes produce no golden-raster churn *only* while every
-  network runs `excitatoryFraction: 1.0`. Once D3 lands, they become expensive. Do them first.
+  network runs `excitatoryFraction: 1.0`. Once D4 lands, they become expensive. Do them first.
 
 Where an item is tuning-bound, parallelise the trials across cores — independent seeds are
 embarrassingly parallel and that is the only real speedup available there.
@@ -48,161 +48,222 @@ embarrassingly parallel and that is the only real speedup available there.
 
 ```mermaid
 graph TD
-    A1["A1 · Canonical brain constructor<br/><i>1 session</i>"]
-    A2["A2 · Segment sign fix + property test<br/><i>1 session</i>"]
-    A3["A3 · Traceability over README requirement IDs<br/><i>1 session</i>"]
-    A4["A4 · Snapshot sweep state + golden coverage<br/><i>1 session</i>"]
+    A["Phase A + B · done<br/><i>A1-A4, B1-B5</i>"]
 
-    B1["B1 · Split weight from permanence<br/><i>2–4 sessions · heavy review</i>"]
-    B2["B2 · Verify growth deadlock dissolved<br/><i>1 session + runs</i>"]
-    B3["B3 · Newborn neurons: pre-wired + hyperexcitable<br/><i>2–3 sessions + runs</i>"]
-    B4["B4 · Structural plasticity: sequence-aware sprout,<br/>usefulness-aware prune<br/><i>2–3 sessions + runs</i>"]
-    B5["B5 · Weight-aware dendritic votes<br/><i>2–4 sessions + runs</i>"]
-
-    C1["C1 · Wire consolidation into the loop<br/><i>1 session + runs</i>"]
-    C1a["C1a · Consolidation in partitioned mode<br/><i>2–3 sessions</i>"]
-    C1b["C1b · Selective, not uniform, downscaling<br/><i>1–2 sessions + runs</i>"]
-    C2["C2 · Noradrenaline from prediction error<br/><i>1–2 sessions</i>"]
+    C1["C1 · Wire consolidation into the loop<br/><i>done</i>"]
+    C2["C2 · Prediction-error producer:<br/>noradrenaline + acetylcholine<br/><i>1 session + runs</i>"]
+    C3["C3 · Dopamine: real RPE onto permanence<br/><i>1 session</i>"]
+    C4["C4 · Modulators reach StdpParams<br/><i>1 session</i>"]
+    C5["C5 · Noradrenaline widens the STDP window<br/><i>1 session + runs</i>"]
+    C6["C6 · Acetylcholine sets the LTP/LTD ratio<br/><i>1 session + runs</i>"]
+    C7["C7 · Feedforward/recurrent discriminant<br/><i>1 session · design call</i>"]
+    C8["C8 · Acetylcholine encoding mode<br/><i>1 session + runs</i>"]
+    C9["C9 · Small correctness issues<br/><i>1 session</i>"]
+    C10["C10 · Sweeps in multi-threaded mode<br/><i>1 session</i>"]
+    C11["C11 · Selective, not uniform, downscaling<br/><i>1 session + runs</i>"]
 
     D1["D1 · Polarity in NeuronLocal + E/I rescale fix<br/><i>1 session</i>"]
-    D2["D2 · Inhibitory STDP rule<br/><i>2–3 sessions</i>"]
-    D3["D3 · Turn on 80:20 and re-tune<br/><i>1 session code · 1–3 weeks tuning</i>"]
+    D2["D2 · Inhibitory STDP rule<br/><i>1 session</i>"]
+    D3["D3 · Polarity dispatch + E/I ablation<br/><i>1 session</i>"]
+    D4["D4 · Turn on 80:20 and re-tune<br/><i>1 session code · 1-3 weeks tuning</i>"]
 
-    E1["E1 · Persistent brain identity<br/><i>2–3 sessions</i>"]
+    E1["E1 · Named brain store + lifecycle<br/><i>1 session</i>"]
+    E2["E2 · Cross-process resume + growth after restore<br/><i>1 session</i>"]
 
-    F1["F1 · Short-term plasticity<br/><i>2–3 sessions</i>"]
-    F2["F2 · Fix cap_per_neuron<br/><i>3–5 sessions · heavy review</i>"]
-    F3["F3 · LRN-12 / BTSP one-shot binding<br/><i>2–3 sessions</i>"]
-    F4["F4 · NET-6 top-down feedback<br/><i>3–4 sessions</i>"]
-    F5["F5 · Delay plasticity<br/><i>2 sessions</i>"]
-    F6["F6 · Laminar column structure<br/><i>1–2 weeks</i>"]
+    F1["F1 · Short-term plasticity: state + delivery<br/><i>1 session</i>"]
+    F2["F2 · STP curves + VAL-4 measurement<br/><i>1 session + runs</i>"]
+    F3["F3 · cap_per_neuron: the design call<br/><i>1 session · design call</i>"]
+    F4["F4 · cap_per_neuron: implement<br/><i>1 session · heavy review</i>"]
+    F5["F5 · cap_per_neuron: scale + footprint re-measure<br/><i>1 session + runs</i>"]
+    F6["F6 · BTSP binding + pattern separation<br/><i>1 session</i>"]
+    F7["F7 · ReplaySource + VAL-4 measurement<br/><i>1 session + runs</i>"]
+    F8["F8 · Cross-partition replay routing<br/><i>1 session</i>"]
+    F9["F9 · Replay bit-identity + FFI<br/><i>1 session</i>"]
+    F10["F10 · Segment role tag<br/><i>1 session</i>"]
+    F11["F11 · Descending projections + apical effect<br/><i>1 session</i>"]
+    F12["F12 · Top-down prediction test<br/><i>1 session + runs</i>"]
+    F13["F13 · Delay plasticity rule<br/><i>1 session</i>"]
+    F14["F14 · NET-8 gamma/theta test<br/><i>1 session + runs</i>"]
+    F15["F15 · Laminar columns: scope the redesign<br/><i>1 session · design call</i>"]
+    F16["F16 · Column internal populations<br/><i>1 session</i>"]
+    F17["F17 · Per-column config made live<br/><i>1 session</i>"]
+    F18["F18 · Output-layer voting + NET-9 decision<br/><i>1 session</i>"]
+    F19["F19 · Serotonin: LTP/LTD threshold bias<br/><i>1 session · deferred</i>"]
+    F20["F20 · Histamine: fifth channel + excitability<br/><i>1 session · deferred</i>"]
+    F21["F21 · Nitric oxide: spatial diffusion field<br/><i>1 session · deferred</i>"]
 
-    G1["G1 · Small correctness issues<br/><i>1 session</i>"]
-    G2["G2 · Sweeps in multi-threaded mode<br/><i>1–2 sessions</i>"]
+    A --> C1
+    A --> C2
+    A --> C3
+    A --> D1
+    A --> C9
+    A --> C10
+    A --> E1
+    A --> F1
+    A --> F3
 
-    A1 --> A2
-    A1 --> B1
-    A2 --> B1
-    A3 -.-> B1
-    A1 --> A4
-    A4 --> B1
-    B1 --> B2
-    B2 --> B3
-    B3 --> B4
-    B4 --> B5
-    B5 --> D3
-    B5 -.-> C1
-    B5 -.-> C2
-    B5 -.-> D2
-    B3 -.-> E1
-    B1 --> C1
-    B1 --> D1
-    B1 --> E1
-    B1 --> F1
-    B2 --> D3
-    C1 --> D3
-    C1 -.-> C1a
-    C1 -.-> C1b
-    C2 --> D3
-    A1 --> C2
+    C2 --> C5
+    C2 --> C6
+    C2 --> C8
+    C4 --> C5
+    C4 --> C6
+    C4 --> F19
+    C7 --> C8
+    C1 -.-> F8
+    F7 -.-> F8
+    F8 --> F9
+    C1 -.-> C11
+
+    C2 --> D4
+    C3 -.-> D4
+    C5 -.-> D4
+    C6 -.-> D4
+    C8 -.-> D4
+    C1 --> D4
+    C9 -.-> D4
     D1 --> D2
     D2 --> D3
-    F2 --> F3
-    B1 --> F2
-    D3 -.-> F4
-    F1 -.-> F5
-    A3 --> G1
-    G1 -.-> D3
-    A4 --> G2
-    B1 --> G2
+    D3 --> D4
+
+    E1 --> E2
+    F1 --> F2
+    F3 --> F4
+    F4 --> F5
+    F4 --> F6
+    F6 --> F7
+    F10 --> F11
+    F11 --> F12
+    F1 -.-> F13
+    F13 --> F14
+    F15 --> F16
+    F16 --> F17
+    F17 --> F18
+    D4 -.-> F10
 
     classDef gate fill:#b45309,stroke:#78350f,color:#fff,stroke-width:2px
     classDef risk fill:#9f1239,stroke:#4c0519,color:#fff,stroke-width:2px
-    class B1 gate
-    class D3,F2 risk
+    classDef defer fill:#3f3f46,stroke:#18181b,color:#fff
+    class C2 gate
+    class D4,F4 risk
+    class F19,F20,F21 defer
 ```
 
 **Solid arrow** = hard dependency. **Dotted arrow** = strongly preferred order, not a blocker.
 
-**B1 is the critical path.** It gates VAL-4 re-baselining, NET-10 (invariant 10), consolidation's
-downscale semantics, and the `cap_per_neuron` work. Nothing downstream of it is worth starting first.
+**Reordered 2026-09-20, from C onward.** Phases A and B are closed and their rows are unchanged.
+Everything from C down was re-sequenced for two reasons: the neuromodulator audit
+(`.claude/scratch/neuromodulators/investigation.md`) found that a single channel was doing the work
+of four and that the remaining three have no attachment point in the core at all, which adds real
+items in the middle of Phase C; and every item was re-scoped to fit **one session**, splitting the
+nine that did not. **Item IDs were then renumbered to match position**, so §3's table reads
+`C1…C11, D1…D4, E1, E2, F1…F21` with no gaps and no suffixed ids — an id now tells you where in the
+order an item sits. Phases A and B keep their ids untouched, as do `C1` and `C2`, which between them
+carry 48 of the 50-odd citations that exist outside this file (Rust doc comments such as
+`PLAN.md B4`, `PLAN.md C1`). The twelve external citations that did move were updated in the same
+pass: README §12a/§13.12/§13.13, `plasticity/newborn.rs`, `check-requirement-coverage.mjs`,
+`canonicalBrain.ts` and its test.
 
-**A4 sits directly in front of B1** (added 2026-09-13 after verifying A1–A3). B1's own "done when"
-requires snapshot continuation to stay bit-identical, and that does not hold today once periodic
-sweeps are live — so without A4, B1 cannot tell its own bugs from a pre-existing one.
+**C2 is the new critical path, and it is cheap.** It produces *two* channels from one estimator,
+which is why it moved to the front of the neuromodulator work rather than sitting beside C3-C8:
+Yu & Dayan (2005) assign acetylcholine *expected* uncertainty and noradrenaline *unexpected*
+uncertainty, and those are the slow and the (fast − slow) term of the same two-timescale estimate of
+the network's own prediction-failure rate. One struct, two channels. C5, C6 and C8 all consume it,
+and D4 is gated on it.
 
-**B3 exists because B1 was necessary but not sufficient** (added 2026-09-14, while B2 was still
-running). Splitting weight from permanence opened one of three locks on a newborn neuron; the other
-two — sprouting requires *both* ends to have already fired, and every internal synapse lands on a
-dendritic segment that can prime a cell but never fire it — are still shut. B3 implements the
-biological answer instead: a newborn arrives already wired to whatever is active, and temporarily
-easy to excite. It gates D3 because the canonical brain has growth on, and is strongly preferred
-before E1, since a persistent brain that cannot grow contradicts invariant 10.
+**C4 is a shared hook, not a mechanism.** Today exactly two arithmetic sites in the whole core read
+the neuromodulator field, and both multiply a delta by a level. Nothing lets a modulator reach an
+STDP *window*, an LTP/LTD *ratio*, a threshold, or a routing decision. C5, C6 and F19 all need the
+same plumbing into `StdpParams`; building it once is the difference between Phase C being three
+items and three copies of one change.
 
-**B4 exists because B3's own VAL-4 battery surfaced a cost that predates B3 — and predates growth
-entirely** (added 2026-09-14, immediately after B3 closed). Condition C (structural plasticity
-alone, no growth) regressed from Phase A's 13.04% to 6.40% at the point B1 landed: B1 made every
-sprout connected and STDP-visible from birth (the fix growth genuinely needed), but nothing about
-*where* or *how* `StructuralPlasticity::sprout` places a synapse was designed for that — it was
-tuned when a fresh sprout was inert until potentiated, and is now live from the first sweep. README
-§13.12 item 10's 2026-09-14 diagnosis update names four specific mechanisms sharing that one root
-cause. It gates D3 for the same reason B3 does: D3's re-tune should start from a structural
-plasticity mechanism that has been fixed, not one with a known, already-measured drag baked in —
-tuning around it now would fit parameters to a defect rather than to the network's actual behaviour.
+**C7 is a design call before it is code, and it is invariant-adjacent.** LRN-1 hands a
+`PlasticityRule` only `LocalContext` and `SynapseMut`; neither carries the synapse's target segment,
+and that narrowness *is* how invariant 1 is enforced structurally rather than by discipline. The data
+exists one level up (`SynapseArena.target_segment`, `segment::FEEDFORWARD_SEGMENT`). Either widen the
+interface with a feedforward/recurrent discriminant, or use a scheduler-invoked module the way
+`plasticity/predictive.rs` already does. C8 cannot start until that is settled.
 
-**B5 exists because B4's own value search showed sprouting cannot help while dendritic votes
-ignore weight** (added 2026-09-15, as B4 closed). With every B4 value and STDP searched together,
-the best structural-plasticity configuration reached 15.58% on confirmation seeds, against 16.63%
-for the same configuration with sprouting disabled. The search chose the lowest STDP learning rate
-and a high unsilence weight, so few sprouts ever vote, and with sprouting off STDP changed nothing at
-all. A segment counts each delivery as ±1 whatever the synapse's weight, so B4's silent gate could
-only be an on/off switch. B5 gives each delivery a capped, weight-scaled contribution. It gates D3
-hard: a weighted vote changes what every segment threshold responds to, and tuning the 80:20
-network first would mean tuning twice. It is strongly preferred before C1, C2 and D2, because each
-of those changes or learns weights, and whether weight reaches predictions changes what each of
-them does.
+**Phase G is gone; its two items are C9 and C10, and they moved ahead of D4.** A trailing `G` read
+as "last", which is the one thing housekeeping is not here: C9's own note always said it was best
+done before the re-tune — that is when vetoed segments first become visible — and C10's sweep wiring
+changes what a partitioned re-tune measures. Running either after a 1-3 week tuning item means
+tuning twice.
 
-**Phase G is housekeeping** found during the same verification. G1 needs only A3 and is best done
-before D3, which is when vetoed segments first become visible. G2 waits for A4 and B1, because both
-change the sweeps it has to wire up.
+**Where the old consolidation follow-ups went.** `C1b` (selective downscaling) became **C11** and
+moved *up*: C1's own result is that a *uniform* downscale is erased exactly by the online LRN-6
+sweep, and C1b was always "the one C1 follow-up whose negative result does not already apply", so it
+has a real case and no reason to sit behind the whole E and F phases. `C1a` and `C1c` (partitioned
+replay) became **F8** and **F9** and moved *down*, to the position C1a's own prompt already argued
+for: do it "when something needs it — most plausibly after F6/F7 gives `ReplaySource` a fast store
+worth replaying". They now sit immediately after F7, with a dotted edge recording that reasoning.
 
-**D3 and F2 are the two risk items.** D3 because its cost is tuning, not code. F2 because it is a
-wide change to the arena addressing scheme that cross-partition routing depends on.
+**D4 stays the tuning risk, and its gate was restated.** It was gated on "C2"; it is now gated on
+C2 *specifically* rather than on the whole neuromodulator run, because nothing in D4 depends on
+acetylcholine routing or the STDP-window work. C3, C5, C6 and C8 are strongly preferred before it
+for the reason B5 already established — each changes what the network learns, and tuning the 80:20
+network before they land means tuning twice — but none of them blocks it.
+
+**F4 is the other risk item**, unchanged: a wide change to the arena addressing scheme that
+cross-partition routing depends on. It is now preceded by F3, which is only the design call, so the
+decision can be reviewed before any code moves.
+
+**F19, F20 and F21 are deferred on the record, not omitted.** The audit found serotonin's stability
+claim contradicted by the evidence and its job already held by LRN-6 + NEU-7; histamine's wake/sleep
+role already modelled explicitly by LRN-10; and nitric oxide structurally unable to be an LRN-5
+channel at all, since a diffusion kernel is spatially addressed and needs its own requirement first.
+They carry rows so a later session reads the absence as a decision rather than an oversight.
 
 ---
 
 ## 3. The items, in order
 
-| ID | Item | Gated by | Claude Code | Wall-clock / your time |
-|---|---|---|---|---|
-| **A1** | Canonical "everything on" brain constructor | — | 1 session | — |
-| **A2** | Segment sign fix + segment-configured Dale property test | A1 | 1 session | 1 design call |
-| **A3** | Traceability check over README requirement IDs | — | 1 session | — |
-| **A4** | Snapshot every sweep's state (RUN-9a) + a golden scenario that can see the engine | A1 | 1 session | — |
-| **B1** | Split `weight` from `permanence` | A1, A2, A4 | 2–4 sessions | **heavy review** |
-| **B2** | Verify the NET-10 growth deadlock is dissolved | B1 | 1 session | ~1 hour of runs |
-| **B3** | Newborn neurons arrive pre-wired to active inputs and hyperexcitable, then mature or die | B2 | 2–3 sessions | **1 design call** + hours of runs |
-| **B4** | Structural plasticity sprouts by sequence and prunes by usefulness, not just co-activity/permanence | B3 | 2–3 sessions | **3 design calls** + hours of runs |
-| **B5** | Dendritic votes weigh each synapse by its weight, capped, so a new synapse earns influence gradually | B4 | 2–4 sessions | **3 design calls** + ~1–2 days of runs |
-| **C1** | Wire `runConsolidation` into the streaming loop | B1 | 1 session | hours of runs |
-| **C1a** | Consolidation in partitioned mode (replay across partitions) | C1 | 2–3 sessions | — |
-| **C1b** | Selective (replay-gated) downscaling, not uniform | C1 | 1–2 sessions | hours of runs |
-| **C2** | Drive noradrenaline from prediction error | A1 | 1–2 sessions | 1 design call |
-| **D1** | `polarity` in `NeuronLocal` + E/I-aware `rescale_one` | B1 | 1 session | — |
-| **D2** | Inhibitory STDP rule (Vogels-style) + ablation test | D1 | 2–3 sessions | — |
-| **D3** | Turn on 80:20 and re-tune | B2, B5, C1, C2, D2 | 1 session | **1–3 weeks tuning** |
-| **E1** | Persistent named brain that resumes | B1 | 2–3 sessions | — |
-| **F1** | Short-term plasticity (Tsodyks–Markram) | B1 | 2–3 sessions | tuning |
-| **F2** | Fix `cap_per_neuron`'s single-constant addressing | B1 | 3–5 sessions | **heavy review** |
-| **F3** | LRN-12 / BTSP one-shot binding | F2 | 2–3 sessions | experiments |
-| **F4** | NET-6 top-down feedback carrying predictions | D3 (pref.) | 3–4 sessions | experiments |
-| **F5** | Delay plasticity | F1 (pref.) | 2 sessions | experiments |
-| **F6** | Laminar column structure | — | 1–2 weeks | experiments |
-| **G1** | Small correctness issues: ENG-5 false gap, stale deferrals, vetoed segments invisible | A3 | 1 session | — |
-| **G2** | Periodic sweeps silently inert in multi-threaded mode | A4, B1 | 1–2 sessions | — |
+| # | ID | Item | Gated by | Claude Code | Wall-clock / your time |
+|---|---|---|---|---|---|
+| — | **A1-A4** | *Phase A — closed* | — | — | — |
+| — | **B1-B5** | *Phase B — closed* | — | — | — |
+| 1 | **C1** | Wire `runConsolidation` into the streaming loop — *done 2026-09-19* | B1 | 1 session | — |
+| 2 | **C2** | Prediction-error producer: noradrenaline (unexpected) + acetylcholine (expected) | A1 | 1 session | hours of runs |
+| 3 | **C3** | Dopamine: a real reward *prediction error*, routed onto permanence | — | 1 session | — |
+| 4 | **C4** | Modulators reach `StdpParams` — the shared hook for C5/C6/F19 | — | 1 session | — |
+| 5 | **C5** | Noradrenaline widens the STDP timing window | C2, C4 | 1 session | hours of runs |
+| 6 | **C6** | Acetylcholine sets the LTP/LTD ratio | C2, C4 | 1 session | hours of runs |
+| 7 | **C7** | Feedforward/recurrent discriminant reaching the plasticity path | — | 1 session | **1 design call** |
+| 8 | **C8** | Acetylcholine encoding mode: recurrent transmission down, recurrent plasticity up | C2, C7 | 1 session | hours of runs |
+| 9 | **C9** | Small correctness issues from the A1-A3 verification | A3 | 1 session | — |
+| 10 | **C10** | Periodic sweeps silently inert in multi-threaded mode | A4, B1 | 1 session | — |
+| 11 | **C11** | Selective (replay-gated) downscaling, not uniform | C1 | 1 session | hours of runs |
+| 12 | **D1** | `polarity` in `NeuronLocal` + E/I-aware `rescale_one` | B1 | 1 session | — |
+| 13 | **D2** | Inhibitory STDP rule (Vogels-style) + kernel tests | D1 | 1 session | — |
+| 14 | **D3** | Polarity dispatch + E/I-balance ablation test | D2 | 1 session | — |
+| 15 | **D4** | Turn on 80:20 and re-tune ⚠️ | B2, B5, C1, C2, D3, C9 | 1 session | **1-3 weeks tuning** |
+| 16 | **E1** | Named brain store + explicit lifecycle | B1 | 1 session | — |
+| 17 | **E2** | Cross-process resume + growth after restore | E1 | 1 session | — |
+| 18 | **F1** | Short-term plasticity: per-synapse state + delivery | B1 | 1 session | — |
+| 19 | **F2** | STP curve tests + VAL-4 measured both ways | F1 | 1 session | tuning |
+| 20 | **F3** | `cap_per_neuron`: the design call | B1 | 1 session | **1 design call** |
+| 21 | **F4** | `cap_per_neuron`: implement ⚠️ | F3 | 1 session | **heavy review** |
+| 22 | **F5** | `cap_per_neuron`: scale + footprint re-measure | F4 | 1 session | hours of runs |
+| 23 | **F6** | LRN-12 / BTSP one-shot binding + pattern separation | F4 | 1 session | — |
+| 24 | **F7** | `ReplaySource` for the fast store + VAL-4 measurement | F6 | 1 session | experiments |
+| 25 | **F8** | Consolidation in partitioned mode: cross-partition replay routing | C1 | 1 session | — |
+| 26 | **F9** | Replay bit-identity across thread counts + FFI surface | F8 | 1 session | — |
+| 27 | **F10** | NET-6: segment role tag | — | 1 session | — |
+| 28 | **F11** | Descending projections + distinct apical effect | F10 | 1 session | — |
+| 29 | **F12** | Top-down prediction changes what the lower population predicts | F11 | 1 session | experiments |
+| 30 | **F13** | Delay plasticity rule | F1 | 1 session | — |
+| 31 | **F14** | NET-8: does adaptive delay produce gamma/theta structure? | F13 | 1 session | experiments |
+| 32 | **F15** | Laminar columns: scope the redesign | — | 1 session | **1 design call** |
+| 33 | **F16** | Column internal populations with defined roles | F15 | 1 session | — |
+| 34 | **F17** | Per-column configuration made live | F16 | 1 session | — |
+| 35 | **F18** | Output-layer lateral voting + the NET-9 location decision | F17 | 1 session | experiments |
+| 36 | **F19** | Serotonin: LTP/LTD threshold bias — *deferred, see §2* | C4 | 1 session | — |
+| 37 | **F20** | Histamine: `NUM_MODULATORS` 4→5 + global excitability — *deferred* | — | 1 session | — |
+| 38 | **F21** | Nitric oxide: spatial diffusion field — *deferred, needs a requirement first* | — | 1 session | — |
 
-**Phase totals:** A ≈ 1–1.5 days · B ≈ 3–5 days · C ≈ 1–2 days · D ≈ 1 week code + 1–3 weeks
-calendar · E+F ≈ 3–4 weeks code + 2+ months calendar · G ≈ 1–2 days.
+**Phase totals from here:** C ≈ 10-13 sessions + runs · D ≈ 4 sessions + 1-3 weeks tuning ·
+E ≈ 2 · F ≈ 19 sessions + experiments. Every row is one session of coding by construction; the
+wall-clock column is where the real cost still lives (§1's own point — coding compresses with an
+LLM, experiments do not).
 
 ---
 
@@ -233,7 +294,7 @@ Standing context for every session. The prompts reference this section rather th
 - **When you finish, update `README.md`** — the relevant §11 phase status and/or §13.12 item — in the
   document's existing voice. Then update this file's status for the item.
 - **Cite symbols, not line numbers.** A prompt or doc that says `~line 1862` rots silently: by
-  2026-09-19 that particular citation (C1's, for `run_consolidation`) was off by ~480 lines, G1's
+  2026-09-19 that particular citation (C1's, for `run_consolidation`) was off by ~480 lines, C9's
   for a probe cast by ~300, and D1's for `rescale_one` by 26. Name the function, type or test and
   the file it lives in — `grep` finds those forever. A line number is at best a hint alongside a
   symbol, never the address itself.
@@ -524,7 +585,7 @@ KNOW BEFORE YOU START (from verifying A1–A3).
 - Use A4's second golden scenario as your behavioural evidence. The original three-neuron scenario
   has no segments, plasticity or homeostasis, so "it didn't move" tells you nothing about this change.
 - With threadCount > 1, homeostatic scaling and every other periodic sweep currently never runs
-  (PLAN.md G2). A partitioned test passing is NOT evidence your scaling change is correct — verify
+  (PLAN.md C10). A partitioned test passing is NOT evidence your scaling change is correct — verify
   scaling single-threaded.
 
 CONSTRAINTS. Memory cost is +4 bytes/synapse — at the 50M-synapse target that is ~+200MB on the
@@ -676,7 +737,7 @@ THE TASK. Make a newborn neuron integrate, using the three-part biological strat
    plus deterministic jitter) instead of the shared coords_origin, so later distance-based
    mechanisms treat it as local to what it represents. Keep appended indices — do NOT redesign
    inhibition here — but make sure the newborn group's sparsity stays at target (k relative to
-   group size) and record what you chose. Membership-based inhibition, if needed, belongs in F6.
+   group size) and record what you chose. Membership-based inhibition, if needed, belongs in F15.
 3. OUTPUTS LATER. No outgoing synapses at birth. Once a newborn fires, its activity streak builds
    and LRN-7/LRN-8 treat it like any other neuron. Note that sprouted outputs land on dendritic
    segment 0 of their targets, so a mature newborn contributes predictive CONTEXT to the existing
@@ -1002,7 +1063,7 @@ CONSTRAINTS.
 - Invariant 1 (locality): the contribution is computed from the delivery's own `signed_current` at
   the receiving scheduler, and `DeliveryEffect` already carries it across partitions, so no new
   boundary state is needed. Keep it that way.
-- Keep `excitatoryFraction: 1.0` everywhere it is today; the 80:20 population is D3's.
+- Keep `excitatoryFraction: 1.0` everywhere it is today; the 80:20 population is D4's.
 - The segment's output stays binary. A graded depolarisation output is a separate, later item.
 - Do not change B3's `NewbornMaturation` inputs. They land on `FEEDFORWARD_SEGMENT` and are
   unaffected, but note any interaction you find.
@@ -1085,7 +1146,7 @@ verified in the code, neither recorded anywhere else).
   replays only the tail of each interval, silently, with no error and no warning. If you want to
   replay a full inter-sleep interval, the cadence and the cap have to be chosen together, or the cap
   raised deliberately and its memory cost stated.
-- Related, and F3's problem rather than yours: replay comes from the `SpikeRaster` — the
+- Related, and F6's problem rather than yours: replay comes from the `SpikeRaster` — the
   "tape recorder" README §12a item 5(a) says "satisfies LRN-10 literally while bypassing the
   mechanism LRN-12 exists to supply". Do not fix that here; do not claim a result that depends on
   it being fixed.
@@ -1104,43 +1165,449 @@ honestly, README §11's phase status plus §13.12 item 13 record the result, and
 
 ---
 
-### C1a — Consolidation in partitioned mode
+### C2 — Prediction-error producer: noradrenaline and acetylcholine
 
 ```
-Read README.md §12a item 9(c), LRN-10, RUN-4/5, and PLAN.md §4. Read C1's Status row first: it
-is what scoped this item, and its result is why this is not urgent.
+Read README.md §2.5, §2.7, LRN-5, LRN-8, §13.12 item 13, PLAN.md §4, and
+`.claude/scratch/neuromodulators/investigation.md` — the audit that rescoped this item. Read the
+audit's F15 and F19 before writing any code; they are why this prompt was rewritten on 2026-09-20.
 
-THE GAP. `NativeSimulation::run_consolidation` (crates/brain-napi/src/lib.rs — search the symbol)
-returns an error in partitioned mode: "runConsolidation is not supported in partitioned mode
-(threadCount > 1): replay has no cross-partition messaging path yet". `Scheduler::
-run_consolidation` (crates/brain-core/src/consolidation.rs) is defined on `Scheduler`, not on
-`PartitionRuntime`, for the same reason, and says so in its own doc comment. So a network that
-consolidates cannot use RUN-4's threading, and a network that threads cannot sleep.
+THE FINDING. LRN-5 specifies four channels. Only DOPAMINE has a real producer, and the shipped VAL-4
+configuration uses ACETYLCHOLINE only as a hand-held constant (`tonicModulator` at 1.0). A producer
+for the other two already exists and is thrown away: `plasticity/predictive.rs` classifies every
+dirty neuron, every tick, into correct prediction / false positive / unpredicted spike.
 
-The precedent this deliberately followed is `snapshotBytes`/`restore`, which were also
-Single-mode-only when Phase 4 shipped them. The work is to replay a raster whose events may target
-any partition, correctly and *bit-identically to the single-threaded reference* (RUN-3, RUN-9a),
-through the cross-partition messaging path — `tests/partitioning_reference.rs` is where that
-equivalence is asserted for `step()` and is the model for asserting it for replay.
+THE DESIGN, AND WHY IT IS ONE ITEM AND NOT TWO. Yu & Dayan (2005) assign acetylcholine *expected*
+uncertainty and noradrenaline *unexpected* uncertainty. Those are the slow term and the
+(fast − slow) term of the SAME two-timescale estimate of the network's own prediction-failure rate.
+One estimator, two channels:
 
-WHY IT IS NOT URGENT, AND WHY THAT MATTERS TO HOW YOU SCOPE IT (added 2026-09-19 by C1). C1
-measured VAL-4 with and without a sleep cadence across 12 conditions and 10 seeds: sleeping never
-helped, and frequent sleeping cost 5.5–7.0 points (README §13.12 item 13). Nothing currently wants
-to sleep *and* scale. Do not do this item because the error message is annoying; do it when
-something needs it — most plausibly after F3 gives `ReplaySource` a fast store worth replaying
-(§12a item 9(b): today's raster is ~85% a recording of the encoder's own input SDR), or when D3's
-80:20 network is large enough that single-threaded runs stop being affordable. If neither has
-happened, the honest thing is to leave the error in place: it is a correct, documented refusal,
-not a bug.
+    fast_correct, fast_fail = EMA(correct, tau_fast),  EMA(false_positive + unpredicted, tau_fast)
+    slow_correct, slow_fail = EMA(correct, tau_slow),  EMA(false_positive + unpredicted, tau_slow)
+    expected  = slow_fail / (slow_fail + slow_correct)          -> ACETYLCHOLINE
+    surprise  = max(0, fast_fail/(fast_fail+fast_correct) - expected)  -> NORADRENALINE
 
-DONE WHEN. `runConsolidation` works at any `threadCount`, `tests/partitioning_reference.rs`
-asserts a replayed run is bit-identical across thread counts, README §12a item 9(c) records the
-resolution, and PLAN.md's C1a row and `.claude/HANDOFF.md` are updated (see §4).
+TWO MISTAKES ALREADY MADE AND MEASURED — do not repeat either.
+
+1. A FIXED reference rate makes noradrenaline report TOTAL uncertainty, which is acetylcholine's
+   quantity, not NE's. Silvetti et al. (2013) are explicit that LC extracts volatility from *bursts*
+   of prediction error, not from average magnitude. On VAL-4 the network mispredicts ~80% of
+   characters persistently, so a fixed reference pins the level at a constant offset and the
+   coupling degenerates into "a slightly different learning rate".
+
+2. AVERAGING A PER-TICK RATE MEASURES SILENCE, NOT ACCURACY. This was measured, not reasoned: on the
+   two-neuron A->B sequence the failure rate reaches exactly 0 by exposure 3 and noradrenaline ROSE
+   anyway, 0.5434 -> 0.6138, because 4 of every 7 ticks classified nothing and were driven toward a
+   neutral baseline. The plateau was the duty cycle of silence. EMA the COUNTS and form the rate
+   from the ratio — then a silent tick decays numerator and denominator alike and the ratio is
+   unchanged, which is the correct reading of "no evidence". This generalises past C2: any scalar
+   derived from per-tick event counts in this engine needs event weighting.
+
+WHAT IS ALREADY IN THE WORKING TREE (uncommitted, from the first attempt — keep it, it is correct):
+`PredictionOutcomeCounts` + `StepReport.outcomes`, `gain_modulator_index` on `ThreeFactorParams` and
+`PredictiveLearningParams` (a SECOND multiplicative channel, so a gain signal does not have to
+displace the routing channel the shipped config already uses), `NeuromodulatorField::drive_toward`,
+`Scheduler::with_modulator_tau_ticks`, and the per-partition merge in `PartitionRuntime::step`.
+`NoradrenalineCoupling`'s internals are what must be replaced, and `tests/noradrenaline.rs` asserts
+the superseded design — 4 of its 6 tests fail by construction.
+
+CONSTRAINTS.
+- Invariant 2 and LRN-5: the field is a BROADCAST SCALAR. Aggregate to a scalar before it reaches
+  the field. A per-neuron or per-synapse surprise term is a gradient in disguise and is forbidden.
+- RUN-6: each partition holds its own field copy. Merge every partition's INTEGER counts into one
+  network-wide tally first, then drive every partition's field with that single value. Integer
+  addition is associative; `tests/partitioning_reference.rs` must show it end to end, and its
+  reference scenario does NOT currently configure predictive learning, so add one that does.
+- RUN-9a: the two EMAs are new scheduler state and must round-trip. Expect a snapshot format bump.
+- VAL-9: ablation is `gain = 0`, which pins the level at `baseline` exactly — at `baseline = 1.0`
+  that is bit-identically the tonic hold the shipped config already maintains, so the control is
+  the EXISTING behaviour, not a new one.
+
+DONE WHEN. Noradrenaline and acetylcholine both have a producer and at least one consumer,
+single-threaded and partitioned runs stay bit-identical, snapshot/restore round-trips the estimator,
+the ablation test asserts the tracking property FAILS when disabled, VAL-4 is re-measured on the
+5-seed protocol and reported either way, and README §13.12 item 13 plus LRN-5's status record what
+the two channels now do.
 ```
 
 ---
 
-### C1b — Selective, not uniform, downscaling
+### C3 — Dopamine: a real reward *prediction error*, routed onto permanence
+
+```
+Read README.md §2.5, LRN-4, LRN-11, PLAN.md §4, and
+`.claude/scratch/neuromodulators/investigation.md` §3.3.
+
+READ `.claude/HANDOFF.md` FACT 14 BEFORE ANYTHING ELSE. This item is larger than the prompt below
+says. Found 2026-09-20 after C2 closed: dopamine having no producer does not merely leave the signal
+*wrong*, it leaves TWO MECHANISMS DEAD. `canonicalBrain.ts` routes both the three-factor rule
+(`plasticity.modulatorChannel: 0`) and predictive learning (`predictiveLearning.modulatorIndex: 0`)
+on dopamine, and nothing injects it, so both multiply their deltas by exactly 0 on every tick.
+Measured over 400 ticks, dopamine off vs injected: meanWeight 0.184 -> 0.541, meanPermanence 0.373
+-> 0.503. Giving dopamine a producer therefore switches LRN-2/3/4 and LRN-8's 12.2/12.3 path ON for
+the first time in that fixture. **Expect the numbers to move for that reason as well as because the
+signal became an RPE, and separate the two in the write-up or the result is uninterpretable.**
+`packages/io/test/canonicalBrain.test.ts` has a test that ASSERTS THE BROKEN STATE ON PURPOSE
+("both modulated learning rules are inert until dopamine has a producer") -- it will fail when you
+land this, and rewriting it to assert the mechanism is part of the item, not an obstacle to it.
+
+THE GAP. `charPrediction.ts` calls `sim.reward(hit ? 1.0 : 0.0)`. That is a RAW REWARD, not a reward
+prediction error — nothing subtracts an expectation, so a network that is right 90% of the time gets
+the same dopamine burst for an expected success as for a surprising one. README §2.5 says
+"dopamine = reward prediction error" and the substrate does not deliver one. It is also switched off:
+`rewardSignal` is undefined in the shipped config, so `PredictiveLearningParams.modulator_index`
+stays `None`.
+
+WHY THIS IS CHEAP AND WHY IT IS WORTH DOING BEFORE D4. The expectation term is one EMA over the same
+hit/miss boolean the harness already computes, and the delta is `reward - expected_reward`. It costs
+almost nothing, and a raw reward masquerading as an RPE is exactly the kind of thing that quietly
+invalidates a later measurement — D4 is a 1-3 week tuning item and should not be tuned against a
+mislabelled signal.
+
+THE TASK.
+1. Add an expected-reward baseline (an EMA, with its own time constant) and make the injected
+   dopamine `reward - expected`, which is signed. Decide explicitly what a NEGATIVE dopamine level
+   should mean and whether to rectify it — a negative modulator flips the sign of every gated
+   update, turning reinforcement into punishment, which is a change of MEANING, not of rate. Record
+   the decision either way.
+2. Route it where the biology puts it. Synaptic tagging and capture (Redondo & Morris 2011) is
+   dopamine gating the conversion of early-LTP into late-LTP — persistence, not strength. Against
+   README §12's weight/permanence split that is `permanence`, and `PredictiveLearningParams`'
+   `learning_target` already defaults there. Do NOT route dopamine onto `ThreeFactorStdp`, which
+   writes weight; the audit flags that several tests pass `ThreeFactorParams::new(..., DOPAMINE)`
+   and that wiring is the inverse of "permanently reinforced".
+3. Note the honest caveat in the doc comment: beta-adrenergic (noradrenaline) receptors are ALSO
+   required for the same plasticity-related-protein process, so "dopamine commits, noradrenaline
+   amplifies" is a defensible simplification, not a description of the biology.
+4. Ablation (VAL-9): with the baseline disabled the signal reverts to raw reward — assert the
+   property that distinguishes them (a predictable reward produces no burst) fails.
+
+CONSTRAINTS. Determinism (RUN-3); the baseline is new state and must snapshot (RUN-9a); every
+existing run with `rewardSignal` unset must stay bit-identical.
+
+DONE WHEN. Dopamine carries a prediction error rather than a reward, it is routed onto permanence,
+the sign decision is recorded, the ablation test exists, VAL-4 is measured with it on and reported
+either way, and README §2.5's claim plus LRN-11's status are true rather than aspirational.
+```
+
+---
+
+### C4 — Modulators reach `StdpParams` — the shared hook
+
+```
+Read README.md LRN-2, LRN-4, LRN-5, ENG-9, PLAN.md §4, and
+`.claude/scratch/neuromodulators/investigation.md` §4.
+
+THE FINDING (audit F3). The neuromodulator field has exactly TWO read sites in the whole core:
+`three_factor.rs`'s `apply_modulated_update` and `predictive.rs`'s `modulator_scale`. Both do the
+same thing — multiply a delta by a level. Nothing in this codebase lets a modulator reach an STDP
+timing WINDOW, an LTP/LTD RATIO, a neuron threshold, or a routing decision. C5, C6 and F19 each need
+the first two. This item builds that plumbing ONCE so the phase is three items rather than three
+copies of one change.
+
+THE TASK.
+1. Let `StdpParams`' curve shape be modulator-dependent at evaluation time rather than fixed at
+   construction: `a_plus`, `a_minus`, `tau_plus`/`tau_minus` and `window_ticks`. Shape the API the
+   way `modulator_index` already is — an `Option<usize>` per modulated quantity, `None` meaning
+   "use the configured constant", so every pre-existing caller is bit-identical (Requirement 5.2).
+2. Decide how a level maps onto each quantity and write the reasoning down. A multiplier on
+   `a_plus`/`a_minus` is not the same claim as a multiplier on `tau_plus`, and `window_ticks` is an
+   integer that bounds a search — rounding it per event has a cost and a discontinuity. Propose
+   before implementing.
+3. RESPECT ENG-9. `StdpParams::kernel` is on the hot path and the existing design precomputes decay
+   constants exactly to keep it cheap. A per-event `exp()` because a time constant became dynamic is
+   a real regression — measure it (`crates/brain-core/benches/core_bench.rs`) and say what it cost.
+   If it is too expensive, quantise the modulated constant and cache, and record that as the design.
+4. Do NOT add a mechanism here. This item ships the hook with every channel unset, proves
+   bit-identity, and stops. C5 and C6 are the first users.
+
+CONSTRAINTS. Determinism across thread counts (RUN-3), golden rasters unchanged, no per-tick
+allocation (ENG-9).
+
+DONE WHEN. An STDP rule can take its amplitude ratio and its window from the broadcast field, every
+existing configuration is bit-identical with the hook unset, the hot-path cost is measured and
+reported, and LRN-2's status records that the curve is now modulable.
+```
+
+---
+
+### C5 — Noradrenaline widens the STDP timing window
+
+```
+Read C4's prompt (this item is its first user), C2's prompt (this is its consumer), PLAN.md §4, and
+`.claude/scratch/neuromodulators/investigation.md` §3.2.
+
+THE EVIDENCE. This is better supported than the amplitude gain C2 ships. Beta-adrenergic activation
+widened the t-LTP window by ~15 ms; under a beta-family agonist the window becomes *triangular*,
+with LTP for BOTH pre-before-post and post-before-pre pairings out to ~50 ms. Salgado et al. (2012)
+add a dose-dependence: low NE gives LTD over broad positive and negative delays, high NE gives
+bidirectional STDP restricted to narrow intervals. It is a genuinely different mechanism from
+amplitude — it changes WHICH PAIRINGS COUNT, not how much each counts.
+
+THE TASK.
+1. Drive `StdpParams`' window from the NORADRENALINE channel through C4's hook. Start from the
+   simplest defensible mapping (window scales with level) and say why, in the prompt's own
+   documented-decision style.
+2. Decide whether to model the triangular-window result — LTP on BOTH sides at high level — or only
+   the width change. The triangular version inverts the anti-causal side's sign, which is a much
+   larger behavioural claim than widening. Recommend one; do not build both silently.
+3. Measure VAL-4 on the 5-seed protocol, against B5's shipped values, with noradrenaline's window
+   coupling on and off. Quote the 16.56% "always guess space" bar alongside whatever comes out
+   (`.claude/HANDOFF.md`'s headline-result rule).
+4. Ablation (VAL-9): with the coupling off the window is constant — assert the property it provides
+   (pairings that only count under high surprise) fails.
+
+DONE WHEN. The window responds to noradrenaline, the triangular-window decision is recorded either
+way, VAL-4 is measured and reported honestly including a negative result, and README §13.13 plus
+LRN-2's status record what the channel now does.
+```
+
+---
+
+### C6 — Acetylcholine sets the LTP/LTD ratio
+
+```
+Read C4's prompt (this item is its second user), C2's prompt (this is its consumer), PLAN.md §4, and
+`.claude/scratch/neuromodulators/investigation.md` §3.1.
+
+THE EVIDENCE, AND IT IS CELLULAR AND DIRECT. Seol et al. (2007, Neuron 55:919-929) showed STDP's
+rules are not fixed but shaped by neuromodulator receptors coupled to adenylyl-cyclase and
+phospholipase-C cascades, which phosphorylate postsynaptic glutamate receptors at sites acting as
+specific tags for LTP and LTD. Concretely: M1 muscarinic activation PROMOTES t-LTD and SUPPRESSES
+t-LTP. Brzosko, Mierau & Paulsen (2019) report the same at Schaffer-collateral-CA1 — muscarinic
+activation converts pre-before-post LTP into LTD. So acetylcholine does not merely scale plasticity;
+it can INVERT ITS SIGN.
+
+WHAT MAKES THIS DELICATE. The shipped VAL-4 configuration already uses the acetylcholine channel —
+`modulatorChannel: 1` on the three-factor rule, held at a constant 1.0 by `tonicModulator`. C2 gives
+that channel a real producer (expected uncertainty). This item makes it do something. Between them
+they REPLACE a hand-held constant that B5's value search tuned around, so expect B5's pinned figure
+in `packages/io/test/char-prediction.slow.test.ts` to need re-reasoning — and read it as a change in
+what the configuration means, not as a regression to tune away.
+
+THE TASK.
+1. Drive the `a_plus`/`a_minus` ratio from the ACETYLCHOLINE channel through C4's hook. High
+   acetylcholine (high expected uncertainty, per C2) should bias toward depression, matching Seol.
+2. Decide whether the ratio is allowed to cross zero — i.e. whether high acetylcholine can invert a
+   causal pairing from potentiation to depression, as the cellular result says it does. That is the
+   real design call here. Propose with reasoning before implementing.
+3. Measure VAL-4, 5-seed protocol, with the coupling on and off, and against the constant-1.0
+   configuration B5 shipped, so the comparison separates "the channel now varies" from "the channel
+   now does something".
+4. Ablation (VAL-9): hold acetylcholine constant and assert the property fails.
+
+CONSTRAINTS. Bit-identity with the coupling unset. If B5's pinned test moves, explain why the
+behaviour legitimately changed (§4's golden-raster rule applies to pinned figures too).
+
+DONE WHEN. The LTP/LTD ratio responds to acetylcholine, the sign-inversion decision is recorded,
+VAL-4 is measured and reported honestly, and README §2.5 plus LRN-2's status record the mechanism.
+```
+
+---
+
+### C7 — A feedforward/recurrent discriminant reaching the plasticity path ⚠️ design call
+
+```
+Read README.md LRN-1, §10 invariant 1, PLAN.md §4, and
+`.claude/scratch/neuromodulators/investigation.md` §4 — especially the paragraph headed "The ACh one
+is the hard one".
+
+THE PROBLEM. C8 needs acetylcholine to treat feedforward and recurrent synapses differently. It
+cannot, today, and the reason is structural rather than an oversight: LRN-1 hands a `PlasticityRule`
+only `LocalContext` (two `NeuronLocal` copies, modulators, tick) and `SynapseMut` (permanence,
+weight, eligibility, two timestamps). Neither carries the synapse's target segment. That narrowness
+IS how invariant 1 is enforced — `plasticity/mod.rs`'s own module doc says a rule "could not reach
+outside its own synapse's endpoints even if it tried to". The data exists one level up:
+`SynapseArena.target_segment`, with `segment::FEEDFORWARD_SEGMENT = u32::MAX` marking the afferent
+segment against dendritic/recurrent ones.
+
+THIS ITEM IS THE DECISION, NOT THE MECHANISM. Two ways through, and they have different costs:
+
+(a) Add a feedforward/recurrent discriminant to `SynapseMut` or `LocalContext`. Cheapest, and
+    arguably legitimate — "which dendritic compartment am I on" is local anatomy, not routed credit,
+    and a rule still cannot address any OTHER synapse. But it widens the interface whose narrowness
+    is the invariant's enforcement mechanism, and that widening is permanent.
+
+(b) A scheduler-invoked module, following `plasticity/predictive.rs`'s existing precedent of writing
+    permanence directly without being a `PlasticityRule`. Leaves the interface untouched; costs a
+    second place where plasticity happens outside the rule chain, which is its own kind of debt.
+
+THE TASK.
+1. Write both options up with their real costs, including what each does to invariant 1's
+   enforceability and to the "a rule is handed only a local context object" claim in LRN-1's text.
+2. Recommend one, with reasoning. Get it reviewed — this is a design call, flagged as such.
+3. Implement the chosen one, with every existing configuration bit-identical (nothing consumes the
+   discriminant yet; C8 is the first consumer).
+4. Add a test that pins the invariant claim in whichever form survives, so a later change cannot
+   quietly widen it further.
+5. Check F10 before finalising: it wants a segment ROLE tag for NET-6 top-down feedback, which is the
+   same distinction from a different direction. One scheme, not two.
+
+DONE WHEN. The decision is written up and reviewed, the chosen mechanism is implemented and
+bit-identical, invariant 1's status in README §10 records exactly what the interface now exposes and
+why that is still locality, and PLAN.md's C7 row records which option was taken.
+```
+
+---
+
+### C8 — Acetylcholine encoding mode: recurrent transmission down, recurrent plasticity up
+
+```
+Read C7's prompt and its recorded decision, C2's prompt, README.md §2.6, NET-1, NET-6, PLAN.md §4,
+and `.claude/scratch/neuromodulators/investigation.md` §3.1.
+
+THE EVIDENCE. Hasselmo's encoding/retrieval account, and it is TWO mechanisms pointing in OPPOSITE
+directions — getting only one of them is getting the model wrong:
+
+- Acetylcholine presynaptically inhibits glutamatergic TRANSMISSION at recurrent/intracortical
+  synapses (CA3 recurrent collaterals, CA3->CA1) while relatively SPARING feedforward input
+  (entorhinal->CA1, thalamocortical). This protects to-be-encoded patterns from interference by
+  read-out of already-stored ones.
+- Simultaneously it ENHANCES LTP at those same suppressed synapses, via NMDA-conductance
+  enhancement.
+
+So high acetylcholine is ENCODING MODE: feedforward drives the activity, recurrent connections do
+the learning. Low acetylcholine is retrieval: recurrent connections drive.
+
+WHY THIS ONE COULD ACTUALLY MOVE VAL-4, unlike a rate tweak. It changes what the network attends to
+versus what it recalls, on a signal (C2's expected uncertainty) that tracks how well the network
+currently understands its input. Every VAL-4 configuration to date runs both modes at once, always.
+
+THE TASK.
+1. Using C7's discriminant, gate recurrent-synapse transmission by the acetylcholine level in
+   `deliver` (crates/brain-core/src/scheduler.rs), leaving feedforward delivery untouched.
+2. Gate recurrent-synapse PLASTICITY in the opposite direction over the same level. Both halves, or
+   the mechanism is not the one the evidence describes — say so explicitly if you build only one.
+3. Off by default: with the coupling unset every existing run must be bit-identical, golden rasters
+   included.
+4. Measure VAL-4, 5-seed protocol, four ways: off; transmission gating only; plasticity gating only;
+   both. The single-mechanism rows are what tell you whether the pair is doing what the account says
+   or whether one half carries it.
+5. Ablation (VAL-9): with acetylcholine held constant, assert the encoding/retrieval distinction is
+   gone — there should be no measurable difference between a novel and a familiar input's treatment.
+
+CONSTRAINTS. Determinism (RUN-3) and partition bit-identity (RUN-6) — the level is broadcast, so
+every partition must gate identically. Invariant 2: this routes by LOCAL ANATOMY (which compartment)
+and a BROADCAST SCALAR, never by any per-synapse signal.
+
+DONE WHEN. Both halves exist and are separately switchable, VAL-4 is measured four ways and reported
+honestly including a negative result, the ablation asserts the property fails, and README §2.6 plus
+§13.13 record what acetylcholine now does here.
+```
+
+---
+
+### C9 — Small correctness issues from the A1–A3 verification
+
+```
+Read README.md ENG-5, IO-2, VAL-10, VIZ-3, §13.12 item 15, and PLAN.md §4.
+
+THREE SMALL, INDEPENDENT ISSUES, found while verifying A1–A3 on 2026-09-13. None blocks anything;
+each makes a report or a view quietly wrong. One session, one commit per issue.
+
+1. ENG-5 IS A FALSE GAP IN THE REQUIREMENT COVERAGE REPORT.
+   scripts/check-requirement-coverage.mjs lists ENG-5 in DEFERRED because "no test asserts it". That
+   is wrong: crates/brain-core/tests/workspace_policy.rs's
+   `no_manifest_names_a_forbidden_ai_ml_dependency` (~line 73) asserts exactly ENG-5, across both
+   Cargo and npm manifests. It cites the spec criterion "Requirement 1.3" rather than the README id,
+   so the checker cannot connect the two. README §13.12 item 15 (~line 2587) repeats the error.
+   - Cite ENG-5 in that test and remove ENG-5 from DEFERRED.
+   - Close the test's own hole while you are there: it checks the root package.json and
+     packages/io/package.json but not packages/brain/package.json or packages/viz/package.json. Find
+     manifests by walking the tree instead of listing them, so a new package cannot slip past.
+   - IO-2 is deferred with the same reason. The forbidden list includes "tokenizer" and
+     "embedding-model", which covers part of IO-2. Decide honestly whether that is enough to cite it,
+     and record the reasoning either way. Do not cite it just to shorten the list.
+   - Correct README §13.12 item 15.
+
+2. THE OLD TRACEABILITY CHECKER REPORTS STALE DEFERRALS — CHECK EACH BEFORE REMOVING IT.
+   `npm run check:traceability` prints: "deferred criteria now have a citing test -- remove from
+   DEFERRED: 5.2, 7.1, 7.2, 7.3, 7.4, 7.5, 8.1, 8.2, 8.3". Do NOT just remove them.
+   scripts/check-traceability.mjs's own header explains that the Phase 0-3 and Phase 5 specs both
+   number requirements from 1, so a bare "Requirement 7.1" cannot say which phase it means, and a
+   citation for one phase's 7.1 can mask the other's. 5.2 is especially suspicious: it is the twin of
+   RUN-1a, which A3 deliberately deferred as unmet.
+   For each of the nine: find the citing test, read what it actually demonstrates, and work out which
+   phase's criterion it covers. Remove only the genuinely satisfied ones; record the rest as
+   collisions. If collisions keep producing false signals like this, say so — a phase-qualified
+   citation form may be the real fix, but scope it rather than build it here.
+
+3. THE VISUALISER CANNOT SHOW A VETOED DENDRITIC SEGMENT.
+   Since A2, an inhibitory delivery subtracts from a segment's coincidence count, so the count can go
+   negative. crates/brain-core/src/scheduler.rs (~line 1385) records it for the probe as
+   `active.round() as u16`, which saturates negatives to 0 — a vetoed segment looks identical to an
+   untouched one in VIZ-3's drill-down. The simulation is unaffected (this value is observational
+   only), but it matters as soon as D4 turns inhibition on, which is exactly when someone will want
+   to see vetoes. Carry the signed value through crates/brain-core/src/probe.rs, the probe FFI
+   surface in crates/brain-napi, the segment-sample encoding in packages/viz/src/protocol.ts (version
+   the protocol if it is versioned, and extend its existing round-trip tests), and the client's
+   rendering.
+
+CONSTRAINTS. No behavioural change to the simulation: fast and slow tiers green, golden rasters
+byte-for-byte unchanged.
+
+DONE WHEN. ENG-5 is cited and off DEFERRED with the manifest walk in place, each of the nine old
+deferrals is either removed with evidence or recorded as a collision, vetoed segments are visible in
+probe data and the visualiser, and README §13.12 item 15 is corrected.
+```
+
+---
+
+### C10 — Periodic sweeps silently do nothing in multi-threaded mode
+
+```
+Read README.md RUN-3, RUN-4, RUN-5, RUN-8, LRN-6, LRN-7, NEU-7, §11 Phase 7 status's "Partitioned
+visualiser support" entry, and PLAN.md §4. Assumes A4 and B1 have landed.
+
+THE FINDING (verification of A1–A3, 2026-09-13). Through the FFI with threadCount > 1, every
+periodic sweep is accepted as configuration and then never runs: homeostaticScaling,
+structuralPlasticity, intrinsicHomeostasis, segmentThresholdHomeostasis and inhibitionHomeostasis.
+
+How it happens:
+- crates/brain-napi/src/lib.rs's `build_scheduler` (~line 639) attaches every configured sweep to a
+  Scheduler, and `ensure_partition_runtime_built` (~line 958) calls it once per partition.
+- `PartitionRuntime::step` (crates/brain-core/src/partition.rs ~line 592) calls
+  `Scheduler::deliver`/`evaluate_and_resolve` directly and never `Scheduler::step`. The sweeps only
+  run inside `Scheduler::step` (scheduler.rs ~line 1237 onward).
+- PartitionRuntime does have its own `homeostatic_scaling`/`structural_plasticity` fields, run at
+  partition.rs ~line 829, but nothing in lib.rs ever calls `PartitionRuntime::with_homeostatic_scaling`
+  or `with_structural_plasticity`, and there is no equivalent at all for the other three.
+
+This is the same failure shape Phase 7 already hit once: probes, firing_rate and prediction_accuracy
+were silently empty in partitioned mode for exactly this reason, fixed by extracting
+`record_tick_observables` so both step paths call it (README §11 Phase 7, "Partitioned visualiser
+support"). Nothing run today is affected — the canonical brain and charPrediction.ts are
+single-threaded, because growth forces it — which is why it went unnoticed.
+
+THE TASK.
+1. Make every sweep either run correctly in partitioned mode or be rejected at construction with a
+   clear error, the way growth already is (lib.rs ~line 908). Silent acceptance is the defect; the
+   minimum acceptable outcome is that no configuration is quietly ignored.
+2. Decide per sweep, and record why:
+   - Whole-arena sweeps (homeostatic scaling, intrinsic homeostasis, structural plasticity) fit
+     PartitionRuntime's existing runtime-level pattern — wire them through from lib.rs.
+   - Sweeps with per-scheduler state (segment threshold homeostasis, inhibition homeostasis) need
+     care. Single-threaded mode has ONE inhibition k and one estimate for the whole network, so
+     independent per-partition estimates would diverge from threadCount 1. Work out what
+     bit-identical behaviour actually requires before choosing.
+3. Prove it: extend crates/brain-core/tests/partitioning_reference.rs (single vs partitioned, every
+   tick, every thread count) with each supported sweep enabled, and add a matching case through the
+   real napi boundary in packages/brain/test/boundary.test.ts.
+4. Consider a structural guard so the next sweep cannot repeat this — for example one method both
+   step paths must call for periodic work, the way `record_tick_observables` now is for metrics.
+
+CONSTRAINTS. RUN-3 and RUN-8: partitioned results must match single-threaded results exactly.
+Partitioned snapshots are refused today and A4 left it that way — do not change that here.
+
+DONE WHEN. No sweep is silently ignored at any thread count, every supported sweep is bit-identical
+to threadCount 1 in both the Rust reference test and the napi boundary test, unsupported ones fail
+loudly at construction, and README §11 plus the relevant requirement rows record what now works
+partitioned.
+```
+
+---
+
+### C11 — Selective, not uniform, downscaling
 
 ```
 Read README.md §13.13(h), §2.9, LRN-10, §13.12 item 13 (all four of its numbered findings), and
@@ -1223,54 +1690,14 @@ benefit". Say which of the two your data can and cannot distinguish. Do NOT try 
 — it is a design fork (which sweeps fire on a virtual clock? what is a replayed spike's
 predictive context?), not a task, and bundling it makes both results unreadable.
 
-ALSO NOT YOURS. `runConsolidation` stays `Runtime::Single`-only (C1a). The replay source stays the
+ALSO NOT YOURS. `runConsolidation` stays `Runtime::Single`-only (F8). The replay source stays the
 spike raster, which is ~85% a recording of the encoder's own input SDR (§12a item 9(b)); a real
-fast store is F3, behind F2. Do not claim a result that depends on either being fixed.
+fast store is F6, behind F3. Do not claim a result that depends on either being fixed.
 
 DONE WHEN. Selective downscaling is built, deterministic and unit-tested; measured on C1's own
 protocol and reported honestly against both seed sets and the 16.56% bar; README §13.13(h)'s
 "remains unbuilt" sentence and §13.12 item 13's finding 1 both record the outcome; and PLAN.md's
-C1b row plus `.claude/HANDOFF.md` are updated the way every item before it did (see §4).
-```
-
----
-
-### C2 — Drive noradrenaline from prediction error
-
-```
-Read README.md §2.5, §2.7, LRN-5, LRN-8, §13.12 item 13, and PLAN.md §4.
-
-THE FINDING (README §13.12 item 13). LRN-5 specifies four neuromodulator channels — dopamine,
-acetylcholine, noradrenaline, serotonin. Only DOPAMINE is ever injected or read. ACETYLCHOLINE,
-NORADRENALINE and SEROTONIN are declared constants (crates/brain-core/src/plasticity/mod.rs) with no
-producer and no consumer.
-
-What makes this worth fixing cheaply rather than deferring: a producer already exists and is being
-thrown away. crates/brain-core/src/plasticity/predictive.rs classifies every dirty neuron, every
-tick, into one of three outcomes — correct prediction, false positive (predicted, did not fire), and
-unpredicted spike. That is a locally-computable surprise signal of exactly the kind README §2.5
-assigns to noradrenaline ("surprise/arousal"), and it is aggregated nowhere.
-
-THE TASK.
-1. Aggregate the prediction-failure rate that predictive.rs already computes into a noradrenaline
-   injection on the neuromodulator field (crates/brain-core/src/neuromodulator.rs).
-2. Decide, explicitly, WHAT NORADRENALINE GATES. This is the real design work, not the plumbing.
-   Candidates: a global learning-rate multiplier when the world stops matching predictions; a
-   plasticity-rate term in the three-factor rule via a second RuleChain entry with
-   `modulator_index = NORADRENALINE`; an inhibition/sparsity modulation. Propose with reasoning
-   before implementing.
-3. Respect invariant 2 and LRN-5 strictly: the field is a BROADCAST SCALAR carrying no per-synapse
-   routing information. A per-neuron or per-synapse surprise signal would be a gradient in disguise
-   and is forbidden. Aggregate to a scalar before it reaches the field.
-4. Respect RUN-6's known limitation: each partition holds its own field copy, broadcast via
-   `PartitionRuntime::inject_modulator` (crates/brain-core/src/partition.rs ~line 551). Your
-   aggregation must produce the same value on every partition or partitioned runs will diverge from
-   single-threaded ones — which `tests/partitioning_reference.rs` will catch.
-5. Add an ablation test (VAL-9): disable the coupling, assert the property it provides fails.
-
-DONE WHEN. Noradrenaline has a producer and a consumer, single-threaded and partitioned runs stay
-bit-identical, VAL-4 is re-measured on the 5-seed protocol and reported either way, and README
-§13.12 item 13 plus LRN-5's status record what the channel now does.
+C11 row plus `.claude/HANDOFF.md` are updated the way every item before it did (see §4).
 ```
 
 ---
@@ -1326,7 +1753,7 @@ rasters unchanged, and README §13.12 item 11 updated.
 
 ---
 
-### D2 — Inhibitory STDP rule + ablation test
+### D2 — Inhibitory STDP rule (Vogels-style) + kernel tests
 
 ```
 Read README.md §2.4, §2.5, NEU-4, LRN-2, LRN-9, §10 invariants 3 and 4, §13.12 item 11,
@@ -1369,18 +1796,56 @@ dendritic segment. Decide deliberately whether your kernel should treat dendriti
 inhibitory synapses alike — and note the ablation in step 5 can now assert a dendritic property as
 well as an E/I-balance one.
 
-DO NOT turn on 80:20 in any existing experiment in this item — that is D3, and it is a separate,
+DO NOT turn on 80:20 in any existing experiment in this item — that is D4, and it is a separate,
 tuning-bound piece of work. Test the rule on its own dedicated fixtures so this session stays
 bounded.
 
-DONE WHEN. The rule exists, composes through `RuleChain`, has unit tests and an ablation test,
-existing all-excitatory runs are bit-identical (golden rasters unchanged), and README §13.12 item 11
-plus LRN-2's status record the new rule.
+SCOPE (split 2026-09-20 to fit one session). This item is steps 1, 2, 3 and 6: the rule itself,
+its symmetric kernel, invariant 1 compliance, and unit tests against the published curve. Steps 4
+and 5 — dispatching on D1's polarity, and the E/I-balance ablation — are **D3**, because the
+ablation needs a network that actually has inhibitory neurons and is a different kind of test to
+write.
+
+DONE WHEN. The rule exists, composes through `RuleChain`, its kernel is unit-tested against the
+published curve, existing all-excitatory runs are bit-identical (golden rasters unchanged), and
+README §13.12 item 11 plus LRN-2's status record the new rule.
 ```
 
 ---
 
-### D3 — Turn on 80:20 and re-tune ⚠️ tuning-bound
+### D3 — Polarity dispatch + E/I-balance ablation
+
+```
+Read D2's prompt above for the full context — this item is steps 4 and 5 of it, split 2026-09-20 to
+fit one session. Read D1's prompt for what `polarity` in `NeuronLocal` actually exposes.
+
+THE SCOPE. D2 ships the inhibitory rule and its kernel tests. This item makes the rule chain
+DISPATCH on polarity, so excitatory and inhibitory synapses get different treatment, and then proves
+the mechanism is load-bearing. The split exists because the ablation needs a network that actually
+contains inhibitory neurons — which is a fixture, a measurement and an analysis, not a unit test.
+
+THE TASK.
+1. Make the rule dispatch on the polarity D1 exposed in `NeuronLocal`, so one `RuleChain` can carry
+   both an excitatory and an inhibitory rule and each synapse gets the right one. Respect invariant 3
+   (sign lives on the neuron, not the synapse) — the dispatch reads polarity, it does not store a
+   sign on the synapse.
+2. Ablation (VAL-9): with inhibitory plasticity disabled, assert that E/I balance FAILS to establish.
+   Pick the measurable that makes "balance" concrete — Vogels et al. (2011) use the asynchronous
+   irregular state; README §13.13(a) also names Beggs & Plenz avalanche exponents as a candidate
+   VAL test. State which you chose and why.
+3. Multi-seed (VAL-6): balance is a statistical claim, so one seed is not evidence.
+
+CONSTRAINTS. All-excitatory runs stay bit-identical (golden rasters unchanged) — `excitatoryFraction`
+is still 1.0 everywhere until D4.
+
+DONE WHEN. The chain dispatches on polarity, the ablation demonstrates balance failing without
+inhibitory plasticity across multiple seeds, the chosen measurable is justified in the test's own
+doc comment, and README §13.13(a) plus LRN-2's status record the result.
+```
+
+---
+
+### D4 — Turn on 80:20 and re-tune ⚠️ tuning-bound
 
 ```
 Read README.md §2.4, NEU-4, NET-2, §13.12 items 1, 2 and 11, §13.13(a), and §11 Phase 7/8 status.
@@ -1444,7 +1909,7 @@ finally has an experiment behind it.
 
 ---
 
-### E1 — Persistent named brain that resumes
+### E1 — Named brain store + explicit lifecycle
 
 ```
 Read README.md §1.1, §10 invariants 9 and 10, RUN-9, RUN-9a, RUN-9b, RUN-9c, §13.7, §13.11 claim 3.
@@ -1483,14 +1948,51 @@ WORTH FLAGGING. Once state is carried forward permanently, every future change b
 rather than a config edit. Say clearly in the README which parts of the system are now
 commitment-grade and which are still free to change.
 
-DONE WHEN. A named brain persists across processes, grows after restore, has a cross-process test,
-and README §11 plus invariant 9's status record that the project now has a brain rather than a
-series of experiments.
+SCOPE (split 2026-09-20 to fit one session). This item is steps 1, 3 and 5: the on-disk named
+brain, the explicit create/open/step/snapshot/close lifecycle (ENG-10), and the decision about where
+snapshots live and how a FORMAT_VERSION bump is handled. Steps 2 and 4 — surviving process exit and
+the test that genuinely crosses a process boundary — are **E2**.
+
+DONE WHEN. A named brain can be created, opened, stepped, snapshotted and closed in one process, the
+on-disk layout and version policy are written down, and README §11's status records the store's
+existence. Cross-process resume is E2's claim to make, not this one's.
 ```
 
 ---
 
-### F1 — Short-term plasticity (Tsodyks–Markram)
+### E2 — Cross-process resume + growth after restore
+
+```
+Read E1's prompt above for the full context — this item is steps 2 and 4 of it, split 2026-09-20 to
+fit one session.
+
+THE SCOPE. E1 builds the named store and its lifecycle within one process. This item makes it
+survive process exit and proves it (invariant 9: "systems that were never switched off"). The split
+exists because a genuinely cross-process test is its own piece of engineering — it needs a second
+process, a deterministic hand-off, and a way to fail loudly rather than silently passing because
+both halves ran in the same memory.
+
+THE TASK.
+1. Make a named brain resume as though nothing happened: create, feed, exit, re-open in a NEW
+   process, continue. Bit-identical continuation is the bar (RUN-9a), not "approximately the same".
+2. Assert it GROWS after restore. A persistent brain that cannot grow contradicts invariant 10, and
+   A4's own lesson was that snapshot round-trips hide exactly this class of bug until something
+   downstream of a sweep's scheduling state is exercised.
+3. The test must genuinely cross a process boundary. A test that re-opens the store in the same
+   process proves the file format, not the invariant.
+
+CONSTRAINTS. RUN-9a (bit-identical across snapshot/restore) and RUN-3 (determinism). Note E1's own
+"WORTH FLAGGING" paragraph: once state is carried forward permanently, every future change becomes a
+migration.
+
+DONE WHEN. A named brain persists across processes, grows after restore, has a test that really
+forks, and README §11 plus invariant 9's status record that the project now has a brain rather than
+a series of experiments.
+```
+
+---
+
+### F1 — Short-term plasticity (Tsodyks–Markram): per-synapse state + delivery
 
 ```
 Read README.md §2.2, SYN-1, SYN-4, NET-12, §13.13(c), and §11 Phase 7's working-memory status.
@@ -1542,17 +2044,48 @@ CONSTRAINTS. Determinism (RUN-3), no per-tick allocation (ENG-9), and this must 
 writer of the same number B1 just finished separating — state clearly how STP's state relates to
 weight and permanence.
 
-DONE WHEN. STP exists, is off by default, has curve tests, VAL-4 is measured both ways and reported
-honestly, and README §13.13(c) plus SYN-1's status record the addition.
+SCOPE (split 2026-09-20 to fit one session). This item is steps 1, 2 and 3: the per-synapse
+utilisation/resource pair, applying it in `deliver`, and the FORMAT_VERSION bump with its migration.
+Steps 4 and 5 — the off-by-default wiring, the published-curve tests and the VAL-4 measurement — are
+**F2**.
+
+DONE WHEN. Per-synapse short-term state exists and changes transmitted current in `deliver`, the
+snapshot round-trips it with a migration, and every existing run is bit-identical with the mechanism
+inert. The curve tests and the VAL-4 number are F2's.
 ```
 
 ---
 
-### F2 — Fix `cap_per_neuron`'s single-constant addressing ⚠️ wide change
+### F2 — STP curve tests + VAL-4 measured both ways
+
+```
+Read F1's prompt above for the full context — this item is steps 4 and 5 of it, split 2026-09-20 to
+fit one session.
+
+THE SCOPE. F1 lands the per-synapse short-term state and applies it in `deliver`. This item proves
+it matches the published mechanism and measures what it costs or buys.
+
+THE TASK.
+1. Keep it OFF by default, exactly as NEU-8's adaptation was introduced — a caller opts in, and with
+   it unset every golden raster is unchanged.
+2. Unit-test the facilitation and depression curves directly against the published Tsodyks-Markram
+   shapes (VAL-1). A test that the state CHANGES is not a test that it changes CORRECTLY —
+   §13.12 item 13's standing lesson.
+3. Measure VAL-4 on the 5-seed protocol with STP on and off, and report either way. Quote the 16.56%
+   "always guess space" bar alongside the number (`.claude/HANDOFF.md`'s headline-result rule).
+
+DONE WHEN. STP is off by default, its curves are pinned against the published shapes, VAL-4 is
+measured both ways and reported honestly including a negative result, and README §13.13(c) plus
+SYN-1's status record the addition.
+```
+
+---
+
+### F3 — `cap_per_neuron`: the design call ⚠️ wide change ahead
 
 ```
 Read README.md §12a item 5, especially sub-item (d); SYN-1; RUN-2; ENG-9; §12a item 1's memory
-figures. Then PLAN.md §4. Assumes B1 has landed. This blocks F3.
+figures. Then PLAN.md §4. Assumes B1 has landed. This blocks F6.
 
 THE FINDING (README §12a item 5d). `SynapseArena::new(cap_per_neuron)`
 (crates/brain-core/src/synapse.rs) takes a SINGLE CONSTANT FOR THE WHOLE NETWORK. A synapse id is
@@ -1593,18 +2126,75 @@ THIS IS THE HIGHEST-RISK MECHANICAL CHANGE IN THE PLAN. The addressing scheme is
 three subsystems assume silently. Prefer a smaller change that preserves the derivation over an
 elegant one that does not, and say explicitly what you verified rather than what you believe.
 
-DONE WHEN. Per-population fan-out is expressible, all partitioning and snapshot tests pass
-bit-identically, memory and throughput figures are re-measured and reported, and README §12a item 5
-is updated to record which option was taken and what it cost.
+SCOPE (split 2026-09-20 to fit one session). This item is **step 1 only, and it is a design call,
+not code**: choose between the two options §12a item 5d names, with reasoning, and write the choice
+up for review before anything moves. The addressing scheme is what cross-partition routing depends
+on, so the decision deserves to be reviewable separately from the diff that implements it.
+Implementation is **F4**; re-measuring scale and footprint is **F5**.
+
+DONE WHEN. The two options are written up with their costs, one is recommended with reasons, README
+§12a item 5 records the decision, and no production code has changed.
 ```
 
 ---
 
-### F3 — LRN-12 / BTSP one-shot binding
+### F4 — `cap_per_neuron`: implement ⚠️ heavy review
+
+```
+Read F3's prompt above for the full context and its recorded decision — this item is step 2 of it,
+split 2026-09-20 so the design call can be reviewed before any code moves.
+
+THIS IS THE HIGHEST-RISK MECHANICAL CHANGE IN THE PLAN. The addressing scheme is an invariant that
+cross-partition routing, snapshot layout and `SynapseArena`'s whole indexing model depend on. Read
+F3's own warning paragraph before starting.
+
+THE TASK. Implement the option F3 chose, preserving:
+- determinism across thread counts (RUN-3),
+- bit-identical snapshot round-trips (RUN-9a) with a FORMAT_VERSION bump and migration,
+- every assertion in `tests/partitioning_reference.rs`, at every executor and thread count,
+- `synapse_id -> source_neuron` arithmetic wherever it is currently assumed (grep for
+  `cap_per_neuron` and for `synapse_id / `; `partition.rs`'s `source_of` closure is one such site
+  and there are others).
+
+Do the mechanical change and nothing else. Re-measuring memory and throughput is F5 — resist the
+urge to fold it in, because a performance number taken mid-refactor is not evidence.
+
+DONE WHEN. Per-population fan-out is expressible, every partitioning and snapshot test passes
+bit-identically at every thread count, the fast and slow tiers are green, and README §12a item 5
+records that the chosen option is built.
+```
+
+---
+
+### F5 — `cap_per_neuron`: scale and footprint re-measure
+
+```
+Read F3's and F4's prompts above — this item is step 3, split 2026-09-20 to fit one session.
+
+THE SCOPE. F4 changed the arena's addressing. The whole point of the change was memory and reach,
+so the numbers that justified it have to be re-taken on the thing that shipped.
+
+THE TASK.
+1. Re-run the memory-footprint test (`crates/brain-core/tests/scale.rs`, `#[ignore]`d) and the
+   throughput benches (`crates/brain-core/benches/core_bench.rs`).
+2. Compare against the pre-F4 figures and report the delta — including if it got worse. A wide
+   refactor that costs throughput is a result, not a failure to hide (Requirement 13.6).
+3. Record what the change actually bought against what F3's write-up predicted it would buy. Those
+   two differing is itself worth recording.
+4. Check whether the scale ceiling noted in `.claude/HANDOFF.md`'s Phase 4 follow-up moved.
+
+DONE WHEN. Memory and throughput are re-measured and reported against their pre-change values,
+README §12a item 5 records what the option cost as well as what it enabled, and PLAN.md's F5 row
+carries the numbers.
+```
+
+---
+
+### F6 — LRN-12 / BTSP one-shot binding + pattern separation
 
 ```
 Read README.md LRN-12, LRN-3, NEU-6, §2.9, §12 decision 8, §12a item 5 (all sub-items), §13.13(d),
-and §13.12 item 1's 2026-09-13 resolution. Then PLAN.md §4. Assumes F2 has landed.
+and §13.12 item 1's 2026-09-13 resolution. Then PLAN.md §4. Assumes F3 has landed.
 
 WHY THIS MATTERS FOR VAL-4 SPECIFICALLY. README §13.12 item 1 records the decision to keep VAL-4 as
 the acceptance bar, on the grounds that a human memorises text to a real if limited degree and
@@ -1622,7 +2212,7 @@ THE GROUNDWORK ALREADY DONE (README §12a item 5).
   `reinforce_or_sprout_burst` already establish the precedent of a scheduler-invoked module writing
   permanence directly, outside the rule interface, WITHOUT violating invariant 1.
 - (c) A one-shot write to permanence 1.0 via `SynapseArena::insert` is legal.
-- (d) `cap_per_neuron` was the blocker — F2 removed it.
+- (d) `cap_per_neuron` was the blocker — F3 removed it.
 
 THE MECHANISM (README §13.13(d)). Bittner, Milstein, Grienberger, Romani & Magee (Science 2017):
 behavioural timescale synaptic plasticity. A single dendritic plateau potential potentiates inputs
@@ -1636,7 +2226,7 @@ THE TASK.
    precedent. Trigger on a dendritic event (NEU-6); potentiate on the seconds-scale eligibility
    trace LRN-3 already maintains.
 2. Give it sparse pattern separation — LRN-12 requires that similar inputs do not overwrite each
-   other. This is what F2's per-population fan-out was for.
+   other. This is what F3's per-population fan-out was for.
 3. Implement `ReplaySource` for it, so consolidation (C1) replays from the fast store rather than
    from a tape recorder. README §12a item 5(a) is explicit that a spike raster "satisfies LRN-10
    literally while bypassing the mechanism LRN-12 exists to supply" — closing that is part of this
@@ -1647,13 +2237,121 @@ CONSTRAINTS. Invariant 1 holds — justify explicitly why the scheduler-invoked 
 it, citing §12a item 5(b), because it is the obvious first objection. Determinism (RUN-3) and
 snapshot fidelity (RUN-9a) apply as always.
 
-DONE WHEN. One-shot binding works, consolidation replays from it, VAL-4 is measured and reported
-honestly, and README §12a item 5 plus LRN-12's status record that the question is closed.
+SCOPE (split 2026-09-20 to fit one session). This item is steps 1 and 2: the scheduler-invoked
+binding module and its sparse pattern separation. Step 3 (the `ReplaySource` impl, so consolidation
+replays from the fast store rather than the raster) and step 4 (the VAL-4 measurement) are **F7**.
+
+DONE WHEN. One-shot binding writes permanence on a single coincidence, similar patterns provably do
+not overwrite each other, invariant 1 is argued explicitly in the module's own doc comment, and
+LRN-12's status records that the mechanism exists. Replay and VAL-4 are F7's.
 ```
 
 ---
 
-### F4 — NET-6 top-down feedback carrying predictions
+### F7 — `ReplaySource` for the fast store + VAL-4 measurement
+
+```
+Read F6's prompt above for the full context — this item is steps 3 and 4 of it, split 2026-09-20 to
+fit one session. Read README §12a item 9(b) and C1's Status row before starting.
+
+THE SCOPE. F6 builds the one-shot binding store. This item makes consolidation replay from it
+instead of from the spike raster, and measures whether that changes anything.
+
+WHY THIS IS THE INTERESTING HALF. LRN-10 says the replay SOURCE shall be an abstraction, not a
+concrete recording type, precisely so this substitution is an added variant rather than a breaking
+change. And C1's measurement gives it a real question to answer: the raster is ~85% a re-recording
+of the encoder's own input SDR, so "replay does not help" may be a fact about the RASTER rather than
+about replay. This is the item that can tell those apart.
+
+THE TASK.
+1. Implement `ReplaySource` for the fast store.
+2. Measure VAL-4 on the 5-seed protocol with consolidation replaying from the fast store, against
+   C1's own raster-replay figures — same cadences, so the comparison is like for like.
+3. Report either way, and say explicitly whether C1's negative result survives the substitution.
+   C1's Status row and README §13.12 item 13 are the reference; if this changes the conclusion, both
+   need correcting, held to the same standard as the original (§4's honest-reporting rule).
+
+DONE WHEN. Consolidation replays from the fast store, VAL-4 is measured against C1's figures and
+reported honestly, README §12a item 5 plus item 9(b) and LRN-12's status record that the question is
+closed, and C1's conclusion is either confirmed or corrected explicitly.
+```
+
+---
+
+### F8 — Consolidation in partitioned mode: cross-partition replay routing
+
+```
+Read README.md §12a item 9(c), LRN-10, RUN-4/5, and PLAN.md §4. Read C1's Status row first: it
+is what scoped this item, and its result is why this is not urgent.
+
+THE GAP. `NativeSimulation::run_consolidation` (crates/brain-napi/src/lib.rs — search the symbol)
+returns an error in partitioned mode: "runConsolidation is not supported in partitioned mode
+(threadCount > 1): replay has no cross-partition messaging path yet". `Scheduler::
+run_consolidation` (crates/brain-core/src/consolidation.rs) is defined on `Scheduler`, not on
+`PartitionRuntime`, for the same reason, and says so in its own doc comment. So a network that
+consolidates cannot use RUN-4's threading, and a network that threads cannot sleep.
+
+The precedent this deliberately followed is `snapshotBytes`/`restore`, which were also
+Single-mode-only when Phase 4 shipped them. The work is to replay a raster whose events may target
+any partition, correctly and *bit-identically to the single-threaded reference* (RUN-3, RUN-9a),
+through the cross-partition messaging path — `tests/partitioning_reference.rs` is where that
+equivalence is asserted for `step()` and is the model for asserting it for replay.
+
+WHY IT IS NOT URGENT, AND WHY THAT MATTERS TO HOW YOU SCOPE IT (added 2026-09-19 by C1). C1
+measured VAL-4 with and without a sleep cadence across 12 conditions and 10 seeds: sleeping never
+helped, and frequent sleeping cost 5.5–7.0 points (README §13.12 item 13). Nothing currently wants
+to sleep *and* scale. Do not do this item because the error message is annoying; do it when
+something needs it — most plausibly after F6 gives `ReplaySource` a fast store worth replaying
+(§12a item 9(b): today's raster is ~85% a recording of the encoder's own input SDR), or when D4's
+80:20 network is large enough that single-threaded runs stop being affordable. If neither has
+happened, the honest thing is to leave the error in place: it is a correct, documented refusal,
+not a bug.
+
+SCOPE (split 2026-09-20 to fit one session). This item is the *routing*: make replay able to
+deliver an event whose target lives in another partition, through the cross-partition messaging
+path `step()` already uses. Proving that a replayed run is bit-identical across thread counts, and
+lifting the FFI refusal, is **F9** — a separate item, because the equivalence harness is most of
+the work and is worth reviewing on its own.
+
+DONE WHEN. `Scheduler::run_consolidation`'s logic is reachable from `PartitionRuntime` with replay
+events routed to their owning partition, a Rust-side test shows a replayed cross-partition event
+actually lands, and PLAN.md's F8 row and `.claude/HANDOFF.md` are updated (see §4). The FFI still
+refuses at `threadCount > 1` until F9.
+```
+
+---
+
+### F9 — Replay bit-identity across thread counts + FFI surface
+
+```
+Read F8's prompt above for the full context — this item is the second half of it, split
+2026-09-20 to fit one session. Read C1's Status row for why neither half is urgent.
+
+THE SCOPE. F8 makes replay ROUTE correctly across partitions. This item proves it is
+*bit-identical to the single-threaded reference* (RUN-3, RUN-9a) and lifts the FFI refusal.
+That split exists because the equivalence harness is most of the work: `tests/partitioning_reference.rs`
+is where this equality is asserted for `step()` and is the model to follow, but replay has no
+scenario there at all today.
+
+THE TASK.
+1. Add a consolidation scenario to `tests/partitioning_reference.rs` that replays real cross-partition
+   events, and assert a replayed run is bit-identical at every thread count and every executor
+   (`Sequential`, `Rayon`, `Pinned`) — the same matrix the existing tests cover.
+2. Remove `NativeSimulation::run_consolidation`'s error at `threadCount > 1`
+   (crates/brain-napi/src/lib.rs — search the symbol) and its counterpart doc comment on
+   `Scheduler::run_consolidation`.
+3. Add a TypeScript-side test that actually calls it partitioned, so the FFI path is exercised and
+   not merely reachable (§13.12 item 13's own lesson: a test that a mechanism is CONFIGURED is not a
+   test that it WORKS).
+
+DONE WHEN. `runConsolidation` works at any `threadCount`, bit-identity is asserted across thread
+counts and executors, README §12a item 9(c) records the resolution, and PLAN.md's F9 row plus
+`.claude/HANDOFF.md` are updated (see §4).
+```
+
+---
+
+### F10 — NET-6 top-down feedback: the segment role tag
 
 ```
 Read README.md §2.3, §2.7, NET-6, NEU-5, NEU-6, NEU-6a, §13.12 item 14, and §13.13(b).
@@ -1692,14 +2390,77 @@ THE TASK.
 5. Test that a top-down prediction actually changes what the lower population predicts, in the style
    of crates/brain-core/tests/predictive_learning.rs.
 
-DONE WHEN. Segment roles exist, top-down projections are distinguishable and have a distinct effect,
-invariant 2 is demonstrably intact, VAL-4 is measured with the loop closed, and README NET-6's
-status plus §13.12 item 14 record that it is built.
+SCOPE (split 2026-09-20 to fit one session). This item is **step 1 only**: the segment ROLE tag
+that §13.13(b) calls "the cheap version". Steps 2-4 (descending projections via `connect_between`,
+the distinct apical effect, and the Sacramento/Payeur constraint) are **F11**; step 5 (proving a
+top-down prediction changes what the lower population predicts) is **F12**.
+
+Note the overlap with **C7**, which settles whether a feedforward/recurrent discriminant may cross
+into the plasticity path at all. If C7 has landed, reuse its answer rather than inventing a second
+scheme for the same distinction.
+
+DONE WHEN. Segments carry a role, every existing configuration is bit-identical with roles at their
+default, and README NET-6's status records the tag's existence.
 ```
 
 ---
 
-### F5 — Delay plasticity
+### F11 — Descending projections + a distinct apical effect
+
+```
+Read F10's prompt above for the full context — this item is steps 2, 3 and 4 of it, split 2026-09-20
+to fit one session. Read README §13.13(b) in full.
+
+THE SCOPE. F10 lands the segment role tag. This item uses it: top-down synapses land somewhere
+different from feedforward ones, and depolarising an apical segment does something different from
+depolarising a basal one.
+
+THE TASK.
+1. Make `connect_between` able to mark a descending projection, so top-down synapses land on
+   apical-role segments.
+2. Give apical depolarisation a different effect from basal. Larkum's BAC-firing result is that
+   coincidence of the two is what matters — apical input alone does not fire the cell, it changes
+   what somatic input does. Model that, not "apical input is weaker".
+3. HONOUR F10's OWN CONSTRAINT, restated because it is the easiest thing here to get wrong: README
+   §13.13(b) is explicit that Sacramento et al. (2018) and Payeur et al. (2021) use this structure
+   to APPROXIMATE A GRADIENT. That is exactly what invariant 2 forbids. Build the anatomy; do not
+   import the credit-assignment scheme that anatomy is usually used for. Argue explicitly, in the
+   module's own doc comment, why what you built is not a gradient in disguise.
+
+CONSTRAINTS. Off by default — with no descending projection marked, every run is bit-identical.
+
+DONE WHEN. Top-down projections are distinguishable from feedforward ones and have a distinct
+effect, the invariant-2 argument is written down where a later reader will find it, and README
+NET-6's status records that the mechanism exists. Whether it WORKS is F12's claim.
+```
+
+---
+
+### F12 — A top-down prediction changes what the lower population predicts
+
+```
+Read F10's and F11's prompts above — this item is step 5, split 2026-09-20 to fit one session.
+
+THE SCOPE. F11 builds the descending pathway. This item proves it carries a PREDICTION, which is
+what NET-6 actually requires — a pathway that exists but changes nothing downstream satisfies the
+wiring diagram and not the requirement.
+
+THE TASK.
+1. Test that a top-down prediction actually changes what the lower population predicts. Style it on
+   the existing emergent tests (`crates/brain-core/tests/emergent.rs`,
+   `tests/emergent_columns.rs`): drive a two-population network where the upper population has
+   learned a sequence the lower one has not, and show the lower one's predictions shift.
+2. Ablation (VAL-9): sever the descending projection and assert the shift disappears.
+3. Measure VAL-4 with the loop closed, 5-seed protocol, and report either way.
+
+DONE WHEN. A top-down prediction demonstrably changes a lower population's predictions, the ablation
+shows the effect vanishing without it, VAL-4 is measured and reported honestly, and README NET-6's
+status plus §13.12 item 14 record that the requirement is met rather than merely built.
+```
+
+---
+
+### F13 — Delay plasticity: the rule
 
 ```
 Read README.md §2.2, §2.8, SYN-2, NET-8, §12a item 6, and §13.13(e). Then PLAN.md §4.
@@ -1732,14 +2493,52 @@ THE TASK.
 5. Then test the NET-8 hypothesis directly: does adaptive delay produce gamma/theta-band structure
    in E/I loop dynamics without a pacemaker? That is the interesting result, more than a VAL-4 delta.
 
-DONE WHEN. Delay adapts, cross-partition safety is preserved and tested, off-by-default keeps
-rasters unchanged, the NET-8 question is answered either way, and README SYN-2/NET-8's status plus
-§13.13(e) record the outcome.
+SCOPE (split 2026-09-20 to fit one session). This item is steps 1-4: the rule, the `u16`/floor-of-1
+constraint, off-by-default, and snapshotting any state it needs. Step 5 — testing the NET-8
+gamma/theta hypothesis — is **F14**, because that is an experiment with its own analysis, not a
+test that a rule compiles.
+
+DONE WHEN. Delay adapts toward coincidence at the target segment, the SYN-2 floor and
+cross-partition minimum delay are preserved and tested, off-by-default keeps every golden raster
+unchanged, and SYN-2's status records the rule. The NET-8 answer is F14's.
 ```
 
 ---
 
-### F6 — Laminar column structure
+### F14 — NET-8: does adaptive delay produce gamma/theta structure?
+
+```
+Read F13's prompt above for the full context — this item is step 5 of it, split 2026-09-20 to fit one
+session. Read README §2.8, NET-8 and §13.13(e).
+
+THE SCOPE. F13 ships the delay-plasticity rule. This item asks the question the rule exists to answer,
+and it is an experiment with its own analysis rather than a test that a rule compiles — which is why
+it is separate.
+
+THE QUESTION. README §2.8 says oscillations are EMERGENT timing, not a clock distributed from a
+central source: gamma defines the coincidence window, theta groups gamma cycles into sequences, and
+both arise from excitatory/inhibitory loop dynamics. NET-8 asks whether this substrate produces that
+structure. Adaptive delay is the most direct mechanism by which it could.
+
+THE TASK.
+1. Measure the spectral structure of network activity with delay plasticity on and off. Decide and
+   state what you are transforming — spike counts per tick over the whole population is the obvious
+   choice and it is not the only one.
+2. Answer the NET-8 question EITHER WAY. A negative result recorded precisely is the deliverable
+   (Requirement 13.6). "No band structure appeared" is a finding about this substrate and belongs in
+   §13.12.
+3. Multi-seed (VAL-6) — a peak in one seed's spectrum is not evidence.
+4. If a band does appear, check it is not an artefact of the input cadence. `.claude/HANDOFF.md`
+   fact 6 is the warning: on VAL-4 the raster is ~85% a re-recording of the encoder's own input, and
+   a "rhythm" at the stimulus period would be exactly that artefact.
+
+DONE WHEN. The NET-8 question is answered with multi-seed evidence, the input-cadence artefact is
+ruled out or reported, and README NET-8's status plus §13.13(e) record the outcome either way.
+```
+
+---
+
+### F15 — Laminar column structure: scope the redesign ⚠️ design call
 
 ```
 Read README.md §2.6, NET-4, NET-5, NET-9, §13.1, §13.2, §13.12 item 14's final bullet, §13.13(f),
@@ -1785,119 +2584,230 @@ EXPECTATION SETTING. README §1.2 is honest that stages 2–5 are "a direction, 
 item mostly pays off at trajectory stage 2 and beyond (images, reference frames), NOT at VAL-4.
 Sequence it accordingly and do not justify it on character prediction.
 
-DONE WHEN. Columns have real internal structure, per-column config is live, voting connects output
-layers, and README NET-4/NET-5's status plus §13.12 item 14 and §13.13(f) record what changed and
-what it is and is not expected to buy.
+SCOPE (split 2026-09-20 to fit one session). The prompt above already says "scope it explicitly
+before writing code" — this item **is** that scoping, and nothing else. Write the redesign up: what a
+laminar column is here, which populations exist, what each is for, what changes at the `ColumnSpec`
+boundary, and what it is and is not expected to buy (README §1.2 is honest that stages 2-5 are "a
+direction, not a schedule"). Building it is **F16** (internal populations), **F17** (per-column
+config made live) and **F18** (output-layer voting plus the NET-9 location decision).
+
+DONE WHEN. The redesign is written up under `.claude/scratch/laminar-columns/`, its cost and its
+expected payoff are both stated plainly, README §13.13(f) records the scope taken, and no production
+code has changed.
 ```
 
 ---
 
-### G1 — Small correctness issues from the A1–A3 verification
+### F16 — Column internal populations with defined roles
 
 ```
-Read README.md ENG-5, IO-2, VAL-10, VIZ-3, §13.12 item 15, and PLAN.md §4.
+Read F15's prompt above and the redesign it produced under `.claude/scratch/laminar-columns/` — this
+item is step 1, split 2026-09-20 to fit one session.
 
-THREE SMALL, INDEPENDENT ISSUES, found while verifying A1–A3 on 2026-09-13. None blocks anything;
-each makes a report or a view quietly wrong. One session, one commit per issue.
-
-1. ENG-5 IS A FALSE GAP IN THE REQUIREMENT COVERAGE REPORT.
-   scripts/check-requirement-coverage.mjs lists ENG-5 in DEFERRED because "no test asserts it". That
-   is wrong: crates/brain-core/tests/workspace_policy.rs's
-   `no_manifest_names_a_forbidden_ai_ml_dependency` (~line 73) asserts exactly ENG-5, across both
-   Cargo and npm manifests. It cites the spec criterion "Requirement 1.3" rather than the README id,
-   so the checker cannot connect the two. README §13.12 item 15 (~line 2587) repeats the error.
-   - Cite ENG-5 in that test and remove ENG-5 from DEFERRED.
-   - Close the test's own hole while you are there: it checks the root package.json and
-     packages/io/package.json but not packages/brain/package.json or packages/viz/package.json. Find
-     manifests by walking the tree instead of listing them, so a new package cannot slip past.
-   - IO-2 is deferred with the same reason. The forbidden list includes "tokenizer" and
-     "embedding-model", which covers part of IO-2. Decide honestly whether that is enough to cite it,
-     and record the reasoning either way. Do not cite it just to shorten the list.
-   - Correct README §13.12 item 15.
-
-2. THE OLD TRACEABILITY CHECKER REPORTS STALE DEFERRALS — CHECK EACH BEFORE REMOVING IT.
-   `npm run check:traceability` prints: "deferred criteria now have a citing test -- remove from
-   DEFERRED: 5.2, 7.1, 7.2, 7.3, 7.4, 7.5, 8.1, 8.2, 8.3". Do NOT just remove them.
-   scripts/check-traceability.mjs's own header explains that the Phase 0-3 and Phase 5 specs both
-   number requirements from 1, so a bare "Requirement 7.1" cannot say which phase it means, and a
-   citation for one phase's 7.1 can mask the other's. 5.2 is especially suspicious: it is the twin of
-   RUN-1a, which A3 deliberately deferred as unmet.
-   For each of the nine: find the citing test, read what it actually demonstrates, and work out which
-   phase's criterion it covers. Remove only the genuinely satisfied ones; record the rest as
-   collisions. If collisions keep producing false signals like this, say so — a phase-qualified
-   citation form may be the real fix, but scope it rather than build it here.
-
-3. THE VISUALISER CANNOT SHOW A VETOED DENDRITIC SEGMENT.
-   Since A2, an inhibitory delivery subtracts from a segment's coincidence count, so the count can go
-   negative. crates/brain-core/src/scheduler.rs (~line 1385) records it for the probe as
-   `active.round() as u16`, which saturates negatives to 0 — a vetoed segment looks identical to an
-   untouched one in VIZ-3's drill-down. The simulation is unaffected (this value is observational
-   only), but it matters as soon as D3 turns inhibition on, which is exactly when someone will want
-   to see vetoes. Carry the signed value through crates/brain-core/src/probe.rs, the probe FFI
-   surface in crates/brain-napi, the segment-sample encoding in packages/viz/src/protocol.ts (version
-   the protocol if it is versioned, and extend its existing round-trip tests), and the client's
-   rendering.
-
-CONSTRAINTS. No behavioural change to the simulation: fast and slow tiers green, golden rasters
-byte-for-byte unchanged.
-
-DONE WHEN. ENG-5 is cited and off DEFERRED with the manifest walk in place, each of the nine old
-deferrals is either removed with evidence or recorded as a collision, vetoed segments are visible in
-probe data and the visualiser, and README §13.12 item 15 is corrected.
-```
-
----
-
-### G2 — Periodic sweeps silently do nothing in multi-threaded mode
-
-```
-Read README.md RUN-3, RUN-4, RUN-5, RUN-8, LRN-6, LRN-7, NEU-7, §11 Phase 7 status's "Partitioned
-visualiser support" entry, and PLAN.md §4. Assumes A4 and B1 have landed.
-
-THE FINDING (verification of A1–A3, 2026-09-13). Through the FFI with threadCount > 1, every
-periodic sweep is accepted as configuration and then never runs: homeostaticScaling,
-structuralPlasticity, intrinsicHomeostasis, segmentThresholdHomeostasis and inhibitionHomeostasis.
-
-How it happens:
-- crates/brain-napi/src/lib.rs's `build_scheduler` (~line 639) attaches every configured sweep to a
-  Scheduler, and `ensure_partition_runtime_built` (~line 958) calls it once per partition.
-- `PartitionRuntime::step` (crates/brain-core/src/partition.rs ~line 592) calls
-  `Scheduler::deliver`/`evaluate_and_resolve` directly and never `Scheduler::step`. The sweeps only
-  run inside `Scheduler::step` (scheduler.rs ~line 1237 onward).
-- PartitionRuntime does have its own `homeostatic_scaling`/`structural_plasticity` fields, run at
-  partition.rs ~line 829, but nothing in lib.rs ever calls `PartitionRuntime::with_homeostatic_scaling`
-  or `with_structural_plasticity`, and there is no equivalent at all for the other three.
-
-This is the same failure shape Phase 7 already hit once: probes, firing_rate and prediction_accuracy
-were silently empty in partitioned mode for exactly this reason, fixed by extracting
-`record_tick_observables` so both step paths call it (README §11 Phase 7, "Partitioned visualiser
-support"). Nothing run today is affected — the canonical brain and charPrediction.ts are
-single-threaded, because growth forces it — which is why it went unnoticed.
+THE SCOPE. Give a column internal structure: distinct populations with distinct roles and defined
+connectivity between them, per the scope F15 settled. Nothing else — per-column config is F17, voting
+is F18.
 
 THE TASK.
-1. Make every sweep either run correctly in partitioned mode or be rejected at construction with a
-   clear error, the way growth already is (lib.rs ~line 908). Silent acceptance is the defect; the
-   minimum acceptable outcome is that no configuration is quietly ignored.
-2. Decide per sweep, and record why:
-   - Whole-arena sweeps (homeostatic scaling, intrinsic homeostasis, structural plasticity) fit
-     PartitionRuntime's existing runtime-level pattern — wire them through from lib.rs.
-   - Sweeps with per-scheduler state (segment threshold homeostasis, inhibition homeostasis) need
-     care. Single-threaded mode has ONE inhibition k and one estimate for the whole network, so
-     independent per-partition estimates would diverge from threadCount 1. Work out what
-     bit-identical behaviour actually requires before choosing.
-3. Prove it: extend crates/brain-core/tests/partitioning_reference.rs (single vs partitioned, every
-   tick, every thread count) with each supported sweep enabled, and add a matching case through the
-   real napi boundary in packages/brain/test/boundary.test.ts.
-4. Consider a structural guard so the next sweep cannot repeat this — for example one method both
-   step paths must call for periodic work, the way `record_tick_observables` now is for metrics.
+1. Implement the populations the redesign names, with their internal connectivity.
+2. Keep `column.rs`'s existing contiguous-neuron-index model working, or change it deliberately and
+   say so — README §13.12 item 14 records that `ColumnSpec` today is a neuron-index range plus a
+   distance policy, and several things downstream assume exactly that.
+3. Every existing single-population configuration must be bit-identical. A laminar column is a new
+   option, not a replacement, until something measures it as better.
 
-CONSTRAINTS. RUN-3 and RUN-8: partitioned results must match single-threaded results exactly.
-Partitioned snapshots are refused today and A4 left it that way — do not change that here.
+DONE WHEN. A column can carry distinct internal populations with defined roles and connectivity,
+existing configurations are bit-identical, and README NET-4/NET-5's status records what a column now
+is.
+```
 
-DONE WHEN. No sweep is silently ignored at any thread count, every supported sweep is bit-identical
-to threadCount 1 in both the Rust reference test and the napi boundary test, unsupported ones fail
-loudly at construction, and README §11 plus the relevant requirement rows record what now works
-partitioned.
+---
+
+### F17 — Per-column configuration made live
+
+```
+Read F15's redesign and F16's result — this item is step 2, split 2026-09-20 to fit one session.
+
+THE SCOPE. Make per-column configuration actually DO something, so `ColumnSpec`'s fields stop being
+inert.
+
+THE STANDING DEFECT THIS CLOSES. README §12a item 8 and `.claude/HANDOFF.md` fact 4:
+`ColumnSpec::inhibition` and `ColumnSpec::segments` configure nothing. The scheduler runs exactly one
+k-WTA scheme and one segment scheme for every neuron it owns. Both are now VALIDATED at
+`buildColumns`, so a contradiction is refused rather than silently ignored — but refusing a
+contradiction is not the same as honouring the configuration, and the distinction changes what
+NET-4's headline claim means (README §13.12 item 14).
+
+THE TASK.
+1. Make the scheduler able to run a per-column inhibition scheme and a per-column segment scheme.
+2. Remove or relax the `buildColumns` validation that currently refuses differing per-column values,
+   since the refusal existed only because the values were inert.
+3. Check for any OTHER per-column field that is inert — `.claude/HANDOFF.md` fact 4's own advice is
+   to assume a new per-column field is inert until checked.
+4. Determinism (RUN-3) and partition bit-identity (RUN-6): per-column schemes must not make results
+   depend on how columns map to partitions.
+
+DONE WHEN. Per-column inhibition and segment configuration are honoured rather than refused, no
+per-column field is silently inert, results are bit-identical across thread counts, and README §12a
+item 8 plus §13.12 item 14 record that the gap is closed.
+```
+
+---
+
+### F18 — Output-layer lateral voting + the NET-9 location decision
+
+```
+Read F15's redesign and F16/F17's results — this item is steps 3 and 4, split 2026-09-20 to fit one
+session. Read README §2.6, NET-4, NET-5, NET-9 and §13.13(f).
+
+THE SCOPE. Two things, both about how columns talk to each other.
+
+THE TASK.
+1. Rework lateral voting to connect OUTPUT-LAYER populations rather than whole columns. README
+   §13.12 item 13 notes that `connect_lateral_voting` currently wires every neuron of one column to
+   every neuron of another, which is not what the Thousand Brains account describes — columns vote
+   through their output layers, not through everything they contain.
+2. Decide whether NET-9's location signal should move into the core, AND BE STRICT ABOUT IT. A
+   grid-cell-like reference frame is a large addition; §13.13(f) cites Hawkins et al. (2019) and the
+   Tolman-Eichenbaum Machine as what it would mean. Decide on the evidence and the cost, and record
+   a "no, and here is why" as readily as a yes — §1.3's non-goals exist to be used.
+3. Measure whether output-layer voting changes anything, multi-seed. §13.13(f)'s own framing is that
+   laminar structure is expected to help consensus, and an unmeasured structural change is a claim,
+   not a result.
+
+DONE WHEN. Voting connects output layers, the NET-9 decision is recorded either way with its
+reasoning, the change is measured multi-seed and reported honestly, and README NET-4/NET-5's status
+plus §13.12 item 14 and §13.13(f) record what changed and what it did and did not buy.
+```
+
+---
+
+### F19 — Serotonin: LTP/LTD threshold bias ⚠️ deferred
+
+```
+Read `.claude/scratch/neuromodulators/investigation.md` §3.4 FIRST — it is why this item is deferred
+rather than scheduled, and the reasons are not "we ran out of time".
+
+WHY THIS IS DEFERRED, ON THE RECORD.
+1. HALF THE CLAIM IS CONTRADICTED. "Serotonin prevents runaway excitation / acts as a weight brake"
+   is not supported: augmented serotonergic signalling INCREASES cortical network activity through
+   5-HT2 receptors and facilitates epileptiform oscillations (J. Neurophysiol. 2014). Elevated 5-HT
+   amplifies synaptic noise.
+2. THE JOB IS ALREADY TAKEN, BY A BETTER-EVIDENCED MECHANISM. Stabilisation against runaway Hebbian
+   growth is LRN-6 (homeostatic synaptic scaling) plus NEU-7 (intrinsic homeostasis), both built,
+   both measured — C1's battery put the online LRN-6 sweep at 2.2-3.2 VAL-4 points on ten seeds.
+   Adding a serotonin channel for the same job means a second controller competing with a measured
+   one.
+3. WHAT 5-HT IS WELL SUPPORTED FOR HAS NOWHERE TO ATTACH. Doya (2002) assigns it the discount factor
+   — the timescale of reward prediction, "patience" — which is also what README §2.5 already says.
+   This substrate has no reward horizon to discount until something like LRN-11 action selection
+   exists.
+
+WHAT IS ACTUALLY SUPPORTED, IF THIS IS EVER BUILT. Presynaptic 5-HT2A receptors facilitate induction
+of t-LTD at thalamocortical synapses (PNAS 2016); impeding serotonergic signalling gates t-LTD at
+thalamostriatal synapses. So a depression bias at specific synapse classes is real. Build THAT, via
+C4's hook, and do not describe it as a stability mechanism.
+
+DO NOT START THIS unless (a) a measured instability appears that LRN-6 and NEU-7 demonstrably do not
+handle, or (b) LRN-11 action selection lands and gives the discount-factor reading somewhere to
+live. If neither has happened, leaving this unbuilt is the honest position and this row is the
+record of that decision.
+
+DONE WHEN (if ever). A depression bias driven by the serotonin channel exists via C4's hook, it is
+described as what the evidence supports rather than as a stabiliser, VAL-4 is measured and reported,
+and README §2.5's serotonin claim is corrected to match what was actually built.
+```
+
+---
+
+### F20 — Histamine: `NUM_MODULATORS` 4->5 + global excitability ⚠️ deferred
+
+```
+Read `.claude/scratch/neuromodulators/investigation.md` §3.5 FIRST.
+
+THE BIOLOGY IS SOLID. The tuberomammillary nucleus is the sole neuronal source of brain histamine;
+TMN neurons project widely and fire ONLY during wakefulness, slow tonic irregular (<10 Hz).
+Postsynaptic H1 activation depolarises cells and produces tonic discharge; H2 raises excitability and
+discharge rate. H1 antagonists promote sleep. (Haas & Panula 2003; Takahashi et al. 2006; Yoshikawa
+et al. 2021.)
+
+WHY IT IS DEFERRED ANYWAY.
+1. THE ROLE IS ALREADY MODELLED, MORE EXPLICITLY. This codebase represents the wake/sleep
+   distinction as LRN-10 consolidation phases with a cadence — a state machine a caller drives, not
+   an emergent consequence of a modulator level. C1 measured that mechanism at length. A histamine
+   channel would be a second, implicit encoding of the same distinction, and the claim that it
+   "gates plasticity during rest" is an inference from the wake-promoting result rather than a
+   measured fact about plasticity.
+2. IT IS THE WIDEST CHEAP CHANGE IN THE PLAN. `NUM_MODULATORS` is 4 and `Modulators` is `[f32; 4]`,
+   woven through `NeuromodulatorField`'s three fixed-size arrays, the snapshot format, and a
+   `crates/brain-napi` validator that rejects a `modulatorTauTicks` array of any other length.
+   Mechanical, but it touches the FFI contract and the snapshot version, so it wants doing ONCE,
+   deliberately, rather than being discovered inside another item.
+
+THE TASK, IF IT IS EVER TAKEN.
+1. Widen `NUM_MODULATORS` to 5 with a `HISTAMINE` constant, a FORMAT_VERSION bump and a migration,
+   and update the FFI validator and every `[x; NUM_MODULATORS]` construction.
+2. Let the level shift per-neuron threshold or resting potential. Note this collides with NEU-7
+   intrinsic homeostasis, which also writes threshold on a slow sweep — decide which wins and say so,
+   or the two will fight silently.
+3. Measure VAL-4 with it, and be honest that a global excitability knob is very close to "a different
+   threshold", which B5's value search already explored.
+
+DO NOT START THIS to "complete the set". The channel widening is worth doing on its own merits the
+moment ANY fifth channel is genuinely needed; histamine is not currently that need.
+
+DONE WHEN (if ever). A fifth channel exists with a migration, histamine modulates excitability, its
+interaction with NEU-7 is decided and recorded, VAL-4 is measured and reported, and README LRN-5's
+status records that the field is no longer four-wide.
+```
+
+---
+
+### F21 — Nitric oxide: a spatially-addressed diffusion field ⚠️ deferred, needs a requirement first
+
+```
+Read `.claude/scratch/neuromodulators/investigation.md` §3.6 FIRST — especially the paragraph on
+invariant 2, because the instinct about this mechanism is wrong in both directions.
+
+THE BIOLOGY IS WELL CHARACTERISED, WITH NUMBERS. NO acts as a retrograde messenger after postsynaptic
+NMDA activation in hippocampal LTP (Garthwaite & Boulton). Its diffusion range is ~80-200 um (Wood &
+Garthwaite 1994; Philippides et al. 2000), so it modulates many terminals by VOLUME TRANSMISSION,
+reaching glutamatergic and GABAergic synapses on neighbouring nNOS-negative neurons. Heterosynaptic
+LTP at interneuron-principal-neuron synapses in the amygdala REQUIRES NO signalling (Lange et al.
+2012), and NO is required for heterosynaptic spread of LTP in cerebellum.
+
+THE ARCHITECTURAL FINDING, AND WHY THIS IS NOT AN LRN-5 CHANNEL. `NeuromodulatorField::levels_at`
+takes a tick and NOTHING ELSE — there is no argument it could route on, and a unit test asserts
+exactly that ("broadcast carries no per-synapse information"). A concentration field NO(x, y, z, t)
+is addressed by POSITION. Putting it in `Modulators` is not a tight fit; it is a category error. This
+item therefore needs a NEW REQUIREMENT (an LRN- or NET-series entry) written and agreed BEFORE any
+code, describing a spatial signalling class that LRN-5 does not cover.
+
+DOES IT VIOLATE INVARIANT 2? No — and this needs stating plainly because the instinct is to assume it
+does. A diffusing scalar CONCENTRATION is MORE local than the existing global broadcast, not less: it
+is the limiting case of "broadcast by region" that `neuromodulator.rs`'s own module docs already
+reserve room for (`region_id`, currently always 0). What WOULD violate the invariant is if the thing
+that diffused were an ERROR term, or if the kernel became a way to deliver per-synapse credit. The
+guard: the diffusing quantity must be a concentration produced by postsynaptic activity and read as a
+scalar at a location — never a signed target.
+
+WHY IT IS DEFERRED. It is the largest new surface of the six channels: a spatial query structure, a
+diffusion step per tick, and a new requirement. `NeuronArena` already carries `coords: Vec<[f32; 3]>`
+so there IS something to address, but nothing else exists. Nothing currently measured wants it.
+
+THE TASK, IF IT IS EVER TAKEN.
+1. Write the requirement first, and get it agreed — a spatial signalling class, its locality
+   argument, and its relationship to LRN-5.
+2. Then a diffusion field over `coords` with a bounded kernel, produced by postsynaptic activity.
+3. Determinism (RUN-3) is the hard part: a spatial sum must be order-independent across partitions,
+   which means a canonical accumulation order, exactly as `partition.rs`'s stage-2 merge already
+   does for delivery effects.
+4. Test the mechanism it exists for: heterosynaptic spread — a potentiated synapse makes its
+   NEIGHBOURS more plastic, and severing the field removes the effect (VAL-9).
+
+DONE WHEN (if ever). A requirement covering spatial signalling exists and is agreed, a bounded
+diffusion field is implemented deterministically across partitions, heterosynaptic spread is
+demonstrated and ablated, and README §13.13 records a new subsection for the mechanism class.
 ```
 
 ---
@@ -1914,23 +2824,45 @@ partitioned.
 | B2 | done | 2026-09-14 11:03 +0100 | ~3h46min‖ | `scripts/investigate-growth-regression.ts` re-run post-B1 (corrected `sproutPermanence`/new `sproutWeight`, parallelised via `investigate-growth-regression.worker.ts`); **finding: the deadlock is NOT dissolved** — B–F still bit-identical to C at every seed, direct instrumentation shows grown neurons acquire zero synapses and never fire across the full run; root cause is a still-shut sprout eligibility gate (`activity_streak`), a different lock than the one B1 closed — see README §13.12 item 10's 2026-09-14 update and §11 Phase 7 status |
 | B3 | done | 2026-09-14 14:33 +0100 | ~3h08min** | Closed the two locks B1 left shut (README §13.12 item 10's 2026-09-14 update): new `crates/brain-core/src/plasticity/newborn.rs` (`NewbornMaturation`) wires a newborn's inputs from recently-active neurons onto `FEEDFORWARD_SEGMENT`, places it at their coordinate centroid, and gives it a temporary hyperexcitability window that relaxes over a maturation window, reclaiming it if it never integrates; `FORMAT_VERSION` 9→10 with migration; found and fixed a real pre-existing bug along the way (`NeuronArena::free` never disconnected a freed neuron's synapses — fixed via new `SynapseArena::disconnect_neuron`, shared with `StructuralPlasticity::reclaim_unused_neurons`). Verified at three levels: 5 unit tests, 6 whole-network integration tests (`tests/newborn_integration.rs` — incl. both VAL-9 ablations and an A4-style mid-maturation snapshot-continuation test, which caught a test-harness alternation-phase bug, not an engine one), and the official 5-seed × 6-condition VAL-4 battery (`scripts/investigate-growth-regression.ts`, same protocol as B2). **Result: the deadlock is confirmed dissolved — B–F are no longer bit-identical to C or each other for the first time across Phase A/B2/B3 — but the newly-functional capacity does not help VAL-4**: burst-pace growth (7.45%/7.00%) lands slightly above structural-plasticity-alone (6.40%), gentle-pace (4.51%/4.52%) lands below it, none approach baseline (17.37%) — honestly reported per Requirement 13.6, not spun. Invariant 10 is met for functional capacity (grown neurons fire and wire bidirectionally) for the first time; whether that capacity helps this specific task is a separate, now-answered "not with this configuration." `npm run test:fast` green throughout. README §13.12 items 10 and 12 plus §11 Phase 7 status all corrected and updated — see README for the full account and the per-condition/per-window data in `scripts/investigate-growth-regression.{results,samples}.md`. |
 | B4 | done | 2026-09-15 20:55 +0100 | not reliably measured as one figure†† | Second pass (reopened 2026-09-14 19:11 +0100 after a review against this item's own prompt) replaced the first pass's weight-gated design, whose headline result was an artefact of running without STDP. Built: silent synapses (`SynapseArena::silent_since`, `SilentSynapseParams`), a bounded causal sprout window, deterministic segment spread, silent-synapse elimination, snapshot `FORMAT_VERSION` 10→11 with migration, FFI + TS surface, structural counters, unit tests per fix, VAL-9 ablations (`tests/structural_b4.rs`), and a new golden raster (`structural_plasticity_b4.raster`; existing rasters reproduced unchanged). Values chosen by `scripts/tune-b4-values.ts`, a resumable search over every value and fix flag together with STDP, with unit-tested search logic (`scripts/b4-search/`), a budget chosen by simulation, and confirmation seeds never used to choose; 905 trials, 0 failed. **Result, confirmation seeds: every fix off 3.58%; winner (fixes 1, 2, 4; spread off; unsilence 0.65, window 1..2, elimination 20,000) 15.58%; same config with sprouting disabled 16.63%; condition A 16.99%.** The drag is removed but sprouting is roughly neutral, about a point below not sprouting; fix 3 hurts everywhere; fix 4 is effectively inert at the winner. Kept as found (user's call, 2026-09-15). Shipped in `canonicalBrain.ts`; locked by `char-prediction.slow.test.ts`. Weight-blind dendritic votes remain the root cause, so B5 was added. See README §12 decision 12 and §13.12 item 10. Full B/D/E/F growth battery not re-run (condition C scope); moved to B5. |
-| B5 | done | 2026-09-19 16:25 +0100 | not reliably measured as one figure‡‡ | Spec: `.claude/scratch/weight-aware-dendritic-votes/{requirements,design}.md` (generated 2026-09-15). Gates D3; preferred before C1, C2, D2. Three design calls confirmed with the user as spec'd, unrevised: (1) capped contribution `sign × min(weight/reference_weight, 1)`; (2) configurable predictive-learning target (Permanence default), decided by measurement, contributor-tracking deferred; (3) measure weight-rescaling's effect first, design a remedy only if data shows a cost. **Rust core + FFI mechanism built and tested; `cargo build/test/clippy --workspace --all-targets --release` all green; every pre-existing golden raster reproduces unchanged.** Built: `segment::DendriticVote` (`Count`/`Weighted{reference_weight}`) wired into `apply_local_effect`; `predictive::SegmentLearningTarget` (`Permanence`/`Weight`/`Both`), `adjust_segment_permanence` generalised to `adjust_segment`/`apply_delta`, both `resolve()` and the burst path's existing-synapse branch honour it; snapshot `FORMAT_VERSION` 11→12 (new trailing `write_column_votes`/`read_column_votes` section, not an in-place edit -- the column section sits too early in the payload for the truncate-from-the-end migration tests to express an in-place change); `brain-napi`'s `SegmentsConfig.voteReferenceWeight`/`PredictiveLearningConfig.learningTarget`, validated, `matches()` updated, both `new()` and `restore()` wired. Corrected one design.md inaccuracy while implementing: predictive-learning params have no core snapshot section at all (like every other construction-only config) -- design.md's "predictive-learning params section" doesn't exist; consistency is the FFI config hash's job (`hashConfig` already hashes the whole `segments`/`predictiveLearning` option objects), not snapshot.rs's. **Tests added, all passing:** `segment.rs` unit tests (contribution rule, cap, zero, inhibitory, count-mode identity, invalid reference_weight); `scheduler.rs` unit tests (threshold-2 coincidence with/without reference weight, silent-synapse interaction, feedforward unaffected); `predictive.rs` unit tests (Weight/Both targets, burst-path parity); `snapshot.rs` round-trip + v11-migration tests; `tests/invariants.rs` property test (contribution never exceeds magnitude 1, tally = capped sum); `tests/partitioning_reference.rs` weighted-vote determinism case (partitioned + real-threaded match single-threaded); new `tests/dendritic_votes_b5.rs` VAL-9 ablation (weak distractor synapse cannot complete a coincidence weighted, can in count mode); new golden scenario `dendritic_votes_weighted.raster` + fast-tier sensitivity sibling (took two redesigns to get a scenario where vote mode actually changes the raster -- see session notes: NEU-6 dendritic priming alone never fires a neuron, so the scenario needs a weak *direct* drive to targets, mirroring `run_structural_plasticity_b4_scenario`'s own proven pattern). **TS surface built too, `npm run test:fast` green end to end (cargo + build:native + typecheck + TS fast tests, 240 TS tests + 61 boundary.test.ts including 4 new B5 ones):** `packages/brain/src/index.ts`'s `PredictiveLearningConfig` narrows the generated `learningTarget?: string` to the real `"permanence" | "weight" | "both"` union (napi-rs has no string-enum here); `SegmentsConfig.voteReferenceWeight` needed no TS narrowing (already `number`). `packages/io/src/milestone/charPrediction.ts`'s `CharPredictionConfig` gained `voteReferenceWeight?`/`predictiveLearningTarget?`, threaded into both `columnConfig` and `buildNetwork`'s scheduler-wide `segments`/`predictiveLearning` identically (the existing mismatch-refusal contract), and into `runCharPredictionTrial`'s call. New `packages/brain/test/boundary.test.ts` cases: weighted vs count mode changes a real two-neuron trial's outcome; invalid `voteReferenceWeight`/`learningTarget` rejected; a column/scheduler `voteReferenceWeight` mismatch is refused. **Search infrastructure generalised and built, smoke-tested end to end through the real native addon (`npm run test:fast` still green afterward):** `scripts/b4-search/space.ts`'s `Point`/`ParamSpec`/`Space` made generic in the parameter-name union `N` (default `ParamName`, B4's original 11 -- preserves exact, non-optional indexed access per name, unlike a plain `Record<string, number>`, which `noUncheckedIndexedAccess` would have made `number | undefined` everywhere); `search.ts`'s `runSearch` takes an optional `SearchHooks<N, TCondition, TCombo>` (`toCondition`, `conditionLabel`, factorial combo builder, references builder), defaulting to `defaultB4Hooks()` so every existing call site (all of `search.test.ts`, none of which passes a `hooks` argument) is unaffected; `evaluator.ts`'s `makeEvaluate` takes an optional `ConditionCodec<TCondition>` the same way. **All 42 pre-existing b4-search tests pass unchanged** -- the proof the refactor preserved behaviour, per the task's own discipline. Two design.md inaccuracies corrected while implementing: `report.ts`/`checkpoint.ts`/`pool.ts`/`trial.worker.ts` are not all "item-agnostic" as design.md claimed -- `report.ts` is genuinely B4-specific (hardcoded `Fixes`/`fixesLabel`/`searchCondition`) and was left alone rather than generalised, with `scripts/b5-search/report.ts` written as B5's own adaptation instead. New: `scripts/b5-search/{space,conditions,hooks,report}.ts` (15-parameter space: B4's 11 plus `voteReferenceWeight` with a count-mode sentinel level, `coincidenceThreshold`, `predictiveLearningTarget`, `homeostaticScaling`; B5's own `Condition` union and factorial combo type `{voteMode, silentGate, learningTarget}`, 12 rows per Requirement 9.4, not B4's 16) and `scripts/tune-b5-values.ts`. Along the way, closed two real config-surface gaps `charPrediction.ts` had: `homeostaticScaling` was never wired into the VAL-4 harness at all (needed for Requirement 6.2's on/off measurement) and `coincidenceThreshold` was hardcoded to `3` (needed since B5 must treat it as searched, not assumed). **`B5_SMOKE=1 node --experimental-strip-types scripts/tune-b5-values.ts` run and passed** (75 real trials through the native addon in ~64s: screen, promote, refine, hill-check, held-out, confirm, 12-row factorial, references all executed and produced a coherent `tune-b5-values.smoke.results.md` -- deleted after inspection, `.gitignore`d like B4's own smoke output). **`FULL_BUDGET` validated by synthetic-landscape simulation (throwaway `scripts/simulate-b5-budget.ts`, not checked in, mirroring `tune-b4-values.ts`'s own precedent of recording only the conclusion here).** Four landscapes over the real 15-parameter space (two separated hills; a hill needing three parameters aligned at once; a hill beyond `coincidenceThreshold`'s initial top level; a narrow off-grid needle), 2026-09-15, 12 runs per candidate budget, +-2.5-point seed noise. Result: on the first three landscapes, four candidate budgets spanning a 4.6x range of trial cost (~750 to ~1900 trials/run: screen configs 30/60/100/140, refine rounds 3/4/6/8) all found the peak equally well, within 1-2 points of each other -- search quality was flat across that whole range. On the needle, every budget failed equally (~15-17% of the true peak, i.e. found nothing) -- the same "a peak that narrow is a known limit of any sampling search" conclusion B4's own simulation reached, confirmed rather than assumed for B5's larger space. Chosen: the smaller candidate (screenConfigs 60, promoteTop 18, refineRounds 4, maxHillChecks 12 -- roughly half the original scaled-up placeholder), since it matched the larger candidates on every landscape that showed any signal, with `refineStarts`/`finalists`/`neighbourPromote` left at B4's own values as a margin against a real landscape having more hills than any of these four synthetic ones modelled. Re-typechecked and re-smoke-tested after the change; still green. **A launch mistake, caught and undone within ~2 seconds, worth recording rather than quietly fixing:** while re-deriving the trial-count estimate for this note, ran `node -e "import('./scripts/tune-b5-values.ts')"` directly to peek at its log output -- forgetting that a bare import executes the script's real (non-`B5_SMOKE`) top-level run, not the smoke path. Caught immediately (`TaskStop` on the background shell); the real run had only reached "queued 120 trials" with zero trials completed and no `checkpoint.jsonl` ever created, confirmed by the stray log file's own timestamp going stale seconds later -- no compute was wasted, no checkpoint state exists to clean up. The stray `tune-b5-values.log` was deleted. Lesson: never `import`/execute a script file just to read a log line -- read the source, or run it only through its own documented `B5_SMOKE=1` entry point. **The real search is now running** (launched by the user 2026-09-15 22:47 +0100: `node --experimental-strip-types scripts/tune-b5-values.ts`, 6 workers, corpus 15,000 characters, ≤1,736 trials estimated). `scripts/tune-b5-values.{checkpoint.jsonl,log}` are committed as a point-in-time snapshot of an in-progress run, matching `tune-b4-values.*`'s own precedent of tracking these files rather than gitignoring them; both will keep changing on disk as the run continues (resumable -- re-running the same command picks up from the checkpoint) and should be re-committed as the run progresses or completes. Remaining once it finishes: read `tune-b5-values.results.md`/`.chosen.json`; the growth-battery re-run script (README §13.12 item 10's conditions B/D/E/F at the winner); README §12 new decision + §13.12 item 10 update; `canonicalBrain.ts`'s adopt-or-not decision under the clear-win rule; `char-prediction.slow.test.ts` regression test pinning the winner's figure within ±0.5 points; `char-prediction-smoke.test.ts` config-option coverage for the new fields. **The search finished 2026-09-16 16:27 UTC (17:27 +0100), 1,025 trials, none failed** -- about 18h40m of wall-clock across 6 workers, resumed once from the mid-run snapshot. **Winner: weighted votes at reference weight 1.0, coincidence threshold 3, predictive learning on permanence, homeostatic scaling on, B4's fix 2 at a 1..4-tick window, fixes 1, 3 and 4 off**, STDP learning rate 0.02 / tau 4 / depression 2 / eligibility 50. Confirmation-seed mean **19.05%**, a clear win (better on 4 of 5 confirmation seeds than the runner-up). **The result this whole item existed to get: sprouting finally helps** -- 19.05% against 15.58% for the same config with sprouting disabled, better on all five confirmation seeds, the reverse of B4's finding -- and it is the first VAL-4 configuration clearly above the 16.56% "always guess space" baseline. Weighted votes are *not* a free win: condition A (no sprouting) is worse weighted (15.58%) than counted (16.99%), so weighting pays only where weak new synapses exist to grade. B4's fix 1 (silent gate) is now harmful (10.89% on vs 19.05% off) and B4's fix 4 flips from inert to very harmful (20.2% -> 9.4% on two selection seeds), since with the gate off ~55,000 usefully-transmitting sprouts are permanently "silent" and fix 4 deletes exactly those. Homeostatic scaling helps now that weight reaches prediction (20.2% vs 17.2% off, two seeds). Predictive learning stays on permanence by measurement (19.05% vs 16.24% both / 15.54% weight), so decision 11's call survives its own reopening. **Requirement 9.5's growth battery, written this session as new `scripts/investigate-b5-growth.ts`** (it did not exist; resumable, reuses the b4-search pool/checkpoint and reads the two reference rows straight out of the value search's own checkpoint rather than re-running them): conditions B and E reproduce condition C's accuracy **identically on every seed**, D measures 20.05% and F 19.12%. A throwaway instrumented run (seed 11, deleted after use) found the reason B is identical: 400 neurons grow and fire on ~11,200 of 15,000 characters and receive 33,104 synapses, but send **zero** to the original 800 -- both sprout paths use `FixedNeighbourhoods`' fixed index blocks and grown neurons sit past the originals' blocks, so grown capacity can never reach the readout. D's +1.0 point has **no identified mechanism** (it also ends with zero grown->original synapses, and the same restriction without growth reproduces C bit-for-bit); recorded as measured, not claimed as growth helping. Shipped: `canonicalBrain.ts` adopts the winner (weighted votes, silent gate off, 1..4 window, fix 4 off) under the clear-win rule, replacing B4's values; new slow-tier regression test pinning the winner's selection-seed figure (20.36%, reproduced **exactly**); new fast-tier smoke coverage for `voteReferenceWeight`/`predictiveLearningTarget`/`homeostaticScaling`/`coincidenceThreshold`, including the measured finding that homeostatic scaling is **inert in count mode** (it moves only weight, which count-mode votes ignore) and live once votes are weighted -- the first draft of that test asserted it always changes the result and correctly failed. README: new §12 decision 13, §13.12 item 10's 2026-09-14 growth question closed, decision 11's predictive-learning bullet and §13.12 item 11a's "binary, not permanence-weighted" call both updated to point at it, and §11's Phase 5 status (still reading 3.23%) given the current figure. `npm run test:fast` and `npm run test:slow` both green. |
-| C1 | done | 2026-09-19 23:15 +0100 | ~55min (22:20–23:15 +0100; two battery runs of ~12 min each — ≈23 min of the total — the rest design, wiring and write-up, with the slow tier running alongside) | **The result: sleeping does not help VAL-4, at any cadence measured.** Full data `scripts/investigate-c1-consolidation.results.md` (12 conditions × 10 seeds × 15,000 characters, resumable, ~22 min of wall clock across 8 workers); README §13.12 item 13's first bullet, §12a item 9 and §11's Phase 5 status carry the write-up. Against B5's winner (19.05% confirmation seeds 11–15 / 20.36% selection seeds 1–5): sleep every 1,500 chars → 19.74% / 18.95%; every 750 → 19.14% / 18.67%; every 250 → **13.51% / 13.41%**, below the 16.56% "always guess space" bar. The two wider cadences move the number by less than seed noise **and in opposite directions on the two seed sets**, which is the honest description of no effect; the narrow one is a real, large loss. Not adopted anywhere as a result — `DEFAULT_CONFIG` and B5's shipped values are unchanged and their figures still reproduce. **Design call, unreviewed because it was not a fork the data could settle: a fixed character cadence, not a metric trigger.** Three reasons, in `ConsolidationCadence`'s doc comment: sleep pressure in the synaptic-homeostasis account accumulates with time awake rather than with task performance; a trigger read off prediction accuracy would couple the intervention to the very quantity VAL-4 measures, so neither a positive nor a negative result could be attributed; and a fixed cadence is a pure function of the character index (RUN-3). **Measured first, because the prompt's own arithmetic was off and would have produced a meaningless null:** `replayWindow` counts spike *events*, and this network records 64.02 per character over the first 1,500 characters rising to 91.60 over the last 1,500 (mean 75.09), not the ~128 the prompt estimated — the stimulus tick contributes a flat 64 (k-WTA at k=64) and the prediction tick grows from 0.02 to 27.60. So `MAX_RASTER_EVENTS` (200,000) is ~2,180 characters of history, not ~1,500, and every window here is sized `everyCharacters × 92` so a sleep always replays at least the interval it follows. **Four mechanism findings, each of which outlived the headline number.** (1) Two of LRN-10's three components are *exactly* inert here: rows differing only in `downscaleTargetTotalWeight` (6.0 vs 3.0) or `pruneFloor` (0.05 vs 0.20) came back bit-identical on all ten seeds — only a six-times-stricter 1.0 leaks through, on 3 of 10 seeds by ≤0.35 points — (separate trials under separate checkpoint keys, verified against the checkpoint, not assumed from the table). The downscale is erased because the online LRN-6 sweep renormalises each neuron's incoming total straight back and multiplicative renormalisation composes; the prune has nothing to act on (floor 0.34, under every sprout's 0.35 birth permanence, removed a mean of 6 ⁄ 20 of ~57,000 synapses over 19 sleeps). (2) What is left is replay, and replay is the harmful part: a 100-event window — what every pre-C1 caller passed — costs nothing. (3) The damaging variable is sleep *frequency*, not replay volume: 250 characters of history replayed every 750 is harmless, the same volume replayed three times as often collapses to 13.4%, and total replayed volume is ≈constant across all cadences. (4) Replay is not the learning the live path does — `commit_and_schedule` runs STDP but by documented design not predictive-learning classification, and replay never calls `step()`, so no homeostatic, structural or segment-threshold sweep runs for the whole span while the tick clock advances past their schedules. Measured directly: with the online LRN-6 sweep off, the same 750-character cadence goes from −1.69 to **−8.32** points. Bonus from the same pair of rows: that sweep is worth 2.2/3.2 points on its own, now on ten seeds rather than B5's two. **Silent-synapse question (decision 12's deferral) resolved as "and it should not"** — with `silentTransmits: true` silence is bookkeeping, not a functional state, and B5 already measured the same deletion on the online sweep at 20.2% → 9.4%; recorded in `consolidation.rs`'s `silent_elimination_ticks` comment and README decision 12. **Shipped:** `CharPredictionConfig.consolidation` / `ConsolidationCadence` / `ConsolidationStats` in `charPrediction.ts` (sleep placed after scoring, skipped on the final character where it could not affect a prediction, per-sleep seed `seed * 1_000_003 + index` for RUN-3); `consolidationStats` threaded additively through `b4-search`'s `TrialOutput`/ `TrialRecord`/worker (all 42 pre-existing b4-search tests unchanged); `scripts/investigate-c1-consolidation.ts`, modelled on `investigate-b5-growth.ts` and reading its no-sleep reference rows out of the value search's and growth battery's own checkpoints rather than recomputing them. **Fast-tier test asserts the mechanism, not a counter** (§13.12 item 13's own lesson): sleeps land on schedule, replay real events, a floor above every synapse's initial permanence really prunes, a cadence that never fires leaves the run bit-identical, and the same seed/cadence reproduces exactly. **Scoped out, not fixed:** `runConsolidation` stays `Runtime::Single`-only — new C1a row and README §12a item 9(c); replay bypassing `step()` and the raster being ~85% a recording of the encoder's own input are §12a item 9(a)/(b). `npm run test:fast` and `npm run test:slow` both green. |
-| C1a | not started | | | Scoped out of C1 (2026-09-19), not urgent on C1's own evidence: nothing wants to sleep *and* scale while sleeping does not help. README §12a item 9(c). |
-| C1b | not started | | | Scoped out of C1 (2026-09-19). **The one C1 follow-up whose negative result does not already apply**: C1 measured the *uniform* downscale, which changes only scale and is therefore erased exactly by the online LRN-6 sweep (targets 6.0 and 3.0 bit-identical on all ten seeds). Selective downscaling changes ratios *within* a neuron, which a total-renormalising sweep preserves — reasoning from that verified composition argument, not measured. README §13.13(h). |
-| C2 | not started | | | |
+| B5 | done | 2026-09-19 16:25 +0100 | not reliably measured as one figure‡‡ | Spec: `.claude/scratch/weight-aware-dendritic-votes/{requirements,design}.md` (generated 2026-09-15). Gates D4; preferred before C1, C2, D2. Three design calls confirmed with the user as spec'd, unrevised: (1) capped contribution `sign × min(weight/reference_weight, 1)`; (2) configurable predictive-learning target (Permanence default), decided by measurement, contributor-tracking deferred; (3) measure weight-rescaling's effect first, design a remedy only if data shows a cost. **Rust core + FFI mechanism built and tested; `cargo build/test/clippy --workspace --all-targets --release` all green; every pre-existing golden raster reproduces unchanged.** Built: `segment::DendriticVote` (`Count`/`Weighted{reference_weight}`) wired into `apply_local_effect`; `predictive::SegmentLearningTarget` (`Permanence`/`Weight`/`Both`), `adjust_segment_permanence` generalised to `adjust_segment`/`apply_delta`, both `resolve()` and the burst path's existing-synapse branch honour it; snapshot `FORMAT_VERSION` 11→12 (new trailing `write_column_votes`/`read_column_votes` section, not an in-place edit -- the column section sits too early in the payload for the truncate-from-the-end migration tests to express an in-place change); `brain-napi`'s `SegmentsConfig.voteReferenceWeight`/`PredictiveLearningConfig.learningTarget`, validated, `matches()` updated, both `new()` and `restore()` wired. Corrected one design.md inaccuracy while implementing: predictive-learning params have no core snapshot section at all (like every other construction-only config) -- design.md's "predictive-learning params section" doesn't exist; consistency is the FFI config hash's job (`hashConfig` already hashes the whole `segments`/`predictiveLearning` option objects), not snapshot.rs's. **Tests added, all passing:** `segment.rs` unit tests (contribution rule, cap, zero, inhibitory, count-mode identity, invalid reference_weight); `scheduler.rs` unit tests (threshold-2 coincidence with/without reference weight, silent-synapse interaction, feedforward unaffected); `predictive.rs` unit tests (Weight/Both targets, burst-path parity); `snapshot.rs` round-trip + v11-migration tests; `tests/invariants.rs` property test (contribution never exceeds magnitude 1, tally = capped sum); `tests/partitioning_reference.rs` weighted-vote determinism case (partitioned + real-threaded match single-threaded); new `tests/dendritic_votes_b5.rs` VAL-9 ablation (weak distractor synapse cannot complete a coincidence weighted, can in count mode); new golden scenario `dendritic_votes_weighted.raster` + fast-tier sensitivity sibling (took two redesigns to get a scenario where vote mode actually changes the raster -- see session notes: NEU-6 dendritic priming alone never fires a neuron, so the scenario needs a weak *direct* drive to targets, mirroring `run_structural_plasticity_b4_scenario`'s own proven pattern). **TS surface built too, `npm run test:fast` green end to end (cargo + build:native + typecheck + TS fast tests, 240 TS tests + 61 boundary.test.ts including 4 new B5 ones):** `packages/brain/src/index.ts`'s `PredictiveLearningConfig` narrows the generated `learningTarget?: string` to the real `"permanence" | "weight" | "both"` union (napi-rs has no string-enum here); `SegmentsConfig.voteReferenceWeight` needed no TS narrowing (already `number`). `packages/io/src/milestone/charPrediction.ts`'s `CharPredictionConfig` gained `voteReferenceWeight?`/`predictiveLearningTarget?`, threaded into both `columnConfig` and `buildNetwork`'s scheduler-wide `segments`/`predictiveLearning` identically (the existing mismatch-refusal contract), and into `runCharPredictionTrial`'s call. New `packages/brain/test/boundary.test.ts` cases: weighted vs count mode changes a real two-neuron trial's outcome; invalid `voteReferenceWeight`/`learningTarget` rejected; a column/scheduler `voteReferenceWeight` mismatch is refused. **Search infrastructure generalised and built, smoke-tested end to end through the real native addon (`npm run test:fast` still green afterward):** `scripts/b4-search/space.ts`'s `Point`/`ParamSpec`/`Space` made generic in the parameter-name union `N` (default `ParamName`, B4's original 11 -- preserves exact, non-optional indexed access per name, unlike a plain `Record<string, number>`, which `noUncheckedIndexedAccess` would have made `number | undefined` everywhere); `search.ts`'s `runSearch` takes an optional `SearchHooks<N, TCondition, TCombo>` (`toCondition`, `conditionLabel`, factorial combo builder, references builder), defaulting to `defaultB4Hooks()` so every existing call site (all of `search.test.ts`, none of which passes a `hooks` argument) is unaffected; `evaluator.ts`'s `makeEvaluate` takes an optional `ConditionCodec<TCondition>` the same way. **All 42 pre-existing b4-search tests pass unchanged** -- the proof the refactor preserved behaviour, per the task's own discipline. Two design.md inaccuracies corrected while implementing: `report.ts`/`checkpoint.ts`/`pool.ts`/`trial.worker.ts` are not all "item-agnostic" as design.md claimed -- `report.ts` is genuinely B4-specific (hardcoded `Fixes`/`fixesLabel`/`searchCondition`) and was left alone rather than generalised, with `scripts/b5-search/report.ts` written as B5's own adaptation instead. New: `scripts/b5-search/{space,conditions,hooks,report}.ts` (15-parameter space: B4's 11 plus `voteReferenceWeight` with a count-mode sentinel level, `coincidenceThreshold`, `predictiveLearningTarget`, `homeostaticScaling`; B5's own `Condition` union and factorial combo type `{voteMode, silentGate, learningTarget}`, 12 rows per Requirement 9.4, not B4's 16) and `scripts/tune-b5-values.ts`. Along the way, closed two real config-surface gaps `charPrediction.ts` had: `homeostaticScaling` was never wired into the VAL-4 harness at all (needed for Requirement 6.2's on/off measurement) and `coincidenceThreshold` was hardcoded to `3` (needed since B5 must treat it as searched, not assumed). **`B5_SMOKE=1 node --experimental-strip-types scripts/tune-b5-values.ts` run and passed** (75 real trials through the native addon in ~64s: screen, promote, refine, hill-check, held-out, confirm, 12-row factorial, references all executed and produced a coherent `tune-b5-values.smoke.results.md` -- deleted after inspection, `.gitignore`d like B4's own smoke output). **`FULL_BUDGET` validated by synthetic-landscape simulation (throwaway `scripts/simulate-b5-budget.ts`, not checked in, mirroring `tune-b4-values.ts`'s own precedent of recording only the conclusion here).** Four landscapes over the real 15-parameter space (two separated hills; a hill needing three parameters aligned at once; a hill beyond `coincidenceThreshold`'s initial top level; a narrow off-grid needle), 2026-09-15, 12 runs per candidate budget, +-2.5-point seed noise. Result: on the first three landscapes, four candidate budgets spanning a 4.6x range of trial cost (~750 to ~1900 trials/run: screen configs 30/60/100/140, refine rounds 3/4/6/8) all found the peak equally well, within 1-2 points of each other -- search quality was flat across that whole range. On the needle, every budget failed equally (~15-17% of the true peak, i.e. found nothing) -- the same "a peak that narrow is a known limit of any sampling search" conclusion B4's own simulation reached, confirmed rather than assumed for B5's larger space. Chosen: the smaller candidate (screenConfigs 60, promoteTop 18, refineRounds 4, maxHillChecks 12 -- roughly half the original scaled-up placeholder), since it matched the larger candidates on every landscape that showed any signal, with `refineStarts`/`finalists`/`neighbourPromote` left at B4's own values as a margin against a real landscape having more hills than any of these four synthetic ones modelled. Re-typechecked and re-smoke-tested after the change; still green. **A launch mistake, caught and undone within ~2 seconds, worth recording rather than quietly fixing:** while re-deriving the trial-count estimate for this note, ran `node -e "import('./scripts/tune-b5-values.ts')"` directly to peek at its log output -- forgetting that a bare import executes the script's real (non-`B5_SMOKE`) top-level run, not the smoke path. Caught immediately (`TaskStop` on the background shell); the real run had only reached "queued 120 trials" with zero trials completed and no `checkpoint.jsonl` ever created, confirmed by the stray log file's own timestamp going stale seconds later -- no compute was wasted, no checkpoint state exists to clean up. The stray `tune-b5-values.log` was deleted. Lesson: never `import`/execute a script file just to read a log line -- read the source, or run it only through its own documented `B5_SMOKE=1` entry point. **The real search is now running** (launched by the user 2026-09-15 22:47 +0100: `node --experimental-strip-types scripts/tune-b5-values.ts`, 6 workers, corpus 15,000 characters, ≤1,736 trials estimated). `scripts/tune-b5-values.{checkpoint.jsonl,log}` are committed as a point-in-time snapshot of an in-progress run, matching `tune-b4-values.*`'s own precedent of tracking these files rather than gitignoring them; both will keep changing on disk as the run continues (resumable -- re-running the same command picks up from the checkpoint) and should be re-committed as the run progresses or completes. Remaining once it finishes: read `tune-b5-values.results.md`/`.chosen.json`; the growth-battery re-run script (README §13.12 item 10's conditions B/D/E/F at the winner); README §12 new decision + §13.12 item 10 update; `canonicalBrain.ts`'s adopt-or-not decision under the clear-win rule; `char-prediction.slow.test.ts` regression test pinning the winner's figure within ±0.5 points; `char-prediction-smoke.test.ts` config-option coverage for the new fields. **The search finished 2026-09-16 16:27 UTC (17:27 +0100), 1,025 trials, none failed** -- about 18h40m of wall-clock across 6 workers, resumed once from the mid-run snapshot. **Winner: weighted votes at reference weight 1.0, coincidence threshold 3, predictive learning on permanence, homeostatic scaling on, B4's fix 2 at a 1..4-tick window, fixes 1, 3 and 4 off**, STDP learning rate 0.02 / tau 4 / depression 2 / eligibility 50. Confirmation-seed mean **19.05%**, a clear win (better on 4 of 5 confirmation seeds than the runner-up). **The result this whole item existed to get: sprouting finally helps** -- 19.05% against 15.58% for the same config with sprouting disabled, better on all five confirmation seeds, the reverse of B4's finding -- and it is the first VAL-4 configuration clearly above the 16.56% "always guess space" baseline. Weighted votes are *not* a free win: condition A (no sprouting) is worse weighted (15.58%) than counted (16.99%), so weighting pays only where weak new synapses exist to grade. B4's fix 1 (silent gate) is now harmful (10.89% on vs 19.05% off) and B4's fix 4 flips from inert to very harmful (20.2% -> 9.4% on two selection seeds), since with the gate off ~55,000 usefully-transmitting sprouts are permanently "silent" and fix 4 deletes exactly those. Homeostatic scaling helps now that weight reaches prediction (20.2% vs 17.2% off, two seeds). Predictive learning stays on permanence by measurement (19.05% vs 16.24% both / 15.54% weight), so decision 11's call survives its own reopening. **Requirement 9.5's growth battery, written this session as new `scripts/investigate-b5-growth.ts`** (it did not exist; resumable, reuses the b4-search pool/checkpoint and reads the two reference rows straight out of the value search's own checkpoint rather than re-running them): conditions B and E reproduce condition C's accuracy **identically on every seed**, D measures 20.05% and F 19.12%. A throwaway instrumented run (seed 11, deleted after use) found the reason B is identical: 400 neurons grow and fire on ~11,200 of 15,000 characters and receive 33,104 synapses, but send **zero** to the original 800 -- both sprout paths use `FixedNeighbourhoods`' fixed index blocks and grown neurons sit past the originals' blocks, so grown capacity can never reach the readout. D's +1.0 point has **no identified mechanism** (it also ends with zero grown->original synapses, and the same restriction without growth reproduces C bit-for-bit); recorded as measured, not claimed as growth helping. Shipped: `canonicalBrain.ts` adopts the winner (weighted votes, silent gate off, 1..4 window, fix 4 off) under the clear-win rule, replacing B4's values; new slow-tier regression test pinning the winner's selection-seed figure (20.36%, reproduced **exactly**); new fast-tier smoke coverage for `voteReferenceWeight`/`predictiveLearningTarget`/`homeostaticScaling`/`coincidenceThreshold`, including the measured finding that homeostatic scaling is **inert in count mode** (it moves only weight, which count-mode votes ignore) and live once votes are weighted -- the first draft of that test asserted it always changes the result and correctly failed. README: new §12 decision 13, §13.12 item 10's 2026-09-14 growth question closed, decision 11's predictive-learning bullet and §13.12 item 11a's "binary, not permanence-weighted" call both updated to point at it, and §11's Phase 5 status (still reading 3.23%) given the current figure. `npm run test:fast` and `npm run test:slow` both green. |
+| C1 | done | 2026-09-19 23:15 +0100 | ~55min (22:20–23:15 +0100; two battery runs of ~12 min each — ≈23 min of the total — the rest design, wiring and write-up, with the slow tier running alongside) | **The result: sleeping does not help VAL-4, at any cadence measured.** Full data `scripts/investigate-c1-consolidation.results.md` (12 conditions × 10 seeds × 15,000 characters, resumable, ~22 min of wall clock across 8 workers); README §13.12 item 13's first bullet, §12a item 9 and §11's Phase 5 status carry the write-up. Against B5's winner (19.05% confirmation seeds 11–15 / 20.36% selection seeds 1–5): sleep every 1,500 chars → 19.74% / 18.95%; every 750 → 19.14% / 18.67%; every 250 → **13.51% / 13.41%**, below the 16.56% "always guess space" bar. The two wider cadences move the number by less than seed noise **and in opposite directions on the two seed sets**, which is the honest description of no effect; the narrow one is a real, large loss. Not adopted anywhere as a result — `DEFAULT_CONFIG` and B5's shipped values are unchanged and their figures still reproduce. **Design call, unreviewed because it was not a fork the data could settle: a fixed character cadence, not a metric trigger.** Three reasons, in `ConsolidationCadence`'s doc comment: sleep pressure in the synaptic-homeostasis account accumulates with time awake rather than with task performance; a trigger read off prediction accuracy would couple the intervention to the very quantity VAL-4 measures, so neither a positive nor a negative result could be attributed; and a fixed cadence is a pure function of the character index (RUN-3). **Measured first, because the prompt's own arithmetic was off and would have produced a meaningless null:** `replayWindow` counts spike *events*, and this network records 64.02 per character over the first 1,500 characters rising to 91.60 over the last 1,500 (mean 75.09), not the ~128 the prompt estimated — the stimulus tick contributes a flat 64 (k-WTA at k=64) and the prediction tick grows from 0.02 to 27.60. So `MAX_RASTER_EVENTS` (200,000) is ~2,180 characters of history, not ~1,500, and every window here is sized `everyCharacters × 92` so a sleep always replays at least the interval it follows. **Four mechanism findings, each of which outlived the headline number.** (1) Two of LRN-10's three components are *exactly* inert here: rows differing only in `downscaleTargetTotalWeight` (6.0 vs 3.0) or `pruneFloor` (0.05 vs 0.20) came back bit-identical on all ten seeds — only a six-times-stricter 1.0 leaks through, on 3 of 10 seeds by ≤0.35 points — (separate trials under separate checkpoint keys, verified against the checkpoint, not assumed from the table). The downscale is erased because the online LRN-6 sweep renormalises each neuron's incoming total straight back and multiplicative renormalisation composes; the prune has nothing to act on (floor 0.34, under every sprout's 0.35 birth permanence, removed a mean of 6 ⁄ 20 of ~57,000 synapses over 19 sleeps). (2) What is left is replay, and replay is the harmful part: a 100-event window — what every pre-C1 caller passed — costs nothing. (3) The damaging variable is sleep *frequency*, not replay volume: 250 characters of history replayed every 750 is harmless, the same volume replayed three times as often collapses to 13.4%, and total replayed volume is ≈constant across all cadences. (4) Replay is not the learning the live path does — `commit_and_schedule` runs STDP but by documented design not predictive-learning classification, and replay never calls `step()`, so no homeostatic, structural or segment-threshold sweep runs for the whole span while the tick clock advances past their schedules. Measured directly: with the online LRN-6 sweep off, the same 750-character cadence goes from −1.69 to **−8.32** points. Bonus from the same pair of rows: that sweep is worth 2.2/3.2 points on its own, now on ten seeds rather than B5's two. **Silent-synapse question (decision 12's deferral) resolved as "and it should not"** — with `silentTransmits: true` silence is bookkeeping, not a functional state, and B5 already measured the same deletion on the online sweep at 20.2% → 9.4%; recorded in `consolidation.rs`'s `silent_elimination_ticks` comment and README decision 12. **Shipped:** `CharPredictionConfig.consolidation` / `ConsolidationCadence` / `ConsolidationStats` in `charPrediction.ts` (sleep placed after scoring, skipped on the final character where it could not affect a prediction, per-sleep seed `seed * 1_000_003 + index` for RUN-3); `consolidationStats` threaded additively through `b4-search`'s `TrialOutput`/ `TrialRecord`/worker (all 42 pre-existing b4-search tests unchanged); `scripts/investigate-c1-consolidation.ts`, modelled on `investigate-b5-growth.ts` and reading its no-sleep reference rows out of the value search's and growth battery's own checkpoints rather than recomputing them. **Fast-tier test asserts the mechanism, not a counter** (§13.12 item 13's own lesson): sleeps land on schedule, replay real events, a floor above every synapse's initial permanence really prunes, a cadence that never fires leaves the run bit-identical, and the same seed/cadence reproduces exactly. **Scoped out, not fixed:** `runConsolidation` stays `Runtime::Single`-only — new F8 row and README §12a item 9(c); replay bypassing `step()` and the raster being ~85% a recording of the encoder's own input are §12a item 9(a)/(b). `npm run test:fast` and `npm run test:slow` both green. |
+| C2 | done | 2026-09-20 14:30 +0100 | ~4h50min (09:40–14:30 +0100; two VAL-4 batteries of ~8 min each, the first discarded — the rest was the audit, the rewrite after it, and the write-up) | **The result: driving noradrenaline from prediction error does not move VAL-4, and the reason is measured rather than assumed.** Full data `scripts/investigate-c2-neuromodulators.results.md` (6 conditions × 10 seeds × 15,000 characters). Against B5's winner (19.05% confirmation / 20.36% selection): NA gating predictive learning 19.28% / 20.36%; NA gating STDP 19.46% / 20.29%; both 19.46% / 20.29%; ACh driven rather than held **20.46% / 19.66%**. Every row moves less than seed noise **and in opposite directions on the two seed sets** — C1's own standard for "no effect". Nothing adopted; `DEFAULT_CONFIG` and B5's values unchanged and still reproducing. **The item was stopped mid-implementation and re-scoped by an audit** (`.claude/scratch/neuromodulators/investigation.md`, six channels claim-by-claim against primary sources) after the user asked whether the channel assignments matched the biology at all. They largely did not. Three findings changed the design: the README's "only DOPAMINE is ever injected" was already false (B5 holds ACh at 1.0 by hand); NE codes *unexpected* uncertainty, so a fixed reference reports acetylcholine's quantity instead; and one estimator can feed both channels, because expected and unexpected uncertainty are the slow and (fast − slow) terms of the same estimate (Yu & Dayan 2005). **Why noradrenaline did nothing, instrumented rather than inferred:** a new `predictionErrorSignals()` readback shows surprise is **exactly zero 89.5% of 4,000 characters** (mean 0.0004, max 0.0141) — it is a *change* detector and English prose has no contingency switches. A gain of exactly 1.0 for nine characters in ten cannot move accuracy, which is why the NA rows reproduce the reference *per seed identically* on 5/5 selection seeds. A fact about the task, not the mechanism: `tests/prediction_error_coupling.rs` shows a deliberate contingency switch *does* produce surprise. ACh is the opposite — median 0.44, never zero, the only row that moves VAL-4 — but its two seed sets disagree by 2.1 points in opposite directions, so it is recorded as **unresolved at n=5**, not as no effect. **Two of my own defects, each caught by a control rather than by reading, each of which would have produced a plausible wrong number.** (1) Averaging a per-tick *rate* measures the duty cycle of silence: on a two-neuron sequence the failure rate hit exactly 0 by exposure 3 and the level **rose anyway**, 0.5434 → 0.6138, because 4 of 7 ticks classified nothing. Fix: smooth the counts, form the rate from the ratio. **Generalises — any per-tick-count scalar in this engine needs event weighting.** (2) The first battery was discarded: the field starts at 0 and reaches baseline by EMA, so at `modulatorTauTicks` 1000 every gated delta was multiplied by ≈0 for thousands of ticks — measuring *suppressed early learning*. Fix: `seed_baselines`. The stale checkpoint is kept as `.checkpoint.stale-v1.jsonl`, and a `C2_PROTOCOL` key guard now invalidates cached rows when a core change alters an unchanged config's behaviour. **The obvious control was also wrong:** `gain = 0` pins the *target* at baseline but the level still gets there through float arithmetic, so a 30,000-tick run diverges from rounding alone. The exact control is "coupling on, nothing reading it" — bit-identical on all ten seeds. **Shipped:** `PredictionErrorCoupling`/`ChannelDrive`/`PredictionErrorRawState` (`neuromodulator.rs`), `PredictionOutcomeCounts` + `StepReport.outcomes`, `gain_modulator_index` on both param structs (a second *multiplicative* channel, kept separate from the routing one so a surprise signal need not displace a channel already in use), `drive_toward`, `with_modulator_tau_ticks`, snapshot format **12 → 13** with migration and round-trip tests, the full FFI + TypeScript surface, and `canonicalBrain.ts` wired with a standing test that asserts the channels **move** rather than that a counter incremented (§13.12 item 13's own lesson, which this file learned the hard way with `growth`). **Determinism:** `tests/partitioning_reference.rs` gained the predictive-learning scenario it never had — one estimator advanced from the merged network-wide integer tally, every partition's field driven from it, bit-identical arenas, spike trains and *levels* at every thread count and executor. `PartitionRuntime::new` now **refuses** a scheduler carrying its own coupling rather than silently ignoring it (§12a item 8's defect, closed at the source). **Scoped out, recorded not fixed:** ACh's feedforward/recurrent role needs an LRN-1 interface decision (C7/C8); dopamine still carries a raw reward, not an RPE (C3); serotonin and histamine are deferred with reasons (F19/F20); nitric oxide cannot be an LRN-5 channel at all (F21). All four are README §12a item 10. **Also:** the coverage checker now reports RUN-6 as covered because the new test cites the id — it stays deferred, with a note that the test asserts per-partition determinism while RUN-6 asks for atomics, which still do not exist. `npm run test:fast` green (36 Rust binaries, clippy clean, 244 TS tests). |
+| C3 | not started | | | New 2026-09-20 from the neuromodulator audit. Dopamine carries a *raw* reward, not a prediction error — `reward(hit ? 1 : 0)` subtracts no expectation — and it is switched off in the shipped config. Cheap, independent, and worth doing before D4 so a 1–3 week tune is not run against a mislabelled signal. | **Bigger than it looks, found 2026-09-20 after C2 closed:** dopamine having no producer leaves TWO mechanisms dead, not just one signal wrong. `canonicalBrain.ts` routes both the three-factor rule and predictive learning on dopamine and nothing injects it, so both multiply their deltas by exactly 0 every tick (measured, 400 ticks, off vs injected: meanWeight 0.184→0.541, meanPermanence 0.373→0.503). Giving dopamine a producer switches LRN-2/3/4 and LRN-8's 12.2/12.3 path ON for the first time in that fixture, so C3's numbers will move for that reason as well as because the signal became an RPE — separate the two or the result is uninterpretable. `canonicalBrain.test.ts` asserts the broken state **on purpose** and will fail when C3 lands; rewriting it is part of the item. Routing stays on dopamine deliberately (README §2.5) rather than being re-pointed at acetylcholine, which would fix the symptom. See `.claude/HANDOFF.md` fact 14 and README §13.12 item 13.
+| C4 | not started | | | New 2026-09-20. The shared hook, not a mechanism: the field has exactly **two** read sites in the whole core and both just multiply a delta by a level. C5, C6 and F19 each need modulators to reach `StdpParams`. Build once. Watch ENG-9 — `kernel` is hot-path and the existing design precomputes constants precisely to keep it cheap. |
+| C5 | not started | | | New 2026-09-20. Better-evidenced than C2's amplitude gain: β-AR activation widened the t-LTP window ~15 ms, and a β agonist makes it *triangular* with LTP both directions out to ~50 ms (Salgado 2012; Brzosko 2019). Changes *which pairings count*, not how much. Open call: model the triangular result or only the width. |
+| C6 | not started | | | New 2026-09-20. Cellular and direct — Seol et al. (2007): M1 muscarinic **promotes t-LTD and suppresses t-LTP**; Brzosko (2019) reports mAChR converting pre-before-post LTP into LTD at SC–CA1. ACh can *invert* plasticity's sign, not just scale it. Delicate because the shipped VAL-4 config already holds this channel at a constant 1.0, so B5's pinned figure may need re-reasoning. |
+| C7 | not started | | | New 2026-09-20. **Design call, invariant-adjacent.** C8 needs ACh to treat feedforward and recurrent synapses differently; a `PlasticityRule` structurally cannot see the target segment, and that narrowness *is* how invariant 1 is enforced. Two options: widen `SynapseMut`/`LocalContext`, or a scheduler-invoked module following `predictive.rs`. Overlaps F10 — one scheme, not two. |
+| C8 | not started | | | New 2026-09-20. Hasselmo's encoding/retrieval account, and it is **two mechanisms in opposite directions**: ACh suppresses recurrent *transmission* while sparing feedforward, and simultaneously *enhances* LTP at those same synapses. Building one half is building the wrong model. The one neuromodulator item that could plausibly move VAL-4 on its own. |
+| C9 | not started | | | **Was `G1` until 2026-09-20**; renamed to match its position (9th) after the reorder — no citation anywhere outside PLAN.md referenced the old ID, unlike `F8`/`C11`, which is why those kept theirs. Scope unchanged: ENG-5 false gap, stale deferrals, vetoed segments invisible. Still best before D4 — that is when vetoed segments first become visible. |
+| C10 | not started | | | **Was `G2` until 2026-09-20**; renamed to match its position (10th), same reasoning as C9. Scope unchanged. Moved ahead of D4 because its sweep wiring changes what a partitioned re-tune measures, and re-tuning is a 1–3 week item. |
+| C11 | not started | | | Scoped out of C1 (2026-09-19). **The one C1 follow-up whose negative result does not already apply**: C1 measured the *uniform* downscale, which changes only scale and is therefore erased exactly by the online LRN-6 sweep (targets 6.0 and 3.0 bit-identical on all ten seeds). Selective downscaling changes ratios *within* a neuron, which a total-renormalising sweep preserves — reasoning from that verified composition argument, not measured. README §13.13(h). |
 | D1 | not started | | | |
 | D2 | not started | | | |
-| D3 | not started | | | tuning-bound |
+| D3 | not started | | | Split out of D2 on 2026-09-20 so every item fits one session; D2's prompt carries the shared context and this row's prompt states the sub-scope. The ablation needs a network that actually contains inhibitory neurons, plus a chosen measurable for "balance" (Vogels' asynchronous irregular state, or Beggs & Plenz avalanche exponents — README §13.13(a) names both) and multi-seed evidence per VAL-6. |
+| D4 | not started | | | tuning-bound |
 | E1 | not started | | | |
+| E2 | not started | | | Split out of E1 on 2026-09-20 so every item fits one session; E1's prompt carries the shared context and this row's prompt states the sub-scope. A test that re-opens the store in the *same* process proves the file format, not invariant 9 — this row exists because that distinction is easy to lose. Must also assert growth after restore (invariant 10), which is exactly the class of bug A4 found hiding behind a passing round-trip. |
 | F1 | not started | | | |
-| F2 | not started | | | |
+| F2 | not started | | | Split out of F1 on 2026-09-20 so every item fits one session; F1's prompt carries the shared context and this row's prompt states the sub-scope. Curves pinned against the published Tsodyks–Markram shapes (VAL-1), not merely asserted to change — §13.12 item 13's standing lesson. |
 | F3 | not started | | | |
-| F4 | not started | | | |
-| F5 | not started | | | |
+| F4 | not started | | | Split out of F3 on 2026-09-20 so every item fits one session; F3's prompt carries the shared context and this row's prompt states the sub-scope. **The highest-risk mechanical change in the plan**, now preceded by F3 so the design call is reviewable before any code moves. Mechanical change only — the re-measurement is F5, because a performance number taken mid-refactor is not evidence. |
+| F5 | not started | | | Split out of F3 on 2026-09-20 so every item fits one session; F3's prompt carries the shared context and this row's prompt states the sub-scope. Re-takes the memory and throughput figures that justified the change, on the thing that shipped, and reports the delta including if it got worse. Also checks whether the scale ceiling in `.claude/HANDOFF.md` moved. |
 | F6 | not started | | | |
-| G1 | not started | | | best before D3 |
-| G2 | not started | | | |
+| F7 | not started | | | Split out of F6 on 2026-09-20 so every item fits one session; F6's prompt carries the shared context and this row's prompt states the sub-scope. **The interesting half.** C1 measured that replay does not help — but the raster is ~85% a re-recording of the encoder's own input (§12a item 9(b)), so that may be a fact about the *raster* rather than about replay. This item can tell those apart, and must correct C1's conclusion explicitly if it changes it. |
+| F8 | not started | | | Scoped out of C1 (2026-09-19), not urgent on C1's own evidence: nothing wants to sleep *and* scale while sleeping does not help. README §12a item 9(c). |
+| F9 | not started | | | Split out of F8 on 2026-09-20 so every item fits one session; F8's prompt carries the shared context and this row's prompt states the sub-scope. The equivalence harness is most of F8's cost: `tests/partitioning_reference.rs` has no consolidation scenario at all today. Still not urgent, for C1's own reason — nothing wants to sleep *and* scale while sleeping does not help. |
+| F10 | not started | | | |
+| F11 | not started | | | Split out of F10 on 2026-09-20 so every item fits one session; F10's prompt carries the shared context and this row's prompt states the sub-scope. Carries F10's hardest constraint: §13.13(b) is explicit that Sacramento (2018) and Payeur (2021) use this anatomy to *approximate a gradient*, which invariant 2 forbids. Build the anatomy, not the credit-assignment scheme — and argue why in the module's own doc comment. |
+| F12 | not started | | | Split out of F10 on 2026-09-20 so every item fits one session; F10's prompt carries the shared context and this row's prompt states the sub-scope. NET-6 requires feedback that *carries predictions*; a pathway that exists but changes nothing downstream satisfies the wiring diagram and not the requirement. Ablation: sever the projection, assert the shift disappears. |
+| F13 | not started | | | |
+| F14 | not started | | | Split out of F13 on 2026-09-20 so every item fits one session; F13's prompt carries the shared context and this row's prompt states the sub-scope. An experiment with its own analysis, not a test that a rule compiles. Must rule out the input-cadence artefact — `.claude/HANDOFF.md` fact 6 means a "rhythm" at the stimulus period would be the encoder, not the network. Answer NET-8 either way (Requirement 13.6). |
+| F15 | not started | | | |
+| F16 | not started | | | Split out of F15 on 2026-09-20 so every item fits one session; F15's prompt carries the shared context and this row's prompt states the sub-scope. Internal populations only. A laminar column is a new *option*, not a replacement, until something measures it as better. |
+| F17 | not started | | | Split out of F15 on 2026-09-20 so every item fits one session; F15's prompt carries the shared context and this row's prompt states the sub-scope. Closes the standing defect in README §12a item 8 / HANDOFF fact 4: `ColumnSpec::inhibition` and `::segments` configure nothing, and are currently *validated* rather than honoured — refusing a contradiction is not the same as running the configuration. |
+| F18 | not started | | | Split out of F15 on 2026-09-20 so every item fits one session; F15's prompt carries the shared context and this row's prompt states the sub-scope. Two things: voting through output layers rather than whole columns (`connect_lateral_voting` currently wires every neuron to every neuron — §13.12 item 13), and the NET-9 location-signal decision, where a recorded "no, and here is why" is as valid as a yes (§1.3's non-goals exist to be used). |
+| F19 | **deferred, on the record** | | | New 2026-09-20. Deferred for three stated reasons, not for lack of time: the "prevents runaway excitation" half is **contradicted** (elevated 5-HT amplifies synaptic noise and facilitates epileptiform oscillations); the stabiliser job is already held by LRN-6 + NEU-7, which C1 measured at 2.2–3.2 VAL-4 points; and what 5-HT *is* well supported for (Doya's discount factor, "patience") has nowhere to attach until LRN-11 action selection exists. The supported part — a 5-HT2A-style t-LTD bias — is real and buildable via C4. |
+| F20 | **deferred, on the record** | | | New 2026-09-20. The biology is solid (TMN is the sole histamine source; H1 depolarises, H2 raises excitability; wake-only firing) but the *role* is already modelled more explicitly, as LRN-10 consolidation phases. Also the widest cheap change in the plan: `NUM_MODULATORS` 4→5 touches `Modulators`, three fixed-size arrays, the snapshot format and an FFI validator. Worth doing the moment *any* fifth channel is genuinely needed — histamine is not currently that need. |
+| F21 | **deferred, needs a requirement first** | | | New 2026-09-20. Well characterised (~80–200 µm diffusion range; heterosynaptic LTP in amygdala *requires* NO) and **structurally not an LRN-5 channel**: `levels_at` takes a tick and nothing else, and a unit test asserts it can route on nothing, whereas NO(x,y,z,t) is addressed by position. Needs a new requirement for a spatial signalling class before any code. Does **not** violate invariant 2 — a diffusing concentration is *more* local than a broadcast — provided what diffuses is never an error term. |
 
 *A1's duration is measured from its first file edit (19:51 +0100) to the completing commit (20:10 +0100) — this session has no independently logged start time, so it excludes the research/reading phase (README, PLAN.md, `charPrediction.ts`, `scheduler.rs`/`lib.rs`) that preceded that first edit, and understates the real total. Future items should log a start timestamp here (or in the item's own commit trail) when work begins, so this column can be a real measurement rather than a partial one.
 
