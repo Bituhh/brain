@@ -67,7 +67,11 @@ finished, and told the *next* item nothing.
   found — read them with facts 14 and 16 open. The one thing to carry in before
   reading either: **a response measured at 6,000 characters *reversed* at the
   protocol's 15,000** (fact 14), so nothing about either knob is known until it
-  is measured at 15,000.
+  is measured at 15,000. **C6 was re-scoped on 2026-09-21 with the user.** It is now
+  a mechanism test on a contingency switch, plus a pre-registered, paired 10-seed
+  confirmation of the VAL-4 null that the 15,000-character check predicts. It does
+  not search. C7's scope is unchanged, because acetylcholine carries a real
+  signal on VAL-4.
 - **A neuromodulator audit sits behind all of this:**
   `.claude/scratch/neuromodulators/investigation.md`, 2026-09-20. Six channels,
   claim by claim, against primary sources, with the code status of each. Read it
