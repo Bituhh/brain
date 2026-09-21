@@ -199,6 +199,18 @@ This section is the evidence base. Each finding maps to requirements in §3–§
   itself learned. Unused connections are pruned; new candidates sprout between co-active
   neurons. A permanence model (a scalar per potential synapse, connected only above a
   threshold) captures this cheaply.
+- **What the third factor gates is *persistence*, not strength** — and the two are separate
+  variables here (§12's weight/permanence split). Synaptic tagging and capture (Frey & Morris;
+  Redondo & Morris 2011) is the mechanism: induction leaves only a *tag*, which must capture
+  plasticity-related proteins to convert early-LTP into late-LTP, and dopamine gates that
+  conversion — D1/D5 blockade within ~15 min of exploration blocks late-LTP and persistent place
+  memory (Redondo & Morris, *PNAS* 2010). So dopamine belongs on the rule that writes permanence,
+  not on the one that writes weight. **The honest caveat this scheme does not otherwise carry:**
+  beta-adrenergic (noradrenaline) receptors are required for the same protein process, so
+  "dopamine commits, noradrenaline amplifies" — which is how this codebase wires it, as a routing
+  channel and a separate multiplicative gain channel — is a defensible simplification, not a
+  description of the biology. Added 2026-09-20 (PLAN.md C3);
+  `.claude/scratch/neuromodulators/investigation.md` §3.3 has the sources claim by claim.
 
 ### 2.6 The cortical column is the repeated unit
 
@@ -283,14 +295,14 @@ Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (lat
 | LRN-1 | M | **No backpropagation anywhere.** No global error is routed backwards through the graph. Any change to a synapse must be computable from that synapse's own trace, its pre/post neuron's local state, and the ambient neuromodulator level. This is an architectural invariant enforced by the type system — a plasticity rule is handed only a local context object. |
 | LRN-2 | M | **STDP** with configurable asymmetric potentiation/depression windows and time constants. |
 | LRN-3 | M | **Eligibility traces**: pre/post coincidence writes a decaying trace on the synapse (τ on the order of seconds of simulated time). |
-| LRN-4 | M | **Three-factor rule**: Δw = η · eligibility · modulator. With modulator ≡ 1 this degenerates to plain STDP. |
-| LRN-5 | M | **Neuromodulator field**: a small set of named global/regional scalar signals (dopamine, acetylcholine, noradrenaline, serotonin) with their own decay dynamics, broadcast to neurons by region. Carries no per-synapse routing information. **Status (PLAN.md C2, 2026-09-20): two of the four channels now have a real producer, and the field has more than one consumer for the first time.** `neuromodulator::PredictionErrorCoupling` derives *expected* uncertainty (acetylcholine) and *unexpected* uncertainty (noradrenaline) from one two-timescale estimate of the network's own prediction-failure rate — the slow term and the rectified (fast − slow) term, following Yu & Dayan (2005), whose split is why one estimator feeds two channels rather than two estimators feeding one each. The producer is `plasticity/predictive.rs`'s existing per-neuron classification (LRN-8), reduced to a scalar *before* anything reaches the field, so no per-neuron surprise term exists anywhere (invariant 2). Consumers: `ThreeFactorParams::gain_modulator_index` and `PredictiveLearningParams::gain_modulator_index`, a second **multiplicative** channel kept separate from the routing channel — that one names which signal *licenses* a change, this one how strongly anything being encoded right now *is* encoded. Dopamine still carries a raw reward rather than a reward *prediction error* (PLAN.md C3); serotonin still has no producer, deliberately (PLAN.md F19 records why). §13.12 item 13 has the measurement. |
+| LRN-4 | M | **Three-factor rule**: Δw = η · eligibility · modulator. With modulator ≡ 1 this degenerates to plain STDP. **Status (PLAN.md C3, 2026-09-20): the *routing* is now decided on biological grounds rather than by convenience.** `ThreeFactorStdp` writes weight, so it routes on acetylcholine; `PredictiveLearningParams` writes permanence, so it is where dopamine belongs — synaptic tagging and capture (Redondo & Morris 2011) is dopamine gating the conversion of early-LTP into late-LTP, which against §12's weight/permanence split is persistence, not strength. The audit (`.claude/scratch/neuromodulators/investigation.md` §3.3) flagged the inverse wiring as a latent trap; it was harmless only while dopamine had no producer. |
+| LRN-5 | M | **Neuromodulator field**: a small set of named global/regional scalar signals (dopamine, acetylcholine, noradrenaline, serotonin) with their own decay dynamics, broadcast to neurons by region. Carries no per-synapse routing information. **Status (PLAN.md C2, 2026-09-20): two of the four channels now have a real producer, and the field has more than one consumer for the first time.** `neuromodulator::PredictionErrorCoupling` derives *expected* uncertainty (acetylcholine) and *unexpected* uncertainty (noradrenaline) from one two-timescale estimate of the network's own prediction-failure rate — the slow term and the rectified (fast − slow) term, following Yu & Dayan (2005), whose split is why one estimator feeds two channels rather than two estimators feeding one each. The producer is `plasticity/predictive.rs`'s existing per-neuron classification (LRN-8), reduced to a scalar *before* anything reaches the field, so no per-neuron surprise term exists anywhere (invariant 2). Consumers: `ThreeFactorParams::gain_modulator_index` and `PredictiveLearningParams::gain_modulator_index`, a second **multiplicative** channel kept separate from the routing channel — that one names which signal *licenses* a change, this one how strongly anything being encoded right now *is* encoded. **Dopamine acquired its producer in PLAN.md C3 (2026-09-20)**: `neuromodulator::RewardPredictionError` subtracts a running expectation from the raw scalar `reward()` injects, so three of four channels now carry a real signal. Serotonin still has none, deliberately (PLAN.md F19 records why). §13.12 items 13 and 16 have the measurements. |
 | LRN-6 | M | **Homeostatic synaptic scaling**: periodic multiplicative renormalisation of a neuron's incoming weights toward a target total, on a slow timescale. |
 | LRN-7 | M | **Structural plasticity**: prune synapses whose permanence falls below a floor; sprout new candidates from a co-active neuron toward targets in its neighbourhood, subject to a per-neuron synapse budget. |
 | LRN-8 | M | **Predictive learning**: when a neuron fires *unpredicted*, reinforce its active segments' synapses onto recently-active cells; when a segment predicts a firing that does not occur, punish it. This is the primary unsupervised signal — no labels required. |
 | LRN-9 | S | Plasticity rules are composable — a neuron or region carries an ordered list of rules applied in sequence. |
 | LRN-10 | S | **Consolidation / sleep mode**: an offline phase that replays recorded activity sequences, applies global downscaling, and runs an aggressive pruning pass. **The replay *source* SHALL be an abstraction, not a concrete recording type** (§12a item 5): a spike raster (OBS-3, `probe::SpikeRaster`) is a valid first implementation, but it is a tape recorder, not the fast store §2.9 describes, and pinning `&SpikeRaster` into the consolidation signature and its FFI object would make LRN-12 a breaking change rather than an added variant. |
-| LRN-11 | S | **Reward API**: an external caller injects a scalar reward that drives the dopamine field, enabling reinforcement-style learning with no change to neuron code. Raised from *could* (2026-09-10, §12a item 4): action selection is blocked on this and nothing else. The substrate is already built and tested — `NeuromodulatorField::inject`, `Scheduler::inject_modulator`, and `ThreeFactorStdp`'s eligibility × modulator product — so what LRN-11 actually owes is three specific pieces of plumbing: (a) a named `reward(scalar)` wrapper over "pick the `DOPAMINE` channel, pick an amount"; (b) exposure across the FFI, which today carries *no* modulator call at all, making any TypeScript-driven reinforcement experiment impossible rather than merely awkward; and (c) a decision on RUN-6's still-unwired shared field — see `PartitionRuntime::inject_modulator`, which reaches one partition only. |
+| LRN-11 | S | **Reward API**: an external caller injects a scalar reward that drives the dopamine field, enabling reinforcement-style learning with no change to neuron code. Raised from *could* (2026-09-10, §12a item 4): action selection is blocked on this and nothing else. The substrate is already built and tested — `NeuromodulatorField::inject`, `Scheduler::inject_modulator`, and `ThreeFactorStdp`'s eligibility × modulator product — so what LRN-11 actually owes is three specific pieces of plumbing: (a) a named `reward(scalar)` wrapper over "pick the `DOPAMINE` channel, pick an amount"; (b) exposure across the FFI, which today carries *no* modulator call at all, making any TypeScript-driven reinforcement experiment impossible rather than merely awkward; and (c) a decision on RUN-6's still-unwired shared field — see `PartitionRuntime::inject_modulator`, which reaches one partition only. **Status (PLAN.md C3, 2026-09-20): met, and the signal it carries is now the one §2.5 names.** (a) and (b) landed in Phase 5; C3 closed the gap between them — `reward()` injected a *raw reward*, so a network right 90% of the time received the same dopamine burst for an expected success as for a surprising one, which is not what "drives the dopamine field" means when §2.5 defines dopamine as reward prediction error. `Scheduler::with_reward_prediction_error` supplies the missing expectation term; without it `reward()` is unchanged, which is both the compatibility guarantee and the VAL-9 ablation control. (c) is answered for this path specifically, though not in general: the baseline is network-wide state held on the `PartitionRuntime`, and `PartitionRuntime::new` **refuses** a scheduler carrying its own, because one broadcast reward advancing N per-partition expectations would make the dopamine level depend on the partition count. The general RUN-6 atomics question is untouched. **C3 also found that the FFI's own `reward` bypassed `Scheduler::reward` entirely** — it delegated to `injectModulator`, which was identical until C3 and silently wrong afterwards; see §13.12 item 16. |
 | LRN-12 | S | **Fast one-shot binding.** A mechanism that binds a co-active pattern into retrievable storage on a *single* coincidence, with sparse pattern separation so similar inputs do not overwrite each other — the "fast storage" §2.9 and LRN-10 both assume exists and neither defines (§12a item 5). It is explicitly **not** a `PlasticityRule`: that interface (two `NeuronLocal` copies, one `SynapseMut`, no synapse id and no arena handle) structurally cannot express pattern separation, and is not meant to. It is a scheduler-invoked module following `plasticity/predictive.rs`'s existing precedent of writing permanence directly, which is why it does not violate invariant 1. Two design constraints are already fixed by the current core and must be settled before it is built: a synapse below the connection threshold can never be potentiated by activity (so binding means *writing* permanence, not growing it), and `SynapseArena`'s `cap_per_neuron` is one global constant, so fan-out for pattern separation is currently paid for by every neuron in the network. |
 
 ## 5. Network and topology requirements
@@ -465,7 +477,13 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
   `encoders/`, `decoders/overlap.ts`, `columns.ts`, `harness/stream.ts`) implements IO-1/2/3/4;
   `crates/brain-napi`'s `buildColumns`/bulk views close the column-building FFI gap Phase 4 left
   open; `reward`/`injectModulator`/`modulatorLevels` close LRN-11, including a real fix to
-  `PartitionRuntime::inject_modulator`, which previously reached one partition only (§12a item 4);
+  `PartitionRuntime::inject_modulator`, which previously reached one partition only (§12a item 4)
+  — **amended 2026-09-20 (PLAN.md C3), not deleted: that closed LRN-11's *plumbing*, and the signal
+  travelling through it was the wrong one.** `reward()` injected a raw reward where §2.5 defines
+  dopamine as a reward prediction error, and the FFI's own `reward` delegated to `injectModulator`
+  rather than calling `Scheduler::reward` — identical at the time, and silently divergent the moment
+  the core gained a baseline. Both closed by C3; §13.12 item 16 has the account and the VAL-4
+  measurement;
   `HomeostaticScaling`/`StructuralPlasticity` are now driven automatically inside `step()` when
   configured, closing the always-on-sweep gap Requirement 9.2 found; `consolidation.rs`'s
   `ReplaySource`/`run_consolidation` implement LRN-10 over the abstracted replay source Requirement
@@ -1600,6 +1618,63 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     **Memory cost**: none per synapse — the vote mode is one scheduler-wide parameter, and the
     reference weight is a single `f32` per column in the snapshot's new column-votes section.
 
+14. **Dopamine gates *persistence*, not strength, and a negative prediction error is a dip below
+    tonic rather than a negative level — decided 2026-09-20 (PLAN.md C3), extending decision 11's
+    "what moves which field" to the third factor.** Recorded as a decision rather than only as a
+    finding because both halves are the kind a later item reverses by accident: one is a two-digit
+    change to a channel index, the other is a missing `clamp`.
+
+    **Which rule dopamine routes on.** Decision 11 split `weight` (how strong now) from
+    `permanence` (does it stick). The third factor lands on one side of that split, not both.
+    Synaptic tagging and capture (Frey & Morris; Redondo & Morris 2011, *Nat. Rev. Neurosci.*) is
+    dopamine gating the conversion of early-LTP into late-LTP — D1/D5 blockade within ~15 min of
+    exploration blocks late-LTP and persistent place memory (Redondo & Morris, *PNAS* 2010). That
+    is persistence. So **dopamine routes on `PredictiveLearningParams`** (whose `learning_target`
+    defaults to permanence) and **not on `ThreeFactorStdp`**, which writes weight and for which
+    dopamine is the inverse of what it models. `ThreeFactorStdp` routes on acetylcholine, which is
+    what the shipped VAL-4 configuration has always done and what `canonicalBrain.ts` was corrected
+    to. The engine cannot enforce this — the channel is an index the caller picks — so the
+    enforcement is this decision plus a test (`reward_prediction_error.rs` asserts that rewarding
+    moves permanence and leaves weight untouched).
+
+    **The honest caveat, which the tidy three-way split does not carry.** β-adrenergic
+    (noradrenaline) receptors are *also* required for the same plasticity-related-protein process.
+    "Dopamine commits, noradrenaline amplifies" — a routing channel plus a separate multiplicative
+    gain channel, which is how this codebase wires it — is a defensible modelling simplification,
+    not a description of the biology, and is recorded as one in §2.5, in `neuromodulator.rs`'s doc
+    comment and at the `canonicalBrain.ts` call site.
+
+    **The sign.** `reward − expected` is signed, and every consumer of the neuromodulator field
+    multiplies a delta by it. A negative level therefore does not mean "less reinforcement": it
+    *flips the sign* of the update, turning a reinforce branch into a punish branch with nothing
+    announcing it. The level is **rectified**, and negative prediction error is carried as a dip
+    below a *tonic* baseline: `clamp(baseline + gain × (reward − expected), 0, max_level)`. This
+    preserves negative information down to the floor at `error ≤ −baseline/gain` without any update
+    ever changing direction, and it is what the biology does rather than merely what is safe —
+    Bayer & Glimcher (2005, *Neuron*) measured dopamine neurons coding RPE as a deviation from a low
+    tonic firing rate, approximately linear in positive error and compressed on the negative side
+    precisely because the floor at zero spikes clips it. The same rectification already applied to
+    C2's derived signals (`ChannelDrive`'s lower clamp); C3 makes the rationale explicit rather than
+    inheriting it.
+
+    **What `baseline` means, and why 1.0 is a property rather than a tuned value.** It is tonic
+    dopamine: the level a *fully predicted* reward re-establishes. At `baseline: 1.0, gain: 1.0` a
+    fully predicted reward reproduces a modulator of exactly 1.0 — the unmodulated rule — so a
+    configuration differs from an unrewarded one only where prediction error is non-zero, not by a
+    change of scale. That is what makes §13.12 item 16's VAL-4 comparison interpretable, and it is
+    the reason to prefer a tonic offset over rectifying at zero.
+
+    **The qualifier that claim needs.** Dopamine is *phasic* here: the level is set when a reward
+    arrives and decays toward zero at the channel's own `tau_ticks` in between. "The level sits at
+    tonic" is true at each reward event, and between them only to the extent the reward cadence is
+    short relative to that tau — VAL-4 rewards every character, 2 ticks against 1000, so it holds
+    there to within 0.2%; `canonicalBrain.ts`'s standing test rewards not at all and measures the
+    level decaying to `exp(−0.4)` over 400 ticks. A mechanism needing a genuine floor between sparse
+    rewards must drive the channel every tick, as `PredictionErrorCoupling` does.
+
+    **Measured result**: §13.12 item 16 — a null on VAL-4, by construction, against a raw reward
+    that costs 0.5 points on both seed sets. Nothing adopted in `DEFAULT_CONFIG`.
+
 ## 12a. Open questions
 
 As of 2026-09-10 every item below has been investigated against the actual implementation rather
@@ -2165,7 +2240,7 @@ here.
       feedforward/recurrent discriminant (cheap; permanently widens the thing the invariant rests
       on), or add a scheduler-invoked module following `plasticity/predictive.rs`'s existing
       precedent (leaves the interface alone; costs a second place where plasticity happens outside
-      the rule chain). PLAN.md C7 is the decision, C8 the mechanism. **Note the overlap with F10's
+      the rule chain). PLAN.md C8 is the decision, C9 the mechanism. **Note the overlap with F10's
       segment role tag for NET-6 — that is the same distinction approached from a different
       direction, and it should end up as one scheme rather than two.**
 
@@ -2174,7 +2249,25 @@ here.
       becomes the feedforward/recurrent router, that second role needs somewhere to live or the
       channel is doing two jobs at once.
 
-    - **(b) Dopamine carries a reward, not a reward *prediction error*, and it is switched off.**
+    - **(b) Dopamine carried a reward, not a reward *prediction error*, and it was switched off —
+      closed 2026-09-20 by PLAN.md C3; §13.12 item 16 has the measurement.** Kept here rather than
+      deleted because two things in the original text below turned out to be wrong, and both are
+      the kind of wrong that a later item would otherwise inherit. (i) "The latent trap is the other
+      direction… harmless while no shipped configuration does it" was **already false when it was
+      written**: `canonicalBrain.ts` routed `plasticity.modulatorChannel` — the weight-writing
+      three-factor rule — on dopamine, and had since A1. It was harmless only because dopamine had
+      no producer, which is a different statement, and giving it one is exactly what would have
+      made it bite. C3 moved that rule to acetylcholine and left dopamine on the permanence-writing
+      rule alone. (ii) "The fix is small — one running expected-reward term" was right about the
+      arithmetic and wrong about the item: the term itself is four lines, and the work was the sign
+      decision, the snapshot section, the partition-count determinism, and finding that the FFI's
+      own `reward` had never called `Scheduler::reward` at all.
+
+      The original text follows, unedited.
+
+      ---
+
+      `charPrediction.ts`'s `sim.reward(hit ? 1.0 : 0.0)` subtracts no expectation, so a network
       `charPrediction.ts`'s `sim.reward(hit ? 1.0 : 0.0)` subtracts no expectation, so a network
       that is right 90% of the time gets the same burst for an expected success as for a surprising
       one. §2.5 says "dopamine = reward prediction error" and the substrate does not deliver one.
@@ -3618,7 +3711,7 @@ Three claims, in decreasing order of confidence that they are unprecedented.
          (sparing what was replayed) changes the ratios within a neuron rather than only the
          scale, and a total-renormalising sweep preserves ratios — so this finding is not evidence
          about the version §13.13(h) actually asks for, which stays unbuilt and scoped as PLAN.md's
-         C11. The uniform downscale is inert because
+         C12. The uniform downscale is inert because
          `HomeostaticScaling::force_apply` renormalises each neuron's incoming total to a target
          and the *online* LRN-6 sweep (B5's winner runs one at target 6.0 every 200 ticks)
          renormalises it straight back — multiplicative renormalisation composes, so the sleep's
@@ -3772,10 +3865,21 @@ Three claims, in decreasing order of confidence that they are unprecedented.
       that reason as well as because the signal became an RPE, and the two must be separated or the
       result is uninterpretable.
 
+      **Closed 2026-09-20 by C3, and that decision was half reversed — with the reason, since a
+      reversal recorded without one is indistinguishable from drift.** Dopamine stayed, so the part
+      this paragraph was actually about — do not flee to whichever channel has a producer — held.
+      What it missed is that the two rules are not one rule: `ThreeFactorStdp` writes **weight** and
+      `PredictiveLearningParams` writes **permanence**, and tagging-and-capture puts dopamine on
+      persistence. So the weight-writing rule moved to acetylcholine (where the shipped VAL-4
+      configuration already routes it) and the permanence-writing one kept dopamine. The pinned test
+      was rewritten to assert the mechanism. §13.12 item 16 has the full account and the VAL-4
+      measurement — including the confound this paragraph predicted, which VAL-4 turned out to be
+      able to separate exactly.
+
       **Still open, recorded rather than fixed:** acetylcholine's *other* job (gating feedforward
-      against recurrent, which needs an interface decision under LRN-1), dopamine carrying a raw
-      reward rather than a prediction error, and whether serotonin and histamine earn a place at
-      all. All four are §12a item 10, scoped as PLAN.md C3, C7, C8, F19 and F20.
+      against recurrent, which needs an interface decision under LRN-1) and whether serotonin and
+      histamine earn a place at all. Both are §12a item 10, scoped as PLAN.md C8, C9, F19 and F20.
+      Dopamine's raw reward was the third and is now closed (item 16).
     - **`ColumnSpec::inhibition`/`segments` configure nothing.** Recorded here rather than only in
       `column.rs`'s own doc comment because it changes what NET-4's headline claim means — see
       item 14.
@@ -3890,6 +3994,136 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     - **RUN-10/RUN-11 (WASM, WebGPU) remain exactly the documented non-goals their own table rows
       already describe** — "not mentioned anywhere" here is confirming those rows, not contradicting
       them.
+
+
+16. **Dopamine carried a *raw reward*, not a reward prediction error — closed 2026-09-20 by PLAN.md
+    C3, and the measurement is a null on VAL-4 that is a null *by construction*.** §2.5 has said
+    "dopamine = reward prediction error" since the evidence base was written; the substrate injected
+    whatever scalar `reward()` was handed, so a network right 90% of the time received the same
+    burst for an expected success as for a surprising one. Recorded as its own item rather than
+    folded into item 13 because the shape is different: item 13 is about mechanisms that exist and
+    are never called, and this was a mechanism that *was* called and carried the wrong quantity —
+    which is the harder kind to notice, since nothing about it looks unfinished.
+
+    The two design calls it took — which rule dopamine routes on, and what a negative prediction
+    error means — are §12 decision 14, recorded there because both are the kind a later item
+    reverses by accident. This item is the measurement and the findings.
+
+    **What was built.** `neuromodulator::RewardPredictionError` holds one exponential moving average
+    over the rewards actually delivered, on its own time constant counted in reward *events*, and
+    `Scheduler::reward` becomes
+    `level = clamp(tonic + gain × (reward − expected), 0, max_level)` — a **set**, not an injection,
+    because `NeuromodulatorField::inject` is additive and a reward cadence faster than the channel's
+    decay accumulates to `amount / (1 − decay)`, which for VAL-4's every-other-tick reward at
+    `modulatorTauTicks` 1000 is a factor of ~500 (measured: the raw-reward path reaches a dopamine
+    level of 79–190). Without the baseline configured, `reward()` is unchanged — which is both the
+    compatibility guarantee and the VAL-9 ablation control.
+
+    **The sign decision, which is a change of *meaning* and not of rate.** `reward − expected` is
+    signed, and every consumer of this field multiplies a delta by it, so a negative level does not
+    mean "less reinforcement" — it *flips the sign* of the update and turns a reinforce branch into
+    a punish branch, silently. **Decided: the level is rectified, and negative prediction error is
+    carried as a dip below a *tonic* baseline rather than as a negative number.** This is also what
+    the biology does, which is why it is the choice rather than merely the safe one: midbrain
+    dopamine neurons signal RPE as a deviation from a low tonic firing rate and a rate cannot go
+    below zero, which Bayer & Glimcher (2005, *Neuron*) measured directly — the encoding is
+    approximately linear in positive prediction error and compressed on the negative side, because
+    the floor at zero spikes clips it. `tests/reward_prediction_error.rs` pins both halves: a
+    worse-than-expected outcome commits *less* than a better-than-expected one, and it never runs
+    the reinforce branch backwards.
+
+    **Routing, and a decision from item 13's own C2 entry partially reversed — deliberately, and for
+    a different reason than the one that entry rejected.** C2 recorded "the routing stays on
+    dopamine", meaning: do not re-point the inert rules at acetylcholine merely because acetylcholine
+    happens to have a producer. That still holds, and dopamine stayed. But the two rules are not the
+    same rule. `ThreeFactorStdp` writes **weight**; `PredictiveLearningParams` writes
+    **permanence**. Synaptic tagging and capture (Frey & Morris; Redondo & Morris 2011) is dopamine
+    gating the conversion of early-LTP into late-LTP — persistence, not strength (D1/D5 blockade
+    within ~15 min blocks late-LTP and persistent place memory, Redondo & Morris *PNAS* 2010). So
+    dopamine belongs on the permanence-writing rule and is the *inverse* of what the weight-writing
+    one needs. `canonicalBrain.ts`'s `plasticity.modulatorChannel` moved to acetylcholine — which is
+    what the shipped VAL-4 configuration has always routed that rule on — and
+    `predictiveLearning.modulatorIndex` kept dopamine. **The honest caveat, recorded in §2.5, in the
+    Rust doc comment and at the call site:** β-adrenergic (noradrenaline) receptors are *also*
+    required for the same plasticity-related-protein process, so "dopamine commits, noradrenaline
+    amplifies" — which is how this codebase wires it, as a routing channel plus a separate
+    multiplicative gain channel — is a defensible simplification, not a description of the biology.
+
+    **The result on VAL-4.** Full data in
+    `scripts/investigate-c3-reward-prediction-error.results.md` (6 conditions × 10 seeds,
+    15,000-character corpus, both seed sets). VAL-4 can separate the two things C3 changes, which is
+    why the measurement was taken here rather than on the canonical fixture where they arrive
+    together: the shipped winner leaves `rewardSignal` unset, so "raw reward" is *dopamine acquiring
+    a producer at all* and the RPE rows are that plus *the producer carrying a prediction error*.
+
+    | condition | confirmation seeds | selection seeds |
+    |---|---|---|
+    | no reward signal (B5's winner) | 19.05% | 20.36% |
+    | raw reward (dopamine as C3 found it) | 18.53% (−0.52) | 19.82% (−0.54) |
+    | RPE, `tauEvents` 50 | 19.00% (−0.05) | 20.36% (+0.00) |
+    | RPE, `tauEvents` 200 | 19.00% (−0.05) | 20.36% (+0.00) |
+    | RPE, `tauEvents` 1000 | 19.00% (−0.05) | 20.36% (+0.00) |
+    | baseline configured, nothing rewards (control) | 19.05% | 20.36% |
+
+    **Nothing is adopted.** `DEFAULT_CONFIG` still leaves `rewardSignal` unset and B5's shipped
+    values are unchanged, their figures still reproducing exactly — the control row is that claim
+    checked rather than asserted, and it reproduces the reference **bit-identically on all ten
+    seeds**, which is the item's "every existing run with `rewardSignal` unset stays bit-identical"
+    constraint made falsifiable.
+
+    **The RPE is a null, and it is a null the design asked for.** It reproduces the shipped
+    configuration *per seed exactly* on 5 of 5 selection seeds and 3 of 5 confirmation seeds, and the
+    two that differ lose 0.10 and 0.15 points. That is not a coincidence: `baseline: 1.0, gain: 1.0`
+    was chosen so a fully predicted reward leaves the modulator at exactly 1.0, i.e. the unmodulated
+    rule — so on a task whose reward stream is *stationary*, where the expectation converges on the
+    hit rate and `hit − expected` averages to zero, an RPE is supposed to be almost exactly nothing.
+    The value of the item is therefore not a number on VAL-4: it is that a mislabelled signal has
+    been removed before D4's 1–3 week re-tune, without introducing a new confound in its place.
+
+    **The one row that moves is the raw reward, and it moves *down* on both seed sets.** −0.52 and
+    −0.54, and unlike every row in C2's battery it does not flip sign between the two — but 3 of the
+    10 seeds move the other way and the per-seed spread reaches 2.25 points, so this is recorded as
+    a weak directional effect at n=10, **not** as an established one. What it does establish is the
+    narrower claim the ablation needs: switching dopamine on as a *reward* is not free, so "the
+    signal was wrong" was not a cosmetic complaint.
+
+    **Why the three time constants are indistinguishable, measured rather than assumed**, because
+    three identical rows read as a plumbing bug until the cause is shown. `tauEvents` demonstrably
+    reaches the native layer and changes the expectation's trajectory — sampled on the real VAL-4
+    stream, tau 50 reaches 0.208 by character 1,000 while tau 1000 is still at 0.127 and takes until
+    ~3,000 to converge — but all three converge on the *same* stationary expectation, and VAL-4's
+    reported figure is the accuracy over the final sliding window. A task with a real contingency
+    switch would separate them; this one cannot, for the same reason C2's surprise channel was inert
+    here. **Left not fully diagnosed and recorded as such:** the three taus match on cumulative
+    structural counts to the synapse, not merely on the final window, so something is quantising the
+    early difference away entirely — most plausibly that permanence deltas cross the `[0, 1]` clamp
+    and the connection threshold after the same *integer* number of events at every level in this
+    range. That is an inference, not a measurement, and it should be settled before any later item
+    tunes a modulator gain.
+
+    **A fourth instance of item 13's shape, found by this item's own fixture test, and the worst-placed
+    one yet: the FFI's `reward` never called `Scheduler::reward`.** `NativeSimulation::reward`
+    delegated to `inject_modulator(DOPAMINE, amount)`. Until C3 that was exactly what
+    `Scheduler::reward` did, so the shortcut was invisible and harmless. The moment
+    `Scheduler::reward` acquired a baseline, every TypeScript caller — which is every caller that is
+    not a Rust test — silently kept injecting a raw reward while `tests/reward_prediction_error.rs`
+    passed, because it calls the core directly. It was caught by `canonicalBrain.test.ts` asserting
+    that a predictable reward produces no burst and finding a dopamine level of **330.5**. The
+    generalisation worth carrying: *a convenience delegation at a boundary is a copy of the
+    implementation, and it stops being a copy the moment the implementation changes* — the FFI layer
+    should forward to the named core entry point even when the two are currently identical.
+
+    **And a RUN-9a defect in C2's restore ordering, exposed by the same test.**
+    `NativeSimulation::restore` applied `with_prediction_error_coupling` *after*
+    `restore_modulator_state`. Both that call and C3's `with_reward_prediction_error` **seed** their
+    channels — set each to its baseline at tick 0, because a level ramping up from zero is a
+    measurement confound (item 13's C2 entry records the discarded battery that taught it). On a
+    fresh build that is right; on a restore it overwrote the snapshot's own levels *and* reset the
+    field's `last_updated_at` to 0, so the next read decayed by the whole elapsed tick count instead
+    of by one. It was invisible before C3 because the coupling re-drives its channels every tick and
+    pulled the corrupted level back within a few ticks; C3's dopamine channel is written only when a
+    reward arrives, so the corruption persisted and the off-sweep-boundary restore test diverged at
+    tick 160. Fixed by restoring the modulator field last.
 
 ### 13.13 Mechanisms the evidence base names but §3–§9 does not specify
 
@@ -4045,7 +4279,7 @@ several are cheap against structures the core already has.
   this entry's own mechanism that C1's result does not argue against, because C1 only ever measured
   the uniform version, and a uniform downscale changes only *scale* where a selective one changes
   the *ratios* within a neuron, which a total-renormalising sweep preserves. Scoped as PLAN.md's
-  **C11** row, with that distinction recorded as reasoning rather than measurement.
+  **C12** row, with that distinction recorded as reasoning rather than measurement.
 
 ---
 

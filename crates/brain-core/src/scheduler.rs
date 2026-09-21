@@ -29,7 +29,7 @@ use crate::arena::{NeuronArena, NeuronArenaViewMut, NeuronSpec};
 use crate::growth::{apply_growth, GrowthPolicy, GrowthRawState, PopulationStats};
 use crate::inhibition::FixedNeighbourhoods;
 use crate::metrics::{FiringRateMeter, PredictionAccuracyMeter};
-use crate::neuromodulator::{NeuromodulatorField, PredictionErrorCoupling, PredictionErrorRawState};
+use crate::neuromodulator::{NeuromodulatorField, PredictionErrorCoupling, PredictionErrorRawState, RewardBaselineRawState, RewardPredictionError};
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
 use crate::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
 use crate::plasticity::newborn::{NewbornMaturation, NewbornMaturationParams, NewbornMaturationRawState, NewbornWiringParams};
@@ -394,6 +394,19 @@ pub struct Scheduler {
     /// observes must be merged across every partition before any single
     /// partition's field is touched (RUN-6).
     prediction_error_coupling: Option<PredictionErrorCoupling>,
+    /// PLAN.md C3: turns [`Self::reward`]'s raw scalar into a reward
+    /// *prediction error* before it reaches the dopamine channel. `None` --
+    /// every pre-C3 caller -- leaves `reward` injecting exactly the amount it
+    /// was passed, bit-identically to before this field existed.
+    ///
+    /// **Inert inside a `PartitionRuntime` for the same reason the coupling
+    /// above is, but at a different call site.** The baseline is network-wide
+    /// state, so advancing one copy per partition would make the level depend
+    /// on how neurons were split (RUN-6). `PartitionRuntime::new` refuses a
+    /// scheduler carrying one, and `PartitionRuntime::with_reward_prediction_error`
+    /// is the partitioned spelling -- it advances a single baseline and then
+    /// sets every partition's field to the one level that produced.
+    reward_prediction_error: Option<RewardPredictionError>,
     /// Interactive observability (Requirement 4/6, Phase 6): keyed by
     /// neuron index, matching `Probe::new(neuron, options)`'s existing
     /// one-probe-per-neuron shape -- attaching a second probe to the same
@@ -526,6 +539,7 @@ impl Scheduler {
             structural_plasticity: None,
             intrinsic_homeostasis: None,
             prediction_error_coupling: None,
+            reward_prediction_error: None,
             probes: HashMap::new(),
             firing_rate: FiringRateMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
             prediction_accuracy: PredictionAccuracyMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
@@ -661,13 +675,99 @@ impl Scheduler {
     /// Named reward entry point (LRN-11, Phase 5 Requirement 15.1): drives
     /// the dopamine channel specifically, so "reward" has one spelling in
     /// this codebase rather than every caller independently knowing to
-    /// pick `DOPAMINE` and a magnitude. Exactly
-    /// `self.inject_modulator(DOPAMINE, amount)` -- no neuron or
-    /// plasticity-rule code changes to accommodate it, per LRN-11's own
-    /// "with no change to neuron code" wording; `ThreeFactorStdp` already
-    /// reads whichever channel its `modulator_index` names.
+    /// pick `DOPAMINE` and a magnitude. No neuron or plasticity-rule code
+    /// changes to accommodate it, per LRN-11's own "with no change to neuron
+    /// code" wording; `ThreeFactorStdp` already reads whichever channel its
+    /// `modulator_index` names.
+    ///
+    /// **What reaches the field depends on whether a baseline is configured
+    /// (PLAN.md C3).** Without [`Self::with_reward_prediction_error`] this is
+    /// exactly `self.inject_modulator(DOPAMINE, amount)` -- a **raw reward**,
+    /// every pre-C3 behaviour, bit-identical. With one, `amount` is measured
+    /// against a running expectation first and the channel is *set* to
+    /// `clamp(tonic + gain * (amount - expected), 0, max_level)`, which is
+    /// what README §2.5's "dopamine = reward prediction error" actually
+    /// claims. The raw form is kept rather than removed because it is the
+    /// VAL-9 ablation control for the baseline
+    /// (`tests/reward_prediction_error.rs`): with the expectation disabled a
+    /// perfectly predictable reward still produces a full burst, which is the
+    /// property that distinguishes a reward from a prediction error.
+    ///
+    /// The channel is whatever the configured [`RewardPredictionError`] names
+    /// -- normally `DOPAMINE`, and the unconfigured path is `DOPAMINE`
+    /// unconditionally.
     pub fn reward(&mut self, amount: f32) {
-        self.inject_modulator(crate::plasticity::DOPAMINE, amount);
+        match self.reward_prediction_error.take() {
+            None => self.inject_modulator(crate::plasticity::DOPAMINE, amount),
+            Some(mut rpe) => {
+                let level = rpe.observe_reward(amount);
+                rpe.set_level(&mut self.modulators, self.tick, level);
+                self.reward_prediction_error = Some(rpe);
+            }
+        }
+    }
+
+    /// Enables PLAN.md C3's reward prediction error: [`Self::reward`] stops
+    /// injecting a raw reward and starts injecting `reward - expected`,
+    /// rectified around a tonic baseline. See [`RewardPredictionError`] for
+    /// the sign decision, the synaptic-tagging-and-capture argument for
+    /// routing it onto *permanence* rather than weight, and the honest caveat
+    /// about noradrenaline being a co-gate rather than a gain term.
+    ///
+    /// Seeds the channel to its tonic baseline immediately, for the reason
+    /// [`RewardPredictionError::seed_baseline`] records -- so call this
+    /// **after** [`Self::with_plasticity`] and
+    /// [`Self::with_modulator_tau_ticks`], both of which replace the field.
+    pub fn with_reward_prediction_error(mut self, rpe: RewardPredictionError) -> Self {
+        rpe.seed_baseline(&mut self.modulators, 0);
+        self.reward_prediction_error = Some(rpe);
+        self
+    }
+
+    /// Whether this scheduler carries a C3 baseline -- read by
+    /// `PartitionRuntime::new` to refuse one it could only get wrong.
+    pub fn has_reward_prediction_error(&self) -> bool {
+        self.reward_prediction_error.is_some()
+    }
+
+    /// The baseline's evolving state, for `snapshot.rs` (RUN-9a). `None` when
+    /// no baseline is configured, which keeps the snapshot section absent
+    /// rather than zero-filled for every pre-C3 caller.
+    pub fn reward_baseline_raw_state(&self) -> Option<RewardBaselineRawState> {
+        self.reward_prediction_error.as_ref().map(RewardPredictionError::raw_state)
+    }
+
+    /// Overlays snapshotted baseline state onto a freshly-configured
+    /// [`RewardPredictionError`] -- the C3 counterpart to
+    /// [`Self::restore_prediction_error_raw_state`], with the same convention:
+    /// state for a scheduler built *without* one is ignored, because
+    /// configuration is supplied fresh by the caller.
+    pub fn restore_reward_baseline_raw_state(&mut self, state: RewardBaselineRawState) {
+        if let Some(rpe) = &mut self.reward_prediction_error {
+            rpe.restore_raw_state(state);
+        }
+    }
+
+    /// The current expected reward, for tests and observability. `None` when
+    /// no C3 baseline is configured.
+    pub fn expected_reward(&self) -> Option<f32> {
+        self.reward_prediction_error.as_ref().map(RewardPredictionError::expected_reward)
+    }
+
+    /// Seeds this scheduler's own field to the baseline's tonic level --
+    /// `pub(crate)` so `PartitionRuntime::with_reward_prediction_error` can do
+    /// it for every partition identically.
+    pub(crate) fn seed_reward_baseline(&mut self, rpe: &RewardPredictionError) {
+        rpe.seed_baseline(&mut self.modulators, 0);
+    }
+
+    /// Sets this scheduler's own field from an *already advanced* baseline
+    /// (PLAN.md C3). `pub(crate)` only so `PartitionRuntime::reward` can
+    /// observe once, network-wide, and then set every partition from that one
+    /// level -- advancing a per-partition expectation would make the level
+    /// depend on how neurons were split (RUN-6).
+    pub(crate) fn set_reward_level_from(&mut self, rpe: &RewardPredictionError, level: f32) {
+        rpe.set_level(&mut self.modulators, self.tick, level);
     }
 
     /// The neuromodulator field's levels as last computed, with no

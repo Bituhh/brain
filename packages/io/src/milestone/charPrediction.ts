@@ -53,6 +53,7 @@ import {
   type HomeostaticScalingConfig,
   type StructuralStats,
   type PredictionErrorCouplingConfig,
+  type RewardPredictionErrorConfig,
 } from "@brain/core";
 import { wrapColumnHandles, type ColumnHandle } from "../columns.ts";
 import { encodeChar, SUPPORTED_ALPHABET, type CharEncoderConfig } from "../encoders/text.ts";
@@ -94,7 +95,11 @@ export interface CharPredictionConfig {
    * `"correctness"` is the one signal implemented: after each character's
    * prediction is scored against the actual next character (the same
    * comparison already made for `networkAcc.record` below), call
-   * `sim.reward(hit ? 1.0 : 0.0)` on the dopamine channel. Chosen (per
+   * `sim.reward(hit ? 1.0 : 0.0)` on the dopamine channel. **Whether that
+   * boolean reaches dopamine raw or as a prediction error is
+   * `rewardPredictionError`'s decision, not this field's** (PLAN.md C3) --
+   * with no baseline configured this is the raw reward the audit flagged,
+   * which is kept because it is the VAL-9 ablation control. Chosen (per
    * Requirement 2 AC1's documented-decision discipline) as the most
    * direct, least speculative mapping of LRN-11's reward API to this task
    * -- it reuses the exact boolean this harness already computes, needs no
@@ -109,6 +114,43 @@ export interface CharPredictionConfig {
    * version is what mirrors `ThreeFactorParams`'s own precedent.
    */
   readonly rewardSignal?: "correctness";
+  /**
+   * PLAN.md C3: makes the reward above a reward *prediction error* instead of
+   * a raw one (LRN-4, LRN-11, README §2.5 "dopamine = reward prediction
+   * error"). `undefined` (default) leaves `rewardSignal`'s behaviour exactly
+   * as C3 found it: `sim.reward(hit ? 1.0 : 0.0)` injects the hit indicator
+   * itself, so a network right 90% of the time receives the same dopamine
+   * burst for an expected success as for a surprising one.
+   *
+   * With it configured, the same boolean is measured against a running
+   * expectation and the dopamine channel is set to
+   * `clamp(baseline + gain * (hit - expected), 0, maxLevel)`.
+   *
+   * **`baseline: 1.0, gain: 1.0` is the value with a property worth having**,
+   * and is why the measurement in README §13.12 is interpretable: a perfectly
+   * predicted reward then reproduces a modulator of exactly 1.0, which is the
+   * unmodulated rule (`rewardSignal` unset, `x 1.0`). So "RPE on" differs from
+   * "no reward signal" only where prediction error is non-zero, not by a
+   * change of scale.
+   *
+   * That equivalence holds *at each reward event*. Dopamine is phasic, so
+   * between rewards the level decays at `plasticity.modulatorTauTicks[0]` --
+   * here that is one character (2 ticks) against a tau of 1000, i.e. 0.2%, so
+   * it holds throughout. A configuration that rewarded rarely would not get
+   * this property for free.
+   *
+   * **`tauEvents` is counted in characters, not ticks**, because the
+   * expectation advances once per `sim.reward()` call and this harness rewards
+   * once per character.
+   *
+   * Meaningless without `rewardSignal` -- nothing would ever call `reward()`
+   * -- but not validated here, matching `segmentThresholdHomeostasis`'s own
+   * precedent. Meaningless too without something *reading* dopamine:
+   * `rewardSignal` is what sets `predictiveLearning.modulatorIndex`, and that
+   * rule writes permanence, which is where synaptic tagging and capture
+   * (Redondo & Morris 2011) puts it.
+   */
+  readonly rewardPredictionError?: RewardPredictionErrorConfig;
   /**
    * Self-tuning k-WTA sparsity (inhibition-homeostasis spec, Requirement
    * 1) -- a field on this config, matching `segmentThresholdHomeostasis`'s
@@ -522,6 +564,14 @@ export function buildNetwork(
   c2:
     | Pick<CharPredictionConfig, "predictionErrorCoupling" | "predictiveLearningGainChannel" | "plasticityGainChannel">
     | undefined = undefined,
+  /**
+   * PLAN.md C3's reward baseline. Separate from `rewardSignal` above, which
+   * decides whether `reward()` is ever called at all, because the two are
+   * genuinely independent: `rewardSignal` with no baseline is the raw-reward
+   * path C3 replaced (kept, because it is the VAL-9 ablation control), and a
+   * baseline with no `rewardSignal` is inert.
+   */
+  rewardPredictionError: RewardPredictionErrorConfig | undefined = DEFAULT_CONFIG.rewardPredictionError,
 ): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 };
   const options: SimulationOptions = {
@@ -611,6 +661,11 @@ export function buildNetwork(
       plasticity: c2?.plasticityGainChannel !== undefined ? { ...plasticity, gainModulatorChannel: c2.plasticityGainChannel } : plasticity,
     }),
     ...(c2?.predictionErrorCoupling !== undefined && { predictionErrorCoupling: c2.predictionErrorCoupling }),
+    // PLAN.md C3: turns `rewardSignal`'s raw hit indicator into a prediction
+    // error before it reaches dopamine. Spread only if defined, so every run
+    // without it stays bit-identical (`Scheduler::reward`'s unconfigured path
+    // is the pre-C3 injection, unchanged).
+    ...(rewardPredictionError !== undefined && { rewardPredictionError }),
     ...(homeostaticScaling !== undefined && { homeostaticScaling }),
     predictiveLearning: {
       significanceThreshold: 0.5,
@@ -734,6 +789,7 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
       ...(config.predictiveLearningGainChannel !== undefined && { predictiveLearningGainChannel: config.predictiveLearningGainChannel }),
       ...(config.plasticityGainChannel !== undefined && { plasticityGainChannel: config.plasticityGainChannel }),
     },
+    config.rewardPredictionError,
   );
   const collisionMargin = config.collisionMargin ?? DEFAULT_COLLISION_MARGIN;
   const trigram = new TrigramModel();
@@ -796,6 +852,10 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
     // this spec's own research -- `undefined` (default) skips this
     // entirely, matching today's behaviour exactly.
     if (config.rewardSignal === "correctness") {
+      // PLAN.md C3: still the same boolean. What differs is what the
+      // substrate does with it -- with `rewardPredictionError` configured the
+      // expectation is subtracted inside `Scheduler::reward`, so a run of
+      // expected hits stops producing bursts. See that field's doc comment.
       sim.reward(hit ? 1.0 : 0.0);
     }
     // NET-10's collision signal (`CharPredictionConfig.collisionMargin`'s

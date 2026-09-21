@@ -31,6 +31,7 @@ import {
   type NewbornMaturationConfig,
   type SilentSynapsesConfig,
   type PredictionErrorCouplingConfig,
+  type RewardPredictionErrorConfig,
   type ChannelDriveConfig,
   type ProbeOptionsFfi,
   type ProbeDataFfi,
@@ -61,6 +62,7 @@ export type {
   NewbornMaturationConfig,
   SilentSynapsesConfig,
   PredictionErrorCouplingConfig,
+  RewardPredictionErrorConfig,
   ChannelDriveConfig,
 };
 
@@ -219,6 +221,36 @@ export interface SimulationOptions {
    */
   predictionErrorCoupling?: PredictionErrorCouplingConfig;
   /**
+   * PLAN.md C3: makes {@link Simulation.reward} inject a reward *prediction
+   * error* rather than a raw reward (LRN-4, LRN-11, README §2.5 "dopamine =
+   * reward prediction error"). `undefined` (default) is every pre-C3
+   * behaviour, bit-identically -- `reward(amount)` injects `amount`.
+   *
+   * With it configured, `amount` is measured against a running expectation
+   * (an EMA on its own time constant, counted in reward *events*) and the
+   * channel is **set** to
+   * `clamp(drive.baseline + drive.gain * (amount - expected), 0, drive.maxLevel)`.
+   * `drive.baseline` is *tonic* dopamine: the level a fully predicted reward
+   * leaves behind. The level is rectified, so a worse-than-expected outcome
+   * is a dip toward zero rather than a negative number -- a negative level
+   * would flip the sign of every gated update, turning reinforcement into
+   * punishment.
+   *
+   * **Route it onto permanence, not weight.** Synaptic tagging and capture
+   * (Redondo & Morris 2011) is dopamine gating the conversion of early-LTP
+   * into late-LTP -- persistence, not strength -- so the consumer is
+   * `predictiveLearning.modulatorIndex` (whose `learningTarget` defaults to
+   * permanence), **not** `plasticity.modulatorChannel`, which writes weight.
+   * The honest caveat: beta-adrenergic (noradrenaline) receptors are also
+   * required for the same plasticity-related-protein process, so "dopamine
+   * commits, noradrenaline amplifies" is a defensible simplification, not a
+   * description of the biology.
+   *
+   * Does nothing on its own: something must call `reward()`, and something
+   * must read the channel (`predictiveLearning.modulatorIndex`).
+   */
+  rewardPredictionError?: RewardPredictionErrorConfig;
+  /**
    * Number of native threads `PartitionRuntime` should use (Requirement 7
    * AC1, Phase 4 RUN-4). Omit or pass 1 for today's exact single-threaded
    * behaviour -- the default, and the only mode `snapshot()`/`restore()`
@@ -271,6 +303,7 @@ function hashConfig(lif: LifConfig, options: SimulationOptions): bigint {
       // existed still hashes the same and its snapshots still restore.
       ...(options.silentSynapses !== undefined && { silentSynapses: options.silentSynapses }),
       ...(options.predictionErrorCoupling !== undefined && { predictionErrorCoupling: options.predictionErrorCoupling }),
+      ...(options.rewardPredictionError !== undefined && { rewardPredictionError: options.rewardPredictionError }),
     },
     (_key, value) => (typeof value === "bigint" ? value.toString() : value),
   );
@@ -484,6 +517,7 @@ export class Simulation {
         options.newbornMaturation ?? null,
         options.silentSynapses ?? null,
         options.predictionErrorCoupling ?? null,
+        options.rewardPredictionError ?? null,
         options.threadCount ?? null,
         options.totalNeurons ?? null,
       ),
@@ -533,6 +567,7 @@ export class Simulation {
       options.newbornMaturation ?? null,
       options.silentSynapses ?? null,
       options.predictionErrorCoupling ?? null,
+      options.rewardPredictionError ?? null,
     );
     return new Simulation(native, lif, options);
   }
@@ -585,6 +620,14 @@ export class Simulation {
    * dopamine channel specifically, so "reward" has one spelling rather
    * than every caller independently knowing to pick the dopamine channel
    * and a magnitude.
+   *
+   * **What reaches the channel depends on `rewardPredictionError` (PLAN.md
+   * C3).** Without it, `amount` is injected as-is -- a *raw reward*, and a
+   * network right 90% of the time gets the same burst for an expected success
+   * as for a surprising one. With it, `amount` is measured against a running
+   * expectation first, which is what README §2.5's "dopamine = reward
+   * prediction error" actually claims. See
+   * {@link SimulationOptions.rewardPredictionError}.
    */
   reward(amount: number): void {
     this.#native.reward(amount);
@@ -614,6 +657,20 @@ export class Simulation {
    */
   predictionErrorSignals(): number[] {
     return this.#native.predictionErrorSignals();
+  }
+
+  /**
+   * PLAN.md C3: the current expected reward -- what the next {@link reward}
+   * call is measured against. `-1` when no `rewardPredictionError` is
+   * configured, deliberately distinguishable from a genuine expectation of
+   * `0` (nothing rewarding has happened yet).
+   *
+   * Observability only. It exists because a producer that cannot be inspected
+   * is how README §13.12 item 13's trap keeps recurring: "the numbers moved"
+   * is not evidence that the mechanism is what moved them.
+   */
+  expectedReward(): number {
+    return this.#native.expectedReward();
   }
 
   /** Advances by one tick, returning the indices that spiked. */

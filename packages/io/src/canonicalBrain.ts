@@ -71,8 +71,11 @@
 // (LRN-10) is, by design, "never runs as a side effect of `step()` -- an
 // explicit call only" (`Simulation.runConsolidation`'s own doc comment);
 // wiring it into an always-on streaming loop is PLAN.md's dedicated C1
-// item. Driving any neuromodulator channel beyond DOPAMINE from a real
-// signal is C2's job. Self-tuning k-WTA sparsity (inhibition-homeostasis)
+// item. **Calling `reward()` is also left to a caller, and deliberately so**
+// (PLAN.md C3): unlike prediction error, which the network computes about
+// itself, reward is external by definition (LRN-11). This module configures
+// what a reward *means* when one arrives -- a prediction error against a
+// running expectation, routed onto permanence -- and nothing more. Self-tuning k-WTA sparsity (inhibition-homeostasis)
 // is a real, live mechanism this module could also switch on, but it is
 // not named in this constructor's own remit and adds another feedback
 // loop competing with intrinsic/segment-threshold homeostasis for no
@@ -174,15 +177,25 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       stdp: { aPlus: 0.01, aMinus: 0.01, tauPlus: 20, tauMinus: 20, windowTicks: 100 },
       tauEligibilityTicks: 500,
       learningRate: 0.2,
-      // An *index*, not a level: DOPAMINE is channel 0 of four. Nothing in
-      // this module injects dopamine, so this rule's modulator is exactly 0
-      // on every tick and the whole three-factor update is multiplied away --
-      // a known, pinned gap, not an oversight. See `canonicalBrain.test.ts`'s
-      // "both modulated learning rules are inert" test and PLAN.md C3, which
-      // supplies the producer. The routing stays on dopamine deliberately:
-      // that is where the biology puts it (README §2.5), and re-pointing it at
-      // a channel that happens to have a producer would be fixing the symptom.
-      modulatorChannel: 0, // DOPAMINE
+      // **Acetylcholine, not dopamine, and PLAN.md C3 moved it here.** This
+      // rule (`ThreeFactorStdp`) writes *weight* -- how strong a synapse is
+      // right now. Dopamine's role in the literature this repo cites is
+      // synaptic tagging and capture (Redondo & Morris 2011): gating whether
+      // an early-LTP tag is converted into a lasting change, which against
+      // README §12's weight/permanence split is *permanence*. Routing dopamine
+      // onto a weight-writing rule is the inverse of "permanently reinforced",
+      // and `.claude/scratch/neuromodulators/investigation.md` §3.3 flags it
+      // as a latent trap. Until C3 it was harmless, because dopamine had no
+      // producer and the whole update was multiplied by 0; giving dopamine a
+      // producer is exactly what makes it stop being harmless.
+      //
+      // Acetylcholine is the defensible destination rather than an arbitrary
+      // one: it is attention/uncertainty (README §2.5), it has had a real
+      // producer since C2 (`predictionErrorCoupling.expected` below), and it
+      // is what the shipped VAL-4 configuration has always routed this rule on
+      // (`char-prediction.slow.test.ts`, where it is held at a constant 1.0).
+      // An *index*, not a level: ACETYLCHOLINE is channel 1 of four.
+      modulatorChannel: 1, // ACETYLCHOLINE
       // PLAN.md C2's second, multiplicative channel, the STDP counterpart to
       // `predictiveLearning.gainModulatorIndex` below. Inert twice over until
       // C3 lands -- `routed x gain` with `routed` at 0 is 0 whatever the gain
@@ -296,12 +309,23 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       burstSproutPermanence: 0.35,
       burstSproutWeight: 0.05,
       recentlyActiveWindowTicks: 10,
-      // Same index-not-a-level point, and the same pinned gap, as
-      // `plasticity.modulatorChannel` above: with no dopamine producer this
-      // scales every reinforce/punish delta by exactly 0, so LRN-8's 12.2/12.3
-      // path is inert here too. PLAN.md C3. (12.1's burst sprout is NOT
-      // modulator-gated and does still run, which is most of why this looks
-      // alive from the outside.)
+      // **Dopamine stays here, and this is the one rule it belongs on.**
+      // `PredictiveLearningParams.learningTarget` defaults to *permanence*,
+      // which is what synaptic tagging and capture describes dopamine gating:
+      // the conversion of a tag into a lasting change (Redondo & Morris 2011;
+      // D1/D5 blockade blocks late-LTP, Redondo & Morris PNAS 2010). An
+      // *index*, not a level: DOPAMINE is channel 0 of four.
+      //
+      // Before PLAN.md C3 this was configured and dead -- nothing injected
+      // dopamine, so every reinforce/punish delta was multiplied by exactly 0.
+      // `rewardPredictionError` below gives it a producer, but note what that
+      // does and does not do: it makes a `reward()` call *mean* something. It
+      // does not make one happen. Reward is external by definition (LRN-11's
+      // "an external caller injects a scalar reward"), so this module ships
+      // the channel seeded at its tonic 1.0 and leaves rewarding to a caller.
+      // Dopamine is *phasic*: with no caller rewarding, the level decays from
+      // that seed at `modulatorTauTicks[0]` rather than holding -- see the
+      // standing test, which measures it reaching exp(-0.4) over 400 ticks.
       modulatorIndex: 0, // DOPAMINE -- LRN-4/LRN-5
       // PLAN.md C2: the *second*, multiplicative channel. `modulatorIndex`
       // above routes (which signal licenses the change); this one scales (how
@@ -329,6 +353,29 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       unexpected: { channel: 2 /* NORADRENALINE */, baseline: 1.0, gain: 1.0, maxLevel: 4.0 },
       expected: { channel: 1 /* ACETYLCHOLINE */, baseline: 1.0, gain: 1.0, maxLevel: 4.0 },
     },
+    // PLAN.md C3 (LRN-4, LRN-11, README §2.5): the channel that had no
+    // producer at all before it, and whose absence left BOTH modulated rules
+    // above multiplying by exactly zero.
+    //
+    // `baseline: 1.0, gain: 1.0` is chosen for a property, not tuned: a fully
+    // predicted reward then leaves dopamine at exactly 1.0, which is
+    // bit-identically the unmodulated rule. So a caller that never rewards
+    // gets the unmodulated behaviour, one that rewards predictably gets the
+    // unmodulated behaviour, and only *prediction error* changes anything.
+    // That is what makes "this fixture's numbers moved" attributable.
+    //
+    // `tauEvents: 50` is counted in reward *events*, not ticks -- the
+    // expectation advances once per `reward()` call, on whatever cadence the
+    // caller rewards. 50 is scaled to this fixture's standing test (several
+    // hundred ticks), the same way the coupling's timescales above are.
+    //
+    // The honest caveat, recorded here as well as in the Rust doc comment:
+    // beta-adrenergic (noradrenaline) receptors are required for the same
+    // plasticity-related-protein process, so "dopamine commits, noradrenaline
+    // amplifies" -- which is what this module wires, via
+    // `predictiveLearning.gainModulatorIndex` -- is a defensible
+    // simplification, not a description of the biology.
+    rewardPredictionError: { tauEvents: 50, drive: { channel: 0 /* DOPAMINE */, baseline: 1.0, gain: 1.0, maxLevel: 4.0 } },
   };
 }
 

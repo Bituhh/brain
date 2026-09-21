@@ -131,7 +131,7 @@
 use crate::arena::{NeuronArena, NeuronArenaViewMut};
 use crate::column::ColumnRegistry;
 use crate::neuron::NeuronDynamics;
-use crate::neuromodulator::PredictionErrorCoupling;
+use crate::neuromodulator::{PredictionErrorCoupling, RewardPredictionError};
 use crate::plasticity::homeostatic::HomeostaticScaling;
 use crate::plasticity::structural::StructuralPlasticity;
 use crate::plasticity::{Modulators, NeuronLocal};
@@ -429,6 +429,12 @@ pub struct PartitionRuntime {
     /// associative is what makes the tally independent of how neurons were
     /// split.
     prediction_error_coupling: Option<PredictionErrorCoupling>,
+    /// PLAN.md C3's reward baseline, shared for exactly the reason the
+    /// coupling above is: the expectation is network-wide state, so one copy
+    /// per partition would make the dopamine level depend on how neurons were
+    /// split (RUN-6). [`Self::reward`] advances this **one** baseline and then
+    /// sets every partition's field to the single level it produced.
+    reward_prediction_error: Option<RewardPredictionError>,
 }
 
 impl PartitionRuntime {
@@ -451,6 +457,17 @@ impl PartitionRuntime {
             !schedulers.iter().any(Scheduler::has_prediction_error_coupling),
             "a Scheduler's own prediction-error coupling is inert inside a PartitionRuntime (it is applied by Scheduler::step, which this runtime never calls) --              configure it with PartitionRuntime::with_prediction_error_coupling, which merges the tally across partitions first (PLAN.md C2, RUN-6)"
         );
+        // PLAN.md C3, and *not* for the same reason as the coupling above: a
+        // scheduler's own reward baseline is reached by `Scheduler::reward`,
+        // which this runtime does not call either -- but the sharper problem
+        // is that `PartitionRuntime::reward` broadcasts, so N schedulers each
+        // holding a baseline would advance N expectations from one reward and
+        // the level would depend on the partition count. Refused rather than
+        // silently wrong.
+        assert!(
+            !schedulers.iter().any(Scheduler::has_reward_prediction_error),
+            "a Scheduler's own reward prediction error is wrong inside a PartitionRuntime (one broadcast reward would advance every partition's expectation separately) --              configure it with PartitionRuntime::with_reward_prediction_error, which advances one baseline for the whole network (PLAN.md C3, RUN-6)"
+        );
         let boundary_neurons = boundary_neurons(&plan, synapses, neuron_count);
         let pending_post_spike = (0..schedulers.len()).map(|_| Vec::new()).collect();
         Self {
@@ -463,6 +480,7 @@ impl PartitionRuntime {
             homeostatic_scaling: None,
             structural_plasticity: None,
             prediction_error_coupling: None,
+            reward_prediction_error: None,
         }
     }
 
@@ -498,6 +516,36 @@ impl PartitionRuntime {
         }
         self.prediction_error_coupling = Some(coupling);
         self
+    }
+
+    /// Enables PLAN.md C3's reward prediction error, the partitioned
+    /// counterpart to [`Scheduler::with_reward_prediction_error`]. See the
+    /// field's own doc comment for why one baseline serves the whole network.
+    pub fn with_reward_prediction_error(mut self, rpe: RewardPredictionError) -> Self {
+        // Every partition's field, identically -- same reasoning as
+        // `with_prediction_error_coupling` above.
+        for scheduler in &mut self.schedulers {
+            scheduler.seed_reward_baseline(&rpe);
+        }
+        self.reward_prediction_error = Some(rpe);
+        self
+    }
+
+    /// The shared baseline's evolving state, if attached (RUN-9a).
+    pub fn reward_baseline_raw_state(&self) -> Option<crate::neuromodulator::RewardBaselineRawState> {
+        self.reward_prediction_error.as_ref().map(RewardPredictionError::raw_state)
+    }
+
+    /// Overlays snapshotted baseline state, if a baseline is attached.
+    pub fn restore_reward_baseline_raw_state(&mut self, state: crate::neuromodulator::RewardBaselineRawState) {
+        if let Some(rpe) = &mut self.reward_prediction_error {
+            rpe.restore_raw_state(state);
+        }
+    }
+
+    /// The shared baseline's current expectation, for tests and observability.
+    pub fn expected_reward(&self) -> Option<f32> {
+        self.reward_prediction_error.as_ref().map(RewardPredictionError::expected_reward)
     }
 
     /// The shared coupling's evolving state, if attached (RUN-9a).
@@ -617,8 +665,25 @@ impl PartitionRuntime {
     /// Named reward entry point (LRN-11, Phase 5 Requirement 15.1), the
     /// `PartitionRuntime` counterpart to [`Scheduler::reward`]: broadcasts
     /// to the dopamine channel of every partition via [`Self::inject_modulator`].
+    ///
+    /// **With a PLAN.md C3 baseline attached it broadcasts a level, not an
+    /// amount.** One [`RewardPredictionError::observe_reward`] call advances
+    /// the single network-wide expectation, and every partition is then *set*
+    /// to the one level it returned. Each partition computes its own
+    /// `level - current` delta rather than sharing one delta computed from
+    /// partition 0, so every field lands on exactly `level` even if their
+    /// decay clocks ever diverged (RUN-3, RUN-6).
     pub fn reward(&mut self, amount: f32) {
-        self.inject_modulator(crate::plasticity::DOPAMINE, amount);
+        match self.reward_prediction_error.take() {
+            None => self.inject_modulator(crate::plasticity::DOPAMINE, amount),
+            Some(mut rpe) => {
+                let level = rpe.observe_reward(amount);
+                for scheduler in &mut self.schedulers {
+                    scheduler.set_reward_level_from(&rpe, level);
+                }
+                self.reward_prediction_error = Some(rpe);
+            }
+        }
     }
 
     /// The neuromodulator field's levels as last computed on partition 0,

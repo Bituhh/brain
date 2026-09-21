@@ -12,7 +12,7 @@ use brain_core::column::ColumnRegistry;
 use brain_core::consolidation::ConsolidationParams;
 use brain_core::graph::{DistancePolicy, GraphBuilder};
 use brain_core::growth::OverlapSaturation;
-use brain_core::neuromodulator::{ChannelDrive, PredictionErrorCoupling};
+use brain_core::neuromodulator::{ChannelDrive, PredictionErrorCoupling, RewardPredictionError};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
@@ -455,6 +455,69 @@ impl PredictionErrorCouplingConfig {
             c = c.with_expected(ChannelDrive::new(d.channel as usize, d.baseline as f32, d.gain as f32, d.max_level as f32));
         }
         c
+    }
+}
+
+/// PLAN.md C3: makes `reward()` inject a reward *prediction error* instead of
+/// a raw reward (LRN-4, LRN-11, README §2.5 "dopamine = reward prediction
+/// error").
+///
+/// Omitting this is every pre-C3 behaviour, bit-identically: `reward(amount)`
+/// injects `amount`. With it, `amount` is measured against a running
+/// expectation and the channel is **set** to
+/// `clamp(drive.baseline + drive.gain * (amount - expected), 0, drive.maxLevel)`.
+///
+/// `drive.baseline` is *tonic* dopamine -- the level a fully predicted reward
+/// leaves behind -- and the level is rectified, so a worse-than-expected
+/// outcome is a dip toward zero rather than a negative number that would flip
+/// the sign of every gated update. At `baseline: 1.0, gain: 1.0` a perfectly
+/// predicted reward reproduces a modulator of exactly 1.0, which is
+/// bit-identically the unmodulated rule. See `RewardPredictionError` in
+/// `brain-core` for the full sign decision and for why dopamine belongs on
+/// `predictiveLearning.modulatorIndex` (permanence -- synaptic tagging and
+/// capture) rather than on `plasticity.modulatorChannel` (weight).
+#[napi(object)]
+#[derive(Clone)]
+pub struct RewardPredictionErrorConfig {
+    /// The expectation's time constant, counted in reward **events**, not
+    /// ticks: the average advances once per `reward()` call, whatever cadence
+    /// the caller rewards on.
+    pub tau_events: f64,
+    /// Normally DOPAMINE (channel `0`). `baseline` is tonic dopamine here, not
+    /// a floor on a rate signal.
+    pub drive: ChannelDriveConfig,
+}
+
+impl RewardPredictionErrorConfig {
+    fn validate(&self) -> napi::Result<()> {
+        // `<= 0.0`, not `!(> 0.0)`: clippy::neg_cmp_op_on_partial_ord. A NaN
+        // slips past both, and `RewardPredictionError::new`'s debug_assert is
+        // what catches that in a debug build.
+        if self.tau_events <= 0.0 {
+            return Err(napi::Error::from_reason(format!("rewardPredictionError requires tauEvents > 0, got {}", self.tau_events)));
+        }
+        if self.drive.channel as usize >= brain_core::plasticity::NUM_MODULATORS {
+            return Err(napi::Error::from_reason(format!(
+                "rewardPredictionError channel must be below {}, got {}",
+                brain_core::plasticity::NUM_MODULATORS,
+                self.drive.channel
+            )));
+        }
+        if self.drive.baseline < 0.0 || self.drive.max_level < 0.0 {
+            return Err(napi::Error::from_reason(format!(
+                "rewardPredictionError requires baseline >= 0 and maxLevel >= 0, got baseline={} maxLevel={}",
+                self.drive.baseline, self.drive.max_level
+            )));
+        }
+        Ok(())
+    }
+
+    fn to_rpe(&self) -> RewardPredictionError {
+        let d = &self.drive;
+        RewardPredictionError::new(
+            self.tau_events as f32,
+            ChannelDrive::new(d.channel as usize, d.baseline as f32, d.gain as f32, d.max_level as f32),
+        )
     }
 }
 
@@ -1021,6 +1084,12 @@ struct SchedulerConfig {
     /// at the two construction sites instead -- see `Runtime::Single`'s and
     /// `ensure_partitioned`'s own call.
     prediction_error_coupling: Option<PredictionErrorCouplingConfig>,
+    /// PLAN.md C3. Applied at the same two construction sites as
+    /// `prediction_error_coupling` above and for the same reason: the baseline
+    /// is network-wide state, so in partitioned mode it must live on the
+    /// `PartitionRuntime`, and `PartitionRuntime::new` refuses a scheduler
+    /// carrying one.
+    reward_prediction_error: Option<RewardPredictionErrorConfig>,
 }
 
 /// `InhibitionConfig` -> `FixedNeighbourhoods`, shared by `build_scheduler`
@@ -1314,6 +1383,7 @@ impl NativeSimulation {
         newborn_maturation: Option<NewbornMaturationConfig>,
         silent_synapses: Option<SilentSynapsesConfig>,
         prediction_error_coupling: Option<PredictionErrorCouplingConfig>,
+        reward_prediction_error: Option<RewardPredictionErrorConfig>,
         thread_count: Option<u32>,
         total_neurons: Option<u32>,
     ) -> Result<Self> {
@@ -1362,8 +1432,12 @@ impl NativeSimulation {
             newborn_maturation,
             silent_synapses,
             prediction_error_coupling,
+            reward_prediction_error,
         };
         if let Some(cfg) = &config.prediction_error_coupling {
+            cfg.validate()?;
+        }
+        if let Some(cfg) = &config.reward_prediction_error {
             cfg.validate()?;
         }
         let runtime = if thread_count > 1 {
@@ -1379,6 +1453,10 @@ impl NativeSimulation {
                 // `PartitionRuntime::new` refuses a scheduler carrying one.
                 if let Some(cfg) = &config.prediction_error_coupling {
                     scheduler = scheduler.with_prediction_error_coupling(cfg.to_coupling());
+                }
+                // PLAN.md C3, same placement and same reason.
+                if let Some(cfg) = &config.reward_prediction_error {
+                    scheduler = scheduler.with_reward_prediction_error(cfg.to_rpe());
                 }
                 scheduler
             }))
@@ -1426,6 +1504,11 @@ impl NativeSimulation {
                         // driven from it.
                         if let Some(cfg) = &state.config.prediction_error_coupling {
                             rt = rt.with_prediction_error_coupling(cfg.to_coupling());
+                        }
+                        // PLAN.md C3, RUN-6: one baseline for the network, so
+                        // a broadcast reward advances one expectation.
+                        if let Some(cfg) = &state.config.reward_prediction_error {
+                            rt = rt.with_reward_prediction_error(cfg.to_rpe());
                         }
                         rt
                     });
@@ -1814,9 +1897,29 @@ impl NativeSimulation {
     /// `PartitionRuntime::inject_modulator`'s *broadcasting* form (never
     /// `inject_modulator_into_partition` -- nothing at this boundary
     /// targets one partition specifically, Phase 5 Requirement 15.3).
+    ///
+    /// **Delegates to the core's own `reward`, not to `injectModulator`, and
+    /// PLAN.md C3 found out why that distinction matters.** Until C3 the two
+    /// were the same thing -- `Scheduler::reward` was exactly
+    /// `inject_modulator(DOPAMINE, amount)` -- so this method was written as
+    /// the shortcut, and a reader comparing the two would have seen no
+    /// difference. C3 gave `Scheduler::reward` a reward-prediction-error
+    /// baseline, at which point the shortcut silently bypassed the entire
+    /// mechanism: every TypeScript caller kept injecting a raw reward while
+    /// the Rust tests, which call `Scheduler::reward` directly, passed. This
+    /// is README §13.12 item 13's trap in its FFI form -- a mechanism that is
+    /// configured, tested, and reachable from nothing.
     #[napi]
     pub fn reward(&mut self, amount: f64) {
-        self.inject_modulator(brain_core::plasticity::DOPAMINE as u32, amount);
+        if self.is_partitioned() {
+            self.ensure_partition_runtime_built();
+            let Runtime::Partitioned(state) = &mut self.runtime else { unreachable!() };
+            let pr = state.runtime.as_mut().expect("ensure_partition_runtime_built just built this");
+            pr.reward(amount as f32);
+        } else {
+            let Runtime::Single(scheduler) = &mut self.runtime else { unreachable!() };
+            scheduler.reward(amount as f32);
+        }
     }
 
     /// The general form of the call above -- targets a chosen channel with
@@ -1890,6 +1993,28 @@ impl NativeSimulation {
             None => Vec::new(),
             Some((surprise, expected)) => vec![surprise.map_or(-1.0, |v| v as f64), expected.map_or(-1.0, |v| v as f64)],
         }
+    }
+
+    /// PLAN.md C3: the current expected reward -- what the next `reward()`
+    /// call will be measured against. `-1.0` when no `rewardPredictionError`
+    /// is configured, distinguishable from a genuine expectation of `0.0`
+    /// (nothing rewarding has happened yet), on `prediction_error_signals`'
+    /// own precedent above.
+    ///
+    /// Observability only: nothing in the engine reads this back. It exists
+    /// because a modulator whose producer cannot be inspected is how
+    /// README §13.12 item 13's trap keeps recurring -- "the numbers moved" is
+    /// not evidence that the mechanism is the thing moving them.
+    #[napi]
+    pub fn expected_reward(&self) -> f64 {
+        let expected = if self.is_partitioned() {
+            let Runtime::Partitioned(state) = &self.runtime else { unreachable!() };
+            state.runtime.as_ref().and_then(|pr| pr.expected_reward())
+        } else {
+            let Runtime::Single(scheduler) = &self.runtime else { unreachable!() };
+            scheduler.expected_reward()
+        };
+        expected.map_or(-1.0, |v| v as f64)
     }
 
     /// Advances the simulation by exactly one tick, returning the indices
@@ -2304,6 +2429,7 @@ impl NativeSimulation {
         newborn_maturation: Option<NewbornMaturationConfig>,
         silent_synapses: Option<SilentSynapsesConfig>,
         prediction_error_coupling: Option<PredictionErrorCouplingConfig>,
+        reward_prediction_error: Option<RewardPredictionErrorConfig>,
     ) -> Result<Self> {
         // Note: no `synapse_cap_per_neuron` parameter here -- the snapshot
         // payload already carries it (`write_synapses` stores it, and
@@ -2407,11 +2533,6 @@ impl NativeSimulation {
             scheduler = scheduler.with_newborn_maturation(wiring, maturation);
         }
         scheduler.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
-        // Phase 5 Requirement 15.6: must run *after* with_plasticity above,
-        // which resets the neuromodulator field to a fresh, zeroed one as a
-        // side effect of applying `modulator_tau_ticks` config -- restoring
-        // before that call would have its effect immediately discarded.
-        scheduler.restore_modulator_state(restored.modulator_levels, restored.modulator_last_updated_at);
         // README §12a item 6 / RUN-9a: the dendritic coincidence window's
         // decaying state, format version 5. Safe even when `segments` is
         // `None` above -- nothing ever reads these arrays in that case.
@@ -2450,12 +2571,51 @@ impl NativeSimulation {
             cfg.validate()?;
             scheduler = scheduler.with_prediction_error_coupling(cfg.to_coupling());
         }
+        // PLAN.md C3, same convention: the tonic baseline, gain and time
+        // constant come fresh from the caller; the snapshot carries only the
+        // running expectation.
+        if let Some(cfg) = &reward_prediction_error {
+            cfg.validate()?;
+            scheduler = scheduler.with_reward_prediction_error(cfg.to_rpe());
+        }
+        // Phase 5 Requirement 15.6: must run *after* `with_plasticity` above,
+        // which resets the neuromodulator field to a fresh, zeroed one as a
+        // side effect of applying `modulator_tau_ticks` config -- restoring
+        // before that call would have its effect immediately discarded.
+        //
+        // **And after the two seeding calls just above, which PLAN.md C3
+        // found the hard way (RUN-9a).** `with_prediction_error_coupling` and
+        // `with_reward_prediction_error` both *seed* their channels -- they
+        // set each driven channel to its baseline at tick 0, because a level
+        // ramping up from zero is a measurement confound (HANDOFF fact 13).
+        // On a fresh build that is exactly right. On a restore it is exactly
+        // wrong twice over: it overwrites the snapshot's own levels with a
+        // baseline, and `levels_at(0)` resets the field's `last_updated_at` to
+        // 0, so the next read decays by the whole elapsed tick count instead
+        // of by one. Restoring last puts both back.
+        //
+        // This ordering was wrong for the C2 coupling before C3 existed. It
+        // stayed invisible because that coupling re-drives every channel it
+        // owns on every tick, so the corrupted level was pulled back toward
+        // its target within a few ticks. C3's dopamine channel is written only
+        // when a reward arrives, so the same corruption persists -- which is
+        // what turned a silent divergence into a failing snapshot test
+        // (`canonicalBrain.test.ts`'s off-sweep-boundary restore).
+        scheduler.restore_modulator_state(restored.modulator_levels, restored.modulator_last_updated_at);
         scheduler.restore_newborn_maturation_raw_state(restored.newborn_maturation, restored.tick);
         // PLAN.md C2 (snapshot version 13). Ignored when the restoring
         // scheduler was built without a coupling -- see
         // `Scheduler::restore_prediction_error_raw_state`.
         if let Some(state) = restored.prediction_error {
             scheduler.restore_prediction_error_raw_state(state);
+        }
+        // PLAN.md C3 (snapshot version 14). Ignored when the restoring
+        // scheduler was built without a baseline -- see
+        // `Scheduler::restore_reward_baseline_raw_state`. Restoring this is
+        // what stops the first rewards after a restore reading as maximally
+        // surprising (RUN-9a).
+        if let Some(state) = restored.reward_baseline {
+            scheduler.restore_reward_baseline_raw_state(state);
         }
 
         Ok(Self {

@@ -330,72 +330,170 @@ test("the canonical brain is deterministic across repeated runs of the same seed
 });
 
 /**
- * **A known gap, pinned so it cannot be forgotten: both of this constructor's
- * *modulated* learning rules are wired correctly and inert, because the channel
- * they route on has no producer.** Found 2026-09-20 while reviewing what PLAN.md
- * C2 had actually switched on here.
+ * **The gap the previous version of this test pinned, now closed — and
+ * rewritten to assert the mechanism rather than the gap (PLAN.md C3).**
  *
- * `plasticity.modulatorChannel` and `predictiveLearning.modulatorIndex` are both
- * `0` — an *index* (DOPAMINE), not a level — and nothing in `canonicalBrain.ts`
- * ever injects dopamine. The three-factor rule computes
- * `delta = rate x eligibility x modulator` and predictive learning scales its
- * reinforce/punish by the same level, so both multiply by exactly zero on every
- * tick of every run this constructor produces.
+ * What it used to say: both of this constructor's *modulated* learning rules
+ * were wired correctly and inert, because the channel they routed on
+ * (`0`, DOPAMINE) had no producer. `plasticity.modulatorChannel` and
+ * `predictiveLearning.modulatorIndex` were both `0`, nothing ever injected
+ * dopamine, and so the three-factor rule's `rate x eligibility x modulator`
+ * and predictive learning's reinforce/punish both multiplied by exactly zero
+ * on every tick of every run this constructor produced.
  *
- * **This test deliberately asserts the broken state, not the desired one.** The
- * alternative — asserting the level is non-zero — would be a test that fails
- * today and gets skipped or deleted. Pinning the gap instead means PLAN.md C3
- * (dopamine: a real reward *prediction error*) cannot land without coming here
- * and flipping these assertions, which is the point.
+ * **Two separate things changed, and conflating them would make any
+ * measurement taken here uninterpretable.**
  *
- * **The trap this closes** is the one README §13.12 item 13 keeps rediscovering
- * in this very file: weight and permanence *do* move in the shipped
- * configuration, so "the numbers changed" reads as "learning works". They move
- * because of LRN-6 homeostatic scaling and the burst-sprout path, neither of
- * which is modulator-gated. Asserting that something moved would pass for a
- * network whose modulated rules are dead — which is exactly the situation.
+ * 1. *Routing.* `plasticity.modulatorChannel` moved from dopamine to
+ *    acetylcholine. `ThreeFactorStdp` writes **weight**, and dopamine's role
+ *    in the tagging-and-capture literature is gating **persistence** — routing
+ *    it onto weight is the inverse of "permanently reinforced". Acetylcholine
+ *    has had a real producer since C2, and is what the shipped VAL-4 config
+ *    has always routed this rule on. That switched the three-factor rule ON.
+ * 2. *Production.* `rewardPredictionError` gives dopamine a meaning, so
+ *    predictive learning's reinforce/punish is no longer multiplied by zero.
+ *    That switched LRN-8's 12.2/12.3 path ON.
+ *
+ * **The trap this still guards**, and the reason the assertions below are
+ * shaped the way they are (README §13.12 item 13, which this very file has
+ * now rediscovered three times): weight and permanence *do* move in this
+ * configuration even with every modulated rule dead, because LRN-6 homeostatic
+ * scaling and the burst-sprout path are not modulator-gated. "The numbers
+ * changed" is therefore not evidence of anything. Each assertion below names
+ * the one channel it is about and varies only that.
  */
-test("both modulated learning rules are inert until dopamine has a producer, and this pins that gap for PLAN.md C3", () => {
+test("both modulated learning rules are live, and dopamine carries a prediction error rather than a reward (PLAN.md C3)", () => {
   const DOPAMINE = 0;
+  const ACETYLCHOLINE = 1;
 
-  function run(injectDopamine: boolean): { permanence: number; weight: number; dopamineWasEverNonZero: boolean } {
+  function run(opts: { reward?: (tick: number) => number }): {
+    permanence: number;
+    weight: number;
+    dopamineLevels: number[];
+    acetylcholineLevels: number[];
+    expectedReward: number;
+  } {
     const { sim, column } = buildCanonicalBrain(SEED);
-    let dopamineWasEverNonZero = false;
+    const dopamineLevels: number[] = [];
+    const acetylcholineLevels: number[] = [];
     for (let i = 0; i < TICKS; i++) {
-      if (injectDopamine) sim.reward(1.0);
+      const amount = opts.reward?.(i);
+      if (amount !== undefined) sim.reward(amount);
       column.stimulateSdr(sim, PATTERNS[i % PATTERNS.length]!, 10.0);
       sim.step();
-      if ((sim.modulatorLevels()[DOPAMINE] ?? 0) !== 0) dopamineWasEverNonZero = true;
+      dopamineLevels.push(sim.modulatorLevels()[DOPAMINE] ?? 0);
+      acetylcholineLevels.push(sim.modulatorLevels()[ACETYLCHOLINE] ?? 0);
     }
     const metrics = sim.metricsSnapshot();
-    return { permanence: metrics.meanPermanence, weight: metrics.meanWeight, dopamineWasEverNonZero };
+    return {
+      permanence: metrics.meanPermanence,
+      weight: metrics.meanWeight,
+      dopamineLevels,
+      acetylcholineLevels,
+      expectedReward: sim.expectedReward(),
+    };
   }
 
-  const shipped = run(false);
-  const driven = run(true);
-
-  // 1. The gap itself. C3 flips this.
-  assert.equal(
-    shipped.dopamineWasEverNonZero,
-    false,
-    "as shipped, nothing injects dopamine, so the level is exactly 0 on every tick -- if this now fails, a producer has appeared (PLAN.md C3) and the rest of this test should be rewritten to assert the mechanism rather than the gap",
+  // 1. The channel is no longer pinned at zero. This is the assertion the
+  //    previous version of this test asserted the negation of.
+  const unrewarded = run({});
+  assert.ok(
+    unrewarded.dopamineLevels.every((l) => l > 0),
+    "dopamine must never sit at exactly 0 now that a baseline is configured -- a level of 0 multiplies every gated update away, " +
+      `which is suppressed learning wearing modulation's clothes. Minimum seen: ${Math.min(...unrewarded.dopamineLevels)}`,
   );
 
-  // 2. The trap: state moves anyway, so "something changed" proves nothing.
-  assert.notEqual(shipped.weight, 0.4, "weight moves regardless -- LRN-6 homeostatic scaling renormalises it, with no modulator involved");
-  assert.ok(shipped.permanence > 0, "permanence moves regardless -- the burst-sprout path is deliberately not modulator-gated");
+  // 2. But note precisely what a producer does and does not do, because the
+  //    obvious stronger claim is FALSE and was asserted here first.
+  //
+  //    Dopamine is a *phasic* channel: `reward()` sets it, and between rewards
+  //    it decays toward zero at `plasticity.modulatorTauTicks[0]` like any
+  //    injected burst. So "tonic 1.0" is the level a fully predicted reward
+  //    RE-ESTABLISHES at each reward event -- not a floor the channel holds
+  //    while nothing is happening. Nothing in `canonicalBrain.ts` calls
+  //    `reward()` (reward is external by definition, LRN-11), so an unrewarded
+  //    run starts seeded at 1.0 and decays: over these 400 ticks at tau 1000
+  //    that is `exp(-0.4)` ~ 0.67.
+  //
+  //    The practical consequence, worth stating because it is what makes the
+  //    VAL-4 measurement interpretable: the "a predictable reward reproduces
+  //    the unmodulated rule exactly" property holds for a caller rewarding on
+  //    a cadence short relative to that tau. `charPrediction.ts` rewards every
+  //    character -- 2 ticks against tau 1000 -- so it holds there to within
+  //    0.2%. It does not hold for a caller that rewards rarely, and a future
+  //    item wanting that should drive the channel every tick rather than
+  //    assume this one does.
+  assert.ok(
+    unrewarded.dopamineLevels[0]! > 0.99,
+    `dopamine must START at its seeded tonic 1.0 rather than ramping up from 0, got ${unrewarded.dopamineLevels[0]}`,
+  );
+  const lastUnrewarded = unrewarded.dopamineLevels[TICKS - 1]!;
+  assert.ok(
+    lastUnrewarded < unrewarded.dopamineLevels[0]! && lastUnrewarded > 0.5,
+    "and must then DECAY from it, because this is a phasic channel with no reward re-establishing the level -- " +
+      `got ${lastUnrewarded} after ${TICKS} ticks at tau 1000 (expected ~exp(-0.4) = 0.67)`,
+  );
+  assert.equal(unrewarded.expectedReward, 0, "and no reward means the expectation has nothing to have learned from");
 
-  // 3. Both rules ARE correctly wired: supply the missing producer and both
-  //    variables take a different trajectory. This is what distinguishes
-  //    "inert because unwired" from "inert because undriven".
+  // 3. THE C3 PROPERTY: a predictable reward produces no burst; a surprising
+  //    one does. The two runs deliver the same TOTAL reward on the same ticks
+  //    -- only its predictability differs -- so anything that separates them
+  //    is prediction error and nothing else.
+  const alwaysRewarded = run({ reward: () => 1.0 });
+  const rarelyRewarded = run({ reward: (t) => (t === TICKS - 1 ? 1.0 : 0.0) });
+
+  const finalDopamine = (r: { dopamineLevels: number[] }): number => r.dopamineLevels[TICKS - 1] ?? 0;
+  assert.ok(
+    Math.abs(finalDopamine(alwaysRewarded) - 1.0) < 0.05,
+    `after ${TICKS} identical rewards the expectation has caught up, so the last one must produce no burst -- ` +
+      `dopamine should be back at tonic 1.0, got ${finalDopamine(alwaysRewarded)}`,
+  );
+  assert.ok(
+    finalDopamine(rarelyRewarded) > finalDopamine(alwaysRewarded) + 0.5,
+    "the SAME reward of 1.0, delivered where it was not expected, must produce a real burst -- " +
+      `surprising=${finalDopamine(rarelyRewarded)} vs predictable=${finalDopamine(alwaysRewarded)}. If these are equal, ` +
+      "dopamine is carrying a raw reward again and README §2.5's claim is aspirational once more",
+  );
+  assert.ok(
+    alwaysRewarded.expectedReward > 0.9,
+    `and the expectation itself must have tracked the reward stream, got ${alwaysRewarded.expectedReward}`,
+  );
+
+  // 4. Predictive learning's reinforce/punish is genuinely gated on that
+  //    channel -- the "wired but undriven" half of the old test, kept, because
+  //    a signal nothing reads is the same defect one level up. Permanence is
+  //    the variable named, because that is where synaptic tagging and capture
+  //    puts dopamine (Redondo & Morris 2011) and what
+  //    `predictiveLearning.learningTarget` defaults to.
   assert.notEqual(
-    driven.weight,
-    shipped.weight,
-    "with dopamine injected the three-factor rule finally contributes, so mean weight must differ -- if these are equal, LRN-2/3/4 is not merely undriven but disconnected",
+    alwaysRewarded.permanence,
+    unrewarded.permanence,
+    "rewarding must change mean permanence -- if these are equal, LRN-8's 12.2/12.3 path is disconnected from dopamine rather " +
+      "than merely undriven, which is exactly the distinction README §13.12 item 13 keeps rediscovering here",
   );
   assert.notEqual(
-    driven.permanence,
-    shipped.permanence,
-    "with dopamine injected predictive learning's reinforce/punish finally contributes, so mean permanence must differ -- if these are equal, LRN-8's 12.2/12.3 path is disconnected",
+    rarelyRewarded.permanence,
+    alwaysRewarded.permanence,
+    "and two reward streams differing only in predictability must diverge -- otherwise the prediction error is computed and discarded",
   );
+
+  // 5. The three-factor rule is live too, on its own channel. Asserted via
+  //    acetylcholine actually moving under C2's coupling rather than via
+  //    weight moving, because weight moves regardless (LRN-6 renormalises it)
+  //    and would pass for a network whose STDP rule was dead.
+  const achSpread = Math.max(...unrewarded.acetylcholineLevels) - Math.min(...unrewarded.acetylcholineLevels);
+  assert.ok(
+    achSpread > 1e-6,
+    `the three-factor rule now routes on acetylcholine, so that channel must be genuinely varying -- spread ${achSpread}`,
+  );
+  assert.ok(
+    unrewarded.acetylcholineLevels.every((l) => l > 0),
+    "and must never be exactly 0, which would put the three-factor rule back where dopamine was before C3",
+  );
+
+  // 6. The trap, kept from the previous version verbatim in intent: state
+  //    moves regardless, so none of the above could have been asserted as
+  //    "something changed".
+  assert.notEqual(unrewarded.weight, 0.4, "weight moves even unrewarded -- LRN-6 homeostatic scaling renormalises it, no modulator involved");
+  assert.ok(unrewarded.permanence > 0, "permanence moves even unrewarded -- the burst-sprout path is deliberately not modulator-gated");
 });

@@ -146,8 +146,15 @@ impl NeuromodulatorField {
     }
 }
 
-/// One channel's mapping from a derived signal in `[0, 1]` to a level
-/// (PLAN.md C2).
+/// One channel's mapping from a derived signal to a level (PLAN.md C2).
+///
+/// C2's two signals are rates in `[0, 1]`. C3's reward prediction error is
+/// **signed** and unbounded in principle (`reward - expected`), which this
+/// mapping already handles without change: `baseline` becomes the *tonic*
+/// level a zero signal leaves behind, and the clamp below is what keeps a
+/// negative signal from becoming a negative level. See
+/// [`RewardPredictionError`] for why that rectification is a decision rather
+/// than a detail.
 ///
 /// `gain = 0.0` pins the level at `baseline` *exactly*, for any input. That
 /// is deliberately the VAL-9 ablation control, and at `baseline = 1.0` it is
@@ -176,6 +183,7 @@ impl ChannelDrive {
     }
 
     /// The level `signal` asks for, before the field's own smoothing.
+    /// `pub(crate)`-free: every caller lives in this module.
     fn target(&self, signal: f32) -> f32 {
         (self.baseline + self.gain * signal).clamp(0.0, self.max_level)
     }
@@ -408,6 +416,226 @@ impl PredictionErrorCoupling {
     }
 }
 
+/// The reward baseline's evolving state, for `snapshot.rs` to serialise
+/// (RUN-9a). Excludes the decay constant and the [`ChannelDrive`], which are
+/// derived from caller-supplied config, matching this module's own convention
+/// for [`PredictionErrorRawState`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RewardBaselineRawState {
+    pub expected_reward: f32,
+}
+
+/// Turns the raw scalar `reward()` injects into a reward *prediction error*
+/// (PLAN.md C3, LRN-4, LRN-11, README §2.5).
+///
+/// **The gap this closes.** README §2.5 says "dopamine = reward prediction
+/// error". Before C3 the substrate delivered a raw reward: `Scheduler::reward`
+/// injected whatever amount the caller passed, so a network right 90% of the
+/// time received the same dopamine burst for an expected success as for a
+/// surprising one, and `charPrediction.ts`'s `sim.reward(hit ? 1.0 : 0.0)` was
+/// literally the hit indicator. Nothing subtracted an expectation because
+/// there was no expectation to subtract. This type is that expectation: one
+/// exponential moving average over the rewards actually delivered, held on its
+/// own time constant, and the injected signal becomes `reward - expected`.
+///
+/// ```text
+/// rpe       = reward - expected                       (signed)
+/// level     = clamp(baseline + gain * rpe, 0, max_level)
+/// expected' = expected * decay + (1 - decay) * reward
+/// ```
+///
+/// The expectation used is the one held *before* this reward arrives.
+/// Advancing the average first would let a reward partially predict itself,
+/// which shrinks every RPE toward zero by a factor that depends on the time
+/// constant -- a silent scaling of the signal rather than an obvious error.
+///
+/// # The sign decision (PLAN.md C3 task 1), and why it is not a rounding detail
+///
+/// `reward - expected` is **signed**, and a negative level does not mean "less
+/// reinforcement": every consumer of this field multiplies a delta by it, so a
+/// negative level *flips the sign* of the update and turns reinforcement into
+/// punishment. That is a change of meaning, not of rate, and it would arrive
+/// unannounced -- a reinforce branch silently performing a punish. This module
+/// already took that decision once, for C2's derived signals; see
+/// [`ChannelDrive`]'s own doc comment.
+///
+/// **Decided: the level is rectified, and negative prediction error is carried
+/// as a dip below a *tonic* baseline rather than as a negative number.** The
+/// level is `clamp(baseline + gain * rpe, 0, max_level)`, so with a tonic
+/// `baseline` of `b` a negative RPE reduces the level toward zero, reaching it
+/// at `rpe <= -b / gain`. Negative information is therefore preserved -- down
+/// to that floor -- without any update ever changing direction.
+///
+/// This is also what the biology does, which is why it is the choice rather
+/// than merely the safe one. Midbrain dopamine neurons signal RPE as a
+/// deviation from a low *tonic* firing rate, and a firing rate cannot go below
+/// zero: Bayer & Glimcher (2005, *Neuron*) measured the encoding directly and
+/// found it approximately linear in positive prediction error but compressed
+/// on the negative side, precisely because the floor at zero spikes clips it.
+/// A rectified level with a tonic offset is that asymmetry, not an
+/// approximation of it.
+///
+/// **What a caller should read into `baseline`, then.** It is tonic dopamine:
+/// the level a *fully predicted* reward RE-ESTABLISHES at each reward event.
+/// At `baseline: 1.0, gain: 1.0` a perfectly predicted reward reproduces a
+/// modulator of exactly 1.0, which is the unmodulated rule
+/// (`modulator_index: None`, i.e. x 1.0) -- so any measured difference between
+/// "RPE on" and "no reward signal at all" is caused by prediction error and
+/// not by a change of scale. That property is the reason to prefer a tonic
+/// baseline over rectifying at zero, and it is what makes the VAL-4
+/// measurement in README §13.12 interpretable.
+///
+/// **The qualifier that claim needs, because the unqualified version is
+/// false.** This is a *phasic* channel: [`Self::set_level`] writes it when a
+/// reward arrives, and between rewards it decays toward zero at the channel's
+/// own `tau_ticks`, like any injected burst. "The level sits at tonic" is
+/// therefore true *at each reward event*, and true between them only to the
+/// extent the reward cadence is short relative to that tau. VAL-4 rewards
+/// every character -- 2 ticks against a `tau_ticks` of 1000 -- so it holds
+/// there to within 0.2%; `canonicalBrain.ts`'s standing test, which rewards
+/// not at all, watches the level decay to `exp(-0.4)` over 400 ticks and
+/// asserts exactly that. A future caller that needs a genuine floor between
+/// sparse rewards must drive the channel every tick, as
+/// [`PredictionErrorCoupling`] does; it must not assume this type provides
+/// one.
+///
+/// # Routed onto permanence, not weight (PLAN.md C3 task 2)
+///
+/// Synaptic tagging and capture (Frey & Morris; Redondo & Morris 2011, *Nat.
+/// Rev. Neurosci.*) is the mechanism this models: induction leaves only a
+/// *tag*, and the tag must capture plasticity-related proteins to convert
+/// early-LTP into late-LTP. Dopamine gates that conversion -- hippocampal
+/// D1/D5 blockade within ~15 min of exploration blocks late-LTP and persistent
+/// place memory (Redondo & Morris, *PNAS* 2010). Against README §12's
+/// weight/permanence split that is **persistence, not strength**: `permanence`
+/// (does this synapse stick) rather than `weight` (how strong is it right
+/// now). So dopamine belongs on `PredictiveLearningParams`, whose
+/// `learning_target` already defaults to
+/// [`crate::plasticity::predictive::SegmentLearningTarget::Permanence`], and
+/// **not** on [`crate::plasticity::three_factor::ThreeFactorStdp`], which
+/// writes weight -- routing it there is the inverse of "permanently
+/// reinforced". Nothing here can enforce that (the channel index is the
+/// caller's), but every shipped configuration in this repository now honours
+/// it, and `canonicalBrain.ts` records the same reasoning at the call site.
+///
+/// **The honest caveat (PLAN.md C3 task 3): "dopamine commits, noradrenaline
+/// amplifies" is a defensible simplification, not a description of the
+/// biology.** The same tagging-and-capture literature requires
+/// **beta-adrenergic** (noradrenaline) receptors alongside D1/D5 for the
+/// plasticity-related-protein process -- NA is a co-gate on persistence, not
+/// merely a gain term on top of a dopamine-gated one. This codebase models it
+/// as a separate multiplicative gain channel
+/// (`PredictiveLearningParams::gain_modulator_index`) because that is the
+/// shape the existing rules have, not because the two roles are really
+/// separable in the biology.
+///
+/// # Determinism and partitioning (RUN-3, RUN-6)
+///
+/// The baseline is network-wide state, exactly like
+/// [`PredictionErrorCoupling`]'s estimator, and for the same reason: every
+/// partition holds its own copy of the field, so advancing a per-partition
+/// average would make the level depend on how neurons were split.
+/// [`Self::observe_reward`] is therefore called **once per network** and
+/// [`Self::set_level`] **once per partition**, with the single level the
+/// former returned.
+pub struct RewardPredictionError {
+    decay: f32,
+    drive: ChannelDrive,
+    state: RewardBaselineRawState,
+}
+
+impl RewardPredictionError {
+    /// `tau_events` is the expectation's own time constant, counted in reward
+    /// *events* rather than ticks: the average advances once per
+    /// [`Self::observe_reward`] call, and a caller is free to reward on any
+    /// cadence it likes. A short constant makes the network surprised by
+    /// anything that differs from the last handful of outcomes; a long one
+    /// makes it surprised only by a change in the task's overall reward rate.
+    ///
+    /// `drive.channel` is normally [`crate::plasticity::DOPAMINE`]; see the
+    /// type's doc comment for `baseline`'s meaning as *tonic* dopamine and for
+    /// why the level is rectified.
+    pub fn new(tau_events: f32, drive: ChannelDrive) -> Self {
+        debug_assert!(tau_events > 0.0);
+        Self { decay: (-1.0 / tau_events).exp(), drive, state: RewardBaselineRawState::default() }
+    }
+
+    pub fn channel(&self) -> usize {
+        self.drive.channel
+    }
+
+    /// The current expectation -- what the next reward is measured against.
+    /// For tests and observability; nothing in the engine reads it.
+    pub fn expected_reward(&self) -> f32 {
+        self.state.expected_reward
+    }
+
+    /// The signed prediction error a reward of `amount` would produce against
+    /// the *current* expectation, without advancing anything. For tests and
+    /// observability -- the engine never calls it.
+    pub fn error_for(&self, amount: f32) -> f32 {
+        amount - self.state.expected_reward
+    }
+
+    pub fn raw_state(&self) -> RewardBaselineRawState {
+        self.state
+    }
+
+    pub fn restore_raw_state(&mut self, state: RewardBaselineRawState) {
+        self.state = state;
+    }
+
+    /// Sets the driven channel to its bare tonic `baseline`, so a run does not
+    /// begin with the level ramping up from zero -- the C3 counterpart to
+    /// [`PredictionErrorCoupling::seed_baselines`], and load-bearing for the
+    /// same measured reason. The field starts at 0, and anything gated on a
+    /// channel sitting at 0 is multiplied by 0: that is *suppressed* learning
+    /// wearing modulation's clothes, and it cost PLAN.md C2 a whole discarded
+    /// battery before it was noticed.
+    ///
+    /// It matters more here than it did for C2, because this channel is
+    /// written only when a reward actually arrives. A caller that rewards
+    /// every hundredth tick leaves the level decaying toward zero in between,
+    /// and without seeding it would start there too.
+    pub fn seed_baseline(&self, field: &mut NeuromodulatorField, tick: u32) {
+        let current = field.levels_at(tick)[self.drive.channel];
+        field.inject(tick, self.drive.channel, self.drive.baseline - current);
+    }
+
+    /// Converts one raw reward into the level the channel should now hold, and
+    /// advances the expectation. Called **once per network** -- note "per
+    /// network", not "per field": in partitioned mode this runs once and
+    /// [`Self::set_level`] is then called once per partition, so the baseline
+    /// is not advanced N times.
+    pub fn observe_reward(&mut self, amount: f32) -> f32 {
+        let rpe = amount - self.state.expected_reward;
+        let level = self.drive.target(rpe);
+        self.state.expected_reward = self.state.expected_reward * self.decay + (1.0 - self.decay) * amount;
+        level
+    }
+
+    /// Sets one field's channel to `level`, which [`Self::observe_reward`]
+    /// produced. A *set*, not an injection, and deliberately so: the field's
+    /// [`NeuromodulatorField::inject`] is additive, so repeatedly injecting a
+    /// phasic burst on a cadence faster than the channel's decay accumulates
+    /// to `amount / (1 - decay)` -- for a `tau_ticks` of 1000 and a reward
+    /// every other tick, a factor of ~500, whose scale is set by a decay
+    /// constant chosen for an unrelated reason. [`NeuromodulatorField::drive_toward`]'s
+    /// doc comment records the same trap for the C2 path. Setting is also what
+    /// makes the tonic baseline mean what this type's doc comment says: a
+    /// fully predicted reward leaves the level *at* `baseline`, rather than
+    /// climbing past it.
+    ///
+    /// Between rewards the level decays toward zero at the channel's own
+    /// `tau_ticks`, exactly as any injected burst does -- so "phasic burst on
+    /// a reward event" is still the shape, with the baseline setting where the
+    /// burst is measured from.
+    pub fn set_level(&self, field: &mut NeuromodulatorField, tick: u32, level: f32) {
+        let current = field.levels_at(tick)[self.drive.channel];
+        field.inject(tick, self.drive.channel, level - current);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,6 +706,161 @@ mod tests {
         let second = field.levels_unchecked()[DOPAMINE];
         assert!((first - 1.0).abs() < 1e-6, "levels_unchecked before any levels_at call must report the un-decayed injected value");
         assert!(second < first, "levels_unchecked after a levels_at(500) call must reflect that decay -- it reports current state, it just never causes decay itself");
+    }
+
+
+    /// PLAN.md C3's defining property, stated as directly as it can be: a
+    /// reward the network already expects is not news, so it leaves the
+    /// channel at its tonic baseline rather than producing a burst.
+    #[test]
+    fn a_fully_predicted_reward_settles_at_the_tonic_baseline() {
+        let mut field = NeuromodulatorField::new([1000.0; NUM_MODULATORS]);
+        let mut rpe = RewardPredictionError::new(8.0, ChannelDrive::new(DOPAMINE, 1.0, 1.0, 4.0));
+        rpe.seed_baseline(&mut field, 0);
+
+        let mut level = 0.0;
+        for tick in 0..200 {
+            level = rpe.observe_reward(1.0);
+            rpe.set_level(&mut field, tick, level);
+        }
+
+        assert!(
+            (level - 1.0).abs() < 1e-3,
+            "after 200 identical rewards the expectation has caught up, so the error is ~0 and the level must sit at the tonic baseline 1.0, got {level}"
+        );
+        assert!((rpe.expected_reward() - 1.0).abs() < 1e-3, "the expectation must have converged on the reward actually delivered, got {}", rpe.expected_reward());
+    }
+
+    /// The other half of the same property: the *first* reward, against an
+    /// expectation of zero, is maximally surprising.
+    #[test]
+    fn an_unexpected_reward_bursts_above_the_tonic_baseline() {
+        let mut field = NeuromodulatorField::new([1000.0; NUM_MODULATORS]);
+        let mut rpe = RewardPredictionError::new(8.0, ChannelDrive::new(DOPAMINE, 1.0, 1.0, 4.0));
+        rpe.seed_baseline(&mut field, 0);
+
+        let level = rpe.observe_reward(1.0);
+        rpe.set_level(&mut field, 0, level);
+
+        assert!((level - 2.0).abs() < 1e-6, "baseline 1.0 + gain 1.0 x error (1.0 - 0.0) = 2.0, got {level}");
+        assert!((field.levels_at(0)[DOPAMINE] - 2.0).abs() < 1e-6, "the field must carry the level, not the raw amount");
+    }
+
+    /// A worse-than-expected outcome is carried as a *dip below tonic*, which
+    /// is the sign decision this type's doc comment records: the level falls
+    /// but never changes sign, so a reinforce branch never silently punishes.
+    #[test]
+    fn a_worse_than_expected_outcome_dips_below_tonic_without_going_negative() {
+        let mut field = NeuromodulatorField::new([1000.0; NUM_MODULATORS]);
+        let mut rpe = RewardPredictionError::new(8.0, ChannelDrive::new(DOPAMINE, 1.0, 1.0, 4.0));
+        rpe.seed_baseline(&mut field, 0);
+
+        for tick in 0..200 {
+            let level = rpe.observe_reward(1.0);
+            rpe.set_level(&mut field, tick, level);
+        }
+        let omitted = rpe.observe_reward(0.0);
+        rpe.set_level(&mut field, 200, omitted);
+
+        assert!(omitted < 1.0, "an omitted reward against an expectation of ~1.0 must dip below tonic, got {omitted}");
+        assert!(omitted >= 0.0, "and must not go negative -- a negative level flips the sign of every gated update, turning reinforcement into punishment");
+        assert!((omitted - 0.0).abs() < 1e-3, "with baseline 1.0, gain 1.0 and an error of ~-1.0, the dip lands on the rectification floor, got {omitted}");
+    }
+
+    /// The rectification is load-bearing, not decorative: an error large
+    /// enough to drive `baseline + gain x error` below zero is clamped rather
+    /// than allowed through as a sign flip.
+    #[test]
+    fn a_large_negative_error_is_rectified_rather_than_flipping_the_sign() {
+        let mut rpe = RewardPredictionError::new(8.0, ChannelDrive::new(DOPAMINE, 0.5, 2.0, 4.0));
+        rpe.restore_raw_state(RewardBaselineRawState { expected_reward: 1.0 });
+
+        let level = rpe.observe_reward(0.0);
+
+        assert!(
+            level >= 0.0,
+            "0.5 + 2.0 x (0 - 1.0) = -1.5 before clamping; the level must be rectified to 0, got {level} -- see this type's sign decision"
+        );
+        assert_eq!(level, 0.0);
+    }
+
+    /// The upper clamp is the same `max_level` C2's drives use, and it applies
+    /// to a surprise as readily as to an uncertainty.
+    #[test]
+    fn a_burst_is_capped_at_max_level() {
+        let mut rpe = RewardPredictionError::new(8.0, ChannelDrive::new(DOPAMINE, 1.0, 1.0, 2.5));
+        let level = rpe.observe_reward(10.0);
+        assert_eq!(level, 2.5, "1.0 + 1.0 x 10.0 = 11.0 before clamping");
+    }
+
+    /// The expectation subtracted is the one held *before* the reward arrives.
+    /// Advancing the average first would let a reward partially predict
+    /// itself, shrinking every error by a factor set by the time constant --
+    /// a silent rescaling rather than a visible bug.
+    #[test]
+    fn the_error_is_measured_against_the_expectation_held_before_the_reward() {
+        let mut rpe = RewardPredictionError::new(2.0, ChannelDrive::new(DOPAMINE, 0.0, 1.0, 10.0));
+
+        let predicted_error = rpe.error_for(1.0);
+        let level = rpe.observe_reward(1.0);
+
+        assert_eq!(predicted_error, 1.0, "against a fresh expectation of 0, a reward of 1.0 is an error of exactly 1.0");
+        assert_eq!(level, 1.0, "the injected level must use that same pre-update expectation, not the post-update one");
+        assert!(rpe.expected_reward() > 0.0, "and the expectation must have moved afterwards");
+    }
+
+    /// Setting, not injecting (see [`RewardPredictionError::set_level`]): a
+    /// reward cadence faster than the channel's decay must not accumulate the
+    /// level into `amount / (1 - decay)`.
+    #[test]
+    fn repeated_rewards_do_not_accumulate_the_level() {
+        let mut field = NeuromodulatorField::new([1000.0; NUM_MODULATORS]);
+        let mut rpe = RewardPredictionError::new(1e9, ChannelDrive::new(DOPAMINE, 1.0, 1.0, 100.0));
+        rpe.seed_baseline(&mut field, 0);
+
+        // A time constant of 1e9 pins the expectation at ~0, so every reward
+        // is maximally surprising and asks for the same level every time --
+        // the case an additive injection would run away on.
+        for tick in 0..500 {
+            let level = rpe.observe_reward(1.0);
+            rpe.set_level(&mut field, tick, level);
+        }
+
+        let final_level = field.levels_at(499)[DOPAMINE];
+        assert!(
+            (final_level - 2.0).abs() < 1e-3,
+            "500 identical rewards must leave the level at the one value they each ask for, not 500x it -- got {final_level}"
+        );
+    }
+
+    /// RUN-9a: the expectation is state, and `snapshot.rs` carries exactly
+    /// this struct.
+    #[test]
+    fn baseline_raw_state_round_trips() {
+        let mut rpe = RewardPredictionError::new(8.0, ChannelDrive::new(DOPAMINE, 1.0, 1.0, 4.0));
+        rpe.observe_reward(1.0);
+        rpe.observe_reward(0.0);
+        let saved = rpe.raw_state();
+
+        let mut restored = RewardPredictionError::new(8.0, ChannelDrive::new(DOPAMINE, 1.0, 1.0, 4.0));
+        restored.restore_raw_state(saved);
+
+        assert_eq!(restored.raw_state(), saved);
+        assert_eq!(restored.observe_reward(1.0), rpe.observe_reward(1.0), "a restored baseline must produce a bit-identical next level");
+    }
+
+    /// HANDOFF fact 13, applied to C3: a channel starting at 0 multiplies
+    /// everything gated on it by 0. Seeding is what keeps "tonic" meaning
+    /// tonic from tick 0, and it matters more here than for C2 because this
+    /// channel is written only when a reward actually arrives.
+    #[test]
+    fn seeding_puts_the_channel_at_tonic_before_any_reward_arrives() {
+        let mut field = NeuromodulatorField::new([1000.0; NUM_MODULATORS]);
+        let rpe = RewardPredictionError::new(8.0, ChannelDrive::new(DOPAMINE, 1.0, 1.0, 4.0));
+
+        assert_eq!(field.levels_at(0)[DOPAMINE], 0.0, "the field starts at zero");
+        rpe.seed_baseline(&mut field, 0);
+        assert!((field.levels_at(0)[DOPAMINE] - 1.0).abs() < 1e-6, "seeding must put the channel at its tonic baseline immediately");
     }
 
     #[test]

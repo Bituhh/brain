@@ -51,7 +51,7 @@ use crate::column::{ColumnRegistry, ColumnSpec};
 use crate::growth::GrowthRawState;
 use crate::inhibition::FixedNeighbourhoods;
 use crate::plasticity::{Modulators, NUM_MODULATORS};
-use crate::neuromodulator::PredictionErrorRawState;
+use crate::neuromodulator::{PredictionErrorRawState, RewardBaselineRawState};
 use crate::plasticity::newborn::NewbornMaturationRawState;
 use crate::scheduler::{Scheduler, SweepSchedulingRawState};
 use crate::segment::{BinaryCoincidenceParams, DendriticVote, SegmentConfig};
@@ -214,7 +214,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// supplied fresh via `with_predictive_learning` at restore time, and its
 /// consistency with the snapshot is the FFI config hash's job
 /// (`packages/brain/src/index.ts`'s `hashConfig`), not this module's.
-pub const FORMAT_VERSION: u32 = 13;
+pub const FORMAT_VERSION: u32 = 14;
 /// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
 /// concrete and falsifiable: `read` migrates any snapshot from this
 /// version through `FORMAT_VERSION`. Widen this only alongside an actual
@@ -722,6 +722,40 @@ fn read_prediction_error_state(r: &mut Reader<'_>) -> Result<Option<PredictionEr
     }))
 }
 
+/// PLAN.md C3's reward baseline (version 14). A new *trailing* section with a
+/// presence byte, following version 13's precedent exactly: absent in every
+/// version-13-and-earlier snapshot, and absent again whenever the scheduler
+/// carries no [`crate::neuromodulator::RewardPredictionError`], so a pre-C3
+/// network's snapshot is unchanged in content as well as in behaviour.
+///
+/// One f32 and nothing else -- the running expectation. Deliberately *not* the
+/// decay constant or the `ChannelDrive`: those are derived from
+/// caller-supplied config, which this module requires to be supplied fresh on
+/// restore (see the module docs) rather than reconstructed from the file.
+///
+/// Why it needs a section at all, when it is a single number: the expectation
+/// *is* the mechanism. Restoring a network whose baseline reset to zero would
+/// make every subsequent reward read as maximally surprising, so the first
+/// rewards after a restore would inject a burst the un-snapshotted run never
+/// saw -- a RUN-9a violation that looks like a plausible transient rather than
+/// like corruption.
+fn write_reward_baseline_state(w: &mut Writer, state: Option<&RewardBaselineRawState>) {
+    match state {
+        Some(s) => {
+            w.u8(1);
+            w.f32(s.expected_reward);
+        }
+        None => w.u8(0),
+    }
+}
+
+fn read_reward_baseline_state(r: &mut Reader<'_>) -> Result<Option<RewardBaselineRawState>, SnapshotError> {
+    if r.u8()? != 1 {
+        return Ok(None);
+    }
+    Ok(Some(RewardBaselineRawState { expected_reward: r.f32()? }))
+}
+
 fn write_newborn_maturation_state(w: &mut Writer, state: Option<&NewbornMaturationRawState>) {
     match state {
         Some(s) => {
@@ -1057,6 +1091,8 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
 
     write_prediction_error_state(&mut w, scheduler.prediction_error_raw_state().as_ref());
 
+    write_reward_baseline_state(&mut w, scheduler.reward_baseline_raw_state().as_ref());
+
     w.buf
 }
 
@@ -1121,6 +1157,13 @@ pub struct Restored {
     /// note that method ignores it when the restoring scheduler was built
     /// without a coupling of its own.
     pub prediction_error: Option<PredictionErrorRawState>,
+    /// PLAN.md C3's reward baseline (version 14+). `None` for an older
+    /// snapshot, or when the snapshotting scheduler carried no
+    /// `RewardPredictionError` -- either way, apply via
+    /// `Scheduler::restore_reward_baseline_raw_state`, which ignores it when
+    /// the restoring scheduler was built without a baseline of its own,
+    /// exactly as `prediction_error` above does.
+    pub reward_baseline: Option<RewardBaselineRawState>,
 }
 
 /// Restores a snapshot written by [`write`]. `expected_config_hash` must
@@ -1249,6 +1292,10 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
     // intended failure mode (Requirement 16.8's "fail loudly").
     let prediction_error = if header.version >= 13 { read_prediction_error_state(&mut r)? } else { None };
 
+    // PLAN.md C3 (version 14): the newest trailing section, read last for the
+    // same reason version 13 was -- read order and write order are the format.
+    let reward_baseline = if header.version >= 14 { read_reward_baseline_state(&mut r)? } else { None };
+
     // Leftover bytes mean the payload is not the shape its version claims
     // (see `FORMAT_VERSION`'s doc comment).
     if r.pos != bytes.len() {
@@ -1273,6 +1320,7 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
         sweep_scheduling,
         newborn_maturation,
         prediction_error,
+        reward_baseline,
     })
 }
 
@@ -1362,7 +1410,7 @@ mod tests {
         let (segment_counts, segment_last_touched_tick) = scheduler.segment_coincidence_raw_state();
         let (segment_threshold, segment_rate_estimate, segment_last_depolarised_tick) = scheduler.segment_threshold_raw_state();
         // (version that introduced the section, its size), in write order.
-        let sections: [(u32, usize); 12] = [
+        let sections: [(u32, usize); 13] = [
             (2, measure(|w| write_columns(w, columns))),
             (3, measure(|w| write_modulator_state(w, modulator_levels, modulator_last_updated_at))),
             (4, measure(|w| write_adaptation(w, neurons))),
@@ -1375,6 +1423,7 @@ mod tests {
             (11, measure(|w| write_synapse_silent_since(w, synapses, neuron_count))),
             (12, measure(|w| write_column_votes(w, columns))),
             (13, measure(|w| write_prediction_error_state(w, scheduler.prediction_error_raw_state().as_ref()))),
+            (14, measure(|w| write_reward_baseline_state(w, scheduler.reward_baseline_raw_state().as_ref()))),
         ];
         assert_eq!(sections.last().unwrap().0, FORMAT_VERSION, "add the newest section to this helper when FORMAT_VERSION is bumped");
         let strip: usize = sections.iter().filter(|(introduced, _)| *introduced > version).map(|(_, size)| size).sum();
@@ -1984,6 +2033,54 @@ mod tests {
         let v12 = downgrade_to_version(&bytes, &neurons, &synapses, &scheduler, &columns, 2, 12);
         let restored = read(&v12, 1).expect("a version-12 payload must still migrate");
         assert!(restored.prediction_error.is_none(), "a version-12 snapshot has no prediction-error section, so it must restore to None");
+    }
+
+    /// RUN-9a for PLAN.md C3's reward baseline. One f32, and it is the whole
+    /// mechanism: a baseline that restored to zero would make every
+    /// subsequent reward read as maximally surprising, so a resumed run would
+    /// inject bursts the un-snapshotted run never saw. That is a
+    /// plausible-looking transient rather than a crash, which is exactly the
+    /// failure mode a real section exists to prevent.
+    #[test]
+    fn round_trips_reward_baseline_state_exactly() {
+        use crate::neuromodulator::{ChannelDrive, RewardBaselineRawState, RewardPredictionError};
+        use crate::plasticity::DOPAMINE;
+
+        let (neurons, synapses, _) = sample_network();
+        let mut sched = Scheduler::new(4, 0.3)
+            .with_reward_prediction_error(RewardPredictionError::new(10.0, ChannelDrive::new(DOPAMINE, 1.0, 1.0, 4.0)));
+
+        let seeded = RewardBaselineRawState { expected_reward: 0.8125 };
+        sched.restore_reward_baseline_raw_state(seeded);
+
+        let bytes = write(&neurons, &synapses, &sched, &ColumnRegistry::new(), 2, 1);
+        let restored = read(&bytes, 1).unwrap();
+        let after = restored.reward_baseline.expect("a version-14 snapshot must carry a reward-baseline section");
+
+        assert_eq!(after, seeded);
+    }
+
+    /// A scheduler with no baseline writes the presence byte and nothing else,
+    /// so a pre-C3 network's snapshot gains one byte and no semantics.
+    #[test]
+    fn a_scheduler_without_a_reward_baseline_writes_an_absent_section() {
+        let (neurons, synapses, _) = sample_network();
+        let sched = Scheduler::new(4, 0.3);
+        let bytes = write(&neurons, &synapses, &sched, &ColumnRegistry::new(), 2, 1);
+        let restored = read(&bytes, 1).unwrap();
+        assert!(restored.reward_baseline.is_none(), "no baseline configured means no state to carry");
+    }
+
+    /// A version-13 payload predates the section entirely, the same migration
+    /// contract version 12 has for the prediction-error section above.
+    #[test]
+    fn a_version_13_snapshot_restores_with_no_reward_baseline_section() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let columns = ColumnRegistry::new();
+        let bytes = write(&neurons, &synapses, &scheduler, &columns, 2, 1);
+        let v13 = downgrade_to_version(&bytes, &neurons, &synapses, &scheduler, &columns, 2, 13);
+        let restored = read(&v13, 1).expect("a version-13 payload must still migrate");
+        assert!(restored.reward_baseline.is_none(), "a version-13 snapshot has no reward-baseline section, so it must restore to None");
     }
 
     /// A version-9 (pre-this-fix) payload has no newborn-maturation section

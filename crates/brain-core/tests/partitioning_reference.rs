@@ -674,6 +674,58 @@ fn reward_broadcasts_correctly_across_a_partition_boundary_containing_a_gating_e
     assert_eq!(after0, after1, "the broadcast must reach both partitions equally regardless of the cross-partition gating edge's presence");
 }
 
+/// PLAN.md C3, RUN-3/RUN-6: a reward *prediction error* broadcasts to every
+/// partition as one level, and the expectation behind it advances exactly
+/// once per reward regardless of how many partitions there are.
+///
+/// The failure this rules out is specific and would have been silent. A
+/// baseline held per *scheduler* would see one `PartitionRuntime::reward` call
+/// advance N expectations, so the level -- and therefore every permanence
+/// delta gated on it -- would depend on the partition count. That is exactly
+/// the class of divergence `PartitionRuntime::new`'s refusal of a
+/// scheduler-owned baseline exists to prevent; this asserts the positive half.
+#[test]
+fn a_reward_prediction_error_is_identical_across_partition_counts() {
+    use brain_core::neuromodulator::{ChannelDrive, RewardPredictionError};
+
+    fn levels_after_a_reward_stream(partition_count: usize) -> (f32, f32) {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(2);
+        for _ in 0..6 {
+            neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] });
+        }
+        synapses.reserve_for_neurons(neurons.capacity_len());
+
+        let plan = PartitionPlan::even_split(6, partition_count);
+        let schedulers: Vec<Scheduler> =
+            (0..partition_count).map(|_| Scheduler::new(4, 0.4).with_plasticity(plasticity(), [1000.0; NUM_MODULATORS])).collect();
+        let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, 6)
+            .with_reward_prediction_error(RewardPredictionError::new(10.0, ChannelDrive::new(DOPAMINE, 1.0, 1.0, 4.0)));
+
+        // A stream with structure in it: mostly hits, then a miss. A raw
+        // reward would treat every 1.0 alike; an RPE must not.
+        for i in 0..40 {
+            runtime.reward(if i == 39 { 0.0 } else { 1.0 });
+            runtime.step::<Lif>(&mut neurons, &mut synapses, &lif_params());
+        }
+        (runtime.modulator_levels()[DOPAMINE], runtime.expected_reward().expect("a baseline is configured"))
+    }
+
+    let (level_1, expected_1) = levels_after_a_reward_stream(1);
+    let (level_2, expected_2) = levels_after_a_reward_stream(2);
+    let (level_3, expected_3) = levels_after_a_reward_stream(3);
+
+    assert_eq!(expected_1, expected_2, "the expectation must advance once per reward, not once per partition");
+    assert_eq!(expected_1, expected_3);
+    assert_eq!(level_1, level_2, "and the level every partition broadcasts must be bit-identical across partition counts (RUN-3)");
+    assert_eq!(level_1, level_3);
+
+    // The stream's structure actually reached the signal -- otherwise the
+    // equalities above would hold for the trivial reason that nothing moved.
+    assert!(expected_1 > 0.5, "40 rewards of mostly 1.0 must have built a real expectation, got {expected_1}");
+    assert!(level_1 < 1.0, "and the final, unexpected 0.0 must have left the level dipped below tonic 1.0, got {level_1}");
+}
+
 /// Sanity check mirroring `the_reference_scenario_actually_produces_activity_and_learning`:
 /// if structural plasticity never pruned or sprouted anything here, the
 /// occupied-count comparison above would be trivially true for the wrong
@@ -845,6 +897,28 @@ fn a_partition_runtime_refuses_a_scheduler_carrying_its_own_coupling() {
     let plan = PartitionPlan::contiguous(&columns, 2);
     let schedulers: Vec<Scheduler> = (0..plan.partition_count())
         .map(|_| Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD).with_prediction_error_coupling(c2_coupling()))
+        .collect();
+    let _ = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS);
+}
+
+/// PLAN.md C3's counterpart to the refusal above, and refused for a sharper
+/// reason: a scheduler-owned reward baseline is not merely inert inside a
+/// `PartitionRuntime`, it is *wrong*. `PartitionRuntime::reward` broadcasts, so
+/// N schedulers each holding an expectation would advance N of them from one
+/// reward, and the dopamine level would depend on the partition count --
+/// a RUN-6 divergence that no assertion in an unpartitioned test could see.
+#[test]
+#[should_panic(expected = "wrong inside a PartitionRuntime")]
+fn a_partition_runtime_refuses_a_scheduler_carrying_its_own_reward_baseline() {
+    use brain_core::neuromodulator::{ChannelDrive, RewardPredictionError};
+
+    let (_neurons, synapses, columns, _a, _b) = build_network(7, segments());
+    let plan = PartitionPlan::contiguous(&columns, 2);
+    let schedulers: Vec<Scheduler> = (0..plan.partition_count())
+        .map(|_| {
+            Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
+                .with_reward_prediction_error(RewardPredictionError::new(10.0, ChannelDrive::new(DOPAMINE, 1.0, 1.0, 4.0)))
+        })
         .collect();
     let _ = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS);
 }
