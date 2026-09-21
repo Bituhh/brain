@@ -399,18 +399,20 @@ test("a spatial sweep reach that narrows the candidate set stops this fixture pr
  */
 test("a spatial burst-sprout reach is refused in partitioned mode, and a spatial sweep reach is not (PLAN.md C4)", () => {
   const base = canonicalSimulationOptions(SEED);
+  // Growth and newborn maturation are themselves single-partition only, so
+  // they have to come off for this to reach the reach check at all rather
+  // than tripping an earlier refusal. Dropped from the object rather than set
+  // to `undefined`: under `exactOptionalPropertyTypes` an optional field may be
+  // absent but not `undefined`, and `SimulationOptions` does not widen any of
+  // its fields to allow it.
+  const { growth: _growth, newbornMaturation: _newbornMaturation, ...withoutGrowth } = base;
 
   assert.throws(
     () =>
       Simulation.create(canonicalLifConfig, {
-        ...base,
+        ...withoutGrowth,
         threadCount: 2,
         totalNeurons: WIDTH,
-        // Growth and newborn maturation are themselves single-partition
-        // only, so they have to come off for this to reach the reach check
-        // at all rather than tripping an earlier refusal.
-        growth: undefined,
-        newbornMaturation: undefined,
         predictiveLearning: { ...base.predictiveLearning!, sproutReachRadius: BURST_SPROUT_REACH_RADIUS },
       }),
     /sproutReachRadius is not supported together with threadCount/,
@@ -419,12 +421,10 @@ test("a spatial burst-sprout reach is refused in partitioned mode, and a spatial
 
   // The sweep's own radius at the same thread count must be accepted.
   const withSweepReach = Simulation.create(canonicalLifConfig, {
-    ...base,
+    ...withoutGrowth,
     threadCount: 2,
     totalNeurons: WIDTH,
-    growth: undefined,
-    newbornMaturation: undefined,
-    structuralPlasticity: { ...base.structuralPlasticity!, sproutReachRadius: SPROUT_REACH_RADIUS },
+    structuralPlasticity:{ ...base.structuralPlasticity!, sproutReachRadius: SPROUT_REACH_RADIUS },
   });
   assert.ok(withSweepReach !== undefined, "a spatial *sweep* reach must be accepted in partitioned mode -- it runs once globally");
 });
