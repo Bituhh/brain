@@ -293,10 +293,10 @@ Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (lat
 | ID | Pri | Requirement |
 |---|---|---|
 | LRN-1 | M | **No backpropagation anywhere.** No global error is routed backwards through the graph. Any change to a synapse must be computable from that synapse's own trace, its pre/post neuron's local state, and the ambient neuromodulator level. This is an architectural invariant enforced by the type system — a plasticity rule is handed only a local context object. |
-| LRN-2 | M | **STDP** with configurable asymmetric potentiation/depression windows and time constants. |
+| LRN-2 | M | **STDP** with configurable asymmetric potentiation/depression windows and time constants. **Status (PLAN.md C5, 2026-09-21): the curve is now *modulable*, not only configurable.** Before C5 the neuromodulator field had exactly two read sites and both multiplied a delta by a level, so nothing could let a modulator reach a timing *window*, an LTP/LTD *ratio* or a time constant. `stdp.rs`'s `StdpModulation` gives each of `StdpParams`' five constants (`a_plus`, `a_minus`, `tau_plus`, `tau_minus`, `window_ticks`) an optional `LevelMap` — `scale = clamp(1 + gain × (level − reference), min, max)` — evaluated at the moment the kernel is (`StdpParams::kernel_modulated`), attached to `ThreeFactorParams` the way C2's `gain_modulator_index` was and carried across the FFI as `PlasticityConfig.stdpModulation`. **Unset is the default and is bit-identical**; nothing in `canonicalBrain.ts` or `charPrediction.ts` sets it — C6 (noradrenaline → window), C7 (acetylcholine → ratio) and F19 (serotonin) are its first users. The mapping is affine about a `reference` rather than a bare multiplier because a curve shape has no meaningful zero; an amplitude scale may cross zero if the caller's `min` does (sign inversion — C6's and C7's call, not defaulted here) and a timing scale may not (validated). §12 decision 16 has the reasoning, the hot-path cost (measured: +2.4% of a VAL-4 run in the worst case, nothing when unset) and the staircase finding; §13.12 item 18 has the data. |
 | LRN-3 | M | **Eligibility traces**: pre/post coincidence writes a decaying trace on the synapse (τ on the order of seconds of simulated time). |
 | LRN-4 | M | **Three-factor rule**: Δw = η · eligibility · modulator. With modulator ≡ 1 this degenerates to plain STDP. **Status (PLAN.md C3, 2026-09-20): the *routing* is now decided on biological grounds rather than by convenience.** `ThreeFactorStdp` writes weight, so it routes on acetylcholine; `PredictiveLearningParams` writes permanence, so it is where dopamine belongs — synaptic tagging and capture (Redondo & Morris 2011) is dopamine gating the conversion of early-LTP into late-LTP, which against §12's weight/permanence split is persistence, not strength. The audit (`.claude/scratch/neuromodulators/investigation.md` §3.3) flagged the inverse wiring as a latent trap; it was harmless only while dopamine had no producer. |
-| LRN-5 | M | **Neuromodulator field**: a small set of named global/regional scalar signals (dopamine, acetylcholine, noradrenaline, serotonin) with their own decay dynamics, broadcast to neurons by region. Carries no per-synapse routing information. **Status (PLAN.md C2, 2026-09-20): two of the four channels now have a real producer, and the field has more than one consumer for the first time.** `neuromodulator::PredictionErrorCoupling` derives *expected* uncertainty (acetylcholine) and *unexpected* uncertainty (noradrenaline) from one two-timescale estimate of the network's own prediction-failure rate — the slow term and the rectified (fast − slow) term, following Yu & Dayan (2005), whose split is why one estimator feeds two channels rather than two estimators feeding one each. The producer is `plasticity/predictive.rs`'s existing per-neuron classification (LRN-8), reduced to a scalar *before* anything reaches the field, so no per-neuron surprise term exists anywhere (invariant 2). Consumers: `ThreeFactorParams::gain_modulator_index` and `PredictiveLearningParams::gain_modulator_index`, a second **multiplicative** channel kept separate from the routing channel — that one names which signal *licenses* a change, this one how strongly anything being encoded right now *is* encoded. **Dopamine acquired its producer in PLAN.md C3 (2026-09-20)**: `neuromodulator::RewardPredictionError` subtracts a running expectation from the raw scalar `reward()` injects, so three of four channels now carry a real signal. Serotonin still has none, deliberately (PLAN.md F19 records why). §13.12 items 13 and 16 have the measurements. |
+| LRN-5 | M | **Neuromodulator field**: a small set of named global/regional scalar signals (dopamine, acetylcholine, noradrenaline, serotonin) with their own decay dynamics, broadcast to neurons by region. Carries no per-synapse routing information. **Status (PLAN.md C2, 2026-09-20): two of the four channels now have a real producer, and the field has more than one consumer for the first time.** `neuromodulator::PredictionErrorCoupling` derives *expected* uncertainty (acetylcholine) and *unexpected* uncertainty (noradrenaline) from one two-timescale estimate of the network's own prediction-failure rate — the slow term and the rectified (fast − slow) term, following Yu & Dayan (2005), whose split is why one estimator feeds two channels rather than two estimators feeding one each. The producer is `plasticity/predictive.rs`'s existing per-neuron classification (LRN-8), reduced to a scalar *before* anything reaches the field, so no per-neuron surprise term exists anywhere (invariant 2). Consumers: `ThreeFactorParams::gain_modulator_index` and `PredictiveLearningParams::gain_modulator_index`, a second **multiplicative** channel kept separate from the routing channel — that one names which signal *licenses* a change, this one how strongly anything being encoded right now *is* encoded. **Dopamine acquired its producer in PLAN.md C3 (2026-09-20)**: `neuromodulator::RewardPredictionError` subtracts a running expectation from the raw scalar `reward()` injects, so three of four channels now carry a real signal. Serotonin still has none, deliberately (PLAN.md F19 records why). §13.12 items 13 and 16 have the measurements. **Status (PLAN.md C5, 2026-09-21): a third kind of consumer exists.** Both consumers above multiply a *delta* by a level; `stdp.rs`'s `StdpModulation` lets a level reach the STDP *curve itself* — amplitude ratio, time constants, window (LRN-2's status row, §12 decision 16). It is unset in every shipped configuration, so no channel's consumer list has changed in practice. |
 | LRN-6 | M | **Homeostatic synaptic scaling**: periodic multiplicative renormalisation of a neuron's incoming weights toward a target total, on a slow timescale. |
 | LRN-7 | M | **Structural plasticity**: prune synapses whose permanence falls below a floor; sprout new candidates from a co-active neuron toward targets in its neighbourhood, subject to a per-neuron synapse budget. |
 | LRN-8 | M | **Predictive learning**: when a neuron fires *unpredicted*, reinforce its active segments' synapses onto recently-active cells; when a segment predicts a firing that does not occur, punish it. This is the primary unsupervised signal — no labels required. |
@@ -1837,6 +1837,104 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     no shipped home to adopt into — `DEFAULT_CONFIG` leaves it undefined and both pinned regressions
     hardcode frozen replicas. `SproutReach::IndexBlocks` remains the core's own default, and
     Requirement 12.1's burst radius remains off, having never been measured on the real network.
+
+16. **A neuromodulator level can shape the STDP *curve*, not only scale an update — decided
+    2026-09-21 (PLAN.md C5), as plumbing for three later items and with no mechanism attached.**
+    The neuromodulator audit (`.claude/scratch/neuromodulators/investigation.md` §4) found the
+    field read in exactly two functions, `three_factor.rs`'s `apply_modulated_update` and
+    `predictive.rs`'s `modulator_scale`, and both do the same thing: multiply a delta by a level.
+    Nothing let a modulator reach a timing window, an LTP/LTD ratio or a time constant, and C6
+    (noradrenaline → window), C7 (acetylcholine → ratio) and F19 (serotonin → a t-LTD bias) each
+    need the first two. This item builds that once so the phase is three items rather than three
+    copies of one change. Full proposal, written before the implementation:
+    `.claude/scratch/neuromodulators/c5-design.md`.
+
+    **The shape.** `StdpParams` is unchanged (it is built by struct literal at ~20 call sites and
+    keeps meaning "the resting curve"). Beside it, `StdpModulation` holds one optional `LevelMap`
+    per constant — `a_plus`, `a_minus`, `tau_plus`, `tau_minus`, `window_ticks` — with the channel
+    carried inside the map; the prompt's "an `Option<usize>` per modulated quantity", with the
+    scale it applies alongside. It attaches to `ThreeFactorParams` exactly the way C2's
+    `gain_modulator_index` did (`with_stdp_modulation`, `None` from `new`), and crosses the FFI as
+    an optional `PlasticityConfig.stdpModulation`. Unset takes the unchanged `StdpParams::kernel`;
+    the modulated path is a separate function, `kernel_modulated`, that reduces to it when every
+    scale is 1.0. Five independent slots, because the three claims above are different claims.
+
+    **The mapping, and why it is not `constant × level`:**
+    `scale = clamp(1 + gain × (level − reference), min, max)`, quantity = constant × scale.
+
+    - **A shape has no meaningful zero.** A delta times 0 is "no learning this tick", which is a
+      fine thing for a gate to mean; a window times 0 is "no pairing counts" and a tau times 0
+      divides by zero. C2 measured noradrenaline exactly 0 for 89.5% of a VAL-4 run, so a bare
+      multiplier would make the *resting* state a degenerate curve.
+    - **The biology is stated relative to a resting state.** "β-adrenergic activation widened the
+      window by ~15 ms" and "M1 activation converts LTP to LTD" are both changes *from* the curve
+      without the modulator. `reference` is the level at which the configured constant holds.
+    - Consequence, pinned by tests: **at `level == reference` the scale is exactly 1.0 and the
+      modulated kernel is bit-identical to the plain one** — C3's "baseline 1.0 reproduces the
+      unmodulated rule" property, for the same reason: a measured difference between "hook on" and
+      "hook unset" is then attributable to the level moving rather than to a change of scale.
+
+    **Amplitude versus time versus window are separate claims, and the API lets them differ.** An
+    amplitude scale is *how much a pairing counts*, per side, so the ratio moves by scaling either.
+    It **may cross zero if the caller's `min` does**, which inverts that side's sign — the
+    triangular-window result and "ACh converts LTP to LTD" both need it, and whether to allow it is
+    C6's and C7's call, so nothing here defaults it. A tau scale is *how long a pairing's credit
+    lasts* and also changes the kernel's area (∫ = a·τ), not just its width. A window scale is
+    *which pairings count at all*. Timing scales must be strictly positive, **validated at
+    construction** (`StdpModulationError`), so a tau can never reach zero and the per-event path
+    contains nothing that can fail or panic (ENG-9); `LevelMap::scale` uses `max` then `min` rather
+    than `f32::clamp`, which panics on a NaN bound, and a NaN *level* falls out finite.
+
+    **The trap C6 would otherwise walk into.** A tail cut at `window_ticks` cannot get wider than the
+    window however large tau grows, so "widen the window" implemented as a tau scale alone is
+    silently invisible past the cutoff. `StdpModulation::joint_time_scale` sets `tau_plus`,
+    `tau_minus` and `window_ticks` from one map, which also holds `window / tau` — and so the size
+    of the step at the cutoff, `a·exp(−window/τ)`, 0.7% of `a` at the shipped 5τ — constant in the
+    scale.
+
+    **`window_ticks` is not rounded, and it still has a staircase.** The prompt worried that rounding
+    an integer per event "has a cost and a discontinuity". The cost is avoidable — `dt` is already
+    an `f32` and the test is `dt.abs() > window as f32`, so the modulated form multiplies the bound
+    and compares, with no per-event `round()`. The discontinuity is inherent, not introduced: `dt`
+    is an *integer* tick count, so the effective bound is `floor(window × scale)` and the set of
+    pairings that count changes only when that crosses an integer, a step every `1/window` in scale
+    (0.025 at the shipped `windowTicks: 40`). Pinned by a test so nobody "fixes" it into a rounding
+    call without reading why.
+
+    **When the level is read.** At event time, inside the `kernel` call, and the contribution is
+    *stored in eligibility* rather than re-scaled when the level later moves — the modulator present
+    during induction shapes the induction. That differs from the existing multiplicative gate, which
+    reads the level when eligibility is *cashed in* and so can act on eligibility laid down under a
+    different level. Recorded because a later reader will otherwise assume the hook gates
+    eligibility retroactively; pinned by a test.
+
+    **Invariants.** A level is a broadcast scalar and carries no per-synapse routing information, so
+    a curve parameterised by one is exactly as local as a delta scaled by one (invariants 1 and 2;
+    LRN-5). `LocalContext` and `SynapseMut` are unchanged.
+
+    **A premise in the prompt that was not true, and it moved the cost question.** Task step 3 said
+    the existing design "precomputes decay constants exactly to keep [`kernel`] cheap", and
+    anticipated a quantise-and-cache fallback. `StdpParams::kernel` precomputes **nothing** — it
+    already did one division and one `exp()` per event; the precomputed constants are
+    `eligibility_decay_per_tick` and `LifParams::decay_per_tick`, on other paths. So a dynamic tau
+    swaps `dt / tau` for `dt / (tau × scale)`: no new transcendental, and nothing to cache. Still
+    measured rather than assumed — §13.12 item 18 has the numbers.
+
+    **Bit-identity is tested at four levels** (Requirement 5.2), not asserted: `stdp.rs` (every
+    slot unset, and every channel at its reference, over half-tick dts across and beyond the
+    window); `three_factor.rs` (the rule); `tests/stdp_modulation.rs` (a whole two-column network:
+    unset, configured-empty, and all five slots mapped with the channel held exactly at its
+    reference — the modulated path *live* and changing nothing); and end to end through the FFI on
+    the 800-neuron VAL-4 network (`scripts/measure-c5-hook-cost.ts`, permanence, weight and topology
+    hashes equal). The same file carries the VAL-9 ablation (with the hook unset the same level
+    change moves nothing; with it set it does) and RUN-3 with the hook *set* and a level that
+    differs at nearly every event, identical across one partition, two, and two rayon and pinned
+    threads. Four golden rasters unchanged.
+
+    **What this item deliberately does not do.** No channel is wired to anything in
+    `canonicalBrain.ts` or `charPrediction.ts`'s defaults, and no VAL-4 figure was measured with the
+    hook on — that is C6's and C7's. The FFI carries the option so they can, and so the FFI does not
+    become "a copy that stops being a copy" (HANDOFF fact 14(a)).
 
 ## 12a. Open questions
 
@@ -4527,6 +4625,188 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     mechanism: *an end-of-run reading of an instantaneous quantity cannot answer a question about
     whether something ever happened*, and this codebase had no cumulative tally to ask with until
     this item added one.
+
+18. **Is a modulator gain a continuous knob, or a staircase? — settled 2026-09-21 by PLAN.md C5
+    (task step 5), and the answer is neither of the two C3 guessed at: on the permanence path a
+    gain is *inert*; on the weight path, which is where C6 and C7 act, it is *continuous*.** This
+    also records what the STDP modulation hook (§12 decision 16) costs. Scripts:
+    `scripts/investigate-c5-staircase.ts` (+ `.results.md`, 6,000 characters × 3 seeds × 585
+    trials), `.long.results.md` (15,000 characters), `investigate-c5-permanence-distribution.ts`,
+    `investigate-c5-tread-edge.ts`, `measure-c5-hook-cost.ts`. Design and cost detail:
+    `.claude/scratch/neuromodulators/c5-design.md`.
+
+    **The suspicion, restated so it can be checked.** Item 16 recorded that three reward-expectation
+    time constants spanning 20× matched on cumulative structural counts *to the synapse* although
+    their expectations differ over the first ~3,000 characters, and inferred that permanence deltas
+    cross the `[0,1]` clamp and the connection threshold after the same *integer* number of events
+    at every level, making topology a step function of the gate. C6 and C7 are searches over exactly
+    such a knob, so a staircase would have them reporting tread edges as a response curve.
+
+    **The instrument, and why it is hashes.** Every trial reduces its whole end state to bit-exact
+    hashes (`scripts/c5-observe.ts`): the *connected set*, every synapse's *permanence bits*, every
+    synapse's *weight bits*, alongside Requirement 12's outcome tallies accumulated over every step
+    (`predictionOutcomeTotals()`, never an end-of-run reading — item 17's lesson). A flat response
+    can mean three different things and an accuracy or a count cannot tell them apart; a hash can:
+    (a) the write never reached the variable — its hash is *identical*; (b) it reached the variable
+    and something downstream absorbed it — the variable's hash *differs* and the downstream one is
+    identical; (c) it is continuous or chaotic — both differ, and only a perturbation test separates
+    those.
+
+    **The gated rule demonstrably fires.** At 6,000 characters seed 1 classifies **50,057** outcomes as
+    "was predicted" (`correct` 49,874, `falsePositive` 183), against **2** on the canonical fixture
+    that item 17 found. So this is the regime the suspicion was about, not the one item 17 ruled out.
+
+    **The permanence path (C3's; dopamine → predictive learning) — the answer is (b), then "inert".**
+
+    | | seeds 1 / 2 / 3, 101 values of a held dopamine level b = 0.50 … 1.50 |
+    |---|---|
+    | connected-set (topology) hash | **1 distinct value per seed** |
+    | accuracy, `correct`, `falsePositive`, `occupied`, `connected` | **1 distinct value per seed** |
+    | permanence hash | **101 distinct** per seed — every b differs |
+    | Σ permanence | strictly monotone: 37,070.8 → 37,206.2 / 35,725.7 → 35,809.7 / 35,876.7 → 35,921.8 |
+    | synapses clamped at exactly 1.0 | steps at **11 / 11 / 9** of 100 grid steps (e.g. 11,085 → 11,233 on seed 1) |
+
+    C3's three time constants reproduce on the same footing: permanence hashes differ across
+    τ = 50 / 200 / 1000 on every seed (Σ permanence 37,162.89 / 37,165.51 / 37,166.08 on seed 1) while
+    the topology, weight and outcome hashes are identical across the three (and to the no-reward
+    reference, except seed 3's weights, which are the b ≈ 1 tread edge below). **So the write reached permanence and
+    differed continuously — it is not the case that nothing was written, and it is not that the
+    difference collapsed onto the same values.** It was absorbed downstream, and downstream is small:
+    **permanence *magnitude* is read in exactly two places in non-test code, the delivery gate
+    (`scheduler.rs`, one site per runtime mode) and the structural prune floor
+    (`structural.rs`).**
+
+    The distribution at the end of seed 1's 6,000 characters shows why neither can be reached (checked
+    from the arrays, `investigate-c5-permanence-distribution.results.txt`): of 80,874 synapses,
+    **40,256 sit at exactly 0.35** (a sprout's birth permanence, never written), **29,141 at exactly
+    0.40** (initial permanence, never written) and **11,133 at exactly 1.0** (the clamp) — 99.6% of
+    the network is independent of the gain, either because it was never touched or because it
+    saturated. The ~344 in between are all far above the 0.3 threshold; **none is sub-threshold and
+    none is near the 0.05 floor.** Reinforce outnumbers punish **272.5 : 1** (49,874 to 183), so
+    permanence is a one-way ratchet that only moves away from the thresholds. There is nothing for a
+    gain to push across a gate.
+
+    **The staircase C3 inferred is real, and located, and invisible.** The clamped-synapse count is
+    exactly the integer-events mechanism: a synapse starting at permanence *p₀* reaches 1.0 after
+    ⌈(1 − *p₀*) / (0.08·b)⌉ reinforcements, so treads sit at b = (1 − *p₀*) / (0.08·n) — the +29 step
+    at b = 0.63 is 12 events from 0.40 (0.625), the +5 at 0.82 is 10 events from 0.35 (0.8125), the
+    +10 at 1.08 is 7 events from 0.40. **One tread edge reaches the connection threshold**, and it is
+    a float tie: `0.35 − 0.05 × 1.0` is `0.29999998` in f32, below the `0.30000001` threshold, while at
+    the level 0.998 that the channel's decay leaves between a reward and the next read (2 ticks at a
+    τ of 1000) it is `0.3001`. Seed 3's weight hash takes
+    exactly two values with one step at b = 1.00, and the synapses behind it were identified rather
+    than guessed (`investigate-c5-tread-edge.results.txt`): **all 67 weights that differ are incoming
+    synapses of a single neuron (34), with identical permanence** — one synapse transiently dropping
+    below threshold, the homeostatic sweep (LRN-6) then renormalising that neuron's whole incoming
+    set. One neuron of 800, a 1e-6 difference in Σ weight, and the end state, accuracy and outcome
+    tallies are identical on either side.
+
+    **Contrast, so this is not read as "permanence can never reach topology":** C3's *raw reward* row,
+    whose level is the hit indicator and so **0 on every miss**, does change it — 80,834 connected
+    against 80,874, 102 / 198 / 592 pruned on seeds 1 / 2 / 3, accuracy 11.95% against 12.40% on seed 1.
+    The permanence path reaches topology when the level's range is large enough to zero the
+    reinforcement; a gain within [0.5, 1.5] does not.
+
+    **What this means for C3's observation and for any future permanence-path search.** The three
+    time constants matched because the network is *insensitive* to permanence magnitude above the
+    threshold, not because the difference was quantised: **a search over a permanence-path gain would
+    report a flat line — not noise, not tread edges, nothing.** That is a different failure from the
+    one C6/C7 were warned about and a more misleading one, because a flat line reads as "the
+    mechanism does nothing" when it is "this variable has two readers and neither is reachable".
+
+    **The weight path (STDP; the knob C6 and C7 act on) — continuous, and searchable.** C6 and C7 do
+    not drive permanence: STDP writes *weight*, so the permanence result says nothing about them, and
+    they were measured through the new hook (nine exactness controls, six at 6,000 characters and
+    three at 15,000: the hook at g = 1.0 reproduces the hook-unset run bit-for-bit on every seed).
+
+    | 6,000 characters, seeds 1 / 2 / 3 | accuracy at g = 0.5 | at 1.0 (shipped) | at 1.5 | adjacent-grid change | span |
+    |---|---|---|---|---|---|
+    | S2: `a_minus` × g (LTP/LTD ratio; C7's knob) | 16.80 / 17.30 / 17.05% | 12.40 / 14.80 / 12.80% | 4.80 / 8.35 / 5.10% | 0.44 / 0.45 / 0.55 | 12.9 / 10.3 / 13.0 pts |
+    | S3: τ and window × g, jointly (C6's knob) | 14.25 / 14.55 / 14.50% | 12.40 / 14.80 / 12.80% | 8.30 / 10.25 / 9.75% | 0.31 / 0.46 / 0.33 | 6.5 / 4.9 / 5.9 pts |
+
+    The counts move by orders of magnitude across S2 (`falsePositive` 207,563 → 0 and `correct`
+    326,249 → 30,829 at g = 1.5, minimum 26,711, on seed 1; the network is in a different regime at
+    g = 0.5, with 6.5× the correct predictions and ~1,000× the false positives) and topology differs at nearly every grid point, so
+    the hash comparison alone would say "different everywhere". **The perturbation test is what says
+    that is *continuous* and not *chaotic*:** nudging g = 1 by 1e-6 leaves topology, accuracy and both
+    outcome counts *identical* (only last-bit weights differ); by 1e-4 moves `correct` 49,874 → 49,831;
+    by 1e-3 → 49,688; by 0.025 → 45,079 (seed 1). The change is proportional to the perturbation —
+    ~1.9×10⁵ counts per unit of g at both 1e-3 and 0.025 — so the network is Lipschitz at this scale,
+    with no sensitive dependence to mistake for structure. The mean adjacent change is 0.03–0.09 of the
+    span, about what a smooth curve sampled at 0.025 gives plus the accuracy estimator's own noise
+    (~0.3–0.5 points).
+
+    **The window's integer staircase (`floor(window × scale)`, §12 decision 16) is not visible at this
+    resolution.** Across S3's 120 adjacent pairs (60 and 60), those that cross a window tread edge
+    (every 0.05 in g) move accuracy by 0.41 points on average against 0.32 for those that do not
+    (Welch *t* = 1.4), with `correct` (5.9% vs 5.3%, *t* = 0.8) and `falsePositive` (23% vs 26%,
+    *t* = −0.6) pointing in opposite directions. Nothing there distinguishes a staircase from none, and
+    that is what decision 16's analysis predicts: the jump at an edge is at most 0.7% of the amplitude.
+
+    **A response measured at one horizon must not be quoted against a figure measured at another —
+    this was nearly the deliverable's most misleading line.** At 6,000 characters *weaker* depression
+    looks like a large win (S2 at g = 0.5: 16.8–17.3% against 12.4–14.8%). Re-measured at the
+    protocol's **15,000 characters** (`.long.results.md`, seeds 1–3, and g = 1.0 reproduces B5's
+    selection-seed figures exactly, 19.85 / 20.50 / 21.10%):
+
+    | `a_minus` × g | 0.5 | 0.75 | **1.0 (B5's shipped ratio 2)** | 1.25 |
+    |---|---|---|---|---|
+    | mean accuracy, 15,000 characters | 11.28% | 16.12% | **20.48%** | 17.18% |
+    | per seed | 13.85, 9.85, 10.15 | 11.75, 18.30, 18.30 | 19.85, 20.50, 21.10 | 16.25, 17.90, 17.40 |
+
+    The lead does not survive; it inverts. Weak depression makes the network predict far more, far
+    earlier (1.17 M correct and 1.32 M false positives by 15,000 characters, against 0.44 M and
+    27,000), and that buys early accuracy at the price of the long run. So the shipped value is the
+    best of these four with both neighbours 3–4 points lower — the peak B5's search found at this
+    protocol, seen from the other side. **This is not a VAL-4 measurement and nothing is adopted**:
+    four points, three seeds, one dimension, and the coarseness means the peak's exact location is
+    unresolved. Its consequence for C7 is a sobering prior rather than a result: a *static* ratio
+    already sits on a measured optimum, so a modulator-driven ratio has to beat a tuned constant, not
+    a strawman.
+
+    **Hot-path cost of the hook (ENG-9, task step 3).** `StdpParams::kernel` precomputes nothing — it
+    already does one division and one `exp()` per event — so a dynamic tau adds no transcendental and
+    there was nothing to quantise or cache. Measured three ways (`benches/core_bench.rs`,
+    `scripts/measure-c5-hook-cost.ts`):
+
+    | | hook unset | one slot | all five slots |
+    |---|---|---|---|
+    | bare kernel, ns per event | 4.0 | 9.4 | 14.3 |
+    | `ThreeFactorStdp::on_post_spike`, ns per event | 29.0 | 28.5 | 30.7 |
+    | **the real VAL-4 workload, 1,500 characters** | 1.286 s | — | **1.317 s (+2.4%)** |
+
+    The bare curve is 2.3–3.6× slower, which is more than "one extra multiply" would predict: five
+    `LevelMap::scale` evaluations are not free against a 4 ns baseline. It is diluted to 0–6% per rule
+    event and **+2.4% of a whole VAL-4 run in the worst case**, with the run bit-identical at the
+    reference level (permanence, weight and topology hashes equal, through the FFI, on the real
+    network). The in-situ network row (14.66 → 14.76 ms) **cannot distinguish anything and is not
+    evidence the hook is free**: that fixture contains 4,387 STDP events per iteration, ~0.9% of its
+    time. **The unset path costs nothing**: the identical baseline source run against a detached
+    worktree at the pre-C5 commit and against this build gives the same kernel time (13.5–13.6 µs) and
+    a rule time no slower (119.0 vs 111.0 µs). A first comparison that put the new bench's `unset` row
+    against that baseline read as a 21% regression and was a benchmark-shape artefact (the new bench
+    wraps the loop in a `match`); it is recorded because the control that caught it is the only reason
+    the number above can be trusted. If a profile ever shows the hook, the scales are constant across a
+    tick and could be hoisted to once per tick; not built.
+
+    **Two of this item's own scripts were wrong first, each caught by a control.** (1) The cost script
+    reported a weight-hash *mismatch* between "hook unset" and "hook at its reference": the harness
+    holds a tonic level by topping it up once per character, so between top-ups it has decayed a few
+    tenths of a percent, the scale is 0.998 and the runs legitimately differ. Fixed with a
+    non-decaying channel in both arms (`exp(-1/1e30)` is exactly 1.0 in f32), as the Rust tests do.
+    (2) A `git stash` to test a pre-existing typecheck failure ran while the sweep's workers were
+    importing `charPrediction.ts` fresh per trial, so any trial spawned in that window would have run
+    the *old* file, with no observation hook and no extra tonic channel. None did — all 567 records
+    carry every observation field, which is what a stale worker could not produce — but that was
+    checked afterwards rather than known, and a stash is not a thing to do under a live worker pool.
+
+    **What C6 and C7 inherit.** The gain on the weight path is a continuous knob, and a search over it
+    is legitimate — *at the protocol's horizon*. Their prompts now say so, and carry the four things
+    above that would otherwise be rediscovered: the response can reverse between horizons; the
+    accuracy readout's own noise is ~0.3–0.5 points against seed-to-seed spreads of 2+; the hash
+    instrument exists to confirm a knob reaches behaviour *before* a search is spent on it (the
+    permanence path would have been a wasted battery); and the reference-level, joint-time-scale and
+    event-time-read semantics of the hook itself (§12 decision 16, HANDOFF fact 16).
 
 ### 13.13 Mechanisms the evidence base names but §3–§9 does not specify
 

@@ -1,0 +1,5 @@
+[2026-09-21 14:11:39] === investigate-c5-staircase: 10 workers, 15000 characters, seeds 1, 2, 3 ===
+[2026-09-21 14:11:39] 15 trials, 0 already measured, 15 to run
+[2026-09-21 14:12:39] [heartbeat] 0/15 done, 1.0 min elapsed, ETA ? min
+[2026-09-21 14:13:39] [heartbeat] 7/15 done, 2.0 min elapsed, ETA 2.3 min
+[2026-09-21 14:14:38] wrote C:\projects\brain\scripts\investigate-c5-staircase.long.results.md

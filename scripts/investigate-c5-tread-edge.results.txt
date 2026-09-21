@@ -1,0 +1,31 @@
+seed 3, 6000 characters; connection threshold 0.3
+0.35 - 0.05 x 1.0 in f32 = 0.29999998211860657  (threshold 0.30000001192092896; below it? true)
+0.35 - 0.05 x 0.998 in f32 = 0.3000999987125397  (the level has decayed ~0.2% by the time it is read)
+synapse slot 90 (source 0 -> target 34, segment 0): weight 0.0175772924 (b=0.99) vs 0.0175830778 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 800 (source 1 -> target 34, segment 1): weight 0.0225900393 (b=0.99) vs 0.0225980319 (b=1.0); permanence 0.400000006 vs 0.400000006
+synapse slot 1680 (source 2 -> target 34, segment 0): weight 0.153531492 (b=0.99) vs 0.153563723 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 3311 (source 4 -> target 34, segment 0): weight 0.0162126236 (b=0.99) vs 0.0162215792 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 4072 (source 5 -> target 34, segment 0): weight 0.306510061 (b=0.99) vs 0.306575269 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 5679 (source 7 -> target 34, segment 0): weight 0.0123678008 (b=0.99) vs 0.0123732556 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 7295 (source 9 -> target 34, segment 0): weight 0.355514199 (b=0.99) vs 0.355591953 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 8898 (source 11 -> target 34, segment 0): weight 0.000779961818 (b=0.99) vs 0.000783137686 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 9681 (source 12 -> target 34, segment 0): weight 0.333925366 (b=0.99) vs 0.333998412 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 12084 (source 15 -> target 34, segment 0): weight 0.346875787 (b=0.99) vs 0.346951425 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 15265 (source 19 -> target 34, segment 0): weight 0.00466571376 (b=0.99) vs 0.00466814265 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 16079 (source 20 -> target 34, segment 0): weight 0.0117586218 (b=0.99) vs 0.0117604882 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 16854 (source 21 -> target 34, segment 0): weight 0.00366467447 (b=0.99) vs 0.00366623141 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 17602 (source 22 -> target 34, segment 1): weight 0.0421962887 (b=0.99) vs 0.0422080383 (b=1.0); permanence 0.400000006 vs 0.400000006
+synapse slot 18404 (source 23 -> target 34, segment 0): weight 0.372555643 (b=0.99) vs 0.372638762 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 20051 (source 25 -> target 34, segment 0): weight 0.000662715349 (b=0.99) vs 0.000662739330 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 20896 (source 26 -> target 34, segment 0): weight 0.0483711436 (b=0.99) vs 0.0483759865 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 24085 (source 30 -> target 34, segment 0): weight 0.256252676 (b=0.99) vs 0.256312996 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 26504 (source 33 -> target 34, segment 0): weight 0.0128180971 (b=0.99) vs 0.0118977288 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 28089 (source 35 -> target 34, segment 0): weight 0.0171760060 (b=0.99) vs 0.0171826389 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 29685 (source 37 -> target 34, segment 0): weight 0.00473156432 (b=0.99) vs 0.00473450450 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 31287 (source 39 -> target 34, segment 0): weight 0.0258525070 (b=0.99) vs 0.0258607939 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 32096 (source 40 -> target 34, segment 0): weight 0.0386875086 (b=0.99) vs 0.0381224900 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 40922 (source 51 -> target 34, segment 0): weight 0.00424222089 (b=0.99) vs 0.00424241461 (b=1.0); permanence 1.00000000 vs 1.00000000
+synapse slot 41674 (source 52 -> target 34, segment 0): weight 0.351367265 (b=0.99) vs 0.351443082 (b=1.0); permanence 1.00000000 vs 1.00000000
+
+targets of ALL 67 synapses whose weight differs (target neuron -> count): [[34,67]]
+synapses whose WEIGHT differs: 67 (of which permanence is identical: 67); synapses whose permanence differs: 109

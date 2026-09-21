@@ -1,0 +1,25 @@
+[2026-09-21 13:53:24] === investigate-c5-staircase: 14 workers, 6000 characters, seeds 1, 2, 3 ===
+[2026-09-21 13:53:24] 567 trials, 0 already measured, 567 to run
+[2026-09-21 13:54:24] [heartbeat] 28/567 done, 1.0 min elapsed, ETA 19.3 min
+[2026-09-21 13:55:24] [heartbeat] 56/567 done, 2.0 min elapsed, ETA 18.3 min
+[2026-09-21 13:56:24] [heartbeat] 84/567 done, 3.0 min elapsed, ETA 17.3 min
+[2026-09-21 13:57:24] [heartbeat] 126/567 done, 4.0 min elapsed, ETA 14.0 min
+[2026-09-21 13:58:24] [heartbeat] 154/567 done, 5.0 min elapsed, ETA 13.4 min
+[2026-09-21 13:59:24] [heartbeat] 182/567 done, 6.0 min elapsed, ETA 12.7 min
+[2026-09-21 14:00:24] [heartbeat] 212/567 done, 7.0 min elapsed, ETA 11.7 min
+[2026-09-21 14:01:24] [heartbeat] 252/567 done, 8.0 min elapsed, ETA 10.0 min
+[2026-09-21 14:02:24] [heartbeat] 280/567 done, 9.0 min elapsed, ETA 9.2 min
+[2026-09-21 14:03:25] [heartbeat] 309/567 done, 10.0 min elapsed, ETA 8.4 min
+[2026-09-21 14:04:25] [heartbeat] 336/567 done, 11.0 min elapsed, ETA 7.6 min
+[2026-09-21 14:05:25] [heartbeat] 364/567 done, 12.0 min elapsed, ETA 6.7 min
+[2026-09-21 14:06:25] [heartbeat] 402/567 done, 13.0 min elapsed, ETA 5.3 min
+[2026-09-21 14:07:25] [heartbeat] 434/567 done, 14.0 min elapsed, ETA 4.3 min
+[2026-09-21 14:08:25] [heartbeat] 462/567 done, 15.0 min elapsed, ETA 3.4 min
+[2026-09-21 14:09:25] [heartbeat] 490/567 done, 16.0 min elapsed, ETA 2.5 min
+[2026-09-21 14:10:25] [heartbeat] 525/567 done, 17.0 min elapsed, ETA 1.4 min
+[2026-09-21 14:11:25] [heartbeat] 560/567 done, 18.0 min elapsed, ETA 0.2 min
+[2026-09-21 14:11:30] wrote C:\projects\brain\scripts\investigate-c5-staircase.results.md
+[2026-09-21 14:11:39] === investigate-c5-staircase: 7 workers, 6000 characters, seeds 1, 2, 3 ===
+[2026-09-21 14:11:39] 585 trials, 567 already measured, 18 to run
+[2026-09-21 14:12:39] [heartbeat] 9/18 done, 1.0 min elapsed, ETA 1.0 min
+[2026-09-21 14:13:06] wrote C:\projects\brain\scripts\investigate-c5-staircase.results.md

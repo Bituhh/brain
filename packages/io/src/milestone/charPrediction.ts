@@ -283,6 +283,16 @@ export interface CharPredictionConfig {
    */
   readonly tonicModulator?: { readonly channel: number; readonly level: number };
   /**
+   * Further channels held at a constant level, alongside `tonicModulator`
+   * (PLAN.md C5). Added because a measurement that sweeps one channel's level
+   * -- the staircase sweep, and C6/C7 after it -- must hold the *other* channel
+   * the shipped rule already depends on (acetylcholine, at 1.0, routing the
+   * three-factor rule) at its constant while it does so, and `tonicModulator`
+   * holds only one. Same semantics per entry, and the same requirement that
+   * `plasticity` be configured. `undefined` (default) changes nothing.
+   */
+  readonly extraTonicModulators?: readonly { readonly channel: number; readonly level: number }[];
+  /**
    * PLAN.md C2: drives noradrenaline (unexpected uncertainty) and
    * acetylcholine (expected uncertainty) from the network's own
    * prediction-failure rate, instead of holding a channel at a constant by
@@ -765,7 +775,20 @@ export const PROGRESS_EVERY_CHARACTERS = 250;
  * `SlidingWindowAccuracy` over the same window so the comparison is
  * apples-to-apples (Requirement 13.3).
  */
-export function runCharPredictionTrial(corpus: string, seed: bigint, config: CharPredictionConfig = DEFAULT_CONFIG, onProgress?: TrialProgress): TrialResult {
+export function runCharPredictionTrial(
+  corpus: string,
+  seed: bigint,
+  config: CharPredictionConfig = DEFAULT_CONFIG,
+  onProgress?: TrialProgress,
+  /**
+   * Called once, after the last character, with the live simulation -- for a
+   * measurement that needs the end state (synapse arrays, outcome totals) and
+   * would otherwise have to re-implement this loop and risk drifting from it
+   * (PLAN.md C5's staircase sweep). Read-only by convention; `undefined`
+   * (every other caller) changes nothing.
+   */
+  inspect?: (sim: Simulation) => void,
+): TrialResult {
   const encoderConfig = charEncoderConfig(config.width, config.density);
   const candidates = buildCandidates(encoderConfig);
   const { sim, column } = buildNetwork(
@@ -831,6 +854,18 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
   if (tonic !== undefined && tonicTau !== undefined) {
     sim.injectModulator(tonic.channel, tonic.level);
   }
+  // PLAN.md C5: the same hold, per extra channel, after the primary one so a run
+  // with none configured executes exactly the statements above and no others.
+  const extraTonics = (config.extraTonicModulators ?? []).map((held) => {
+    if (held.channel === tonic?.channel || config.predictionErrorCoupling?.unexpected?.channel === held.channel || config.predictionErrorCoupling?.expected?.channel === held.channel) {
+      throw new Error(`channel ${held.channel} in extraTonicModulators is already held or driven elsewhere; a second writer would fight the first every character (PLAN.md C2/C5)`);
+    }
+    const tau = config.plasticity?.modulatorTauTicks[held.channel];
+    return { ...held, topUp: tau !== undefined ? held.level * (1 - Math.exp(-config.ticksPerInput / tau)) : 0, live: tau !== undefined };
+  });
+  for (const held of extraTonics) {
+    if (held.live) sim.injectModulator(held.channel, held.level);
+  }
 
   for (const step of streamThrough<CharNext, string>({
     source,
@@ -847,6 +882,9 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
     networkAcc.record(hit);
     if (tonic !== undefined && tonicTopUp > 0) {
       sim.injectModulator(tonic.channel, tonicTopUp);
+    }
+    for (const held of extraTonics) {
+      if (held.topUp > 0) sim.injectModulator(held.channel, held.topUp);
     }
     // Requirement 2 AC2: closes the "never called at all" gap found during
     // this spec's own research -- `undefined` (default) skips this
@@ -901,6 +939,8 @@ export function runCharPredictionTrial(corpus: string, seed: bigint, config: Cha
       onProgress(charactersDone, source.length);
     }
   }
+
+  inspect?.(sim);
 
   return {
     seed,

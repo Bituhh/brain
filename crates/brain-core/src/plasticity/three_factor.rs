@@ -25,7 +25,7 @@
 //! with everything else in this engine only doing work when something
 //! happens (Requirement 5.1).
 
-use super::stdp::StdpParams;
+use super::stdp::{StdpModulation, StdpParams};
 use super::{LocalContext, NeuronLocal, PlasticityRule, SynapseMut};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -62,6 +62,20 @@ pub struct ThreeFactorParams {
     /// which is itself a broadcast scalar carrying no per-synapse routing
     /// information (LRN-5, invariant 2).
     pub gain_modulator_index: Option<usize>,
+    /// Which of `stdp`'s five constants the ambient neuromodulator level moves
+    /// (PLAN.md C5, LRN-2/LRN-5) -- the amplitude ratio, the time constants and
+    /// the window, rather than the *magnitude* of the update that
+    /// `modulator_index`/`gain_modulator_index` scale. `None` -- every
+    /// pre-existing caller, and what [`ThreeFactorParams::new`] sets -- takes
+    /// [`StdpParams::kernel`] unchanged, so nothing that does not opt in can
+    /// notice this field exists (Requirement 5.2).
+    ///
+    /// Independent of the two channels above: those decide how strongly the
+    /// *eligibility already accumulated* is cashed into weight, this decides
+    /// what curve turns a spike pair into eligibility in the first place. The
+    /// level is read at the instant the kernel is evaluated and the result is
+    /// stored in eligibility, not rescaled when the level later moves.
+    pub stdp_modulation: Option<StdpModulation>,
 }
 
 impl ThreeFactorParams {
@@ -74,6 +88,7 @@ impl ThreeFactorParams {
             learning_rate,
             modulator_index,
             gain_modulator_index: None,
+            stdp_modulation: None,
         }
     }
 
@@ -84,6 +99,15 @@ impl ThreeFactorParams {
     pub fn with_gain_channel(mut self, index: usize) -> Self {
         debug_assert!(index < super::NUM_MODULATORS);
         self.gain_modulator_index = Some(index);
+        self
+    }
+
+    /// PLAN.md C5: lets the ambient neuromodulator level shape the STDP curve
+    /// itself -- see [`Self::stdp_modulation`]. An all-unset `modulation` is
+    /// stored as `None`, so "configured with nothing" and "not configured" are
+    /// the same code path rather than two paths that happen to agree.
+    pub fn with_stdp_modulation(mut self, modulation: StdpModulation) -> Self {
+        self.stdp_modulation = if modulation.is_none() { None } else { Some(modulation) };
         self
     }
 }
@@ -105,6 +129,17 @@ impl ThreeFactorStdp {
             }
         }
         *syn.eligibility_updated_at = tick;
+    }
+
+    /// This event's STDP contribution: the configured curve, or -- only if
+    /// `stdp_modulation` was set -- that curve as the ambient level currently
+    /// shapes it. The unset arm is the exact pre-C5 call.
+    #[inline]
+    fn kernel(&self, dt: f32, ctx: &LocalContext) -> f32 {
+        match &self.params.stdp_modulation {
+            None => self.params.stdp.kernel(dt),
+            Some(modulation) => self.params.stdp.kernel_modulated(dt, &ctx.modulators, modulation),
+        }
     }
 
     fn apply_modulated_update(&self, syn: &mut SynapseMut<'_>, ctx: &LocalContext) {
@@ -130,7 +165,7 @@ impl PlasticityRule for ThreeFactorStdp {
             // (this delivery *is* pre's spike arriving now), so dt <= 0:
             // the anti-causal / depression side, by construction.
             let dt = ctx.post.last_spike as f32 - ctx.tick as f32;
-            *syn.eligibility += self.params.stdp.kernel(dt);
+            *syn.eligibility += self.kernel(dt, ctx);
         }
         self.apply_modulated_update(&mut syn, ctx);
         *syn.last_active = ctx.tick;
@@ -143,7 +178,7 @@ impl PlasticityRule for ThreeFactorStdp {
             // t_pre == this synapse's last delivery, so dt >= 0: the
             // causal / potentiation side, by construction.
             let dt = ctx.tick as f32 - *syn.last_active as f32;
-            *syn.eligibility += self.params.stdp.kernel(dt);
+            *syn.eligibility += self.kernel(dt, ctx);
         }
         self.apply_modulated_update(&mut syn, ctx);
         // Deliberately not touching last_active here: it strictly tracks
@@ -154,6 +189,7 @@ impl PlasticityRule for ThreeFactorStdp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plasticity::stdp::LevelMap;
     use crate::plasticity::NUM_MODULATORS;
 
     fn stdp() -> StdpParams {
@@ -275,6 +311,81 @@ mod tests {
         rule.on_delivery(fx.syn(), &ctx(never_spiked(), never_spiked(), [0.0; NUM_MODULATORS], 500));
         assert!(fx.eligibility < after_first, "eligibility must decay over the elapsed gap");
         assert!(fx.eligibility > 0.0, "decay should be partial, not instantaneous, over a finite gap");
+    }
+
+    // ---- PLAN.md C5 ----
+
+    /// Channel 2 drives the curve; channel 0 is the routing channel the rule
+    /// already had. Kept apart on purpose: if the hook and the routing channel
+    /// shared one, "the curve responded" and "the update was gated" would be one
+    /// observation.
+    fn modulated(map_channel: usize) -> ThreeFactorParams {
+        let map = LevelMap::new(map_channel, 1.0, 1.0, 0.0, 8.0);
+        ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0).with_stdp_modulation(StdpModulation::new(Some(map), Some(map), None, None, None).unwrap())
+    }
+
+    fn one_causal_pair(params: ThreeFactorParams, modulators: [f32; NUM_MODULATORS]) -> (f32, f32) {
+        let rule = ThreeFactorStdp::new(params);
+        let mut fx = Fixture::new();
+        fx.last_active = 10;
+        rule.on_post_spike(fx.syn(), &ctx(never_spiked(), spiked_at(15), modulators, 15));
+        (fx.eligibility, fx.weight)
+    }
+
+    #[test]
+    fn an_all_unset_modulation_is_stored_as_none() {
+        let p = ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0).with_stdp_modulation(StdpModulation::NONE);
+        assert_eq!(p.stdp_modulation, None);
+        assert_eq!(p, ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0));
+    }
+
+    #[test]
+    fn the_hook_unset_is_bit_identical_to_the_pre_c5_rule() {
+        let plain = ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0);
+        let empty = plain.with_stdp_modulation(StdpModulation::NONE);
+        for level in [0.0, 0.3, 1.0, 2.5] {
+            let m = [1.0, level, level, level];
+            let (e0, w0) = one_causal_pair(plain, m);
+            let (e1, w1) = one_causal_pair(empty, m);
+            assert_eq!((e0.to_bits(), w0.to_bits()), (e1.to_bits(), w1.to_bits()));
+        }
+    }
+
+    #[test]
+    fn a_mapped_channel_changes_the_eligibility_a_pair_lays_down() {
+        let params = modulated(2);
+        let (at_reference, _) = one_causal_pair(params, [1.0, 1.0, 1.0, 1.0]);
+        let (doubled, _) = one_causal_pair(params, [1.0, 1.0, 2.0, 1.0]);
+        assert_eq!(at_reference.to_bits(), stdp().kernel(5.0).to_bits(), "at the reference level the curve is the configured one");
+        assert!((doubled - 2.0 * at_reference).abs() < 1e-6, "level 2.0 doubles a_plus: {doubled} vs {at_reference}");
+    }
+
+    /// VAL-9's ablation shape: with the hook unset, the mapped channel is not read
+    /// at all -- the *same* level change that moved the curve above changes nothing.
+    #[test]
+    fn without_the_hook_the_same_level_change_is_invisible() {
+        let plain = ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0);
+        let (a, wa) = one_causal_pair(plain, [1.0, 1.0, 1.0, 1.0]);
+        let (b, wb) = one_causal_pair(plain, [1.0, 1.0, 2.0, 1.0]);
+        assert_eq!((a.to_bits(), wa.to_bits()), (b.to_bits(), wb.to_bits()));
+    }
+
+    /// The level is read when the kernel is evaluated and stored in eligibility;
+    /// a later change in the level must not rescale what was already laid down
+    /// (c5-design.md §4). Two events, level 2.0 then 0.5, tick-adjacent so decay
+    /// is a single known factor.
+    #[test]
+    fn eligibility_laid_down_under_one_level_is_not_rescaled_by_the_next() {
+        let params = modulated(2);
+        let rule = ThreeFactorStdp::new(params);
+        let mut fx = Fixture::new();
+        fx.last_active = 10;
+        rule.on_post_spike(fx.syn(), &ctx(never_spiked(), spiked_at(15), [0.0, 0.0, 2.0, 0.0], 15));
+        let first = fx.eligibility;
+        assert!((first - 2.0 * stdp().kernel(5.0)).abs() < 1e-6);
+        rule.on_post_spike(fx.syn(), &ctx(never_spiked(), spiked_at(16), [0.0, 0.0, 0.5, 0.0], 16));
+        let expected = first * params.eligibility_decay_per_tick + 0.5 * stdp().kernel(6.0);
+        assert!((fx.eligibility - expected).abs() < 1e-6, "got {}, expected {expected}", fx.eligibility);
     }
 
     #[test]

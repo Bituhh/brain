@@ -19,7 +19,7 @@ use brain_core::partition::{PartitionPlan, PartitionRuntime};
 use brain_core::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
 use brain_core::plasticity::newborn::{NewbornMaturationParams, NewbornWiringParams};
 use brain_core::plasticity::predictive::{PredictiveLearningParams, SegmentLearningTarget};
-use brain_core::plasticity::stdp::StdpParams;
+use brain_core::plasticity::stdp::{LevelMap, StdpModulation, StdpModulationError, StdpParams};
 use brain_core::plasticity::structural::{SproutTimingWindow, StructuralPlasticity, StructuralPlasticityParams};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::RuleChain;
@@ -854,6 +854,67 @@ pub struct StdpConfig {
     pub window_ticks: u32,
 }
 
+/// One STDP quantity's mapping from a broadcast neuromodulator level to a
+/// scale (PLAN.md C5, `stdp.rs`'s `LevelMap`):
+/// `scale = clamp(1 + gain x (level - reference), min, max)`, and the
+/// configured constant is multiplied by it. At `level == reference` the scale is
+/// exactly 1.0, so the configured `StdpConfig` keeps meaning "the resting curve".
+#[napi(object)]
+pub struct LevelMapConfig {
+    /// `0` DOPAMINE, `1` ACETYLCHOLINE, `2` NORADRENALINE, `3` SEROTONIN --
+    /// `modulatorLevels`' channel order.
+    pub channel: u32,
+    pub reference: f64,
+    pub gain: f64,
+    pub min: f64,
+    pub max: f64,
+}
+
+/// Which of `StdpConfig`'s five constants a neuromodulator level moves (PLAN.md
+/// C5). Omit a slot to keep that constant fixed; omit the whole object to leave
+/// the curve exactly as configured, matching every pre-C5 caller.
+///
+/// `aPlus`/`aMinus` may cross zero if their `min` does (a negative scale inverts
+/// that side's sign). `tauPlus`/`tauMinus`/`windowTicks` must have `min > 0`.
+/// Scaling a tau alone is capped by the window -- a tail cut at `windowTicks`
+/// cannot get wider than the window -- so a caller widening the curve should map
+/// all three.
+#[napi(object)]
+pub struct StdpModulationConfig {
+    pub a_plus: Option<LevelMapConfig>,
+    pub a_minus: Option<LevelMapConfig>,
+    pub tau_plus: Option<LevelMapConfig>,
+    pub tau_minus: Option<LevelMapConfig>,
+    pub window_ticks: Option<LevelMapConfig>,
+}
+
+impl LevelMapConfig {
+    fn resolve(&self) -> LevelMap {
+        LevelMap::new(self.channel as usize, self.reference as f32, self.gain as f32, self.min as f32, self.max as f32)
+    }
+}
+
+impl StdpModulationConfig {
+    fn resolve(&self) -> Result<StdpModulation> {
+        StdpModulation::new(
+            self.a_plus.as_ref().map(LevelMapConfig::resolve),
+            self.a_minus.as_ref().map(LevelMapConfig::resolve),
+            self.tau_plus.as_ref().map(LevelMapConfig::resolve),
+            self.tau_minus.as_ref().map(LevelMapConfig::resolve),
+            self.window_ticks.as_ref().map(LevelMapConfig::resolve),
+        )
+        .map_err(|e| {
+            let why = match e {
+                StdpModulationError::ChannelOutOfRange => "a channel is not below the number of neuromodulator channels",
+                StdpModulationError::NotFinite => "a reference, gain, min or max is NaN or infinite",
+                StdpModulationError::EmptyRange => "a map's min exceeds its max",
+                StdpModulationError::NonPositiveTimingScale => "a tauPlus/tauMinus/windowTicks map has min <= 0, so its scale could reach zero",
+            };
+            Error::from_reason(format!("stdpModulation: {why}"))
+        })
+    }
+}
+
 /// Local plasticity (LRN-1 to LRN-5, Requirement 8): STDP plus eligibility
 /// traces plus the three-factor modulated update. **Phase 5 finding**: no
 /// version of this configuration crossed the FFI before this phase --
@@ -880,6 +941,12 @@ pub struct PlasticityConfig {
     /// `PredictiveLearningConfig.gainModulatorIndex` for why routing and
     /// scaling are separate fields.
     pub gain_modulator_channel: Option<u32>,
+    /// Lets a neuromodulator level shape the STDP *curve* -- amplitude ratio,
+    /// time constants, window -- rather than scale the update (PLAN.md C5,
+    /// LRN-2/LRN-5). Omit to leave `stdp` exactly as configured, matching every
+    /// pre-C5 caller bit-for-bit. Independent of `modulatorChannel` and
+    /// `gainModulatorChannel`, which scale the magnitude of the update.
+    pub stdp_modulation: Option<StdpModulationConfig>,
     /// One decay time constant per neuromodulator channel, in ticks, in
     /// the same `DOPAMINE`/`ACETYLCHOLINE`/`NORADRENALINE`/`SEROTONIN`
     /// order `modulatorLevels` returns -- must have exactly four entries.
@@ -924,6 +991,9 @@ impl PlasticityConfig {
                 )));
             }
             rule_params = rule_params.with_gain_channel(gain as usize);
+        }
+        if let Some(modulation) = &self.stdp_modulation {
+            rule_params = rule_params.with_stdp_modulation(modulation.resolve()?);
         }
         Ok(ResolvedPlasticity { rule_params, modulator_tau_ticks })
     }

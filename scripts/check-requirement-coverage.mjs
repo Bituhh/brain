@@ -117,6 +117,13 @@ const DEFERRED = new Set([
   'ENG-3',
   // ENG-9 (hot-path discipline: no allocation per tick, no panics in the core loop): no lint
   // (e.g. `clippy::unwrap_used`) or test currently enforces either half of this.
+  //
+  // 2026-09-21 (PLAN.md C5): this checker now reports ENG-9 as "covered" because C5's tests and
+  // bench cite the id. It stays deferred, for RUN-6's reason above -- a test citing an id is not a
+  // test of what the id requires. What those citations are: `stdp.rs`'s NaN-level and construction-
+  // refusal tests (the modulated kernel cannot panic or produce a NaN, by construction), and
+  // `benches/core_bench.rs`'s `stdp_*` groups (the hook's hot-path cost, measured). Neither is an
+  // allocation test, and no-allocation-per-tick is still enforced by nothing.
   'ENG-9',
   // VAL-5 (layered test suite), VAL-10 (traceability), VAL-11 (fast/slow split): each describes
   // the shape of the test suite / tooling itself, satisfied by that shape existing (this script

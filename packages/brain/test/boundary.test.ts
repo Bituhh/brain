@@ -1493,3 +1493,76 @@ test("TypeScript strict mode is enabled and the FFI surface names no `any` (Requ
     assert.doesNotMatch(source, /:\s*any\b|<any>|\bas any\b/, `${relative} must not name \`any\` at the FFI boundary`);
   }
 });
+
+// -- PLAN.md C5 (LRN-2, LRN-5): a neuromodulator level shaping the STDP curve itself.
+
+const NORADRENALINE = 2;
+
+/** Every channel but noradrenaline decays at 1000 ticks; noradrenaline never does, so an injected level stays exactly that level -- the only way to hold a channel *exactly* at a map's `reference`. */
+const NA_NEVER_DECAYS = [1000, 1000, 1.0e30, 1000];
+
+function stdpModulationOptions(stdpModulation?: NonNullable<SimulationOptions["plasticity"]>["stdpModulation"]): SimulationOptions {
+  return {
+    maxDelay: 2,
+    connectionThreshold: 0.1,
+    synapseCapPerNeuron: 1,
+    plasticity: {
+      stdp: { aPlus: 0.02, aMinus: 0.02, tauPlus: 20, tauMinus: 20, windowTicks: 100 },
+      tauEligibilityTicks: 500,
+      learningRate: 1.0,
+      modulatorChannel: 0, // DOPAMINE, held below: this is the routing channel, kept apart from the one under test
+      modulatorTauTicks: NA_NEVER_DECAYS,
+      ...(stdpModulation !== undefined && { stdpModulation }),
+    },
+  };
+}
+
+/** Three causal pre-then-post pairings on one synapse, with noradrenaline held at `naLevel`; returns the synapse's final weight. */
+function weightAfterTraining(options: SimulationOptions, naLevel: number): number {
+  const sim = Simulation.create({ tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 }, options);
+  const a = sim.allocateNeuron(0.1, 1);
+  const b = sim.allocateNeuron(0.1, 1);
+  sim.connect(a, b, 0, 1, 0.3);
+  sim.injectModulator(0, 1.0);
+  sim.injectModulator(NORADRENALINE, naLevel);
+  for (let round = 0; round < 3; round++) {
+    sim.stimulate(a, 10.0);
+    sim.step();
+    sim.stimulate(b, 10.0);
+    sim.step();
+  }
+  const occupied = sim.synapseOccupiedView();
+  const slot = occupied.findIndex((o) => o === 1);
+  assert.ok(slot >= 0, "the trained synapse must exist");
+  return sim.synapseWeightView()[slot]!;
+}
+
+const amplitudeMap = { channel: NORADRENALINE, reference: 1.0, gain: 1.0, min: 0.0, max: 8.0 };
+
+test("PlasticityConfig.stdpModulation: a mapped level reaches the kernel through the real addon, and unset changes nothing (LRN-2, PLAN.md C5)", () => {
+  const unset = stdpModulationOptions();
+  const mapped = stdpModulationOptions({ aPlus: amplitudeMap });
+
+  const atReference = weightAfterTraining(mapped, 1.0);
+  assert.equal(atReference, weightAfterTraining(unset, 1.0), "with the channel exactly at the map's reference the scale is 1.0, so the run must be bit-identical to the hook unset");
+
+  const doubled = weightAfterTraining(mapped, 2.0);
+  assert.ok(doubled > atReference, `a level of 2.0 doubles a_plus, so causal pairing must potentiate more: ${doubled} vs ${atReference}`);
+
+  // VAL-9's ablation shape: with the hook unset the same level change reaches nothing, because nothing reads the channel.
+  assert.equal(weightAfterTraining(unset, 2.0), weightAfterTraining(unset, 0.5), "hook unset: noradrenaline is read by nothing, so its level cannot matter");
+});
+
+test("PlasticityConfig.stdpModulation: an unusable map is refused at construction with a clean error, not a panic (ENG-9)", () => {
+  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
+  const refused = (stdpModulation: NonNullable<SimulationOptions["plasticity"]>["stdpModulation"], because: RegExp) =>
+    assert.throws(() => Simulation.create(lif, stdpModulationOptions(stdpModulation)), because);
+
+  refused({ aPlus: { ...amplitudeMap, channel: 4 } }, /stdpModulation: .*channel/);
+  refused({ aPlus: { ...amplitudeMap, gain: Number.NaN } }, /stdpModulation: .*NaN or infinite/);
+  refused({ aPlus: { ...amplitudeMap, min: 5.0, max: 1.0 } }, /stdpModulation: .*min exceeds its max/);
+  // A time constant or window that could reach zero is refused; an amplitude that can is allowed (a sign inversion is C6's/C7's call).
+  refused({ tauPlus: { ...amplitudeMap, min: 0.0 } }, /stdpModulation: .*min <= 0/);
+  refused({ windowTicks: { ...amplitudeMap, min: -1.0 } }, /stdpModulation: .*min <= 0/);
+  assert.doesNotThrow(() => Simulation.create(lif, stdpModulationOptions({ aMinus: { ...amplitudeMap, min: -1.0 } })));
+});

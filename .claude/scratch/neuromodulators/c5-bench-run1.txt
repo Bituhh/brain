@@ -1,0 +1,119 @@
+    Finished `bench` profile [optimized + debuginfo] target(s) in 0.14s
+     Running benches\core_bench.rs (target\release\deps\core_bench-f31aaa94bfd4528a.exe)
+Gnuplot not found, using plotters backend
+cross_partition_fraction: 2 partitions -> 0.0118 cross-partition edge fraction
+cross_partition_fraction: 4 partitions -> 0.0236 cross-partition edge fraction
+cross_partition_fraction: 8 partitions -> 0.0471 cross-partition edge fraction
+cross_partition_fraction: 16 partitions -> 0.0942 cross-partition edge fraction
+Benchmarking stdp_kernel/unset
+Benchmarking stdp_kernel/unset: Warming up for 3.0000 s
+Benchmarking stdp_kernel/unset: Collecting 100 samples in estimated 5.0029 s (323k iterations)
+Benchmarking stdp_kernel/unset: Analyzing
+stdp_kernel/unset       time:   [15.991 µs 16.513 µs 17.090 µs]
+                        thrpt:  [239.67 Melem/s 248.04 Melem/s 256.15 Melem/s]
+Found 7 outliers among 100 measurements (7.00%)
+  5 (5.00%) high mild
+  2 (2.00%) high severe
+Benchmarking stdp_kernel/a_minus_only
+Benchmarking stdp_kernel/a_minus_only: Warming up for 3.0000 s
+Benchmarking stdp_kernel/a_minus_only: Collecting 100 samples in estimated 5.1851 s (131k iterations)
+Benchmarking stdp_kernel/a_minus_only: Analyzing
+stdp_kernel/a_minus_only
+                        time:   [38.283 µs 38.607 µs 39.009 µs]
+                        thrpt:  [105.00 Melem/s 106.09 Melem/s 106.99 Melem/s]
+Found 5 outliers among 100 measurements (5.00%)
+  2 (2.00%) high mild
+  3 (3.00%) high severe
+Benchmarking stdp_kernel/joint_time_scale
+Benchmarking stdp_kernel/joint_time_scale: Warming up for 3.0000 s
+Benchmarking stdp_kernel/joint_time_scale: Collecting 100 samples in estimated 5.2589 s (101k iterations)
+Benchmarking stdp_kernel/joint_time_scale: Analyzing
+stdp_kernel/joint_time_scale
+                        time:   [39.622 µs 40.755 µs 42.171 µs]
+                        thrpt:  [97.129 Melem/s 100.50 Melem/s 103.38 Melem/s]
+Benchmarking stdp_kernel/all_five
+Benchmarking stdp_kernel/all_five: Warming up for 3.0000 s
+Benchmarking stdp_kernel/all_five: Collecting 100 samples in estimated 5.0930 s (101k iterations)
+Benchmarking stdp_kernel/all_five: Analyzing
+stdp_kernel/all_five    time:   [58.252 µs 58.721 µs 59.233 µs]
+                        thrpt:  [69.150 Melem/s 69.754 Melem/s 70.315 Melem/s]
+Found 5 outliers among 100 measurements (5.00%)
+  3 (3.00%) high mild
+  2 (2.00%) high severe
+
+Benchmarking stdp_rule_per_event/unset
+Benchmarking stdp_rule_per_event/unset: Warming up for 3.0000 s
+Benchmarking stdp_rule_per_event/unset: Collecting 100 samples in estimated 5.5208 s (35k iterations)
+Benchmarking stdp_rule_per_event/unset: Analyzing
+stdp_rule_per_event/unset
+                        time:   [117.56 µs 118.57 µs 119.77 µs]
+                        thrpt:  [34.199 Melem/s 34.546 Melem/s 34.842 Melem/s]
+Found 5 outliers among 100 measurements (5.00%)
+  2 (2.00%) high mild
+  3 (3.00%) high severe
+Benchmarking stdp_rule_per_event/a_minus_only
+Benchmarking stdp_rule_per_event/a_minus_only: Warming up for 3.0000 s
+Benchmarking stdp_rule_per_event/a_minus_only: Collecting 100 samples in estimated 5.4952 s (35k iterations)
+Benchmarking stdp_rule_per_event/a_minus_only: Analyzing
+stdp_rule_per_event/a_minus_only
+                        time:   [116.11 µs 116.57 µs 117.02 µs]
+                        thrpt:  [35.001 Melem/s 35.137 Melem/s 35.276 Melem/s]
+Found 4 outliers among 100 measurements (4.00%)
+  4 (4.00%) high mild
+Benchmarking stdp_rule_per_event/joint_time_scale
+Benchmarking stdp_rule_per_event/joint_time_scale: Warming up for 3.0000 s
+Benchmarking stdp_rule_per_event/joint_time_scale: Collecting 100 samples in estimated 5.0724 s (35k iterations)
+Benchmarking stdp_rule_per_event/joint_time_scale: Analyzing
+stdp_rule_per_event/joint_time_scale
+                        time:   [118.20 µs 119.01 µs 119.85 µs]
+                        thrpt:  [34.175 Melem/s 34.418 Melem/s 34.654 Melem/s]
+Found 6 outliers among 100 measurements (6.00%)
+  4 (4.00%) high mild
+  2 (2.00%) high severe
+Benchmarking stdp_rule_per_event/all_five
+Benchmarking stdp_rule_per_event/all_five: Warming up for 3.0000 s
+Benchmarking stdp_rule_per_event/all_five: Collecting 100 samples in estimated 5.0879 s (35k iterations)
+Benchmarking stdp_rule_per_event/all_five: Analyzing
+stdp_rule_per_event/all_five
+                        time:   [125.33 µs 125.90 µs 126.52 µs]
+                        thrpt:  [32.375 Melem/s 32.533 Melem/s 32.682 Melem/s]
+Found 3 outliers among 100 measurements (3.00%)
+  2 (2.00%) high mild
+  1 (1.00%) high severe
+
+Benchmarking stdp_in_situ/unset
+Benchmarking stdp_in_situ/unset: Warming up for 3.0000 s
+
+Warning: Unable to complete 20 samples in 5.0s. You may wish to increase target time to 8.7s, enable flat sampling, or reduce sample count to 10.
+Benchmarking stdp_in_situ/unset: Collecting 20 samples in estimated 8.7006 s (210 iterations)
+Benchmarking stdp_in_situ/unset: Analyzing
+stdp_in_situ/unset      time:   [14.559 ms 14.664 ms 14.821 ms]
+Found 2 outliers among 20 measurements (10.00%)
+  1 (5.00%) high mild
+  1 (5.00%) high severe
+Benchmarking stdp_in_situ/a_minus_only
+Benchmarking stdp_in_situ/a_minus_only: Warming up for 3.0000 s
+
+Warning: Unable to complete 20 samples in 5.0s. You may wish to increase target time to 8.7s, enable flat sampling, or reduce sample count to 10.
+Benchmarking stdp_in_situ/a_minus_only: Collecting 20 samples in estimated 8.6582 s (210 iterations)
+Benchmarking stdp_in_situ/a_minus_only: Analyzing
+stdp_in_situ/a_minus_only
+                        time:   [14.683 ms 14.790 ms 14.908 ms]
+Benchmarking stdp_in_situ/joint_time_scale
+Benchmarking stdp_in_situ/joint_time_scale: Warming up for 3.0000 s
+
+Warning: Unable to complete 20 samples in 5.0s. You may wish to increase target time to 8.7s, enable flat sampling, or reduce sample count to 10.
+Benchmarking stdp_in_situ/joint_time_scale: Collecting 20 samples in estimated 8.6571 s (210 iterations)
+Benchmarking stdp_in_situ/joint_time_scale: Analyzing
+stdp_in_situ/joint_time_scale
+                        time:   [14.838 ms 14.922 ms 15.043 ms]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high severe
+Benchmarking stdp_in_situ/all_five
+Benchmarking stdp_in_situ/all_five: Warming up for 3.0000 s
+
+Warning: Unable to complete 20 samples in 5.0s. You may wish to increase target time to 8.5s, enable flat sampling, or reduce sample count to 10.
+Benchmarking stdp_in_situ/all_five: Collecting 20 samples in estimated 8.5023 s (210 iterations)
+Benchmarking stdp_in_situ/all_five: Analyzing
+stdp_in_situ/all_five   time:   [14.630 ms 14.762 ms 14.889 ms]
+

@@ -14,6 +14,9 @@ use brain_core::graph::{DistancePolicy, GraphBuilder};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
+use brain_core::plasticity::stdp::{LevelMap, StdpModulation, StdpParams};
+use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
+use brain_core::plasticity::{LocalContext, NeuronLocal, PlasticityRule, RuleChain, SynapseMut, DOPAMINE, NORADRENALINE, NUM_MODULATORS};
 use brain_core::scheduler::Scheduler;
 use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig};
 use brain_core::synapse::SynapseArena;
@@ -479,12 +482,243 @@ fn bench_locality_realistic_synaptic_events_per_second(c: &mut Criterion) {
     group.finish();
 }
 
+// PLAN.md C5, task step 3 (ENG-9): what does letting a neuromodulator level shape
+// the STDP curve cost on the hot path? `StdpParams::kernel` already does one
+// division and one `exp()` per event -- it precomputes nothing -- so making a tau
+// dynamic swaps `dt / tau` for `dt / (tau * scale)`; no new transcendental. That
+// is an expectation to check, not a result, so it is measured three ways, from the
+// bare arithmetic outward to a whole network:
+//   1. `stdp_kernel`         -- the curve alone, over a fixed dt stream;
+//   2. `stdp_rule_per_event` -- `ThreeFactorStdp::on_post_spike`, i.e. eligibility
+//                               decay + curve + weight update, per event;
+//   3. `stdp_in_situ`        -- a plasticity-enabled network, where the kernel is a
+//                               small share of a tick and memory traffic dominates.
+// Every variant is measured with the hook *unset* as the baseline, because the
+// constraint is that a caller who does not opt in pays nothing.
+
+const KERNEL_EVENTS: usize = 4096;
+
+/// A deterministic stream of integer-valued dts in [-60, 60], both signs, some
+/// beyond a 40-tick window -- so the window test, both branches and the exp() are
+/// all exercised in realistic proportion. No RNG dependency (ENG-6): an LCG.
+fn dt_stream() -> Vec<f32> {
+    let mut x: u32 = 0x9E37_79B9;
+    (0..KERNEL_EVENTS)
+        .map(|_| {
+            x = x.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            ((x >> 16) % 121) as f32 - 60.0
+        })
+        .collect()
+}
+
+fn bench_stdp() -> StdpParams {
+    StdpParams { a_plus: 0.01, a_minus: 0.02, tau_plus: 8.0, tau_minus: 8.0, window_ticks: 40 }
+}
+
+fn amplitude_map() -> LevelMap {
+    LevelMap::new(NORADRENALINE, 1.0, 0.5, 0.0, 4.0)
+}
+
+fn timing_map() -> LevelMap {
+    LevelMap::new(NORADRENALINE, 1.0, 0.5, 0.25, 4.0)
+}
+
+/// The hook variants every group compares, `unset` first.
+fn modulation_variants() -> Vec<(&'static str, Option<StdpModulation>)> {
+    vec![
+        ("unset", None),
+        ("a_minus_only", Some(StdpModulation::new(None, Some(amplitude_map()), None, None, None).unwrap())),
+        ("joint_time_scale", Some(StdpModulation::joint_time_scale(timing_map()).unwrap())),
+        (
+            "all_five",
+            Some(StdpModulation::new(Some(amplitude_map()), Some(amplitude_map()), Some(timing_map()), Some(timing_map()), Some(timing_map())).unwrap()),
+        ),
+    ]
+}
+
+/// The level the modulated kernel reads: off its reference, so no scale is 1.0 and
+/// nothing can be folded away.
+const BENCH_LEVELS: [f32; NUM_MODULATORS] = [1.0, 1.0, 1.7, 1.0];
+
+fn stdp_kernel(c: &mut Criterion) {
+    let mut group = c.benchmark_group("stdp_kernel");
+    group.throughput(Throughput::Elements(KERNEL_EVENTS as u64));
+    let dts = dt_stream();
+    let p = bench_stdp();
+    for (name, modulation) in modulation_variants() {
+        group.bench_function(name, |b| {
+            b.iter(|| {
+                let mut sum = 0.0f32;
+                match &modulation {
+                    None => {
+                        for &dt in &dts {
+                            sum += p.kernel(std::hint::black_box(dt));
+                        }
+                    }
+                    Some(m) => {
+                        let levels = std::hint::black_box(BENCH_LEVELS);
+                        for &dt in &dts {
+                            sum += p.kernel_modulated(std::hint::black_box(dt), &levels, m);
+                        }
+                    }
+                }
+                sum
+            })
+        });
+    }
+    group.finish();
+}
+
+struct RuleState {
+    weight: Vec<f32>,
+    eligibility: Vec<f32>,
+    last_active: Vec<u32>,
+    eligibility_updated_at: Vec<u32>,
+    permanence: Vec<f32>,
+}
+
+fn rule_state() -> RuleState {
+    let n = KERNEL_EVENTS;
+    RuleState {
+        weight: vec![0.5; n],
+        eligibility: vec![0.0; n],
+        last_active: (0..n as u32).map(|i| 1_000 + i % 50).collect(),
+        eligibility_updated_at: vec![1_000; n],
+        permanence: vec![0.5; n],
+    }
+}
+
+/// One `on_post_spike` per synapse, the post spike landing `|dt|` ticks after that
+/// synapse's last delivery -- the same dt stream as above, so the kernel sees
+/// identical inputs to the microbenchmark.
+fn stdp_rule_per_event(c: &mut Criterion) {
+    let mut group = c.benchmark_group("stdp_rule_per_event");
+    group.throughput(Throughput::Elements(KERNEL_EVENTS as u64));
+    let dts: Vec<u32> = dt_stream().iter().map(|d| d.abs() as u32).collect();
+    for (name, modulation) in modulation_variants() {
+        let mut params = ThreeFactorParams::new(bench_stdp(), 50.0, 0.02, 1);
+        if let Some(m) = modulation {
+            params = params.with_stdp_modulation(m);
+        }
+        let rule = ThreeFactorStdp::new(params);
+        group.bench_function(name, |b| {
+            b.iter_batched(
+                rule_state,
+                |mut st| {
+                    // Indexes five parallel arrays and `dts` at once; an iterator over any one of them
+                    // would just re-index the rest.
+                    #[allow(clippy::needless_range_loop)]
+                    for i in 0..KERNEL_EVENTS {
+                        let tick = st.last_active[i] + dts[i];
+                        let ctx = LocalContext {
+                            pre: NeuronLocal::never_spiked(),
+                            post: NeuronLocal { last_spike: tick, trace: 0.0, rate_estimate: 0.0 },
+                            modulators: std::hint::black_box(BENCH_LEVELS),
+                            tick,
+                        };
+                        rule.on_post_spike(
+                            SynapseMut {
+                                permanence: &mut st.permanence[i],
+                                weight: &mut st.weight[i],
+                                eligibility: &mut st.eligibility[i],
+                                last_active: &mut st.last_active[i],
+                                eligibility_updated_at: &mut st.eligibility_updated_at[i],
+                            },
+                            &ctx,
+                        );
+                    }
+                    st.weight[0]
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        });
+    }
+    group.finish();
+}
+
+/// The whole tick loop of a plasticity-enabled network, single scheduler, every
+/// neuron driven (`stimulate_all`'s saturating load): the kernel is now a small
+/// share of a tick, so this is the number that says whether the hook is visible at
+/// all once cache and memory traffic are in the picture.
+fn stdp_in_situ(c: &mut Criterion) {
+    let mut group = c.benchmark_group("stdp_in_situ");
+    group.sample_size(20);
+    let total_neurons = COLUMN_SIZE * COLUMN_COUNT as u32;
+
+    // How many STDP events one iteration contains, reported once: an in-situ
+    // timing means little unless the kernel is actually a share of it. Each spike
+    // is one `on_post_spike` per incoming synapse of the spiker, and each outgoing
+    // synapse of a spiker is one `on_delivery` -- the two callbacks that evaluate
+    // the kernel. (Counted with the hook unset; the event stream is what the hook
+    // would act on, and the hook does not change which events occur at tick 0..50
+    // of a fixed-stimulus run any more than the weights it writes feed back.)
+    {
+        let (mut neurons, mut synapses, _columns) = build_benchmark_network();
+        let params = ThreeFactorParams::new(bench_stdp(), 50.0, 0.02, DOPAMINE);
+        let mut sched = Scheduler::new(4, 0.3)
+            .with_inhibition(FixedNeighbourhoods::new(COLUMN_SIZE, 5))
+            .with_segments(segments())
+            .with_plasticity(RuleChain::new(vec![Box::new(ThreeFactorStdp::new(params))]), [200.0; NUM_MODULATORS]);
+        let lif = lif_params();
+        let (mut deliveries, mut post_spike_callbacks, mut spikes) = (0u64, 0u64, 0u64);
+        for _tick in 0..TICKS_PER_ITERATION {
+            for n in 0..total_neurons {
+                sched.stimulate(&neurons, n, 5.0);
+            }
+            let report = sched.step::<Lif>(&mut neurons, &mut synapses, &lif);
+            for &s in &report.spiked {
+                spikes += 1;
+                deliveries += synapses.occupied_in_block(s).count() as u64;
+                post_spike_callbacks += synapses.incoming(s).count() as u64;
+            }
+        }
+        eprintln!(
+            "stdp_in_situ: per {TICKS_PER_ITERATION}-tick iteration, {spikes} spikes -> {deliveries} deliveries + {post_spike_callbacks} post-spike callbacks = {} kernel-evaluating STDP events",
+            deliveries + post_spike_callbacks
+        );
+    }
+    for (name, modulation) in modulation_variants() {
+        group.bench_function(name, |b| {
+            b.iter_batched(
+                || {
+                    let (neurons, synapses, _columns) = build_benchmark_network();
+                    let mut params = ThreeFactorParams::new(bench_stdp(), 50.0, 0.02, DOPAMINE);
+                    if let Some(m) = modulation {
+                        params = params.with_stdp_modulation(m);
+                    }
+                    let sched = Scheduler::new(4, 0.3)
+                        .with_inhibition(FixedNeighbourhoods::new(COLUMN_SIZE, 5))
+                        .with_segments(segments())
+                        .with_plasticity(RuleChain::new(vec![Box::new(ThreeFactorStdp::new(params))]), [200.0; NUM_MODULATORS]);
+                    (neurons, synapses, sched)
+                },
+                |(mut neurons, mut synapses, mut sched)| {
+                    let params = lif_params();
+                    sched.inject_modulator(DOPAMINE, 1.0);
+                    sched.inject_modulator(NORADRENALINE, 1.7);
+                    for _tick in 0..TICKS_PER_ITERATION {
+                        for n in 0..total_neurons {
+                            sched.stimulate(&neurons, n, 5.0);
+                        }
+                        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+                    }
+                },
+                criterion::BatchSize::LargeInput,
+            )
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_version,
     rayon_vs_pinned_pool,
     bench_synaptic_events_per_second,
     bench_cross_partition_fraction,
-    bench_locality_realistic_synaptic_events_per_second
+    bench_locality_realistic_synaptic_events_per_second,
+    stdp_kernel,
+    stdp_rule_per_event,
+    stdp_in_situ
 );
 criterion_main!(benches);
