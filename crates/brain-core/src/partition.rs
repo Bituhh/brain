@@ -468,6 +468,29 @@ impl PartitionRuntime {
             !schedulers.iter().any(Scheduler::has_reward_prediction_error),
             "a Scheduler's own reward prediction error is wrong inside a PartitionRuntime (one broadcast reward would advance every partition's expectation separately) --              configure it with PartitionRuntime::with_reward_prediction_error, which advances one baseline for the whole network (PLAN.md C3, RUN-6)"
         );
+        // PLAN.md C4, and a third distinct reason again: a *spatial* sprout
+        // reach on Requirement 12.1's burst path (`reach::SproutReach::Spatial`)
+        // is the first thing that makes `predictive.rs`'s own
+        // `owns_source`/`owns` skip reachable in practice, and that skip is
+        // a function of the partition layout -- candidates outside a
+        // partition's range are dropped, so the same network would sprout
+        // different synapses at one partition than at two. That is RUN-3's
+        // "identical across a change in how the graph is partitioned"
+        // clause, so it is refused loudly rather than silently violated.
+        // Lifting this needs the burst path to *perform* cross-partition
+        // sprouts through a deferred, canonically-ordered outbox applied
+        // identically in `Scheduler::step` too -- real machinery, not worth
+        // building before anything measures a spatial burst reach as useful
+        // (README §12 decision 15's own open note). `structural.rs`'s sweep
+        // is unaffected: it runs once globally with the whole arenas
+        // addressable, so a spatial reach there has no partition problem at
+        // all. One partition is exempt because there is no other partition
+        // for a candidate to fall into -- RUN-8's reference path, where this
+        // is bit-identical to a plain `Scheduler`.
+        assert!(
+            plan.partition_count() <= 1 || !schedulers.iter().any(Scheduler::has_spatial_burst_sprout_reach),
+            "a spatial burst-sprout reach (predictive learning, Requirement 12.1) is refused above one partition: the candidate set would be clipped to each partition's own range, so results would depend on the partition count (PLAN.md C4, RUN-3). Use it single-partition, or give only StructuralPlasticity::with_sprout_reach a spatial reach -- that sweep runs once globally and is partition-safe"
+        );
         let boundary_neurons = boundary_neurons(&plan, synapses, neuron_count);
         let pending_post_spike = (0..schedulers.len()).map(|_| Vec::new()).collect();
         Self {

@@ -84,6 +84,7 @@ pub mod offset_slice;
 pub mod partition;
 pub mod plasticity;
 pub mod probe;
+pub mod reach;
 pub mod rng;
 pub mod scheduler;
 pub mod segment;

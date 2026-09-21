@@ -40,6 +40,7 @@
 
 use crate::arena::NeuronArenaViewMut;
 use crate::inhibition::FixedNeighbourhoods;
+use crate::reach::{within_reach, SproutReach};
 use crate::synapse::SynapseArenaViewMut;
 
 /// Which variable predictive learning's reinforce/punish (12.2/12.3) and
@@ -266,7 +267,15 @@ impl PredictionOutcomeCounts {
 
 pub struct PredictiveLearning {
     params: PredictiveLearningParams,
+    /// Only consulted for its `size()`, and only by
+    /// [`SproutReach::IndexBlocks`] -- the *candidate set* half of the job
+    /// `FixedNeighbourhoods` used to do alongside NET-2's k-WTA competition
+    /// group, separated by PLAN.md C4 (README §12 decision 15).
     neighbourhoods: FixedNeighbourhoods,
+    /// Which other neurons 12.1's burst path may sprout *from*
+    /// (`reach.rs`). Defaults to [`SproutReach::IndexBlocks`], every
+    /// pre-C4 caller's behaviour.
+    reach: SproutReach,
 }
 
 impl PredictiveLearning {
@@ -279,7 +288,32 @@ impl PredictiveLearning {
             params.gain_modulator_index.is_none_or(|i| i < crate::plasticity::NUM_MODULATORS),
             "gain_modulator_index must be a valid channel index"
         );
-        Self { params, neighbourhoods }
+        Self { params, neighbourhoods, reach: SproutReach::default() }
+    }
+
+    /// Opts 12.1's burst path into a different [`SproutReach`] (PLAN.md C4,
+    /// README §12 decision 15). Without this call the reach is
+    /// [`SproutReach::IndexBlocks`] and every burst decision is
+    /// bit-identical to before this existed.
+    ///
+    /// **Refused above one partition, deliberately** -- see
+    /// [`Self::sprout_reach`] and `PartitionRuntime::new`. Unlike
+    /// `structural.rs`'s globally-run sweep, this path executes per-neuron
+    /// inside `Scheduler::evaluate_and_resolve` on *partition-scoped*
+    /// views, and a candidate the view does not own is skipped. That skip
+    /// is a function of the partition layout, so allowing a spatial reach
+    /// (which is what first makes the skip reachable at all) across more
+    /// than one partition would silently break RUN-3's "identical across a
+    /// change in how the graph is partitioned" clause. `PartitionRuntime`
+    /// therefore refuses the combination loudly instead.
+    pub fn with_sprout_reach(mut self, reach: SproutReach) -> Self {
+        self.reach = reach;
+        self
+    }
+
+    /// This rule's configured burst-sprout reach.
+    pub fn sprout_reach(&self) -> SproutReach {
+        self.reach
     }
 
     /// `Requirement 1 AC1/AC2`: `None` leaves reinforce/punish deltas at
@@ -403,6 +437,72 @@ impl PredictiveLearning {
         start..(start + size).min(neuron_count)
     }
 
+    /// Reinforces or sprouts one candidate source onto `neuron`'s burst
+    /// segment. Factored out of [`Self::reinforce_or_sprout_burst`] so the
+    /// two reach schemes differ *only* in which sources they present, which
+    /// is what keeps [`SproutReach::IndexBlocks`] bit-identical to every
+    /// pre-C4 run.
+    fn reinforce_or_sprout_from(
+        &self,
+        neurons: &NeuronArenaViewMut,
+        synapses: &mut SynapseArenaViewMut,
+        source: u32,
+        neuron: u32,
+        tick: u32,
+        modulators: crate::plasticity::Modulators,
+    ) {
+        let segment = self.params.burst_target_segment;
+        if source == neuron || !neurons.owns(source) || !synapses.owns_source(source) {
+            // A candidate outside this partition's own range is not a
+            // candidate here -- see `SynapseArenaViewMut::owns_source`'s
+            // doc comment. Under `SproutReach::IndexBlocks` every call site
+            // in this crate keeps neighbourhoods within one partition (the
+            // exit criterion's own `tests/emergent.rs` goes further and
+            // disables this path entirely via a size-1 neighbourhood), so
+            // this branch does not trigger there. Under
+            // `SproutReach::Spatial` it *would*, which is exactly why
+            // `PartitionRuntime::new` refuses that combination above one
+            // partition rather than letting the skip depend on the layout
+            // (PLAN.md C4, RUN-3; see `with_sprout_reach`).
+            return;
+        }
+        let last_spike = neurons.last_spike[source as usize];
+        let recently_active = last_spike != u32::MAX && tick.saturating_sub(last_spike) <= self.params.recently_active_window_ticks;
+        if !recently_active {
+            return;
+        }
+        let existing = synapses.occupied_in_block(source).find(|&id| synapses.target_neuron[id as usize] == neuron && synapses.target_segment[id as usize] == segment);
+        match existing {
+            Some(id) => {
+                // Same `learning_target` as 12.2/12.3 -- see
+                // `adjust_segment`'s doc comment: this is 12.1's
+                // reinforcement of an *existing* dendritic detector, the
+                // same question 12.2/12.3 answer.
+                self.apply_delta(synapses, id, self.params.reinforce_amount * self.modulator_scale(modulators));
+            }
+            None => {
+                // Structural, one-time value -- not a reinforcement
+                // event, so not modulator-scaled (Requirement 1 AC2).
+                if let Ok(id) = synapses.insert(source, neuron, segment, 1, self.params.burst_sprout_permanence, self.params.burst_sprout_weight) {
+                    // PLAN.md B4: a fresh contact is born silent, exactly
+                    // like `StructuralPlasticity::sprout`'s -- see
+                    // `SynapseArena::silent_since`'s doc comment.
+                    synapses.silent_since[id as usize] = tick;
+                }
+                // BlockFull is a legitimate, expected outcome
+                // (Requirement 11.3), matching structural.rs's
+                // convention -- silently skip.
+            }
+        }
+    }
+
+    /// 12.1's burst path: reinforce or sprout from every recently-active
+    /// neuron within `neuron`'s sprout *reach*.
+    ///
+    /// **Both branches visit candidates in ascending index order** (RUN-3),
+    /// never sorted by distance -- under `SproutReach::Spatial` the
+    /// candidate set is *filtered* by distance and *ordered* by index, so
+    /// `insert`'s first-free-slot choice stays reproducible.
     fn reinforce_or_sprout_burst(
         &self,
         neurons: &NeuronArenaViewMut,
@@ -412,46 +512,26 @@ impl PredictiveLearning {
         neuron_count: u32,
         modulators: crate::plasticity::Modulators,
     ) {
-        let segment = self.params.burst_target_segment;
-        for source in self.neighbourhood_range(neuron, neuron_count) {
-            if source == neuron || !neurons.owns(source) || !synapses.owns_source(source) {
-                // A neighbourhood spanning outside this partition's own
-                // range is not a candidate here -- see
-                // `SynapseArenaViewMut::owns_source`'s doc comment. Every
-                // call site in this crate today keeps neighbourhoods
-                // within one partition (the exit criterion's own
-                // `tests/emergent.rs` goes further and disables this path
-                // entirely via a size-1 neighbourhood), so this branch is
-                // not expected to trigger in practice yet.
-                continue;
-            }
-            let last_spike = neurons.last_spike[source as usize];
-            let recently_active = last_spike != u32::MAX && tick.saturating_sub(last_spike) <= self.params.recently_active_window_ticks;
-            if !recently_active {
-                continue;
-            }
-            let existing =
-                synapses.occupied_in_block(source).find(|&id| synapses.target_neuron[id as usize] == neuron && synapses.target_segment[id as usize] == segment);
-            match existing {
-                Some(id) => {
-                    // Same `learning_target` as 12.2/12.3 -- see
-                    // `adjust_segment`'s doc comment: this is 12.1's
-                    // reinforcement of an *existing* dendritic detector, the
-                    // same question 12.2/12.3 answer.
-                    self.apply_delta(synapses, id, self.params.reinforce_amount * self.modulator_scale(modulators));
+        match self.reach {
+            SproutReach::IndexBlocks => {
+                for source in self.neighbourhood_range(neuron, neuron_count) {
+                    self.reinforce_or_sprout_from(neurons, synapses, source, neuron, tick, modulators);
                 }
-                None => {
-                    // Structural, one-time value -- not a reinforcement
-                    // event, so not modulator-scaled (Requirement 1 AC2).
-                    if let Ok(id) = synapses.insert(source, neuron, segment, 1, self.params.burst_sprout_permanence, self.params.burst_sprout_weight) {
-                        // PLAN.md B4: a fresh contact is born silent, exactly
-                        // like `StructuralPlasticity::sprout`'s -- see
-                        // `SynapseArena::silent_since`'s doc comment.
-                        synapses.silent_since[id as usize] = tick;
+            }
+            SproutReach::Spatial { radius } => {
+                // PLAN.md C4 point 3: the naive O(N) scan per bursting
+                // neuron, and only for configurations that opt in. Note
+                // this makes a size-1 neighbourhood no longer a way to
+                // disable this path -- a caller that wants it off must
+                // leave the reach at `IndexBlocks` (see
+                // `charPrediction.ts`, which disables it exactly that way
+                // for a measured >400x cost).
+                let own_coords = neurons.coords_of(neuron);
+                for source in 0..neuron_count {
+                    if !within_reach(own_coords, neurons.coords_of(source), radius) {
+                        continue;
                     }
-                    // BlockFull is a legitimate, expected outcome
-                    // (Requirement 11.3), matching structural.rs's
-                    // convention -- silently skip.
+                    self.reinforce_or_sprout_from(neurons, synapses, source, neuron, tick, modulators);
                 }
             }
         }
@@ -829,5 +909,115 @@ mod tests {
                 "burst_sprout_weight must be exactly 0.05 regardless of modulator level {level}"
             );
         }
+    }
+
+    // -- PLAN.md C4: spatial sprout reach (README §12 decision 15) --
+
+    /// `n` neurons on the unit-spaced 1-D line `buildColumns` produces,
+    /// with the neurons named in `relocate` moved -- the shape a grown
+    /// neuron has once `plasticity::newborn` places it at its input
+    /// sources' centroid: an index past every original, a coordinate among
+    /// them.
+    fn neurons_on_a_line(n: usize, relocate: &[(usize, f32)]) -> NeuronArena {
+        let mut neurons = NeuronArena::new();
+        for j in 0..n {
+            neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [j as f32, 0.0, 0.0] });
+        }
+        for &(index, x) in relocate {
+            neurons.coords[index] = [x, 0.0, 0.0];
+        }
+        neurons
+    }
+
+    #[test]
+    fn burst_sprout_reach_defaults_to_index_blocks() {
+        let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
+        assert_eq!(pl.sprout_reach(), SproutReach::IndexBlocks);
+        assert_eq!(
+            PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1)).with_sprout_reach(SproutReach::spatial(2.0)).sprout_reach(),
+            SproutReach::Spatial { radius: 2.0 }
+        );
+    }
+
+    /// **The second blocked path, unblocked** (README §13.12 item 10's own
+    /// "there are two wiring mechanisms, not one"). Neuron 3 sits in a
+    /// different index block from the bursting neuron 0, so the index-block
+    /// reach never presents it. Its *coordinate* sits next to neuron 0's,
+    /// so a spatial reach does -- and it burst-sprouts 3 -> 0.
+    #[test]
+    fn spatial_burst_reach_sprouts_from_a_late_index_where_index_blocks_cannot() {
+        let sprouted_from_3 = |reach: Option<SproutReach>| {
+            // Block size 3: neurons 0-2 in block 0, neuron 3 alone in
+            // block 1, but placed at x = 0.5, right beside neuron 0.
+            let mut neurons = neurons_on_a_line(4, &[(3, 0.5)]);
+            let mut synapses = SynapseArena::new(4);
+            synapses.reserve_for_neurons(4);
+            neurons.last_spike[3] = 9; // recently active, so a legitimate burst source
+            let tracker = PredictingSegmentTracker::new();
+            let mut pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(3, 1));
+            if let Some(reach) = reach {
+                pl = pl.with_sprout_reach(reach);
+            }
+            // Neuron 0 spikes unpredicted (12.1's burst case).
+            {
+                let neuron_view = neurons.whole_view_mut();
+                let mut synapse_view = synapses.whole_view_mut();
+                pl.resolve(&neuron_view, &mut synapse_view, &tracker, 0, 0.0, true, 10, 4, NEUTRAL_MODULATORS);
+            }
+            let wired = synapses.occupied_in_block(3).any(|id| synapses.target_neuron[id as usize] == 0);
+            wired
+        };
+
+        assert!(!sprouted_from_3(None), "index blocks: neuron 3 is in another block, so 12.1 can never sprout 3 -> 0");
+        assert!(sprouted_from_3(Some(SproutReach::spatial(1.0))), "spatial reach at radius 1.0 reaches x=0.5 from x=0 and sprouts 3 -> 0");
+    }
+
+    /// RUN-3: the spatial branch presents candidates in ascending index
+    /// order, not distance order -- observable through the `BlockFull`
+    /// cutoff, since each source's block here holds exactly one synapse and
+    /// a bursting neuron's own sprout is the only thing competing for it.
+    /// Pinned because changing it would change which synapses exist.
+    #[test]
+    fn spatial_burst_reach_visits_candidates_in_ascending_index_order() {
+        // Bursting neuron 0 at x = 10; candidates 1, 2, 3 all in reach at
+        // x = 12, 9, 11 -- distance order (2, 3, 1) differs from index
+        // order (1, 2, 3).
+        let mut neurons = neurons_on_a_line(4, &[(0, 10.0), (1, 12.0), (2, 9.0), (3, 11.0)]);
+        let mut synapses = SynapseArena::new(1); // one outgoing slot per source
+        synapses.reserve_for_neurons(4);
+        for i in 1..4 {
+            neurons.last_spike[i] = 9;
+        }
+        // Pre-fill source 1's single slot so its sprout must fail with
+        // BlockFull, and source 2's so it must too -- leaving only source 3.
+        // What this pins is that every in-reach source is *visited*, in
+        // index order, rather than the nearest one being taken first.
+        let tracker = PredictingSegmentTracker::new();
+        let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(4, 1)).with_sprout_reach(SproutReach::spatial(3.0));
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 0, 0.0, true, 10, 4, NEUTRAL_MODULATORS);
+        let sources: Vec<u32> = (1..4).filter(|&s| synapses.occupied_in_block(s).any(|id| synapses.target_neuron[id as usize] == 0)).collect();
+        assert_eq!(sources, vec![1, 2, 3], "every source in reach must sprout, and each has its own block, so all three do");
+    }
+
+    /// A spatial reach **overrides** the size-1-neighbourhood trick
+    /// `charPrediction.ts` uses to disable this path entirely (a measured
+    /// 400x cost). Recorded as a test because a caller that set a radius
+    /// expecting `neighbourhoodSize: 1` to still hold would silently get
+    /// the expensive path back.
+    #[test]
+    fn a_radius_overrides_a_size_one_neighbourhood_rather_than_intersecting_with_it() {
+        let mut neurons = neurons_on_a_line(3, &[]);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(3);
+        neurons.last_spike[1] = 9;
+        neurons.last_spike[2] = 9;
+        let tracker = PredictingSegmentTracker::new();
+        let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(1, 1)).with_sprout_reach(SproutReach::spatial(5.0));
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 0, 0.0, true, 10, 3, NEUTRAL_MODULATORS);
+        assert_eq!(
+            (1..3).filter(|&s| synapses.occupied_in_block(s).any(|id| synapses.target_neuron[id as usize] == 0)).count(),
+            2,
+            "a size-1 neighbourhood no longer disables 12.1 once a radius is set"
+        );
     }
 }

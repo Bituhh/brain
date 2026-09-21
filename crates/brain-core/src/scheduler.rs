@@ -665,6 +665,33 @@ impl Scheduler {
         self
     }
 
+    /// Opts Requirement 12.1's burst-sprout path into a different
+    /// [`SproutReach`] (PLAN.md C4, README §12 decision 15) -- which other
+    /// neurons a bursting one may sprout *from*, a quantity separate from
+    /// NET-2's k-WTA competition group. Requires
+    /// [`Self::with_predictive_learning`] first, since there is no burst
+    /// path to give a reach to otherwise.
+    ///
+    /// Note `reach.rs`'s and [`PredictiveLearning::with_sprout_reach`]'s own
+    /// doc comments: a spatial reach here is refused above one partition
+    /// (`PartitionRuntime::new`), because this path runs on
+    /// partition-scoped views and skipping an unowned candidate would make
+    /// the result depend on the layout (RUN-3). `with_structural_plasticity`'s
+    /// sweep has no such restriction.
+    pub fn with_predictive_learning_sprout_reach(mut self, reach: crate::reach::SproutReach) -> Self {
+        let rule = self.predictive_learning.take().expect("with_predictive_learning_sprout_reach needs with_predictive_learning to have been called first");
+        self.predictive_learning = Some(rule.with_sprout_reach(reach));
+        self
+    }
+
+    /// Whether Requirement 12.1's burst path is configured with a *spatial*
+    /// sprout reach -- read by `PartitionRuntime::new` to refuse a
+    /// combination it cannot keep bit-identical across partition counts.
+    /// `false` when predictive learning is not configured at all.
+    pub fn has_spatial_burst_sprout_reach(&self) -> bool {
+        self.predictive_learning.as_ref().is_some_and(|rule| rule.sprout_reach().is_spatial())
+    }
+
     /// Injects a neuromodulator signal (e.g. a phasic dopamine burst on
     /// reward) at the current tick. A no-op if plasticity is not
     /// configured, since nothing would ever read the level.

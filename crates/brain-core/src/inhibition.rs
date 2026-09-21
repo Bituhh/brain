@@ -16,6 +16,22 @@
 //! independent of how many neighbourhoods exist); revisit toward spatial
 //! neighbourhoods only if a later phase's topology needs inhibition to
 //! correlate with physical distance rather than construction order.
+//!
+//! **That last sentence came due in a narrower way than it anticipated,
+//! and the resolution was to split the question rather than answer it**
+//! (PLAN.md C4, README §12 decision 15, 2026-09-21). This type was being
+//! used for *two* jobs: the k-WTA competition group above, and the sprout
+//! candidate set in both of `plasticity/structural.rs`'s sweep and
+//! `plasticity/predictive.rs`'s burst path. Those are different quantities
+//! -- the neurons that compete with you are not the neurons your axon can
+//! reach -- and conflating them made developmental growth (NET-10)
+//! structurally unreachable, since grown neurons take indices past every
+//! original's block. The candidate-set job moved to [`crate::reach`]'s
+//! `SproutReach`, which does have a spatial variant. **Inhibition's own
+//! grouping is deliberately unchanged**: nothing has yet shown that NET-2's
+//! competition needs to correlate with physical distance, and changing it
+//! would move every golden raster and both pinned VAL-4 figures. So this
+//! note stays open for inhibition and is closed for sprouting.
 
 /// Fixed-size k-winners-take-all neighbourhoods.
 pub struct FixedNeighbourhoods {

@@ -228,6 +228,16 @@ impl Scheduler {
             // here.
             silent_elimination_ticks: None,
         };
+        // The size-1 neighbourhood is how this pass stays prune-only: under
+        // the default `SproutReach::IndexBlocks` each block has exactly one
+        // member, so no candidate pair is ever presented and `sprout` is a
+        // guaranteed no-op. **Do not plumb PLAN.md C4's `with_sprout_reach`
+        // through here without deciding you want consolidation to sprout**
+        // -- a radius *overrides* the neighbourhood size rather than
+        // intersecting with it (README §12 decision 15), so setting one
+        // would silently switch this pass from "prune aggressively" to
+        // "prune aggressively and also rewire", which is not what LRN-10
+        // asks for and not what any caller measured.
         let mut sp = StructuralPlasticity::new(sp_params, FixedNeighbourhoods::new(1, 1));
         let report = sp.force_sweep(neurons, synapses, self.tick(), |_| 0);
 

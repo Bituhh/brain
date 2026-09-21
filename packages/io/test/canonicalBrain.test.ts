@@ -11,8 +11,19 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Simulation, type ConsolidationConfig } from "@brain/core";
-import { buildCanonicalBrain, canonicalLifConfig, canonicalSimulationOptions, WIDTH } from "../src/canonicalBrain.ts";
+import { Simulation, type ConsolidationConfig, type SimulationOptions } from "@brain/core";
+import {
+  BURST_SPROUT_REACH_RADIUS,
+  buildCanonicalBrain,
+  canonicalColumnConfig,
+  canonicalLifConfig,
+  canonicalSimulationOptions,
+  SPROUT_REACH_RADIUS,
+  WIDTH,
+  withIndexBlockSproutReach,
+  withSpatialBurstSproutReach,
+} from "../src/canonicalBrain.ts";
+import { wrapColumnHandles } from "../src/columns.ts";
 import { makeSdr } from "../src/sdr.ts";
 
 const SEED = 1n;
@@ -193,21 +204,229 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
   assert.ok(ontoNewborn > 0, "newbornMaturation must wire inputs onto each grown neuron");
   assert.ok(fromNewborn > 0, "a firing newborn must be able to sprout outputs of its own");
 
-  // A tripwire on a KNOWN LIMITATION, not a desired property (README §12
-  // decision 13, measured on VAL-4 at 800 neurons and reproduced here):
-  // `FixedNeighbourhoods` groups neurons into fixed index blocks, and
-  // grown neurons take indices past the original population's block, so
-  // sprouting can never connect a newborn *back* to the original
-  // population -- grown capacity can listen but never speak to it. If this
-  // assertion ever fails, the neighbourhood scheme has changed and that
-  // limitation is gone: update README §12 decision 13 and §13.12 item 10,
-  // which both record it as open.
-  assert.equal(
-    fromNewbornOntoOriginal,
-    0,
-    "expected zero newborn->original synapses (the fixed index-block neighbourhood limit, README §12 decision 13) -- " +
-      "a non-zero count here is good news that needs the README updated, not a regression",
+  // **This assertion has been its own inverse twice, and the history is the
+  // point.** It began as a tripwire asserting ZERO newborn->original
+  // synapses -- a known limitation of the index-block sprout reach, recorded
+  // as such, with a note to update the README if it ever fired
+  // (README §12 decision 13). PLAN.md C4 gave the sweep a coordinate-based
+  // reach and made it fixable; the fix was left opt-in at first, so the
+  // tripwire stayed as a statement about the default; then the default
+  // changed (2026-09-21, README §12 decision 15). This is that update.
+  //
+  // What it asserts now is the property C4 exists for: grown capacity can
+  // *speak to* the population the readout decodes, not merely listen to it.
+  // `fromNewborn > 0` above was already true before C4 -- a newborn could
+  // always sprout to its fellow newborns -- so only the onto-ORIGINAL count
+  // distinguishes reachable capacity from unreachable capacity, which is
+  // exactly the counter-versus-mechanism distinction §13.12 item 13 records.
+  // The ablation that keeps this honest is the dedicated test below, which
+  // asserts this same count is ZERO under `withIndexBlockSproutReach`.
+  assert.ok(
+    fromNewbornOntoOriginal > 0,
+    "grown neurons must send at least one synapse back to the original population -- the property README §13.12 item 10 " +
+      `measured as exactly zero under the index-block reach (got ${fromNewbornOntoOriginal}). A zero here means the default ` +
+      "sproutReachRadius has stopped reaching, not that the limitation is acceptable again",
   );
+});
+
+/**
+ * PLAN.md C4 (README §12 decision 15), the end-to-end half of its VAL-9
+ * ablation: `crates/brain-core/tests/sprout_reach.rs` proves the mechanism
+ * inside the core, and this proves the FFI surface actually carries it to a
+ * real network built the way a caller builds one.
+ *
+ * The measured quantity is the one README §13.12 item 10's instrumented run
+ * measured as exactly **zero**: does a neuron developmental growth added
+ * send a synapse to a neuron in the *original* population. Not "does a grown
+ * neuron have any outgoing synapse at all" -- that was already non-zero
+ * before C4, because a newborn could always sprout to its fellow newborns,
+ * and counting it would reproduce exactly the counter-instead-of-mechanism
+ * mistake §13.12 item 13 records.
+ */
+test("spatial sprout reach lets grown neurons reach the original population, and the index-block scheme it replaced cannot (PLAN.md C4)", () => {
+  function grownOntoOriginal(options: SimulationOptions): { count: number; live: number; grownSpiked: boolean } {
+    const sim = Simulation.create(canonicalLifConfig, options);
+    const [handle] = sim.buildColumns(SEED, [canonicalColumnConfig()]);
+    const [column] = wrapColumnHandles([handle!]);
+    let grownSpiked = false;
+    for (let i = 0; i < TICKS; i++) {
+      column!.stimulateSdr(sim, PATTERNS[i % PATTERNS.length]!, 10.0);
+      for (const neuron of sim.step()) if (neuron >= WIDTH) grownSpiked = true;
+      // The same synthetic collision signal the standing test above feeds --
+      // without it growth never fires and this test would compare two
+      // networks that have no grown neurons to reach anything.
+      sim.recordGrowthActivation(i % 3 === 0);
+    }
+    const cap = sim.synapseCapPerNeuron();
+    const occupied = sim.synapseOccupiedView();
+    const targets = sim.synapseTargetNeuronView();
+    let count = 0;
+    for (let slot = 0; slot < occupied.length; slot++) {
+      if (!occupied[slot]) continue;
+      if (Math.floor(slot / cap) >= WIDTH && targets[slot]! < WIDTH) count++;
+    }
+    return { count, live: sim.liveNeuronCount(), grownSpiked };
+  }
+
+  // The default is now spatial (README §12 decision 15), so the ablation
+  // runs the other way round from how C4 first wrote it: `withIndexBlockSproutReach`
+  // is the control. `withSpatialBurstSproutReach` is added to the default arm
+  // because §13.12 item 10 measured *both* sprout paths as blocked, and the
+  // burst path is still on index blocks by default -- see its own doc comment.
+  const blocks = grownOntoOriginal(withIndexBlockSproutReach(canonicalSimulationOptions(SEED)));
+  const spatial = grownOntoOriginal(withSpatialBurstSproutReach(canonicalSimulationOptions(SEED)));
+
+  // Guard first: both arms must actually grow and fire, or the comparison
+  // below measures nothing. This is the failure mode where a "fix" looks
+  // like it worked because the control arm never got off the ground.
+  for (const [label, arm] of [
+    ["index blocks", blocks],
+    ["spatial", spatial],
+  ] as const) {
+    assert.ok(arm.live > WIDTH, `${label}: growth must have fired, got liveNeuronCount ${arm.live}`);
+    assert.ok(arm.grownSpiked, `${label}: a grown neuron must have fired, or nothing can sprout from one in either reach`);
+  }
+
+  assert.equal(
+    blocks.count,
+    0,
+    "VAL-9 ablation: under the index-block reach a grown neuron must send ZERO synapses to the original population -- " +
+      `README §13.12 item 10's measured finding, reproduced here as the control (got ${blocks.count})`,
+  );
+  assert.ok(
+    spatial.count > 0,
+    "with spatial reach on both sprout paths, grown neurons must send synapses to original-population neurons -- " +
+      `the property PLAN.md C4 exists to deliver (got ${spatial.count})`,
+  );
+});
+
+/**
+ * PLAN.md C4's follow-up (2026-09-21), and the correction of a measurement
+ * mistake rather than of a mechanism.
+ *
+ * C4 reported that enabling a spatial sweep reach on this fixture "took its
+ * dendritic predictions to zero", inferred from reading `predictiveView()`
+ * at the **end** of a 400-tick run. One instant cannot support that claim —
+ * a network could predict throughout and simply be quiet on the last tick.
+ * `predictionOutcomeTotals()` exists so the question is answerable over a
+ * whole run, and this test settles it in both directions.
+ *
+ * Settled: the inference was right, and for a sharper reason than claimed.
+ * At radius 20 and 40 the peak `predictive` value over **every tick of the
+ * whole run** is exactly 0.0000 and `classifiedAsPredicted` is 0 — the
+ * network does not merely end quiet, it never predicts once. And the
+ * alternative explanation is ruled out rather than left open: it was not
+ * that Requirement 12.2/12.3 fired and their permanence writes coincided at
+ * both dopamine levels (the staircase `.claude/HANDOFF.md` fact 14 suspects
+ * for a modulator gain), because they never fired at all.
+ *
+ * **Why the radius does this here, which is the opposite of what it does on
+ * the VAL-4 network.** `canonicalSimulationOptions` sets the sweep's
+ * `neighbourhoodSize` to `WIDTH` — the whole population — so the index-block
+ * "reach" is already everybody, and a radius can only *narrow* it (radius 40
+ * reaches 81 of 150). On the VAL-4 network the block is 100 of 800, so a
+ * radius of that scale instead *crosses* block boundaries. Same option,
+ * opposite effect, and the recovery at radius 75 (which reaches all 150
+ * again) is the proof: it returns to the index-block numbers exactly.
+ */
+test("a spatial sweep reach that narrows the candidate set stops this fixture predicting at all, over the whole run and not merely at its end (PLAN.md C4)", () => {
+  function run(sproutReachRadius: number | undefined): { classifiedAsPredicted: number; unpredicted: number; peakPredictive: number } {
+    const base = canonicalSimulationOptions(SEED);
+    const sim = Simulation.create(canonicalLifConfig, {
+      ...base,
+      structuralPlasticity: { ...base.structuralPlasticity!, ...(sproutReachRadius !== undefined && { sproutReachRadius }) },
+    });
+    const [handle] = sim.buildColumns(SEED, [canonicalColumnConfig()]);
+    const [column] = wrapColumnHandles([handle!]);
+    // Deliberately no `recordGrowthActivation`: this is the PLAN.md C3
+    // test's own scenario, where growth never fires, which is the one the
+    // finding is about.
+    let peakPredictive = 0;
+    for (let i = 0; i < TICKS; i++) {
+      column!.stimulateSdr(sim, PATTERNS[i % PATTERNS.length]!, 10.0);
+      sim.step();
+      const predictive = sim.predictiveView();
+      for (let n = 0; n < predictive.length; n++) if (predictive[n]! > peakPredictive) peakPredictive = predictive[n]!;
+    }
+    const totals = sim.predictionOutcomeTotals();
+    return { classifiedAsPredicted: totals.classifiedAsPredicted, unpredicted: totals.unpredicted, peakPredictive };
+  }
+
+  const blocks = run(undefined); // index blocks -- the pre-C4 grouping
+  // Deliberately 40, not `SPROUT_REACH_RADIUS`: 40 is the radius this test is
+  // *about*, and the default was moved to 60 precisely because 40 has this
+  // effect. Hard-coded so that changing the default cannot silently turn this
+  // test into a no-op -- see `SPROUT_REACH_RADIUS`'s own table.
+  const narrowed = run(40);
+  const widened = run(WIDTH); // reaches the whole population, like the index block it replaces
+
+  assert.ok(blocks.classifiedAsPredicted > 0, `the index-block default must classify something as predicted, or this comparison has no baseline (got ${blocks.classifiedAsPredicted})`);
+  assert.ok(blocks.peakPredictive > 0, "and must actually depolarise a segment at some point in the run");
+
+  assert.equal(
+    narrowed.classifiedAsPredicted,
+    0,
+    `a sweep radius of 40 on this fixture must stop Requirement 12.2/12.3 classifying anything at all ` +
+      `(got ${narrowed.classifiedAsPredicted}) -- this is the measured reason the default radius is ${SPROUT_REACH_RADIUS} and not 40`,
+  );
+  assert.equal(
+    narrowed.peakPredictive,
+    0,
+    `and the peak predictive value over EVERY tick must be exactly 0, not merely at the run's end (got ${narrowed.peakPredictive}) -- ` +
+      "reading one instant is the measurement mistake this test exists to have corrected",
+  );
+  assert.ok(narrowed.unpredicted > 0, "the network must still be spiking, or 'stopped predicting' would just mean 'stopped'");
+
+  assert.ok(
+    widened.classifiedAsPredicted > 0,
+    `a radius reaching the whole population must recover prediction (got ${widened.classifiedAsPredicted}) -- ` +
+      "this is what shows the cause is the candidate set NARROWING, not the spatial scheme itself",
+  );
+});
+
+/**
+ * PLAN.md C4's partitioning decision, at the layer a caller meets it.
+ * `predictiveLearning.sproutReachRadius` is refused with `threadCount > 1`,
+ * because 12.1's burst path runs on partition-scoped views and clipping its
+ * candidate set to a partition's range would make results depend on the
+ * partition count (RUN-3). A clean error, not a panic across the FFI when
+ * the runtime is lazily built later.
+ *
+ * `structuralPlasticity.sproutReachRadius` is deliberately *not* restricted
+ * -- that sweep runs once globally with the whole arenas addressable -- and
+ * this test pins the asymmetry so a later reader does not "tidy" it into
+ * one rule.
+ */
+test("a spatial burst-sprout reach is refused in partitioned mode, and a spatial sweep reach is not (PLAN.md C4)", () => {
+  const base = canonicalSimulationOptions(SEED);
+
+  assert.throws(
+    () =>
+      Simulation.create(canonicalLifConfig, {
+        ...base,
+        threadCount: 2,
+        totalNeurons: WIDTH,
+        // Growth and newborn maturation are themselves single-partition
+        // only, so they have to come off for this to reach the reach check
+        // at all rather than tripping an earlier refusal.
+        growth: undefined,
+        newbornMaturation: undefined,
+        predictiveLearning: { ...base.predictiveLearning!, sproutReachRadius: BURST_SPROUT_REACH_RADIUS },
+      }),
+    /sproutReachRadius is not supported together with threadCount/,
+    "a spatial burst reach above one partition must be refused, not silently clipped to each partition's range",
+  );
+
+  // The sweep's own radius at the same thread count must be accepted.
+  const withSweepReach = Simulation.create(canonicalLifConfig, {
+    ...base,
+    threadCount: 2,
+    totalNeurons: WIDTH,
+    growth: undefined,
+    newbornMaturation: undefined,
+    structuralPlasticity: { ...base.structuralPlasticity!, sproutReachRadius: SPROUT_REACH_RADIUS },
+  });
+  assert.ok(withSweepReach !== undefined, "a spatial *sweep* reach must be accepted in partitioned mode -- it runs once globally");
 });
 
 test("the canonical brain's snapshot round-trips mid-run (RUN-9/RUN-9a)", async () => {
@@ -372,6 +591,8 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
     dopamineLevels: number[];
     acetylcholineLevels: number[];
     expectedReward: number;
+    /** PLAN.md C4's follow-up -- see assertion 3b below for why this is read. */
+    classifiedAsPredicted: number;
   } {
     const { sim, column } = buildCanonicalBrain(SEED);
     const dopamineLevels: number[] = [];
@@ -391,6 +612,7 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
       dopamineLevels,
       acetylcholineLevels,
       expectedReward: sim.expectedReward(),
+      classifiedAsPredicted: sim.predictionOutcomeTotals().classifiedAsPredicted,
     };
   }
 
@@ -458,6 +680,40 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
     alwaysRewarded.expectedReward > 0.9,
     `and the expectation itself must have tracked the reward stream, got ${alwaysRewarded.expectedReward}`,
   );
+
+  // 3b. **The precondition assertions 4 and 5 silently depend on, made
+  //     explicit — PLAN.md C4's follow-up, 2026-09-21.** Requirement
+  //     12.2/12.3 (reinforce/punish) is the *only* dopamine-gated path this
+  //     test measures, and it fires only for a neuron whose dendritic
+  //     prediction was significant. If this scenario predicts nothing, then
+  //     rewarding cannot change permanence, assertion 4 fails, and the
+  //     failure reads as "the reward path is disconnected" when the truth is
+  //     "there was nothing to reward".
+  //
+  //     That is not hypothetical: C4 hit it exactly. Switching a spatial
+  //     sprout reach on in `canonicalBrain.ts` took this scenario to zero
+  //     classified predictions, and the tempting fix was to adjust *this*
+  //     test until it passed again. Measured rather than inferred, with the
+  //     cumulative tally this assertion reads: **2 of 1,200 classified
+  //     outcomes** over the whole run are "was predicted", and those two
+  //     events carry the entire difference assertions 4 and 5 detect. So the
+  //     margin here is two events wide, and anything that perturbs the
+  //     fixture's wiring can close it.
+  //
+  //     Asserted rather than commented so the next person to close it gets
+  //     the diagnosis instead of the puzzle. See README §13.12 item 17.
+  for (const [label, arm] of [
+    ["unrewarded", unrewarded],
+    ["always rewarded", alwaysRewarded],
+    ["rarely rewarded", rarelyRewarded],
+  ] as const) {
+    assert.ok(
+      arm.classifiedAsPredicted > 0,
+      `${label}: this scenario must classify at least one outcome as "was predicted", or Requirement 12.2/12.3 never runs and ` +
+        "assertions 4 and 5 below are vacuous rather than passing. A zero here means the fixture stopped predicting -- " +
+        "fix the cause, do not adjust this test (README §13.12 item 17 records the time that was nearly done)",
+    );
+  }
 
   // 4. Predictive learning's reinforce/punish is genuinely gated on that
   //    channel -- the "wired but undriven" half of the old test, kept, because

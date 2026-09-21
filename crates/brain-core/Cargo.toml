@@ -27,3 +27,10 @@ criterion = "0.8.2"
 [[bench]]
 name = "core_bench"
 harness = false
+
+# PLAN.md C4 (ENG-9): isolates the spatial sprout reach's candidate-scan
+# cost from the cost of the extra synapses a wider reach creates -- see the
+# bench's own module docs for why a VAL-4 wall-clock comparison cannot.
+[[bench]]
+name = "sprout_reach_cost"
+harness = false

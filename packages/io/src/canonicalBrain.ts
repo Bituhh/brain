@@ -106,6 +106,60 @@ export const WIDTH = 150;
 const K = Math.max(1, Math.round(WIDTH * TARGET_SPARSITY));
 
 /**
+ * PLAN.md C4 (README §12 decision 15): the Euclidean radius LRN-7's sweep
+ * uses to find sprout candidates, in place of a fixed index block. **On by
+ * default** in `canonicalSimulationOptions` below, as of 2026-09-21 — see
+ * that field's own comment for the decision and its honest basis.
+ *
+ * Sized against `canonicalColumnConfig`'s own layout -- a 1-D line at
+ * `baseX: 0`, one unit apart in index order -- so it reaches `2r + 1` = 121
+ * of the 150 originals.
+ *
+ * **Why 60 and not the 50 the VAL-4 measurement used, which is not an
+ * inconsistency but the point.** A radius is meaningful only relative to the
+ * population it is measured against: 50 on VAL-4's 800-neuron line reaches
+ * 13% of the population, while 50 on this fixture's 150-neuron line reaches
+ * 67%. They are different regimes and share no reason to take the same
+ * number. What is scale-invariant is the constraint: keep locality real
+ * (NET-1) without narrowing the candidate set so far that the fixture stops
+ * predicting.
+ *
+ * That last clause is measured, not cautious. On *this* fixture the sweep's
+ * `neighbourhoodSize` is already `WIDTH`, so a radius can only *narrow*, and
+ * narrowing far enough silences dendritic prediction outright — with growth
+ * not firing (the PLAN.md C3 test's own scenario), the count of outcomes
+ * classified as "was predicted" over a 400-tick run goes:
+ *
+ * | radius | 40 | 45 | 50 | 55 | 60 | index blocks |
+ * |---|---|---|---|---|---|---|
+ * | classified as predicted | 0 | 0 | 1 | 1 | 2 | 2 |
+ *
+ * A zero there empties C3's reward assertion (nothing predicted means
+ * nothing to reward), so 40 and 45 are out. 50 and 55 work but halve a
+ * margin that is already only two events wide. **60 is the smallest tested
+ * radius that costs that margin nothing**, and it delivers the same
+ * grown-to-original reachability C4 exists for (13 synapses at radius 40,
+ * 13 at 60). README §13.12 item 17 has the full account.
+ */
+export const SPROUT_REACH_RADIUS = 60;
+
+/**
+ * PLAN.md C4: the same quantity for Requirement 12.1's burst path, which
+ * fires per unpredicted spike rather than once per sweep and so is kept
+ * tighter -- 21 neurons in reach, the same scale as the
+ * `neighbourhoodSize: 20` index block it replaces.
+ *
+ * **Deliberately NOT on by default**, unlike the sweep's radius above. The
+ * 2026-09-21 decision to switch spatial reach on rests on a VAL-4
+ * measurement of the *sweep's* radius only: `charPrediction.ts` disables the
+ * burst path outright (a measured 400x cost at 800 neurons), so nothing has
+ * measured a burst radius on the real network at all. Applied by
+ * `withSpatialBurstSproutReach` for anything that wants it, and exercised by
+ * the standing tests.
+ */
+export const BURST_SPROUT_REACH_RADIUS = 10;
+
+/**
  * PLAN.md B5's values (README §12 decision 13), the winner of
  * `scripts/tune-b5-values.ts`'s search on VAL-4 condition C (results in
  * `scripts/tune-b5-values.results.md`), which replace B4's (decision 12).
@@ -248,6 +302,36 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       maxTemporalGapTicks: B5_VALUES.maxTemporalGapTicks,
       spreadSproutSegments: B5_VALUES.spreadSproutSegments,
       seed,
+      // PLAN.md C4 (README §12 decision 15), **on by default as of
+      // 2026-09-21, and the basis for that is worth stating precisely
+      // because it is not "it measured better".**
+      //
+      // What it fixes is real and is the whole of C4: `neighbourhoodSize`
+      // above is `WIDTH`, so under the index-block scheme every grown
+      // neuron (indices WIDTH.., appended past the original population's
+      // block) fell in a later block and could never be paired with an
+      // original. Grown capacity could listen to the population and speak
+      // only to its fellow newborns -- measured on the real 800-neuron
+      // VAL-4 network as 33,104 synapses received and exactly **zero**
+      // sent (README §13.12 item 10). With a radius it sends 15,822.
+      //
+      // What it does NOT do is improve VAL-4. Across three radii and two
+      // seed sets it is a wash: the +0.81 points that looked like a win on
+      // five confirmation seeds did not replicate on ten independent ones
+      // (two of three radii reversed sign; the survivor fell to +0.16).
+      // Adopted anyway, as an explicit call: the change is measurably
+      // costless in both directions, and a coordinate-based reach is a
+      // better-founded topology than construction-order-as-topology, which
+      // `inhibition.rs`'s own module docs already name as the thing to move
+      // away from. That is a judgement about foundations, not a measured
+      // improvement, and §13.12 item 17 records it as one.
+      //
+      // Note this changes nothing about VAL-4's reported figures: the
+      // pinned 0.1650/0.2036 regressions hardcode their own frozen replicas
+      // of what those searches ran, and `charPrediction.ts`'s
+      // `DEFAULT_CONFIG` leaves `structuralPlasticity` undefined entirely,
+      // so neither reads this value.
+      sproutReachRadius: SPROUT_REACH_RADIUS,
     },
     // NET-10. Not supported together with `threadCount > 1` (unset here,
     // so `threadCount` defaults to 1 -- single-threaded, matching every
@@ -335,6 +419,9 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       gainModulatorIndex: 2, // NORADRENALINE
       neighbourhoodSize: 20,
       neighbourhoodK: 5,
+      // As with `structuralPlasticity` above, PLAN.md C4's
+      // `sproutReachRadius` is applied by `withSpatialSproutReach` rather
+      // than set here.
     },
     // PLAN.md C2 (LRN-5): the two channels that had no producer before it.
     // One two-timescale estimate of this network's own prediction-failure
@@ -406,4 +493,53 @@ export function buildCanonicalBrain(seed: bigint): { sim: Simulation; column: Co
   const [column] = wrapColumnHandles([handle!]);
   sim.attachProbe(column!.range.start, PROBE_OPTIONS);
   return { sim, column: column! };
+}
+
+/**
+ * PLAN.md C4 (README §12 decision 15): reverts LRN-7's sweep to NET-2's
+ * **index-block** grouping, undoing the `sproutReachRadius` that
+ * `canonicalSimulationOptions` now sets by default.
+ *
+ * This is the **VAL-9 ablation control**, and it is the direction that
+ * needs a helper now that spatial reach is the default. The property C4
+ * exists to deliver — a grown neuron sending a synapse to a neuron in the
+ * *original* population — must hold under the default and **fail** under
+ * this, or "it works" is an untested claim (README §10's ablation
+ * discipline, and §13.12 item 13's standing lesson about asserting a
+ * counter instead of a mechanism). Measured on this fixture: **82** such
+ * synapses by default, **0** under this.
+ *
+ * Also the escape hatch for the one measured cost of the default. On this
+ * fixture the sweep's `neighbourhoodSize` is already `WIDTH`, so a radius
+ * can only *narrow* the candidate set, and narrowing far enough stops the
+ * network predicting at all — see `SPROUT_REACH_RADIUS`'s own table. The
+ * default radius is chosen to sit clear of that, but a caller changing
+ * other wiring may find it does not, and this is how they get the old
+ * behaviour back while diagnosing.
+ */
+export function withIndexBlockSproutReach(options: SimulationOptions): SimulationOptions {
+  const { sproutReachRadius: _sweep, ...structuralPlasticity } = options.structuralPlasticity!;
+  const { sproutReachRadius: _burst, ...predictiveLearning } = options.predictiveLearning!;
+  return { ...options, structuralPlasticity, predictiveLearning };
+}
+
+/**
+ * PLAN.md C4: adds a Euclidean reach to Requirement 12.1's **burst** path
+ * as well, which `canonicalSimulationOptions` deliberately leaves on index
+ * blocks.
+ *
+ * §13.12 item 10 measured *both* sprout paths as blocked, so the burst path
+ * genuinely needs this too — with it, this fixture's grown-to-original count
+ * rises from 13 to 82. It is not on by default because the 2026-09-21
+ * decision to adopt spatial reach rests on a VAL-4 measurement of the
+ * *sweep's* radius alone: `charPrediction.ts` disables the burst path
+ * outright (a measured 400x cost at 800 neurons, which a radius would
+ * reinstate, since a radius **overrides** `neighbourhoodSize` rather than
+ * intersecting with it), so no burst radius has ever been measured on the
+ * real network. Switching it on by default would be adopting something
+ * nothing has measured at all, which is a weaker basis than the sweep's
+ * "measured as a wash".
+ */
+export function withSpatialBurstSproutReach(options: SimulationOptions): SimulationOptions {
+  return { ...options, predictiveLearning: { ...options.predictiveLearning!, sproutReachRadius: BURST_SPROUT_REACH_RADIUS } };
 }

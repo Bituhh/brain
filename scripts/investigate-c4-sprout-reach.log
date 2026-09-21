@@ -1,0 +1,199 @@
+[2026-09-21 09:26:33] === investigate-c4-sprout-reach starting: 6 workers, corpus 15000 characters, seeds 11, 12, 13, 14, 15 ===
+[2026-09-21 09:26:33] winner: C[fixes -2--] ref=1 thr=3 target=permanence homeo=1 lr=0.02 tau=4 dep=2 elig=50 unsil=0.3 gap=4 elim=20000
+[2026-09-21 09:26:33] 50 trials, 15 already measured, 35 to run
+[2026-09-21 09:27:32] [done 1/35] NG-25 seed 11: 18.95% in 0m59s sprouted=27746 unsilenced=497 eliminated=0 silentNow=27249
+[2026-09-21 09:27:32] [done 2/35] NG-25 seed 14: 19.25% in 0m59s sprouted=27750 unsilenced=546 eliminated=0 silentNow=27204
+[2026-09-21 09:27:33] [heartbeat] C4 sprout-reach battery: 2/35 done, 6 running, elapsed 1m00s, stage ETA 5m27s -- NG-25 s12 98% 1m00s | NG-25 s13 98% 1m00s | NG-25 s15 98% 1m00s | NG-50 s11 88% 1m00s | NG-50 s12 2% 0m01s | NG-50 s13 2% 0m01s
+[2026-09-21 09:27:33] [done 3/35] NG-25 seed 15: 18.70% in 1m00s sprouted=28219 unsilenced=561 eliminated=0 silentNow=27658
+[2026-09-21 09:27:33] [done 4/35] NG-25 seed 13: 19.95% in 1m00s sprouted=27874 unsilenced=478 eliminated=0 silentNow=27396
+[2026-09-21 09:27:33] [done 5/35] NG-25 seed 12: 20.65% in 1m01s sprouted=27819 unsilenced=562 eliminated=0 silentNow=27257
+[2026-09-21 09:27:43] [done 6/35] NG-50 seed 11: 19.15% in 1m10s sprouted=55024 unsilenced=1198 eliminated=0 silentNow=53826
+[2026-09-21 09:28:33] [heartbeat] C4 sprout-reach battery: 6/35 done, 6 running, elapsed 2m00s, stage ETA 4m58s -- NG-50 s12 87% 1m01s | NG-50 s13 88% 1m01s | NG-50 s14 88% 1m00s | NG-50 s15 87% 1m00s | NG-10 s11 67% 0m59s | NG-10 s12 58% 0m50s
+[2026-09-21 09:28:42] [done 7/35] NG-50 seed 13: 21.20% in 1m10s sprouted=54998 unsilenced=1040 eliminated=0 silentNow=53958
+[2026-09-21 09:28:43] [done 8/35] NG-50 seed 14: 19.70% in 1m10s sprouted=54909 unsilenced=1156 eliminated=0 silentNow=53753
+[2026-09-21 09:28:43] [done 9/35] NG-50 seed 12: 20.35% in 1m11s sprouted=55018 unsilenced=1241 eliminated=0 silentNow=53777
+[2026-09-21 09:28:44] [done 10/35] NG-50 seed 15: 18.90% in 1m11s sprouted=55704 unsilenced=1092 eliminated=0 silentNow=54611
+[2026-09-21 09:29:17] [done 11/35] NG-10 seed 11: 20.75% in 1m44s sprouted=116315 unsilenced=2277 eliminated=0 silentNow=104756
+[2026-09-21 09:29:27] [done 12/35] NG-10 seed 12: 19.55% in 1m44s sprouted=117524 unsilenced=2507 eliminated=0 silentNow=101554
+[2026-09-21 09:29:33] [heartbeat] C4 sprout-reach battery: 12/35 done, 6 running, elapsed 3m00s, stage ETA 4m35s -- NG-10 s13 63% 0m51s | NG-10 s14 62% 0m49s | NG-10 s15 62% 0m49s | SB-25 s11 75% 0m48s | SB-25 s12 35% 0m15s | SB-25 s13 23% 0m06s
+[2026-09-21 09:29:54] [done 13/35] SB-25 seed 11: 20.20% in 1m10s sprouted=66143 unsilenced=1195 eliminated=0 silentNow=64948
+[2026-09-21 09:30:17] [done 14/35] NG-10 seed 13: 20.10% in 1m36s sprouted=124069 unsilenced=2345 eliminated=0 silentNow=102258
+[2026-09-21 09:30:19] [done 15/35] NG-10 seed 15: 19.00% in 1m36s sprouted=116733 unsilenced=2467 eliminated=0 silentNow=106383
+[2026-09-21 09:30:20] [done 16/35] NG-10 seed 14: 18.70% in 1m37s sprouted=117291 unsilenced=2564 eliminated=0 silentNow=104014
+[2026-09-21 09:30:23] [done 17/35] SB-25 seed 12: 20.15% in 1m06s sprouted=61768 unsilenced=958 eliminated=0 silentNow=60810
+[2026-09-21 09:30:30] [done 18/35] SB-25 seed 13: 19.30% in 1m03s sprouted=61711 unsilenced=714 eliminated=0 silentNow=60997
+[2026-09-21 09:30:33] [heartbeat] C4 sprout-reach battery: 18/35 done, 6 running, elapsed 4m00s, stage ETA 3m32s -- SB-25 s14 68% 0m39s | SB-25 s15 37% 0m15s | SB-50 s11 32% 0m13s | SB-50 s12 32% 0m13s | SB-50 s13 27% 0m09s | SB-50 s14 12% 0m02s
+[2026-09-21 09:30:59] [done 19/35] SB-25 seed 14: 18.10% in 1m05s sprouted=61454 unsilenced=922 eliminated=0 silentNow=60532
+[2026-09-21 09:31:24] [done 20/35] SB-25 seed 15: 18.95% in 1m07s sprouted=62718 unsilenced=986 eliminated=0 silentNow=61732
+[2026-09-21 09:31:33] [heartbeat] C4 sprout-reach battery: 20/35 done, 6 running, elapsed 5m00s, stage ETA 3m05s -- SB-50 s11 93% 1m13s | SB-50 s12 95% 1m13s | SB-50 s13 95% 1m10s | SB-50 s14 83% 1m02s | SB-50 s15 55% 0m33s | SB-10 s11 23% 0m09s
+[2026-09-21 09:31:37] [done 21/35] SB-50 seed 13: 20.70% in 1m14s sprouted=102327 unsilenced=1322 eliminated=0 silentNow=101005
+[2026-09-21 09:31:38] [done 22/35] SB-50 seed 12: 20.20% in 1m18s sprouted=105137 unsilenced=1900 eliminated=0 silentNow=103237
+[2026-09-21 09:31:39] [done 23/35] SB-50 seed 11: 18.05% in 1m19s sprouted=103014 unsilenced=1940 eliminated=0 silentNow=101074
+[2026-09-21 09:31:51] [done 24/35] SB-50 seed 14: 19.55% in 1m20s sprouted=98695 unsilenced=2094 eliminated=0 silentNow=96601
+[2026-09-21 09:32:16] [done 25/35] SB-50 seed 15: 19.45% in 1m17s sprouted=104308 unsilenced=1940 eliminated=0 silentNow=102367
+[2026-09-21 09:32:33] [heartbeat] C4 sprout-reach battery: 25/35 done, 6 running, elapsed 6m00s, stage ETA 2m05s -- SB-10 s11 77% 1m09s | SB-10 s12 67% 0m56s | SB-10 s13 67% 0m55s | SB-10 s14 68% 0m54s | SB-10 s15 52% 0m42s | SE-50 s11 40% 0m16s
+[2026-09-21 09:33:11] [done 26/35] SB-10 seed 11: 18.80% in 1m47s sprouted=200261 unsilenced=5021 eliminated=0 silentNow=190935
+[2026-09-21 09:33:17] [done 27/35] SE-50 seed 11: 19.15% in 1m01s sprouted=55024 unsilenced=1198 eliminated=0 silentNow=53826
+[2026-09-21 09:33:21] [done 28/35] SB-10 seed 14: 18.55% in 1m43s sprouted=206081 unsilenced=6076 eliminated=0 silentNow=190842
+[2026-09-21 09:33:25] [done 29/35] SB-10 seed 12: 19.75% in 1m48s sprouted=194437 unsilenced=3118 eliminated=0 silentNow=186004
+[2026-09-21 09:33:26] [done 30/35] SB-10 seed 13: 17.55% in 1m48s sprouted=195132 unsilenced=4583 eliminated=0 silentNow=185299
+[2026-09-21 09:33:33] [heartbeat] C4 sprout-reach battery: 30/35 done, 5 running, elapsed 7m00s, stage ETA 1m05s -- SB-10 s15 88% 1m42s | SE-50 s12 47% 0m22s | SE-50 s13 38% 0m15s | SE-50 s14 32% 0m12s | SE-50 s15 25% 0m07s
+[2026-09-21 09:33:52] [done 31/35] SB-10 seed 15: 19.25% in 2m01s sprouted=187263 unsilenced=5942 eliminated=0 silentNow=175069
+[2026-09-21 09:34:12] [done 32/35] SE-50 seed 12: 20.35% in 1m01s sprouted=55018 unsilenced=1241 eliminated=0 silentNow=53777
+[2026-09-21 09:34:17] [done 33/35] SE-50 seed 13: 21.20% in 0m59s sprouted=54998 unsilenced=1040 eliminated=0 silentNow=53958
+[2026-09-21 09:34:21] [done 34/35] SE-50 seed 14: 19.70% in 1m00s sprouted=54909 unsilenced=1156 eliminated=0 silentNow=53753
+[2026-09-21 09:34:27] [done 35/35] SE-50 seed 15: 18.85% in 1m02s sprouted=63128 unsilenced=1253 eliminated=0 silentNow=61873
+[2026-09-21 09:34:27] === done: results in C:\projects\brain\scripts\investigate-c4-sprout-reach.results.md ===
+[2026-09-21 09:34:56] === instrumented pass, seed 11 ===
+[2026-09-21 09:34:58]     B: growth burst pace, index-block reach (the README §13.12 item 10 control) char 1500: acc=0.20% live=800 growthEvents=0 ontoGrown=0 fromGrown=0 fromGrownOntoOriginal=0
+[2026-09-21 09:35:00]     B: growth burst pace, index-block reach (the README §13.12 item 10 control) char 3000: acc=3.05% live=1040 growthEvents=6 ontoGrown=11392 fromGrown=6703 fromGrownOntoOriginal=0
+[2026-09-21 09:35:06]     B: growth burst pace, index-block reach (the README §13.12 item 10 control) char 4500: acc=6.85% live=1200 growthEvents=10 ontoGrown=30018 fromGrown=22769 fromGrownOntoOriginal=0
+[2026-09-21 09:35:12]     B: growth burst pace, index-block reach (the README §13.12 item 10 control) char 6000: acc=8.70% live=1200 growthEvents=10 ontoGrown=30264 fromGrown=23015 fromGrownOntoOriginal=0
+[2026-09-21 09:35:19]     B: growth burst pace, index-block reach (the README §13.12 item 10 control) char 7500: acc=14.15% live=1200 growthEvents=10 ontoGrown=30625 fromGrown=23376 fromGrownOntoOriginal=0
+[2026-09-21 09:35:25]     B: growth burst pace, index-block reach (the README §13.12 item 10 control) char 9000: acc=16.95% live=1200 growthEvents=10 ontoGrown=30968 fromGrown=23719 fromGrownOntoOriginal=0
+[2026-09-21 09:35:32]     B: growth burst pace, index-block reach (the README §13.12 item 10 control) char 10500: acc=18.85% live=1200 growthEvents=10 ontoGrown=31347 fromGrown=24098 fromGrownOntoOriginal=0
+[2026-09-21 09:35:39]     B: growth burst pace, index-block reach (the README §13.12 item 10 control) char 12000: acc=21.35% live=1200 growthEvents=10 ontoGrown=31813 fromGrown=24564 fromGrownOntoOriginal=0
+[2026-09-21 09:35:47]     B: growth burst pace, index-block reach (the README §13.12 item 10 control) char 13500: acc=19.85% live=1200 growthEvents=10 ontoGrown=32382 fromGrown=25133 fromGrownOntoOriginal=0
+[2026-09-21 09:35:56]     SB-50: growth burst pace, spatial reach r=50 char 1500: acc=0.20% live=800 growthEvents=0 ontoGrown=0 fromGrown=0 fromGrownOntoOriginal=0
+[2026-09-21 09:35:59]     SB-50: growth burst pace, spatial reach r=50 char 3000: acc=3.15% live=1000 growthEvents=5 ontoGrown=10437 fromGrown=7015 fromGrownOntoOriginal=3253
+[2026-09-21 09:36:05]     SB-50: growth burst pace, spatial reach r=50 char 4500: acc=6.80% live=1200 growthEvents=10 ontoGrown=39173 fromGrown=33816 fromGrownOntoOriginal=14180
+[2026-09-21 09:36:11]     SB-50: growth burst pace, spatial reach r=50 char 6000: acc=8.80% live=1200 growthEvents=10 ontoGrown=39460 fromGrown=34236 fromGrownOntoOriginal=14545
+[2026-09-21 09:36:18]     SB-50: growth burst pace, spatial reach r=50 char 7500: acc=14.35% live=1200 growthEvents=10 ontoGrown=39817 fromGrown=34521 fromGrownOntoOriginal=14776
+[2026-09-21 09:36:26]     SB-50: growth burst pace, spatial reach r=50 char 9000: acc=15.65% live=1200 growthEvents=10 ontoGrown=40088 fromGrown=34819 fromGrownOntoOriginal=15011
+[2026-09-21 09:36:35]     SB-50: growth burst pace, spatial reach r=50 char 10500: acc=17.90% live=1200 growthEvents=10 ontoGrown=40319 fromGrown=35067 fromGrownOntoOriginal=15206
+[2026-09-21 09:36:46]     SB-50: growth burst pace, spatial reach r=50 char 12000: acc=20.50% live=1200 growthEvents=10 ontoGrown=40664 fromGrown=35486 fromGrownOntoOriginal=15517
+[2026-09-21 09:36:55]     SB-50: growth burst pace, spatial reach r=50 char 13500: acc=19.40% live=1200 growthEvents=10 ontoGrown=41222 fromGrown=35986 fromGrownOntoOriginal=15822
+[2026-09-21 09:37:04] === instrumented pass done: C:\projects\brain\scripts\investigate-c4-sprout-reach.samples.md ===
+[2026-09-21 12:33:54] === investigate-c4-sprout-reach starting: 6 workers, corpus 15000 characters, seeds 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 ===
+[2026-09-21 12:33:54] winner: C[fixes -2--] ref=1 thr=3 target=permanence homeo=1 lr=0.02 tau=4 dep=2 elig=50 unsil=0.3 gap=4 elim=20000
+[2026-09-21 12:33:54] [WARN] reference row "B: C + growth, burst pace, index-block reach" seed 1 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "B: C + growth, burst pace, index-block reach" seed 2 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "B: C + growth, burst pace, index-block reach" seed 3 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "B: C + growth, burst pace, index-block reach" seed 4 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "B: C + growth, burst pace, index-block reach" seed 5 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "B: C + growth, burst pace, index-block reach" seed 6 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "B: C + growth, burst pace, index-block reach" seed 7 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "B: C + growth, burst pace, index-block reach" seed 8 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "B: C + growth, burst pace, index-block reach" seed 9 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "B: C + growth, burst pace, index-block reach" seed 10 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "E: C + growth, gentle pace, index-block reach" seed 1 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "E: C + growth, gentle pace, index-block reach" seed 2 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "E: C + growth, gentle pace, index-block reach" seed 3 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "E: C + growth, gentle pace, index-block reach" seed 4 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "E: C + growth, gentle pace, index-block reach" seed 5 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "E: C + growth, gentle pace, index-block reach" seed 6 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "E: C + growth, gentle pace, index-block reach" seed 7 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "E: C + growth, gentle pace, index-block reach" seed 8 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "E: C + growth, gentle pace, index-block reach" seed 9 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] [WARN] reference row "E: C + growth, gentle pace, index-block reach" seed 10 is not in any prior checkpoint and will be re-run
+[2026-09-21 12:33:54] 100 trials, 10 already measured, 90 to run
+[2026-09-21 12:34:54] [heartbeat] C4 sprout-reach battery: 0/90 done, 6 running, elapsed 1m00s, stage ETA unknown until the first trial finishes -- B s1 82% 1m00s | B s2 83% 1m00s | B s3 83% 1m00s | B s4 82% 1m00s | B s5 83% 1m00s | B s6 87% 1m00s
+[2026-09-21 12:35:04] [done 1/90] B seed 6: 19.60% in 1m11s sprouted=60209 unsilenced=1252 eliminated=0 silentNow=58957
+[2026-09-21 12:35:10] [done 2/90] B seed 5: 19.20% in 1m17s sprouted=79675 unsilenced=1351 eliminated=0 silentNow=78324
+[2026-09-21 12:35:11] [done 3/90] B seed 2: 20.50% in 1m17s sprouted=80073 unsilenced=1334 eliminated=0 silentNow=78739
+[2026-09-21 12:35:11] [done 4/90] B seed 3: 21.10% in 1m17s sprouted=80836 unsilenced=1404 eliminated=0 silentNow=79432
+[2026-09-21 12:35:12] [done 5/90] B seed 1: 19.85% in 1m19s sprouted=80222 unsilenced=1390 eliminated=0 silentNow=78832
+[2026-09-21 12:35:12] [done 6/90] B seed 4: 21.15% in 1m19s sprouted=80768 unsilenced=1794 eliminated=0 silentNow=78974
+[2026-09-21 12:35:54] [heartbeat] C4 sprout-reach battery: 6/90 done, 6 running, elapsed 2m00s, stage ETA 17m52s -- B s7 73% 0m49s | B s8 67% 0m43s | B s9 67% 0m43s | B s10 65% 0m43s | E s1 68% 0m41s | E s2 68% 0m41s
+[2026-09-21 12:36:19] [done 7/90] E seed 1: 19.85% in 1m07s sprouted=56550 unsilenced=1170 eliminated=0 silentNow=55380
+[2026-09-21 12:36:19] [done 8/90] E seed 2: 20.50% in 1m07s sprouted=56367 unsilenced=1155 eliminated=0 silentNow=55212
+[2026-09-21 12:36:21] [done 9/90] B seed 7: 18.90% in 1m17s sprouted=79746 unsilenced=1551 eliminated=0 silentNow=78195
+[2026-09-21 12:36:24] [done 10/90] B seed 9: 19.50% in 1m14s sprouted=78657 unsilenced=1301 eliminated=0 silentNow=77352
+[2026-09-21 12:36:26] [done 11/90] B seed 8: 19.90% in 1m16s sprouted=81996 unsilenced=1347 eliminated=0 silentNow=80649
+[2026-09-21 12:36:26] [done 12/90] B seed 10: 18.45% in 1m15s sprouted=80454 unsilenced=1434 eliminated=0 silentNow=78944
+[2026-09-21 12:36:54] [heartbeat] C4 sprout-reach battery: 12/90 done, 6 running, elapsed 3m00s, stage ETA 16m09s -- E s3 62% 0m34s | E s4 60% 0m34s | E s5 58% 0m33s | E s6 53% 0m29s | E s7 52% 0m28s | E s8 52% 0m28s
+[2026-09-21 12:37:27] [done 13/90] E seed 3: 21.10% in 1m08s sprouted=56370 unsilenced=1205 eliminated=0 silentNow=55165
+[2026-09-21 12:37:28] [done 14/90] E seed 4: 21.15% in 1m08s sprouted=56720 unsilenced=1228 eliminated=0 silentNow=55492
+[2026-09-21 12:37:29] [done 15/90] E seed 5: 19.20% in 1m08s sprouted=56414 unsilenced=1173 eliminated=0 silentNow=55241
+[2026-09-21 12:37:32] [done 16/90] E seed 6: 19.60% in 1m08s sprouted=56476 unsilenced=1233 eliminated=0 silentNow=55243
+[2026-09-21 12:37:34] [done 17/90] E seed 8: 19.90% in 1m08s sprouted=56366 unsilenced=1166 eliminated=0 silentNow=55200
+[2026-09-21 12:37:36] [done 18/90] E seed 7: 18.90% in 1m10s sprouted=56876 unsilenced=1275 eliminated=0 silentNow=55601
+[2026-09-21 12:37:54] [heartbeat] C4 sprout-reach battery: 18/90 done, 6 running, elapsed 4m00s, stage ETA 14m30s -- E s9 50% 0m27s | E s10 48% 0m26s | NG-25 s1 52% 0m24s | NG-25 s2 48% 0m21s | NG-25 s3 47% 0m19s | NG-25 s4 43% 0m18s
+[2026-09-21 12:38:28] [done 19/90] NG-25 seed 1: 17.70% in 0m59s sprouted=27997 unsilenced=549 eliminated=0 silentNow=27448
+[2026-09-21 12:38:29] [done 20/90] NG-25 seed 2: 19.10% in 0m57s sprouted=27781 unsilenced=501 eliminated=0 silentNow=27280
+[2026-09-21 12:38:30] [done 21/90] NG-25 seed 3: 18.40% in 0m56s sprouted=27770 unsilenced=515 eliminated=0 silentNow=27255
+[2026-09-21 12:38:33] [done 22/90] NG-25 seed 4: 18.20% in 0m57s sprouted=28147 unsilenced=533 eliminated=0 silentNow=27614
+[2026-09-21 12:38:36] [done 23/90] E seed 9: 19.50% in 1m09s sprouted=56428 unsilenced=1223 eliminated=0 silentNow=55201
+[2026-09-21 12:38:38] [done 24/90] E seed 10: 18.45% in 1m10s sprouted=56767 unsilenced=1282 eliminated=0 silentNow=55485
+[2026-09-21 12:38:54] [heartbeat] C4 sprout-reach battery: 24/90 done, 6 running, elapsed 5m00s, stage ETA 12m47s -- NG-25 s5 55% 0m26s | NG-25 s6 52% 0m24s | NG-25 s7 53% 0m23s | NG-25 s8 47% 0m21s | NG-25 s9 42% 0m18s | NG-25 s10 40% 0m16s
+[2026-09-21 12:39:25] [done 25/90] NG-25 seed 5: 19.70% in 0m57s sprouted=28021 unsilenced=512 eliminated=0 silentNow=27509
+[2026-09-21 12:39:27] [done 26/90] NG-25 seed 7: 19.50% in 0m56s sprouted=27902 unsilenced=514 eliminated=0 silentNow=27388
+[2026-09-21 12:39:27] [done 27/90] NG-25 seed 6: 18.30% in 0m57s sprouted=27936 unsilenced=590 eliminated=0 silentNow=27346
+[2026-09-21 12:39:30] [done 28/90] NG-25 seed 8: 20.25% in 0m57s sprouted=27709 unsilenced=477 eliminated=0 silentNow=27232
+[2026-09-21 12:39:33] [done 29/90] NG-25 seed 9: 20.10% in 0m57s sprouted=27937 unsilenced=570 eliminated=0 silentNow=27367
+[2026-09-21 12:39:35] [done 30/90] NG-25 seed 10: 18.50% in 0m57s sprouted=27841 unsilenced=520 eliminated=0 silentNow=27321
+[2026-09-21 12:39:54] [heartbeat] C4 sprout-reach battery: 30/90 done, 6 running, elapsed 6m00s, stage ETA 11m12s -- NG-50 s1 53% 0m29s | NG-50 s2 52% 0m27s | NG-50 s3 52% 0m27s | NG-50 s4 47% 0m23s | NG-50 s5 42% 0m20s | NG-50 s6 40% 0m19s
+[2026-09-21 12:40:32] [done 31/90] NG-50 seed 1: 20.30% in 1m07s sprouted=54935 unsilenced=1078 eliminated=0 silentNow=53857
+[2026-09-21 12:40:34] [done 32/90] NG-50 seed 2: 20.65% in 1m07s sprouted=54913 unsilenced=1078 eliminated=0 silentNow=53835
+[2026-09-21 12:40:34] [done 33/90] NG-50 seed 3: 20.15% in 1m07s sprouted=54814 unsilenced=1123 eliminated=0 silentNow=53691
+[2026-09-21 12:40:38] [done 34/90] NG-50 seed 4: 18.75% in 1m08s sprouted=55522 unsilenced=1064 eliminated=0 silentNow=54458
+[2026-09-21 12:40:41] [done 35/90] NG-50 seed 5: 19.80% in 1m08s sprouted=54977 unsilenced=1076 eliminated=0 silentNow=53901
+[2026-09-21 12:40:41] [done 36/90] NG-50 seed 6: 20.25% in 1m06s sprouted=55025 unsilenced=1102 eliminated=0 silentNow=53923
+[2026-09-21 12:40:54] [heartbeat] C4 sprout-reach battery: 36/90 done, 6 running, elapsed 7m00s, stage ETA 10m04s -- NG-50 s7 45% 0m22s | NG-50 s8 42% 0m20s | NG-50 s9 42% 0m20s | NG-50 s10 37% 0m16s | NG-100 s1 28% 0m13s | NG-100 s2 27% 0m12s
+[2026-09-21 12:41:38] [done 37/90] NG-50 seed 7: 18.45% in 1m06s sprouted=55165 unsilenced=1145 eliminated=0 silentNow=54007
+[2026-09-21 12:41:39] [done 38/90] NG-50 seed 9: 19.90% in 1m06s sprouted=55018 unsilenced=1146 eliminated=0 silentNow=53868
+[2026-09-21 12:41:40] [done 39/90] NG-50 seed 8: 21.35% in 1m07s sprouted=54889 unsilenced=1125 eliminated=0 silentNow=53764
+[2026-09-21 12:41:44] [done 40/90] NG-50 seed 10: 20.15% in 1m06s sprouted=54881 unsilenced=1129 eliminated=0 silentNow=53752
+[2026-09-21 12:41:54] [heartbeat] C4 sprout-reach battery: 40/90 done, 6 running, elapsed 8m00s, stage ETA 9m19s -- NG-100 s1 82% 1m13s | NG-100 s2 82% 1m12s | NG-100 s3 32% 0m16s | NG-100 s4 28% 0m14s | NG-100 s5 28% 0m13s | NG-100 s6 25% 0m09s
+[2026-09-21 12:42:15] [done 41/90] NG-100 seed 1: 19.80% in 1m35s sprouted=113449 unsilenced=2166 eliminated=0 silentNow=104871
+[2026-09-21 12:42:15] [done 42/90] NG-100 seed 2: 20.40% in 1m34s sprouted=114299 unsilenced=2499 eliminated=0 silentNow=104637
+[2026-09-21 12:42:54] [heartbeat] C4 sprout-reach battery: 42/90 done, 6 running, elapsed 9m00s, stage ETA 9m07s -- NG-100 s3 85% 1m16s | NG-100 s4 82% 1m14s | NG-100 s5 80% 1m13s | NG-100 s6 80% 1m09s | NG-100 s7 53% 0m38s | NG-100 s8 53% 0m38s
+[2026-09-21 12:43:13] [done 43/90] NG-100 seed 3: 20.10% in 1m35s sprouted=114712 unsilenced=2494 eliminated=0 silentNow=102313
+[2026-09-21 12:43:17] [done 44/90] NG-100 seed 4: 19.05% in 1m37s sprouted=116411 unsilenced=2377 eliminated=0 silentNow=103599
+[2026-09-21 12:43:18] [done 45/90] NG-100 seed 5: 17.15% in 1m38s sprouted=117817 unsilenced=2514 eliminated=0 silentNow=105106
+[2026-09-21 12:43:19] [done 46/90] NG-100 seed 6: 19.95% in 1m35s sprouted=116985 unsilenced=2176 eliminated=0 silentNow=104726
+[2026-09-21 12:43:51] [done 47/90] NG-100 seed 8: 18.30% in 1m35s sprouted=120118 unsilenced=2457 eliminated=0 silentNow=101745
+[2026-09-21 12:43:52] [done 48/90] NG-100 seed 7: 20.35% in 1m37s sprouted=126089 unsilenced=2521 eliminated=0 silentNow=104278
+[2026-09-21 12:43:54] [heartbeat] C4 sprout-reach battery: 48/90 done, 6 running, elapsed 10m00s, stage ETA 8m23s -- NG-100 s9 55% 0m41s | NG-100 s10 53% 0m37s | SB-25 s1 60% 0m35s | SB-25 s2 65% 0m35s | SB-25 s3 15% 0m03s | SB-25 s4 10% 0m02s
+[2026-09-21 12:44:25] [done 49/90] SB-25 seed 2: 19.60% in 1m06s sprouted=60794 unsilenced=732 eliminated=0 silentNow=60062
+[2026-09-21 12:44:28] [done 50/90] SB-25 seed 1: 17.45% in 1m09s sprouted=62272 unsilenced=909 eliminated=0 silentNow=61363
+[2026-09-21 12:44:49] [done 51/90] NG-100 seed 9: 19.60% in 1m37s sprouted=119130 unsilenced=2383 eliminated=0 silentNow=102617
+[2026-09-21 12:44:52] [done 52/90] NG-100 seed 10: 18.30% in 1m36s sprouted=120103 unsilenced=2273 eliminated=0 silentNow=104296
+[2026-09-21 12:44:53] [done 53/90] SB-25 seed 3: 18.85% in 1m02s sprouted=57403 unsilenced=640 eliminated=0 silentNow=56763
+[2026-09-21 12:44:54] [heartbeat] C4 sprout-reach battery: 53/90 done, 6 running, elapsed 11m00s, stage ETA 7m26s -- SB-25 s4 93% 1m02s | SB-25 s5 55% 0m29s | SB-25 s6 52% 0m26s | SB-25 s7 22% 0m04s | SB-25 s8 10% 0m01s | SB-25 s9 3% 0m01s
+[2026-09-21 12:44:59] [done 54/90] SB-25 seed 4: 20.40% in 1m07s sprouted=61947 unsilenced=904 eliminated=0 silentNow=61042
+[2026-09-21 12:45:32] [done 55/90] SB-25 seed 5: 19.40% in 1m07s sprouted=63315 unsilenced=933 eliminated=0 silentNow=62382
+[2026-09-21 12:45:33] [done 56/90] SB-25 seed 6: 18.50% in 1m06s sprouted=63029 unsilenced=963 eliminated=0 silentNow=62066
+[2026-09-21 12:45:54] [heartbeat] C4 sprout-reach battery: 56/90 done, 6 running, elapsed 12m00s, stage ETA 6m48s -- SB-25 s7 97% 1m04s | SB-25 s8 93% 1m01s | SB-25 s9 92% 1m01s | SB-25 s10 85% 0m55s | SB-50 s1 40% 0m22s | SB-50 s2 40% 0m20s
+[2026-09-21 12:45:56] [done 57/90] SB-25 seed 7: 20.15% in 1m07s sprouted=62146 unsilenced=965 eliminated=0 silentNow=61181
+[2026-09-21 12:46:00] [done 58/90] SB-25 seed 8: 20.70% in 1m08s sprouted=62005 unsilenced=953 eliminated=0 silentNow=61052
+[2026-09-21 12:46:00] [done 59/90] SB-25 seed 9: 18.50% in 1m07s sprouted=64501 unsilenced=756 eliminated=0 silentNow=63745
+[2026-09-21 12:46:06] [done 60/90] SB-25 seed 10: 19.00% in 1m08s sprouted=62098 unsilenced=808 eliminated=0 silentNow=61290
+[2026-09-21 12:46:51] [done 61/90] SB-50 seed 2: 19.30% in 1m18s sprouted=102197 unsilenced=1408 eliminated=0 silentNow=100789
+[2026-09-21 12:46:52] [done 62/90] SB-50 seed 1: 19.15% in 1m21s sprouted=103017 unsilenced=1453 eliminated=0 silentNow=101564
+[2026-09-21 12:46:54] [heartbeat] C4 sprout-reach battery: 62/90 done, 6 running, elapsed 13m00s, stage ETA 5m36s -- SB-50 s3 77% 0m58s | SB-50 s4 73% 0m54s | SB-50 s5 73% 0m53s | SB-50 s6 70% 0m47s | SB-50 s7 12% 0m02s | SB-50 s8 7% 0m01s
+[2026-09-21 12:47:20] [done 63/90] SB-50 seed 3: 19.00% in 1m24s sprouted=105450 unsilenced=1973 eliminated=0 silentNow=103477
+[2026-09-21 12:47:21] [done 64/90] SB-50 seed 5: 18.20% in 1m21s sprouted=103617 unsilenced=1522 eliminated=0 silentNow=102095
+[2026-09-21 12:47:22] [done 65/90] SB-50 seed 4: 19.05% in 1m22s sprouted=104008 unsilenced=1595 eliminated=0 silentNow=102291
+[2026-09-21 12:47:24] [done 66/90] SB-50 seed 6: 18.80% in 1m17s sprouted=97368 unsilenced=1846 eliminated=0 silentNow=95522
+[2026-09-21 12:47:54] [heartbeat] C4 sprout-reach battery: 66/90 done, 6 running, elapsed 14m00s, stage ETA 4m50s -- SB-50 s7 85% 1m02s | SB-50 s8 82% 1m01s | SB-50 s9 53% 0m33s | SB-50 s10 52% 0m33s | SB-100 s1 43% 0m32s | SB-100 s2 42% 0m30s
+[2026-09-21 12:48:11] [done 67/90] SB-50 seed 7: 18.90% in 1m20s sprouted=98566 unsilenced=2084 eliminated=0 silentNow=96281
+[2026-09-21 12:48:13] [done 68/90] SB-50 seed 8: 20.50% in 1m21s sprouted=102365 unsilenced=1394 eliminated=0 silentNow=100971
+[2026-09-21 12:48:40] [done 69/90] SB-50 seed 9: 20.20% in 1m20s sprouted=104016 unsilenced=1445 eliminated=0 silentNow=102567
+[2026-09-21 12:48:48] [done 70/90] SB-50 seed 10: 18.80% in 1m27s sprouted=110234 unsilenced=1899 eliminated=0 silentNow=108335
+[2026-09-21 12:48:54] [heartbeat] C4 sprout-reach battery: 70/90 done, 6 running, elapsed 15m00s, stage ETA 4m04s -- SB-100 s1 82% 1m32s | SB-100 s2 83% 1m30s | SB-100 s3 52% 0m42s | SB-100 s4 50% 0m41s | SB-100 s5 27% 0m13s | SB-100 s6 18% 0m05s
+[2026-09-21 12:49:22] [done 71/90] SB-100 seed 2: 20.10% in 1m58s sprouted=165768 unsilenced=4902 eliminated=0 silentNow=156186
+[2026-09-21 12:49:28] [done 72/90] SB-100 seed 1: 19.40% in 2m06s sprouted=185914 unsilenced=5150 eliminated=0 silentNow=177780
+[2026-09-21 12:49:54] [heartbeat] C4 sprout-reach battery: 72/90 done, 6 running, elapsed 16m00s, stage ETA 3m43s -- SB-100 s3 90% 1m42s | SB-100 s4 85% 1m41s | SB-100 s5 75% 1m13s | SB-100 s6 73% 1m05s | SB-100 s7 45% 0m32s | SB-100 s8 40% 0m26s
+[2026-09-21 12:50:13] [done 73/90] SB-100 seed 3: 21.30% in 2m02s sprouted=185233 unsilenced=5888 eliminated=0 silentNow=175202
+[2026-09-21 12:50:23] [done 74/90] SB-100 seed 4: 19.85% in 2m10s sprouted=187669 unsilenced=6575 eliminated=0 silentNow=173523
+[2026-09-21 12:50:35] [done 75/90] SB-100 seed 6: 18.90% in 1m47s sprouted=171601 unsilenced=4010 eliminated=0 silentNow=160173
+[2026-09-21 12:50:41] [done 76/90] SB-100 seed 5: 19.00% in 2m01s sprouted=189137 unsilenced=6494 eliminated=0 silentNow=170865
+[2026-09-21 12:50:54] [heartbeat] C4 sprout-reach battery: 76/90 done, 6 running, elapsed 17m00s, stage ETA 2m59s -- SB-100 s7 85% 1m32s | SB-100 s8 80% 1m26s | SB-100 s9 48% 0m40s | SB-100 s10 43% 0m30s | SE-50 s1 40% 0m18s | SE-50 s2 32% 0m12s
+[2026-09-21 12:51:22] [done 77/90] SB-100 seed 7: 18.60% in 2m00s sprouted=183523 unsilenced=5515 eliminated=0 silentNow=176275
+[2026-09-21 12:51:34] [done 78/90] SB-100 seed 8: 17.60% in 2m06s sprouted=190548 unsilenced=5549 eliminated=0 silentNow=180410
+[2026-09-21 12:51:42] [done 79/90] SE-50 seed 1: 20.30% in 1m07s sprouted=54935 unsilenced=1078 eliminated=0 silentNow=53857
+[2026-09-21 12:51:48] [done 80/90] SE-50 seed 2: 20.65% in 1m07s sprouted=54913 unsilenced=1078 eliminated=0 silentNow=53835
+[2026-09-21 12:51:54] [heartbeat] C4 sprout-reach battery: 80/90 done, 6 running, elapsed 18m00s, stage ETA 2m10s -- SB-100 s9 85% 1m40s | SB-100 s10 85% 1m30s | SE-50 s3 57% 0m32s | SE-50 s4 42% 0m20s | SE-50 s5 28% 0m11s | SE-50 s6 22% 0m05s
+[2026-09-21 12:52:22] [done 81/90] SB-100 seed 10: 18.75% in 1m58s sprouted=177220 unsilenced=4903 eliminated=0 silentNow=168016
+[2026-09-21 12:52:28] [done 82/90] SB-100 seed 9: 19.00% in 2m14s sprouted=187766 unsilenced=6779 eliminated=0 silentNow=173211
+[2026-09-21 12:52:30] [done 83/90] SE-50 seed 3: 20.15% in 1m08s sprouted=54814 unsilenced=1123 eliminated=0 silentNow=53691
+[2026-09-21 12:52:44] [done 84/90] SE-50 seed 4: 18.65% in 1m10s sprouted=58482 unsilenced=1122 eliminated=0 silentNow=57273
+[2026-09-21 12:52:53] [done 85/90] SE-50 seed 5: 19.05% in 1m10s sprouted=59720 unsilenced=1109 eliminated=0 silentNow=58611
+[2026-09-21 12:52:54] [heartbeat] C4 sprout-reach battery: 85/90 done, 5 running, elapsed 19m00s, stage ETA 1m06s -- SE-50 s6 97% 1m05s | SE-50 s7 57% 0m32s | SE-50 s8 48% 0m26s | SE-50 s9 45% 0m23s | SE-50 s10 28% 0m10s
+[2026-09-21 12:52:56] [done 86/90] SE-50 seed 6: 20.25% in 1m08s sprouted=55025 unsilenced=1102 eliminated=0 silentNow=53923
+[2026-09-21 12:53:26] [done 87/90] SE-50 seed 7: 18.45% in 1m04s sprouted=55165 unsilenced=1145 eliminated=0 silentNow=54007
+[2026-09-21 12:53:31] [done 88/90] SE-50 seed 8: 21.35% in 1m04s sprouted=54889 unsilenced=1125 eliminated=0 silentNow=53764
+[2026-09-21 12:53:33] [done 89/90] SE-50 seed 9: 19.90% in 1m03s sprouted=55018 unsilenced=1146 eliminated=0 silentNow=53868
+[2026-09-21 12:53:44] [done 90/90] SE-50 seed 10: 20.15% in 1m00s sprouted=54881 unsilenced=1129 eliminated=0 silentNow=53752
+[2026-09-21 12:53:44] === done: results in C:\projects\brain\scripts\investigate-c4-sprout-reach.selection-seeds.results.md ===

@@ -38,6 +38,7 @@ import {
   type SegmentSampleFfi,
   type WeightSampleFfi,
   type MetricsSnapshotFfi,
+  type PredictionOutcomeTotalsFfi,
   type StructuralStatsFfi,
 } from "@brain/napi";
 import { openSync, writeSync, fsyncSync, closeSync, renameSync, readFileSync } from "node:fs";
@@ -87,6 +88,8 @@ export type SegmentSample = SegmentSampleFfi;
 export type WeightSample = WeightSampleFfi;
 /** The on-demand arena-level metrics scan (OBS-2, Phase 6 Requirement 5). */
 export type MetricsSnapshot = MetricsSnapshotFfi;
+/** Requirement 12's four outcomes, accumulated over every `step()` (OBS-2). */
+export type PredictionOutcomeTotals = PredictionOutcomeTotalsFfi;
 export type StructuralStats = StructuralStatsFfi;
 
 /** What one consolidation pass did (Requirement 12). */
@@ -928,6 +931,26 @@ export class Simulation {
   /** Prediction accuracy over the always-on window (OBS-2, Requirement 5.1). */
   predictionAccuracy(): number {
     return this.#native.predictionAccuracy();
+  }
+
+  /**
+   * Requirement 12's four outcomes, accumulated over every `step()` since
+   * construction (OBS-2). Distinct from `predictionAccuracy()`, which is a
+   * smoothed *rate* over a window, and from `predictiveView()`, which is
+   * the *instantaneous* depolarisation of each neuron.
+   *
+   * `classifiedAsPredicted` (`correct + falsePositive`) is the field worth
+   * knowing about: it is the only way to ask "did Requirement 12.2/12.3 --
+   * the reinforce/punish path a neuromodulator gates -- ever fire over this
+   * run at all". Reading `predictiveView()` at the end of a run cannot
+   * answer that, and inferring it from one instant is the specific mistake
+   * README §13.12 item 17 records having made.
+   *
+   * Not part of snapshot state: restarts from zero after a `restore`, like
+   * `structuralStats`' totals.
+   */
+  predictionOutcomeTotals(): PredictionOutcomeTotals {
+    return this.#native.predictionOutcomeTotals();
   }
 
   /**

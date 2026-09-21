@@ -24,6 +24,7 @@ use brain_core::plasticity::structural::{SproutTimingWindow, StructuralPlasticit
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::RuleChain;
 use brain_core::probe::{Probe, ProbeOptions, SpikeRaster};
+use brain_core::reach::SproutReach;
 use brain_core::scheduler::{Scheduler, SilentSynapseParams};
 use brain_core::segment::{BinaryCoincidenceParams, DendriticVote, SegmentConfig, FEEDFORWARD_SEGMENT};
 use brain_core::synapse::{SynapseArena, NOT_SILENT};
@@ -347,6 +348,22 @@ pub struct PredictiveLearningConfig {
     /// permanence-only finding -- see `predictive::SegmentLearningTarget`'s
     /// doc comment.
     pub learning_target: Option<String>,
+    /// `reach::SproutReach::Spatial`'s FFI mirror for Requirement 12.1's
+    /// burst path (PLAN.md C4, README §12 decision 15): when set, a
+    /// bursting neuron's candidate sources are every neuron within this
+    /// Euclidean radius of it in `coordsView()` space, instead of its
+    /// `neighbourhoodSize` index block. Omit (the default) for the
+    /// index-block reach -- every pre-C4 caller's behaviour, bit-identical.
+    ///
+    /// Two things a caller must know before setting this. **It is refused
+    /// with `threadCount > 1`** (`NativeSimulation::new`), because the
+    /// burst path runs on partition-scoped views and clipping the candidate
+    /// set to a partition's range would make results depend on the
+    /// partition count (RUN-3). And **it overrides the
+    /// `neighbourhoodSize: 1` trick** that `charPrediction.ts` uses to
+    /// disable this path entirely for a measured >400x cost -- a radius
+    /// ignores `neighbourhoodSize` completely.
+    pub sprout_reach_radius: Option<f64>,
 }
 
 impl PredictiveLearningConfig {
@@ -358,7 +375,15 @@ impl PredictiveLearningConfig {
                 )));
             }
         }
+        validate_sprout_reach_radius("predictiveLearning", self.sprout_reach_radius)?;
         Ok(())
+    }
+
+    /// `None` leaves `SproutReach::IndexBlocks` (the default), so a caller
+    /// that omits the field never reaches `Scheduler::with_predictive_learning_sprout_reach`
+    /// at all. `validate()` must have run first.
+    fn sprout_reach(&self) -> Option<SproutReach> {
+        self.sprout_reach_radius.map(|r| SproutReach::spatial(r as f32))
     }
 
     fn to_params(&self) -> PredictiveLearningParams {
@@ -642,9 +667,51 @@ pub struct StructuralPlasticityConfig {
     /// `StructuralPlasticityParams::silent_elimination_ticks`'s FFI mirror
     /// (PLAN.md B4, fix 4). Omit to disable, the pre-B4 behaviour.
     pub silent_elimination_ticks: Option<u32>,
+    /// `reach::SproutReach::Spatial`'s FFI mirror for LRN-7's sweep
+    /// (PLAN.md C4, README §12 decision 15): when set, a neuron's sprout
+    /// candidates are every neuron within this Euclidean radius of it in
+    /// `coordsView()` space, instead of the members of its
+    /// `neighbourhoodSize` index block. Omit (the default) for the
+    /// index-block reach -- every pre-C4 caller's behaviour, bit-identical.
+    ///
+    /// **This is what unblocks developmental growth** (NET-10, invariant
+    /// 10). Grown neurons take indices past every original neuron's block,
+    /// so an index-block reach can never pair one with an original --
+    /// measured as 400 grown neurons sending exactly zero synapses to the
+    /// original 800 (README §13.12 item 10). `newbornMaturation` already
+    /// places a newborn at the *centroid* of its input sources'
+    /// coordinates, so it sits spatially among the originals even though
+    /// its index does not, and a radius includes it immediately.
+    ///
+    /// Two consequences worth knowing. A radius is **overlapping** where a
+    /// block is disjoint, so the number of candidate pairs rises even with
+    /// no growth configured. And unlike
+    /// `predictiveLearning.sproutReachRadius`, this one is safe at any
+    /// `threadCount`: this sweep runs once globally with the whole arenas
+    /// addressable, and a cross-partition sprout is already handled via
+    /// `minCrossPartitionDelay`.
+    pub sprout_reach_radius: Option<f64>,
+}
+
+/// Shared by the two configs that carry a `sproutReachRadius`
+/// (PLAN.md C4): a radius must be finite and positive. Zero or negative
+/// would silently disable sprouting instead of meaning anything, which is
+/// a configuration mistake worth refusing -- omit the field for the
+/// index-block reach.
+fn validate_sprout_reach_radius(field: &str, radius: Option<f64>) -> Result<()> {
+    match radius {
+        Some(r) if !r.is_finite() || r <= 0.0 => Err(Error::from_reason(format!("{field}.sproutReachRadius must be finite and positive, got {r}; omit it for the index-block reach"))),
+        _ => Ok(()),
+    }
 }
 
 impl StructuralPlasticityConfig {
+    /// `None` leaves `SproutReach::IndexBlocks` (the default).
+    /// `validate()` must have run first.
+    fn sprout_reach(&self) -> Option<SproutReach> {
+        self.sprout_reach_radius.map(|r| SproutReach::spatial(r as f32))
+    }
+
     fn validate(&self) -> Result<()> {
         match (self.min_temporal_gap_ticks, self.max_temporal_gap_ticks) {
             (None, None) => {}
@@ -659,6 +726,7 @@ impl StructuralPlasticityConfig {
         if self.spread_sprout_segments == Some(true) && self.seed.is_none() {
             return Err(Error::from_reason("structuralPlasticity.spreadSproutSegments needs a seed"));
         }
+        validate_sprout_reach_radius("structuralPlasticity", self.sprout_reach_radius)?;
         Ok(())
     }
 
@@ -939,6 +1007,41 @@ pub struct MetricsSnapshotFfi {
     pub synapse_count: u32,
 }
 
+/// Requirement 12's four outcomes, tallied over **every** `step()` since
+/// construction (OBS-2, added 2026-09-21 for PLAN.md C4's follow-up).
+///
+/// **Why a cumulative tally and not a per-tick or end-of-run reading.**
+/// `predictionAccuracy()` already reports a smoothed *rate*, and
+/// `predictiveView()` reports the *instantaneous* depolarisation of each
+/// neuron. Neither can answer "did Requirement 12.2/12.3 ever classify
+/// anything over this run", which is the question C4's own fixture finding
+/// turned on: a single end-of-run reading of `predictiveView()` was used to
+/// infer that a configuration had stopped predicting *at all*, and that
+/// inference was not sound from one instant (README §13.12 item 17's
+/// closing paragraph records the correction). A monotonically accumulating
+/// integer tally is the thing that answers it, and integer addition is
+/// associative so the partitioned merge cannot make it depend on partition
+/// count (RUN-6, the same reasoning `PredictionOutcomeCounts`'s own doc
+/// comment gives).
+///
+/// Not snapshot state: these restart from zero after a `restore`, exactly
+/// like `StructuralStats`' totals, and nothing in the simulation reads them.
+#[napi(object)]
+pub struct PredictionOutcomeTotalsFfi {
+    /// 12.3: predicted and fired.
+    pub correct: f64,
+    /// 12.2: predicted but did not fire (vetoed, or the prediction expired).
+    pub false_positive: f64,
+    /// 12.1: fired with no significant prediction.
+    pub unpredicted: f64,
+    /// `correct + false_positive`: how often anything was classified as
+    /// *having been predicted* at all. This is the one that distinguishes
+    /// "the network stopped predicting" from "the network predicted and the
+    /// learning rule's writes happened to coincide" -- only these two
+    /// branches are the dopamine-gated reinforce/punish path.
+    pub classified_as_predicted: f64,
+}
+
 /// Structural plasticity counts (PLAN.md B4), for experiment reporting.
 /// Totals are summed since construction (or since the last `restore`, which
 /// resets them: they are reporting only, not snapshot state). Plain numbers
@@ -1019,6 +1122,10 @@ pub struct NativeSimulation {
     /// `raster`), so `metrics_snapshot` is a pure read with no parameter
     /// the caller has to track themselves.
     last_spike_count: u32,
+    /// Requirement 12's outcomes accumulated over every `step()` --
+    /// see `PredictionOutcomeTotalsFfi`. Fed in both runtime modes, by
+    /// merging each partition's own integer tally (RUN-6).
+    prediction_outcomes: brain_core::plasticity::predictive::PredictionOutcomeCounts,
     /// The dendritic-segment configuration this instance's `Scheduler`
     /// actually runs (a copy of whatever `segments` was passed to `new`/
     /// `restore`, or `SegmentsConfig::NONE` if omitted). Purely an FFI-layer
@@ -1116,6 +1223,11 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
     }
     if let Some(cfg) = &config.predictive_learning {
         scheduler = scheduler.with_predictive_learning(cfg.to_params(), FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.neighbourhood_k));
+        // PLAN.md C4: applied only when the caller opted in, so an omitted
+        // `sproutReachRadius` never touches the reach at all.
+        if let Some(reach) = cfg.sprout_reach() {
+            scheduler = scheduler.with_predictive_learning_sprout_reach(reach);
+        }
     }
     if let Some(resolved) = &config.plasticity {
         let rules = RuleChain::new(vec![Box::new(ThreeFactorStdp::new(resolved.rule_params))]);
@@ -1126,7 +1238,13 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
     }
     if let Some(cfg) = &config.structural_plasticity {
         let params = cfg.to_params(config.segments.as_ref().map_or(1, |s| s.segments_per_neuron));
-        scheduler = scheduler.with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k)));
+        let mut sweep = StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k));
+        // PLAN.md C4: only when the caller opted in -- see
+        // `StructuralPlasticityConfig::sprout_reach_radius`.
+        if let Some(reach) = cfg.sprout_reach() {
+            sweep = sweep.with_sprout_reach(reach);
+        }
+        scheduler = scheduler.with_structural_plasticity(sweep);
     }
     if let Some(cfg) = &config.intrinsic_homeostasis {
         scheduler = scheduler.with_intrinsic_homeostasis(IntrinsicHomeostasis::new(
@@ -1413,6 +1531,19 @@ impl NativeSimulation {
         if newborn_maturation.is_some() && thread_count > 1 {
             return Err(Error::from_reason("newbornMaturation is not supported together with threadCount > 1 (partitioned mode) -- see NewbornMaturationConfig's doc comment"));
         }
+        // PLAN.md C4: a clean `Error` here rather than letting
+        // `PartitionRuntime::new`'s own assert panic across the FFI
+        // boundary later, when the runtime is lazily built. The reason is
+        // that assert's, not this layer's: the burst path's candidate set
+        // would be clipped to each partition's range, so the result would
+        // depend on the partition count (RUN-3). Note
+        // `structuralPlasticity.sproutReachRadius` is deliberately *not*
+        // restricted -- that sweep runs once globally.
+        if predictive_learning.as_ref().is_some_and(|cfg| cfg.sprout_reach_radius.is_some()) && thread_count > 1 {
+            return Err(Error::from_reason(
+                "predictiveLearning.sproutReachRadius is not supported together with threadCount > 1 (partitioned mode): the burst path's candidate set would be clipped to each partition's own range, so results would depend on the partition count (PLAN.md C4, RUN-3). structuralPlasticity.sproutReachRadius has no such restriction",
+            ));
+        }
         let plasticity = plasticity.map(|cfg| cfg.resolve()).transpose()?;
         let scheduler_segments = segments.unwrap_or(SegmentsConfig::NONE);
         let scheduler_inhibition = inhibition.as_ref().map(|cfg| (cfg.neighbourhood_size, cfg.k));
@@ -1469,6 +1600,7 @@ impl NativeSimulation {
             columns: ColumnRegistry::new(),
             raster: SpikeRaster::new(),
             last_spike_count: 0,
+            prediction_outcomes: Default::default(),
             scheduler_segments,
             scheduler_inhibition,
             growth_event_count: 0,
@@ -2041,6 +2173,11 @@ impl NativeSimulation {
             let pr = state.runtime.as_mut().expect("ensure_partition_runtime_built just built this");
             let reports = pr.step::<Lif>(&mut self.neurons, &mut self.synapses, &self.lif_params);
             let tick = reports.first().map_or(0, |r| r.tick);
+            // RUN-6: merge each partition's own *integer* tally, so the
+            // total cannot depend on how the neurons were split.
+            for report in &reports {
+                self.prediction_outcomes.merge(report.outcomes);
+            }
             let spiked: Vec<u32> = reports.into_iter().flat_map(|r| r.spiked).collect();
             self.raster.record_tick(tick, &spiked);
             self.trim_raster();
@@ -2049,6 +2186,7 @@ impl NativeSimulation {
         } else {
             let Runtime::Single(scheduler) = &mut self.runtime else { unreachable!() };
             let report = scheduler.step::<Lif>(&mut self.neurons, &mut self.synapses, &self.lif_params);
+            self.prediction_outcomes.merge(report.outcomes);
             self.raster.record_tick(report.tick, &report.spiked);
             self.trim_raster();
             // Requirement 5 (Phase 6): feeds `metrics_snapshot`'s on-demand
@@ -2285,6 +2423,25 @@ impl NativeSimulation {
         }
     }
 
+    /// Requirement 12's four outcomes, accumulated over every `step()`
+    /// since construction -- see `PredictionOutcomeTotalsFfi` for why this
+    /// exists alongside `predictionAccuracy()` and `predictiveView()`
+    /// rather than being derivable from either.
+    ///
+    /// Reported as `f64` because these counts are unbounded over a long run
+    /// and JavaScript has no `u64`; they are exact integers well past any
+    /// run this project performs (2^53 ticks would be needed to lose one).
+    #[napi]
+    pub fn prediction_outcome_totals(&self) -> PredictionOutcomeTotalsFfi {
+        let o = self.prediction_outcomes;
+        PredictionOutcomeTotalsFfi {
+            correct: f64::from(o.correct),
+            false_positive: f64::from(o.false_positive),
+            unpredicted: f64::from(o.unpredicted),
+            classified_as_predicted: f64::from(o.correct) + f64::from(o.false_positive),
+        }
+    }
+
     /// Prediction accuracy over the always-on window (OBS-2, Phase 6
     /// Requirement 5.1). As of Phase 7 Requirement 1(d), aggregates
     /// correctly across every partition: **sums each partition's raw
@@ -2457,6 +2614,13 @@ impl NativeSimulation {
             cfg.validate()?;
             scheduler = scheduler
                 .with_predictive_learning(cfg.to_params(), FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.neighbourhood_k));
+            // PLAN.md C4. Configuration, not state -- there is nothing in a
+            // snapshot for a reach scheme to round-trip, so restoring it is
+            // just "apply the same config" and the snapshot format is
+            // untouched (RUN-9a).
+            if let Some(reach) = cfg.sprout_reach() {
+                scheduler = scheduler.with_predictive_learning_sprout_reach(reach);
+            }
         }
         if let Some(cfg) = &plasticity {
             let resolved = cfg.resolve()?;
@@ -2469,7 +2633,11 @@ impl NativeSimulation {
         if let Some(cfg) = &structural_plasticity {
             cfg.validate()?;
             let params = cfg.to_params(segments.as_ref().map_or(1, |s| s.segments_per_neuron));
-            scheduler = scheduler.with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k)));
+            let mut sweep = StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k));
+            if let Some(reach) = cfg.sprout_reach() {
+                sweep = sweep.with_sprout_reach(reach); // PLAN.md C4, configuration not state -- see the predictive-learning branch above
+            }
+            scheduler = scheduler.with_structural_plasticity(sweep);
         }
         // NEU-7: this mechanism's own tuning state (`last_applied_at`) now
         // round-trips too (snapshot format version 8, PLAN.md item A4) --
@@ -2636,6 +2804,7 @@ impl NativeSimulation {
             // like a freshly constructed one.
             raster: SpikeRaster::new(),
             last_spike_count: 0,
+            prediction_outcomes: Default::default(),
             scheduler_segments: segments.unwrap_or(SegmentsConfig::NONE),
             scheduler_inhibition: inhibition.as_ref().map(|cfg| (cfg.neighbourhood_size, cfg.k)),
             growth_event_count: 0,

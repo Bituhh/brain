@@ -41,6 +41,7 @@ use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlastic
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::{Modulators, RuleChain, ACETYLCHOLINE, DOPAMINE, NORADRENALINE, NUM_MODULATORS};
 use brain_core::probe::SpikeRaster;
+use brain_core::reach::SproutReach;
 use brain_core::scheduler::Scheduler;
 use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig, FEEDFORWARD_SEGMENT};
 use brain_core::synapse::SynapseArena;
@@ -921,4 +922,346 @@ fn a_partition_runtime_refuses_a_scheduler_carrying_its_own_reward_baseline() {
         })
         .collect();
     let _ = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS);
+}
+
+// ---------------------------------------------------------------------------
+// PLAN.md C4 (README §12 decision 15): spatial sprout *reach*, and the two
+// halves of its partitioning story -- which are genuinely different, and were
+// checked against the code rather than argued from the design.
+//
+// `structural.rs`'s sweep is partition-SAFE at any partition count.
+// `PartitionRuntime` holds ONE shared `StructuralPlasticity` and calls
+// `maybe_sweep_partitioned` once, after stage 3, with the whole
+// `NeuronArena`/`SynapseArena` addressable -- so a spatial reach there changes
+// which pairs are considered without changing who considers them, and a
+// cross-partition sprout is already a deliberately handled case (it gets
+// `min_cross_partition_delay`). The first test below proves that rather than
+// assuming it.
+//
+// `predictive.rs`'s burst path is the opposite. It runs per-neuron inside
+// `evaluate_and_resolve` on partition-SCOPED views, and a candidate the view
+// does not own is skipped. Under the index-block reach that skip never
+// triggers in practice (every call site keeps a neighbourhood inside one
+// partition); a spatial reach is exactly what makes it trigger, and the skip
+// is a function of the partition layout, so results would depend on the
+// partition count. Refused loudly instead -- the third test.
+// ---------------------------------------------------------------------------
+
+/// Deliberately **not** `structural_plasticity()`'s own values, and the
+/// difference is load-bearing rather than incidental. Measured while
+/// building PLAN.md C4: at `min_activity_streak: 2` /
+/// `sweep_interval_ticks: 20` this network sprouts **exactly zero**
+/// synapses over all 200 ticks, so
+/// `always_on_homeostasis_and_structural_plasticity_are_identical_across_partitioning_and_threading`
+/// above is, as it stands, a test of *pruning* across partitions and not of
+/// sprouting. (Recorded here rather than silently fixed there: changing that
+/// test's parameters would change what it has been asserting since Phase 4,
+/// and it is a real pre-existing coverage gap worth naming, not a C4 defect.)
+/// A streak of 1 on a **50**-tick sweep does sprout here, and the window
+/// length matters as much as the streak: measured at 10 ticks the sweep does
+/// sprout (48 synapses) but the two reaches wire *identical* pairs, because
+/// so few neurons are co-eligible in any one window that they all fall
+/// inside a single column anyway and the radius never gets to disagree with
+/// the block. At 50 ticks nearly the whole population is eligible, and the
+/// radius adds 51 genuinely cross-column (and therefore cross-partition)
+/// synapses the blocks can never produce -- 58 against construction's own 7.
+/// `sprout_permanence` sits above `CONNECTION_THRESHOLD` too, so those
+/// sprouts genuinely transmit and can change the dynamics a partition
+/// boundary has to reproduce, rather than being inert extra rows.
+fn structural_plasticity_with_reach(reach: SproutReach) -> StructuralPlasticity {
+    let params = StructuralPlasticityParams {
+        prune_floor: 0.05,
+        sprout_permanence: 0.4,
+        sprout_weight: 0.05,
+        min_activity_streak: 1,
+        sweep_interval_ticks: 50,
+        unused_ticks_before_reclaim: 10_000,
+        min_cross_partition_delay: 2,
+        max_sprout_source_index: None,
+        sprout_timing: None,
+        seed: 0,
+        segments_per_neuron: 1,
+        spread_sprout_segments: false,
+        silent_elimination_ticks: None,
+    };
+    StructuralPlasticity::new(params, FixedNeighbourhoods::new(COLUMN_SIZE, 2)).with_sprout_reach(reach)
+}
+
+/// Radius 4.0 over `build_network`'s own coordinates: column A on the line
+/// y=0, column B on the line y=1, both unit-spaced along x. So a radius
+/// genuinely reaches across the column -- and therefore the partition --
+/// boundary here, which is the point. A reach that happened to stay inside
+/// one partition would make the bit-identity test below pass for the wrong
+/// reason, which is what `the_spatial_sweep_scenario_actually_sprouts_differently_from_index_blocks`
+/// exists to rule out.
+const SPATIAL_REACH_RADIUS: f32 = 4.0;
+
+fn run_plain_scheduler_with_spatial_sweep(seed: u64) -> RunOutcome {
+    let (mut neurons, mut synapses, _columns, _a, _b) = build_network_with_prune_canary(seed);
+    let mut sched = Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
+        .with_inhibition(FixedNeighbourhoods::new(COLUMN_SIZE, 2))
+        .with_segments(segments())
+        .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
+        .with_structural_plasticity(structural_plasticity_with_reach(SproutReach::spatial(SPATIAL_REACH_RADIUS)));
+    let params = lif_params();
+
+    let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
+    let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
+    for tick in 0..TICKS {
+        sched.inject_modulator(DOPAMINE, 1.0);
+        let (neuron, current) = stimulate_tick(tick);
+        sched.stimulate(&neurons, neuron, current);
+        let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        let mut spiked = report.spiked;
+        spiked.sort_unstable();
+        let mut vetoed = report.vetoed;
+        vetoed.sort_unstable();
+        spiked_per_tick.push(spiked);
+        vetoed_per_tick.push(vetoed);
+    }
+    RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick }
+}
+
+fn run_partitioned_with_spatial_sweep(seed: u64, partition_count: usize, executor: ExecutorChoice) -> RunOutcome {
+    let (mut neurons, mut synapses, columns, _a, _b) = build_network_with_prune_canary(seed);
+    let plan = if partition_count == 1 { PartitionPlan::single(TOTAL_NEURONS) } else { PartitionPlan::contiguous(&columns, partition_count) };
+
+    let schedulers: Vec<Scheduler> = (0..plan.partition_count())
+        .map(|p| {
+            let range = plan.range_of(p);
+            Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
+                .with_inhibition(FixedNeighbourhoods::with_base(range.start, COLUMN_SIZE.min(range.end - range.start), 2))
+                .with_segments(segments())
+                .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
+        })
+        .collect();
+    let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS)
+        .with_structural_plasticity(structural_plasticity_with_reach(SproutReach::spatial(SPATIAL_REACH_RADIUS)));
+    runtime = match executor {
+        ExecutorChoice::Sequential => runtime.with_thread_count(1),
+        ExecutorChoice::Rayon(n) => runtime.with_thread_count(n),
+        ExecutorChoice::Pinned(n) => runtime.with_pinned_thread_count(n),
+    };
+    let params = lif_params();
+
+    let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
+    let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
+    for tick in 0..TICKS {
+        runtime.inject_modulator(DOPAMINE, 1.0);
+        let (neuron, current) = stimulate_tick(tick);
+        runtime.stimulate(&neurons, neuron, current);
+        let reports = runtime.step::<Lif>(&mut neurons, &mut synapses, &params);
+        let mut spiked: Vec<u32> = reports.iter().flat_map(|r| r.spiked.iter().copied()).collect();
+        spiked.sort_unstable();
+        let mut vetoed: Vec<u32> = reports.iter().flat_map(|r| r.vetoed.iter().copied()).collect();
+        vetoed.sort_unstable();
+        spiked_per_tick.push(spiked);
+        vetoed_per_tick.push(vetoed);
+    }
+    RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick }
+}
+
+/// RUN-3's full clause -- identical "across a change in the number of
+/// threads **or in how the graph is partitioned**" -- for the sweep's
+/// spatial reach. The same shape as
+/// `always_on_homeostasis_and_structural_plasticity_are_identical_across_partitioning_and_threading`
+/// above, with the reach swapped and nothing else.
+#[test]
+fn a_spatial_sprout_sweep_is_identical_across_partitioning_and_threading() {
+    let seed = 7;
+    let plain = run_plain_scheduler_with_spatial_sweep(seed);
+
+    for (label, outcome) in [
+        ("1 partition", run_partitioned_with_spatial_sweep(seed, 1, ExecutorChoice::Sequential)),
+        ("2 partitions sequential", run_partitioned_with_spatial_sweep(seed, 2, ExecutorChoice::Sequential)),
+        ("2 partitions, rayon thread_count=4", run_partitioned_with_spatial_sweep(seed, 2, ExecutorChoice::Rayon(4))),
+        ("2 partitions, pinned thread_count=4", run_partitioned_with_spatial_sweep(seed, 2, ExecutorChoice::Pinned(4))),
+    ] {
+        assert_eq!(plain.spiked_per_tick, outcome.spiked_per_tick, "{label}: spiked sets must match every tick");
+        assert_eq!(plain.vetoed_per_tick, outcome.vetoed_per_tick, "{label}: vetoed sets must match every tick");
+        assert_identical_arenas(&plain.neurons, &outcome.neurons, label);
+        // Not assert_identical_synapses, for the same reason the always-on
+        // test above gives: synapse ids are allocation-order-dependent, so
+        // occupied count is the meaningful invariant here.
+        let plain_occupied: u32 = (0..TOTAL_NEURONS).map(|s| plain.synapses.occupied_in_block(s).count() as u32).sum();
+        let outcome_occupied: u32 = (0..TOTAL_NEURONS).map(|s| outcome.synapses.occupied_in_block(s).count() as u32).sum();
+        assert_eq!(plain_occupied, outcome_occupied, "{label}: total occupied synapse count must match");
+    }
+}
+
+/// The test above is only evidence if the spatial reach actually *changes*
+/// which pairs sprout on this network. Without this, a radius that happened
+/// to reproduce the index blocks exactly would make it pass for free --
+/// exactly README §13.12 item 13's counter-instead-of-mechanism trap.
+///
+/// The comparison is on the **set of wired (source, target) pairs**, not on
+/// the synapse count, and that distinction was found the hard way here: at
+/// `SPATIAL_REACH_RADIUS` both reaches sprout their candidate sets to
+/// saturation on this small, dense network and land on the *same total*
+/// while wiring genuinely different pairs. A count-based canary passed and
+/// proved nothing -- the same failure mode as asserting a counter moved.
+#[test]
+fn the_spatial_sweep_scenario_actually_sprouts_differently_from_index_blocks() {
+    let wiring = |reach: SproutReach| {
+        let (mut neurons, mut synapses, _columns, _a, _b) = build_network_with_prune_canary(7);
+        let mut sched = Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
+            .with_inhibition(FixedNeighbourhoods::new(COLUMN_SIZE, 2))
+            .with_segments(segments())
+            .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
+            .with_structural_plasticity(structural_plasticity_with_reach(reach));
+        let params = lif_params();
+        for tick in 0..TICKS {
+            sched.inject_modulator(DOPAMINE, 1.0);
+            let (neuron, current) = stimulate_tick(tick);
+            sched.stimulate(&neurons, neuron, current);
+            sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        }
+        assert!(
+            sched.structural_plasticity_totals().is_some_and(|t| t.sprouted > 0),
+            "{reach:?}: the scenario must actually sprout, or neither this test nor the bit-identity one above is measuring the sprout path"
+        );
+        let mut pairs: Vec<(u32, u32)> = (0..TOTAL_NEURONS)
+            .flat_map(|s| synapses.occupied_in_block(s).map(move |id| (s, id)).collect::<Vec<_>>())
+            .map(|(s, id)| (s, synapses.target_neuron[id as usize]))
+            .collect();
+        pairs.sort_unstable();
+        pairs.dedup();
+        pairs
+    };
+    assert_ne!(
+        wiring(SproutReach::IndexBlocks),
+        wiring(SproutReach::spatial(SPATIAL_REACH_RADIUS)),
+        "a radius of {SPATIAL_REACH_RADIUS} on this network must wire different pairs than the index blocks do, or the test above proves nothing"
+    );
+}
+
+/// PLAN.md C4 point 2's decision, made explicit and *enforced* rather than
+/// documented and hoped for: a **spatial burst reach** is refused above one
+/// partition. The alternative -- performing the cross-partition sprout --
+/// needs a deferred, canonically-ordered outbox applied identically in
+/// `Scheduler::step` too, which is real machinery and not worth building
+/// before anything measures a spatial burst reach as useful.
+#[test]
+#[should_panic(expected = "refused above one partition")]
+fn a_partition_runtime_refuses_a_spatial_burst_sprout_reach_above_one_partition() {
+    let (_neurons, synapses, columns, _a, _b) = build_network(7, segments());
+    let plan = PartitionPlan::contiguous(&columns, 2);
+    let schedulers: Vec<Scheduler> = (0..plan.partition_count())
+        .map(|_| {
+            Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
+                .with_predictive_learning(c2_predictive_params(), FixedNeighbourhoods::new(COLUMN_SIZE, 2))
+                .with_predictive_learning_sprout_reach(SproutReach::spatial(SPATIAL_REACH_RADIUS))
+        })
+        .collect();
+    let _ = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS);
+}
+
+/// The other side of that decision, and the part that keeps it honest: at
+/// **one** partition a spatial burst reach is allowed, and must be
+/// bit-identical to a plain `Scheduler` at every thread count (RUN-8's
+/// reference-path claim, PLAN.md C4 point 2's "make it identical at every
+/// thread count"). There is no other partition for a candidate to fall
+/// into, so the layout-dependent skip cannot fire.
+#[test]
+fn a_spatial_burst_reach_at_one_partition_matches_the_plain_scheduler_at_every_thread_count() {
+    let seed = 99;
+
+    let spatial_burst_scheduler = || {
+        Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
+            .with_inhibition(FixedNeighbourhoods::new(COLUMN_SIZE, 2))
+            .with_segments(segments())
+            .with_predictive_learning(c2_predictive_params(), FixedNeighbourhoods::new(COLUMN_SIZE, 2))
+            .with_predictive_learning_sprout_reach(SproutReach::spatial(SPATIAL_REACH_RADIUS))
+            .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
+            .with_modulator_tau_ticks([50.0; NUM_MODULATORS])
+    };
+
+    let plain = {
+        let (mut neurons, mut synapses, _columns, _a, _b) = build_network(seed, segments());
+        let mut sched = spatial_burst_scheduler();
+        let params = lif_params();
+        let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
+        let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
+        for tick in 0..TICKS {
+            let (neuron, current) = stimulate_tick(tick);
+            sched.stimulate(&neurons, neuron, current);
+            let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+            let mut spiked = report.spiked;
+            spiked.sort_unstable();
+            let mut vetoed = report.vetoed;
+            vetoed.sort_unstable();
+            spiked_per_tick.push(spiked);
+            vetoed_per_tick.push(vetoed);
+        }
+        RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick }
+    };
+
+    let run_single_partition = |executor: ExecutorChoice| {
+        let (mut neurons, mut synapses, _columns, _a, _b) = build_network(seed, segments());
+        let plan = PartitionPlan::single(TOTAL_NEURONS);
+        let mut runtime = PartitionRuntime::new(plan, vec![spatial_burst_scheduler()], &synapses, TOTAL_NEURONS);
+        runtime = match executor {
+            ExecutorChoice::Sequential => runtime.with_thread_count(1),
+            ExecutorChoice::Rayon(n) => runtime.with_thread_count(n),
+            ExecutorChoice::Pinned(n) => runtime.with_pinned_thread_count(n),
+        };
+        let params = lif_params();
+        let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
+        let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
+        for tick in 0..TICKS {
+            let (neuron, current) = stimulate_tick(tick);
+            runtime.stimulate(&neurons, neuron, current);
+            let reports = runtime.step::<Lif>(&mut neurons, &mut synapses, &params);
+            let mut spiked: Vec<u32> = reports.iter().flat_map(|r| r.spiked.iter().copied()).collect();
+            spiked.sort_unstable();
+            let mut vetoed: Vec<u32> = reports.iter().flat_map(|r| r.vetoed.iter().copied()).collect();
+            vetoed.sort_unstable();
+            spiked_per_tick.push(spiked);
+            vetoed_per_tick.push(vetoed);
+        }
+        RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick }
+    };
+
+    for (label, outcome) in [
+        ("1 partition sequential", run_single_partition(ExecutorChoice::Sequential)),
+        ("1 partition, rayon thread_count=4", run_single_partition(ExecutorChoice::Rayon(4))),
+        ("1 partition, pinned thread_count=4", run_single_partition(ExecutorChoice::Pinned(4))),
+    ] {
+        assert_eq!(plain.spiked_per_tick, outcome.spiked_per_tick, "{label}: spike trains must match exactly");
+        assert_eq!(plain.vetoed_per_tick, outcome.vetoed_per_tick, "{label}: vetoed sets must match exactly");
+        assert_identical_arenas(&plain.neurons, &outcome.neurons, label);
+        assert_identical_synapses(&plain.synapses, &outcome.synapses, TOTAL_NEURONS, label);
+    }
+}
+
+/// And that scenario, too, must exercise the thing it names: a spatial burst
+/// reach on this network has to sprout something an index-block reach would
+/// not, or the bit-identity test above is comparing two runs of the same
+/// code path.
+#[test]
+fn the_spatial_burst_scenario_actually_sprouts_differently_from_index_blocks() {
+    let total_occupied = |reach: Option<SproutReach>| {
+        let (mut neurons, mut synapses, _columns, _a, _b) = build_network(99, segments());
+        let mut sched = Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
+            .with_inhibition(FixedNeighbourhoods::new(COLUMN_SIZE, 2))
+            .with_segments(segments())
+            .with_predictive_learning(c2_predictive_params(), FixedNeighbourhoods::new(COLUMN_SIZE, 2))
+            .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
+            .with_modulator_tau_ticks([50.0; NUM_MODULATORS]);
+        if let Some(reach) = reach {
+            sched = sched.with_predictive_learning_sprout_reach(reach);
+        }
+        let params = lif_params();
+        for tick in 0..TICKS {
+            let (neuron, current) = stimulate_tick(tick);
+            sched.stimulate(&neurons, neuron, current);
+            sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        }
+        (0..TOTAL_NEURONS).map(|s| synapses.occupied_in_block(s).count() as u32).sum::<u32>()
+    };
+    assert_ne!(
+        total_occupied(None),
+        total_occupied(Some(SproutReach::spatial(SPATIAL_REACH_RADIUS))),
+        "a spatial burst reach must change what 12.1 sprouts on this network, or the bit-identity test above proves nothing"
+    );
 }

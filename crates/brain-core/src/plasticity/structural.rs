@@ -7,6 +7,7 @@
 
 use crate::arena::NeuronArena;
 use crate::inhibition::FixedNeighbourhoods;
+use crate::reach::{within_reach, SproutReach};
 use crate::rng::derive_stream;
 use crate::synapse::{SynapseArena, NOT_SILENT};
 
@@ -165,7 +166,17 @@ pub struct SproutTimingWindow {
 
 pub struct StructuralPlasticity {
     params: StructuralPlasticityParams,
+    /// Only ever consulted for its `size()`, and only by
+    /// [`SproutReach::IndexBlocks`] -- this is the *candidate set* half of
+    /// the job `FixedNeighbourhoods` used to do alongside NET-2's k-WTA
+    /// competition group, which PLAN.md C4 separated (README §12
+    /// decision 15). It stays here because it is still the default reach,
+    /// and because changing it would change every existing configuration.
     neighbourhoods: FixedNeighbourhoods,
+    /// Which other neurons [`Self::sprout`] may pair a neuron with
+    /// (`reach.rs`, README §12 decision 15). Defaults to
+    /// [`SproutReach::IndexBlocks`], every pre-C4 caller's behaviour.
+    reach: SproutReach,
     last_swept_at: u32,
     /// Consecutive sweeps (not ticks) each neuron has fired at least once
     /// since the previous sweep. Reused across calls (ENG-9); grown
@@ -204,7 +215,33 @@ impl StructuralPlasticity {
             params.sprout_timing.is_none_or(|w| w.min_gap_ticks >= 1 && w.min_gap_ticks <= w.max_gap_ticks),
             "sprout_timing needs 1 <= min_gap_ticks <= max_gap_ticks"
         );
-        Self { params, neighbourhoods, last_swept_at: 0, activity_streak: Vec::new(), totals: StructuralTotals::default() }
+        Self { params, neighbourhoods, reach: SproutReach::default(), last_swept_at: 0, activity_streak: Vec::new(), totals: StructuralTotals::default() }
+    }
+
+    /// Opts this sweep into a different [`SproutReach`] (PLAN.md C4,
+    /// README §12 decision 15). Without this call the reach is
+    /// [`SproutReach::IndexBlocks`] and every sprout decision is
+    /// bit-identical to before this existed.
+    ///
+    /// Safe to combine with partitioning at any partition count, unlike
+    /// `predictive.rs`'s burst path: this sweep runs **once globally** even
+    /// in partitioned mode (`PartitionRuntime` holds one shared
+    /// `StructuralPlasticity` and calls
+    /// [`Self::maybe_sweep_partitioned`] with the whole arenas
+    /// addressable), and a cross-partition sprout is already a deliberately
+    /// handled case -- it gets
+    /// [`StructuralPlasticityParams::min_cross_partition_delay`]. So a
+    /// spatial reach here changes *which* pairs are considered without
+    /// changing anything about who considers them.
+    pub fn with_sprout_reach(mut self, reach: SproutReach) -> Self {
+        self.reach = reach;
+        self
+    }
+
+    /// This sweep's configured reach -- exposed for a caller reporting
+    /// configuration back (e.g. across the FFI boundary).
+    pub fn sprout_reach(&self) -> SproutReach {
+        self.reach
     }
 
     fn ensure_streak_capacity(&mut self, len: usize) {
@@ -260,74 +297,127 @@ impl StructuralPlasticity {
         (pruned, eliminated)
     }
 
+    /// Whether `a` may be the *source* half of a sprouted pair at all --
+    /// the per-`a` half of the eligibility test, hoisted out of
+    /// [`Self::sprout`]'s inner loop so both reach schemes apply it at the
+    /// same point, and so a spatial reach never pays for an ineligible
+    /// neuron's O(N) distance scan (ENG-9).
+    fn eligible_as_source(&self, a: u32) -> bool {
+        if self.activity_streak[a as usize] < self.params.min_activity_streak {
+            return false;
+        }
+        match self.params.max_sprout_source_index {
+            Some(max_source) => a <= max_source,
+            None => true,
+        }
+    }
+
+    /// Considers one ordered pair and creates `a -> b` if every remaining
+    /// criterion passes, returning how many synapses that created (0 or 1).
+    /// Factored out of [`Self::sprout`] so the two reach schemes differ
+    /// *only* in which pairs they present -- not in what happens to a pair
+    /// once presented, which is what keeps [`SproutReach::IndexBlocks`]
+    /// bit-identical to every pre-C4 run.
+    fn maybe_sprout_pair(&self, neurons: &NeuronArena, synapses: &mut SynapseArena, a: u32, b: u32, tick: u32, partition_of: &dyn Fn(u32) -> usize) -> u32 {
+        if self.activity_streak[b as usize] < self.params.min_activity_streak {
+            return 0;
+        }
+        // PLAN.md B4, fix 2: when a timing window is set, sprout `a -> b`
+        // only if `b` fired after `a` inside it -- see
+        // `SproutTimingWindow`'s doc comment. The reverse pair `(b, a)`,
+        // visited later in the same sweep, fails the check by construction
+        // whenever `(a, b)` passes it (`min_gap_ticks >= 1` means only one
+        // order can hold), so no extra bookkeeping is needed.
+        if let Some(window) = self.params.sprout_timing {
+            let (a_spike, b_spike) = (neurons.last_spike[a as usize], neurons.last_spike[b as usize]);
+            if a_spike == u32::MAX || b_spike == u32::MAX || b_spike <= a_spike {
+                return 0;
+            }
+            let gap = b_spike - a_spike;
+            if gap < window.min_gap_ticks || gap > window.max_gap_ticks {
+                return 0;
+            }
+        }
+        let already_connected = synapses.occupied_in_block(a).any(|id| synapses.target_neuron[id as usize] == b);
+        if already_connected {
+            return 0;
+        }
+        let delay = if partition_of(a) != partition_of(b) { self.params.min_cross_partition_delay.max(1) } else { 1 };
+        // PLAN.md B4, fix 3: see `spread_sprout_segments`.
+        let segment = if !self.params.spread_sprout_segments || self.params.segments_per_neuron <= 1 {
+            0
+        } else {
+            let mut segment_rng = derive_stream(self.params.seed, a, purpose::SPROUT_SEGMENT_ASSIGN, b);
+            segment_rng.next_below(self.params.segments_per_neuron)
+        };
+        if let Ok(id) = synapses.insert(a, b, segment, delay, self.params.sprout_permanence, self.params.sprout_weight) {
+            synapses.silent_since[id as usize] = tick; // PLAN.md B4: a fresh contact is born silent
+            return 1;
+        }
+        // BlockFull is a legitimate, expected outcome (Requirement 11.3) --
+        // silently move on, matching design.md's Error Handling table.
+        0
+    }
+
     /// `partition_of` decides each sprouted synapse's delay: same-partition
     /// pairs (including the always-true case plain [`Self::maybe_sweep`]
     /// uses, `|_| 0`) get delay 1 as before; cross-partition pairs get
     /// `max(1, min_cross_partition_delay)` (Requirement 4 AC2). `neurons` is
-    /// read only for `last_spike` (PLAN.md B4, fix 2's timing window) --
+    /// read for `last_spike` (PLAN.md B4, fix 2's timing window) and, under
+    /// [`SproutReach::Spatial`], for `coords` (PLAN.md C4) --
     /// `activity_streak` above already carries this sweep's coarser
     /// eligibility signal. `tick` is when each new synapse becomes silent
     /// (`SynapseArena::silent_since`).
+    ///
+    /// **Both branches visit candidates in ascending index order** (RUN-3,
+    /// Requirement 11.10): never a hash-based structure, and under a
+    /// spatial reach never sorted by distance -- a neuron's candidate set is
+    /// *filtered* by distance and *ordered* by index, so `insert`'s
+    /// first-free-slot choice and the `BlockFull` cutoff stay reproducible.
     fn sprout(&self, neurons: &NeuronArena, synapses: &mut SynapseArena, neuron_count: u32, tick: u32, partition_of: &dyn Fn(u32) -> usize) -> u32 {
         let mut sprouted = 0;
-        // Deterministic order (Requirement 11.10): iterate neighbourhoods
-        // and their members by index, never by any hash-based structure.
-        let mut n = 0u32;
-        while n < neuron_count {
-            let neighbourhood_start = n;
-            let neighbourhood_end = (neighbourhood_start + self.neighbourhoods.size()).min(neuron_count);
-            for a in neighbourhood_start..neighbourhood_end {
-                if self.activity_streak[a as usize] < self.params.min_activity_streak {
-                    continue;
-                }
-                if let Some(max_source) = self.params.max_sprout_source_index {
-                    if a > max_source {
-                        continue;
-                    }
-                }
-                for b in neighbourhood_start..neighbourhood_end {
-                    if a == b || self.activity_streak[b as usize] < self.params.min_activity_streak {
-                        continue;
-                    }
-                    // PLAN.md B4, fix 2: when a timing window is set, sprout
-                    // `a -> b` only if `b` fired after `a` inside it -- see
-                    // `SproutTimingWindow`'s doc comment. The reverse pair
-                    // `(b, a)`, visited later in this same loop, fails the
-                    // check by construction whenever `(a, b)` passes it
-                    // (`min_gap_ticks >= 1` means only one order can hold),
-                    // so no extra bookkeeping is needed.
-                    if let Some(window) = self.params.sprout_timing {
-                        let (a_spike, b_spike) = (neurons.last_spike[a as usize], neurons.last_spike[b as usize]);
-                        if a_spike == u32::MAX || b_spike == u32::MAX || b_spike <= a_spike {
+        match self.reach {
+            SproutReach::IndexBlocks => {
+                let mut n = 0u32;
+                while n < neuron_count {
+                    let neighbourhood_start = n;
+                    let neighbourhood_end = (neighbourhood_start + self.neighbourhoods.size()).min(neuron_count);
+                    for a in neighbourhood_start..neighbourhood_end {
+                        if !self.eligible_as_source(a) {
                             continue;
                         }
-                        let gap = b_spike - a_spike;
-                        if gap < window.min_gap_ticks || gap > window.max_gap_ticks {
-                            continue;
+                        for b in neighbourhood_start..neighbourhood_end {
+                            if a == b {
+                                continue;
+                            }
+                            sprouted += self.maybe_sprout_pair(neurons, synapses, a, b, tick, partition_of);
                         }
                     }
-                    let already_connected = synapses.occupied_in_block(a).any(|id| synapses.target_neuron[id as usize] == b);
-                    if already_connected {
-                        continue;
-                    }
-                    let delay = if partition_of(a) != partition_of(b) { self.params.min_cross_partition_delay.max(1) } else { 1 };
-                    // PLAN.md B4, fix 3: see `spread_sprout_segments`.
-                    let segment = if !self.params.spread_sprout_segments || self.params.segments_per_neuron <= 1 {
-                        0
-                    } else {
-                        let mut segment_rng = derive_stream(self.params.seed, a, purpose::SPROUT_SEGMENT_ASSIGN, b);
-                        segment_rng.next_below(self.params.segments_per_neuron)
-                    };
-                    if let Ok(id) = synapses.insert(a, b, segment, delay, self.params.sprout_permanence, self.params.sprout_weight) {
-                        synapses.silent_since[id as usize] = tick; // PLAN.md B4: a fresh contact is born silent
-                        sprouted += 1;
-                    }
-                    // BlockFull is a legitimate, expected outcome
-                    // (Requirement 11.3) -- silently move on, matching
-                    // design.md's Error Handling table.
+                    n = neighbourhood_end;
                 }
             }
-            n = neighbourhood_end;
+            SproutReach::Spatial { radius } => {
+                // PLAN.md C4 point 3: deliberately the naive O(N^2)
+                // distance scan, and only configurations that opt in pay
+                // it. At this project's scale (800-1200 neurons, a sweep
+                // every 200 ticks) that is affordable -- measure before
+                // optimising, and add a spatial index only if a sweep
+                // actually shows up (ENG-9). These coordinates are
+                // effectively 1-D, so binning on x is the cheap win if one
+                // is ever needed; not pre-built for a cost nobody has seen.
+                for a in 0..neuron_count {
+                    if !self.eligible_as_source(a) {
+                        continue;
+                    }
+                    let a_coords = neurons.coords[a as usize];
+                    for b in 0..neuron_count {
+                        if a == b || !within_reach(a_coords, neurons.coords[b as usize], radius) {
+                            continue;
+                        }
+                        sprouted += self.maybe_sprout_pair(neurons, synapses, a, b, tick, partition_of);
+                    }
+                }
+            }
         }
         sprouted
     }
@@ -1061,5 +1151,176 @@ mod tests {
         let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(10, 1));
         let report = sp.maybe_sweep(&mut neurons, &mut synapses, 1).unwrap();
         assert_eq!(report.reclaimed_neurons, 0, "a never-fired neuron must not be reclaimed just for being new");
+    }
+
+    // -- PLAN.md C4: spatial sprout reach (README §12 decision 15) --
+
+    /// Lays `n` neurons out on the 1-D, unit-spaced line `buildColumns`
+    /// actually produces (`[base_x + j, base_y, base_z]`), then moves the
+    /// neurons named in `relocate` to the coordinate given -- the shape a
+    /// grown neuron has once `plasticity::newborn` places it at its input
+    /// sources' centroid: an index past every original, a *coordinate*
+    /// among them.
+    fn neurons_on_a_line(n: usize, relocate: &[(usize, f32)]) -> NeuronArena {
+        let mut neurons = NeuronArena::new();
+        for j in 0..n {
+            neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [j as f32, 0.0, 0.0] });
+        }
+        for &(index, x) in relocate {
+            neurons.coords[index] = [x, 0.0, 0.0];
+        }
+        neurons
+    }
+
+    /// `with_sprout_reach` is opt-in: not calling it must leave the reach
+    /// at `IndexBlocks`, which is what makes every pre-C4 configuration
+    /// bit-identical.
+    #[test]
+    fn sprout_reach_defaults_to_index_blocks() {
+        let sp = StructuralPlasticity::new(default_params(), FixedNeighbourhoods::new(10, 1));
+        assert_eq!(sp.sprout_reach(), SproutReach::IndexBlocks);
+        let spatial = StructuralPlasticity::new(default_params(), FixedNeighbourhoods::new(10, 1)).with_sprout_reach(SproutReach::spatial(2.0));
+        assert_eq!(spatial.sprout_reach(), SproutReach::Spatial { radius: 2.0 });
+    }
+
+    /// **The mechanism, in miniature** (PLAN.md C4, README §13.12 item 10).
+    /// Neuron 4 sits past the index block neurons 0-3 belong to, but its
+    /// *coordinate* sits right next to neuron 1's. Under the index-block
+    /// reach it can never be paired with any of them -- which is exactly
+    /// what the instrumented VAL-4 run measured as zero grown->original
+    /// synapses. Under a spatial reach it is paired immediately, in both
+    /// directions.
+    #[test]
+    fn spatial_reach_pairs_a_late_index_with_an_early_one_where_index_blocks_cannot() {
+        // Four "originals" at x = 0,1,2,3 in block 0 (size 4), plus a
+        // "grown" neuron at index 4 -- block 1 on its own -- placed at
+        // x = 1.2, i.e. spatially among the originals.
+        let outgoing_from_4 = |reach: Option<SproutReach>| {
+            let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, ..default_params() };
+            let mut neurons = neurons_on_a_line(5, &[(4, 1.2)]);
+            let mut synapses = SynapseArena::new(8);
+            synapses.reserve_for_neurons(5);
+            for i in 0..5 {
+                neurons.last_spike[i] = 5;
+            }
+            let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(4, 1));
+            if let Some(reach) = reach {
+                sp = sp.with_sprout_reach(reach);
+            }
+            sp.maybe_sweep(&mut neurons, &mut synapses, 10).unwrap();
+            let mut targets: Vec<u32> = synapses.occupied_in_block(4).map(|id| synapses.target_neuron[id as usize]).collect();
+            targets.sort_unstable();
+            targets
+        };
+
+        assert!(
+            outgoing_from_4(None).is_empty(),
+            "index blocks: neuron 4 is alone in block 1, so it can never send to an original -- the exact property README §13.12 item 10 measured as zero"
+        );
+        assert_eq!(
+            outgoing_from_4(Some(SproutReach::spatial(1.5))),
+            vec![0, 1, 2],
+            "spatial reach at radius 1.5 from x=1.2 reaches x=0,1,2 (distances 1.2, 0.2, 0.8) but not x=3 (1.8)"
+        );
+    }
+
+    /// A radius is **overlapping** where a block is disjoint (PLAN.md C4
+    /// point 1), and that changes the candidate-pair count with no growth
+    /// involved at all -- which is why the C4 battery carries a no-growth
+    /// row. Here: 6 neurons, block size 3 gives two disjoint blocks of 3
+    /// (2 x 3 x 2 = 12 ordered pairs); radius 1 on a unit line gives each
+    /// neuron its own window and reaches *across* the block boundary
+    /// (2 x 5 = 10 ordered pairs, but crucially including 2<->3, which no
+    /// block ever presents).
+    #[test]
+    fn a_radius_is_overlapping_where_a_block_is_disjoint() {
+        let sweep = |reach: Option<SproutReach>| {
+            let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, ..default_params() };
+            let mut neurons = neurons_on_a_line(6, &[]);
+            let mut synapses = SynapseArena::new(16);
+            synapses.reserve_for_neurons(6);
+            for i in 0..6 {
+                neurons.last_spike[i] = 5;
+            }
+            let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(3, 1));
+            if let Some(reach) = reach {
+                sp = sp.with_sprout_reach(reach);
+            }
+            let sprouted = sp.maybe_sweep(&mut neurons, &mut synapses, 10).unwrap().sprouted;
+            let crosses_the_block_boundary = synapses.occupied_in_block(2).any(|id| synapses.target_neuron[id as usize] == 3);
+            (sprouted, crosses_the_block_boundary)
+        };
+
+        assert_eq!(sweep(None), (12, false), "two disjoint blocks of 3: 12 ordered pairs, and nothing ever crosses 2->3");
+        assert_eq!(sweep(Some(SproutReach::spatial(1.0))), (10, true), "radius 1: each neuron's own window, and 2->3 is now a pair");
+    }
+
+    /// RUN-3 / Requirement 11.10: the spatial branch must present
+    /// candidates in ascending index order, not distance order. Observable
+    /// because `insert` fills a source's block from the first free slot, so
+    /// slot order records visit order -- and because a `BlockFull` cutoff
+    /// then keeps whichever candidates were visited first.
+    #[test]
+    fn spatial_reach_visits_candidates_in_ascending_index_order_not_distance_order() {
+        let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, ..default_params() };
+        // Neuron 0 at x=10. Candidates 1..=3 at x = 12, 9, 11 -- so
+        // distance order is 3 (1.0), 2 (1.0)... deliberately mixed against
+        // index order.
+        let mut neurons = neurons_on_a_line(4, &[(0, 10.0), (1, 12.0), (2, 9.0), (3, 11.0)]);
+        let mut synapses = SynapseArena::new(2); // room for two outgoing synapses only
+        synapses.reserve_for_neurons(4);
+        for i in 0..4 {
+            neurons.last_spike[i] = 5;
+        }
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(4, 1)).with_sprout_reach(SproutReach::spatial(3.0));
+        sp.maybe_sweep(&mut neurons, &mut synapses, 10).unwrap();
+        let targets: Vec<u32> = synapses.occupied_in_block(0).map(|id| synapses.target_neuron[id as usize]).collect();
+        assert_eq!(targets, vec![1, 2], "the two lowest *indices* in reach must win the two slots, not the two nearest coordinates");
+    }
+
+    /// PLAN.md C4 point 4, checked rather than discovered in a battery: a
+    /// newborn that chose no inputs keeps `apply_growth`'s `coordsOrigin`,
+    /// and every shipped growth config passes `[0, 0, 0]` -- exactly where
+    /// original neuron 0 sits. Under a radius that puts it in neuron 0's
+    /// reach. This test pins what actually happens: it is reachable as a
+    /// *target* (harmless, and if anything a second chance to integrate),
+    /// and cannot be a *source*, because `min_activity_streak` still needs
+    /// a real spike it has never had.
+    #[test]
+    fn an_unplaced_newborn_at_the_coords_origin_is_a_sprout_target_but_never_a_source() {
+        let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, ..default_params() };
+        let mut neurons = neurons_on_a_line(4, &[(3, 0.0)]); // index 3 unplaced: same coordinate as neuron 0
+        let mut synapses = SynapseArena::new(8);
+        synapses.reserve_for_neurons(4);
+        for i in 0..3 {
+            neurons.last_spike[i] = 5;
+        }
+        neurons.last_spike[3] = u32::MAX; // never fired, as an unwired newborn cannot have
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(4, 1)).with_sprout_reach(SproutReach::spatial(1.0));
+        sp.maybe_sweep(&mut neurons, &mut synapses, 10).unwrap();
+        assert!(synapses.occupied_in_block(3).next().is_none(), "a never-fired newborn cannot be a sprout source at any radius");
+        assert!(
+            synapses.occupied_in_block(0).all(|id| synapses.target_neuron[id as usize] != 3),
+            "nor a target: `maybe_sprout_pair` requires the target's streak too, so sharing a coordinate alone wires nothing"
+        );
+    }
+
+    /// Requirement 11.1/11.3: a spatial reach changes *which pairs are
+    /// considered*, nothing else -- pruning, the timing window, the
+    /// source-index restriction and `BlockFull` all behave exactly as they
+    /// do under index blocks, because `maybe_sprout_pair` is shared.
+    #[test]
+    fn spatial_reach_still_honours_the_max_sprout_source_index_restriction() {
+        let params = StructuralPlasticityParams { min_activity_streak: 1, sweep_interval_ticks: 10, max_sprout_source_index: Some(1), ..default_params() };
+        let mut neurons = neurons_on_a_line(3, &[]);
+        let mut synapses = SynapseArena::new(8);
+        synapses.reserve_for_neurons(3);
+        for i in 0..3 {
+            neurons.last_spike[i] = 5;
+        }
+        let mut sp = StructuralPlasticity::new(params, FixedNeighbourhoods::new(3, 1)).with_sprout_reach(SproutReach::spatial(5.0));
+        sp.maybe_sweep(&mut neurons, &mut synapses, 10).unwrap();
+        assert!(synapses.occupied_in_block(2).next().is_none(), "neuron 2 is past the cutoff and must not be a source");
+        assert!(synapses.occupied_in_block(0).any(|id| synapses.target_neuron[id as usize] == 2), "but must still be reachable as a target");
     }
 }

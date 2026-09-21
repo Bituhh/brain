@@ -925,6 +925,25 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
       bidirectionally, and measurably change the network's behaviour) for the first time — whether
       that capacity is *useful* for VAL-4 specifically is a separate, now-honestly-answered "not with
       this configuration," not a further open question about wiring.
+    - **NET-10 reachability (PLAN.md item C4, 2026-09-21): the last structural gap is closed —
+      grown capacity can now reach the population the readout decodes, and it still does not help
+      VAL-4.** The B3 entry above claims invariant 10 is met "for functional capacity", and B5's
+      own growth battery then found the sense in which that was still too generous: grown neurons
+      wired bidirectionally, but every outgoing synapse went to a *fellow grown neuron*. Zero
+      reached the original 800, because all three places that decided "which neurons is X grouped
+      with" answered by index and growth appends past every original's block. §12 decision 15
+      separates sprout reach from NET-2's k-WTA competition group and gives both sprout paths a
+      spatial variant over each neuron's coordinates; `FixedNeighbourhoods` is untouched, so NET-2,
+      four golden rasters and both pinned VAL-4 figures are unchanged, and `SproutReach::IndexBlocks`
+      remains the default. On the real network the same instrumented condition that measured **0**
+      grown→original synapses measures **15,822**, with the index-block scheme kept as a VAL-9
+      ablation proving it could not. **Invariant 10 is therefore met in the strongest sense
+      available on this task** — capacity is grown, wired in both directions, and reachable by the
+      mechanism that reads it — while remaining, honestly, of no measured benefit to VAL-4: at every
+      radius tested, growth sits at or below its own no-growth control at the same radius,
+      monotonically worse as the radius widens. §13.12 item 17 has the tables, the no-growth control
+      that makes them readable, the measured scan cost, and the fixture regression this nearly
+      shipped.
   - **Canonical "everything on" brain constructor (PLAN.md item A1): built.**
     `packages/io/src/canonicalBrain.ts` is the single place every mechanism `@brain/core` implements
     is wired together, live, by default, rather than left to whichever subset one experiment happens
@@ -1583,7 +1602,11 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     originals *to* newborns. So a grown neuron can listen to the original population and to its
     fellow newborns, and can never speak to the population the prediction is decoded from. Growth
     at this scale is capacity the readout cannot reach — a topology limit, not a tuning one, and
-    the reason every growth pace measures identically. **Condition D's +1.0 point is not evidence
+    the reason every growth pace measures identically. **Closed 2026-09-21 by decision 15 and
+    §13.12 item 17**, which separated sprout reach from the k-WTA competition group: the same
+    instrumented condition now measures 15,822 grown→original synapses where this run measured 0,
+    and growth still does not help VAL-4 — so the topology limit was real and was not what was
+    holding the number down. **Condition D's +1.0 point is not evidence
     against that, and is not claimed as growth helping: its mechanism was looked for and not
     found.** D also ends with zero grown→original synapses, and the sprout-source restriction
     *without* growth reproduces condition C bit-for-bit, so the restriction alone is not the cause
@@ -1674,6 +1697,146 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
 
     **Measured result**: §13.12 item 16 — a null on VAL-4, by construction, against a raw reward
     that costs 0.5 points on both seed sets. Nothing adopted in `DEFAULT_CONFIG`.
+
+15. **Sprout *reach* is a different quantity from the k-WTA competition group, and it is spatial —
+    decided 2026-09-21 (PLAN.md C4), on the one blocker in this document's record that was a
+    topology limit rather than a tuning one.** The closest precedents in shape are decision 11's
+    "what moves which field" and decision 14's routing call: like those, the engine cannot enforce
+    this, so the enforcement is the decision plus a named test.
+
+    **The defect.** `inhibition.rs`'s `FixedNeighbourhoods` was doing two jobs. It is NET-2's k-WTA
+    competition group — who inhibits whom, which produces invariant 4's sparsity — *and* it was the
+    sprout candidate set, in all three places that asked "which other neurons is neuron X grouped
+    with": `FixedNeighbourhoods::neighbourhood_of` (`(index − base) / size`),
+    `plasticity/structural.rs`'s `sprout` sweep (walks `n = 0, size, 2×size, …` and pairs `a` with
+    `b` only inside the same `[start, end)` block), and `plasticity/predictive.rs`'s
+    `neighbourhood_range` (`(neuron / size) × size .. start + size`). All three derive the answer
+    from a neuron's **index**. Developmental growth (NET-10) appends neurons at indices from `width`
+    upward, so a grown neuron falls in a later block than every original and could never be paired
+    with one — in *either* sprout path, for the same reason. B3's `newborn.rs` wires
+    originals → newborn (the newborn is `insert`'s target), so grown capacity could listen to the
+    original population and speak only to its fellow newborns.
+
+    Measured, not inferred (§13.12 item 10): 400 grown neurons, firing on ~11,200 of 15,000
+    characters, receiving 33,104 synapses, sending **zero** to any of the original 800, and
+    producing a predicted character that differed from the no-growth condition's on none of the
+    15,000 steps. Invariant 10 says capacity is grown, not configured; it was grown and
+    unreachable, which is a different failure from "growth does not help" and the only one on
+    record that no growth parameter could move.
+
+    **The framing that makes the fix safe, and it is the part that is not obvious from the
+    finding.** The neurons that *compete* with you are not the neurons your axon can *reach* —
+    biology does not conflate those, and separating them is what lets sprout reach change without
+    touching NET-2's sparsity contract, its determinism story, or any golden raster.
+    `FixedNeighbourhoods` keeps its k-WTA job untouched; the candidate-set job moves to
+    `reach.rs`'s `SproutReach`, which both sprout paths take as an option.
+
+    **The decision: spatial reach**, `SproutReach::Spatial { radius }`, over
+    `NeuronArena::coords`, with one consistent comparison — squared Euclidean distance against
+    squared radius, **inclusive at exactly the radius** (RUN-3; `sqrt(d²) ≤ r` and `d² ≤ r²` can
+    disagree on the last bit at the boundary, and a sweep running one comparison in one place and
+    the other elsewhere would be a determinism hazard visible only as an occasional extra synapse).
+
+    **Why spatial works here, and it is not luck — B3 already did the hard half.** `newborn.rs`
+    places a newborn at the **centroid** of its chosen input sources' coordinates plus deterministic
+    jitter, so a newborn already sits spatially *among* the originals even though its index sits
+    past them. An index-based reach can never include it; a coordinate-based one includes it
+    immediately. `buildColumns` assigns the originals `[base_x + j, base_y, base_z]` — a 1-D line,
+    one unit apart, in index order — so a radius reproduces the *scale* of today's grouping for the
+    originals (`2r + 1` members against a block's `size`) while including newborns for the first
+    time. `graph.rs` already had `DistancePolicy` and a `distance` helper; this is their first
+    **runtime** use rather than construction-time only.
+
+    **Three alternatives rejected, recorded because each is the kind a later reader re-proposes.**
+
+    - **Overlapping index windows `[i − r, i + r]`.** Cheap, and it does fix the boundary. But it
+      is still construction-order-as-topology, which `inhibition.rs`'s own module docs already flag
+      as the thing to move away from "if a later phase's topology needs inhibition to correlate with
+      physical distance". This is that later phase, for sprouting if not for inhibition.
+    - **No locality at all** (any recently co-active pair). Abandons the locality NET-1 rests on,
+      makes the sweep O(N²) network-wide rather than only for callers that opt in, and has no
+      biological counterpart: a synapse needs physical contact, and adult structural plasticity
+      extends a spine a micron or two to reach an axon *already passing nearby*. Co-activity is
+      wanting a connection; contact is being able to.
+    - **Reach follows the existing arbor** (N-hop in the synapse graph). The most biologically
+      faithful rule for a *mature* neuron, and the wrong life stage for this defect, on two counts
+      measured here. (i) **It cannot bootstrap**: `newborn.rs` makes the newborn `insert`'s target,
+      so a newborn's *outgoing* arbor is empty, its reach set is empty, and it can never sprout
+      outward — the exact thing this decision exists to fix. (ii) **It degenerates on this network
+      anyway**: at B5's winner, 76,155 synapses over 800 neurons is a fan-out of ~95, so hop 1 is
+      every neuron you are already connected to (which the sweep skips — a guaranteed no-op) and
+      hop 2 is ~95², i.e. the whole network. There is no useful setting between "does nothing" and
+      "no locality", and it gets worse as sprouting raises fan-out. A migrating newborn's reach is
+      spatial from the start; arbor-guided growth is what happens later.
+
+    **A radius is overlapping where a block is disjoint, and that is a behavioural change beyond
+    including newborns.** Every neuron gets its own candidate set rather than sharing one with its
+    block, so the number of candidate *pairs* rises even with no growth configured. This is why
+    §13.12 item 17's battery carries a no-growth row at each radius: without it, movement in a
+    growth row is unattributable between "growth's capacity now helps" and "the reach changed
+    sprouting among the original 800".
+
+    **Partitioning: the two sprout paths get different answers, and the difference is not
+    cosmetic.** `structural.rs`'s sweep is partition-safe at any partition count —
+    `PartitionRuntime` holds *one* shared `StructuralPlasticity` and calls
+    `maybe_sweep_partitioned` once after stage 3 with the whole arenas addressable, and a
+    cross-partition sprout is already a deliberately handled case (it gets
+    `min_cross_partition_delay`). So a spatial reach there changes which pairs are considered
+    without changing who considers them, proven by
+    `partitioning_reference.rs`'s `a_spatial_sprout_sweep_is_identical_across_partitioning_and_threading`
+    (with a companion test confirming the radius genuinely wires 51 cross-partition synapses the
+    blocks cannot, so the bit-identity claim is not vacuous). `predictive.rs`'s burst path is the
+    opposite: it runs per-neuron inside `evaluate_and_resolve` on *partition-scoped* views, and a
+    candidate the view does not own is skipped — a spatial reach is exactly what first makes that
+    skip reachable, and the skip is a function of the partition layout, so the same network would
+    sprout different synapses at one partition than at two. **That is refused**, loudly:
+    `PartitionRuntime::new` asserts against it above one partition and `NativeSimulation::new`
+    returns a clean error for `predictiveLearning.sproutReachRadius` with `threadCount > 1`,
+    following C3's own reward-baseline refusal precedent. At one partition it is allowed and is
+    bit-identical to a plain `Scheduler` at every thread count. Lifting the restriction needs the
+    burst path to *perform* cross-partition sprouts through a deferred, canonically-ordered outbox
+    applied identically in `Scheduler::step` too — real machinery, deliberately not built before
+    anything measures a spatial burst reach as useful. Note growth itself is already
+    single-partition only, so no configuration that needs this is currently blocked by it.
+
+    **Cost, deliberately unoptimised.** The sweep's spatial branch is the naive O(N²) distance scan
+    against the index-block scheme's O(N × size), and only configurations that opt in pay it. At
+    this project's scale (800–1200 neurons, a sweep every 200 ticks) that is affordable, and the
+    source-eligibility test is hoisted so an ineligible neuron never pays for its own scan (ENG-9).
+    A spatial index is the thing to add *if* a sweep shows up in a profile — and since these
+    coordinates are effectively 1-D, binning on x is the cheap win. Not pre-built for a cost nobody
+    has seen.
+
+    **Every pre-C4 configuration is bit-identical.** `SproutReach::IndexBlocks` is the default and
+    is the pre-C4 code path unchanged; the two reach schemes differ *only* in which pairs they
+    present, never in what happens to a pair once presented (`maybe_sprout_pair` /
+    `reinforce_or_sprout_from` are shared). Pinned by `sprout_reach.rs`'s
+    `omitting_with_sprout_reach_is_identical_to_asking_for_index_blocks`, and by the four golden
+    rasters and both pinned VAL-4 figures (0.1650 and 0.2036) reproducing exactly. A reach scheme is
+    *configuration*, not state, so the snapshot format is untouched — tested rather than asserted,
+    by a mid-run snapshot/restore under spatial reach.
+
+    **One surprise worth knowing before setting a radius:** a radius **overrides**
+    `neighbourhoodSize` rather than intersecting with it. `charPrediction.ts` disables the burst
+    path entirely by setting that to 1 (a measured 400× cost at 800 neurons if left wide), and a
+    radius would bring it back.
+
+    **Measured result**: §13.12 item 17. The topology claim holds — the same instrumented VAL-4
+    condition that measured **0** grown→original synapses now measures **15,822**, with the
+    index-block scheme kept as the VAL-9 ablation proving it could not. Growth is still a null on
+    VAL-4 and at every radius sits at or *below* its own no-growth control at the same radius,
+    monotonically worse as the radius widens. **The no-growth rows' apparent +0.45 to +0.81 did not
+    replicate**: on B5's ten independent selection seeds two of three radii reverse sign and the
+    survivor falls to +0.16. The sweep's own scan cost is **1.364 ms → 2.908 ms** per sweep at
+    1,200 neurons, ~0.3% of a VAL-4 trial, so no spatial index was built.
+
+    **Adopted as a default anyway, in `canonicalBrain.ts` only, and as an explicit judgement rather
+    than a measurement** (2026-09-21, with the user): the change is measurably costless in both
+    directions, and a coordinate-based reach is better-founded than
+    construction-order-as-topology. No VAL-4 figure moves, because VAL-4's structural plasticity has
+    no shipped home to adopt into — `DEFAULT_CONFIG` leaves it undefined and both pinned regressions
+    hardcode frozen replicas. `SproutReach::IndexBlocks` remains the core's own default, and
+    Requirement 12.1's burst radius remains off, having never been measured on the real network.
 
 ## 12a. Open questions
 
@@ -3528,6 +3691,15 @@ Three claims, in decreasing order of confidence that they are unprecedented.
       found (it also ends with no grown→original synapse, and the same restriction without growth
       reproduces C bit-for-bit); recorded, not claimed. Full data:
       `scripts/investigate-b5-growth.results.md`, design and caveats in §12 decision 13.
+
+    - **Update, 2026-09-21: the topology limit is closed, and it was not what was holding VAL-4
+      down — item 17 and §12 decision 15.** Sprout reach is now a quantity separate from NET-2's
+      k-WTA competition group, with a spatial variant over each neuron's coordinates; the same
+      instrumented condition that measured **0** grown→original synapses above measures
+      **15,822**. Growth at the burst pace still does not help, and at every radius tested it sits
+      at or *below* its own no-growth control at the same radius. This item is therefore closed as
+      a diagnosis: nothing in it is still open, and "growth cannot reach the readout" is no longer
+      a reason for a later growth idea to be blocked. See item 17 for the numbers.
 11. **Polarity is a first-class concept in the type system and invisible to every mechanism that
     acts on it — found 2026-09-13 during a §2-against-§3–§9-against-code review.** NEU-4 and
     invariant 3 are correctly implemented at the point of transmission
@@ -4124,6 +4296,237 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     pulled the corrupted level back within a few ticks; C3's dopamine channel is written only when a
     reward arrives, so the corruption persisted and the off-sweep-boundary restore test diverged at
     tick 160. Fixed by restoring the modulator field last.
+
+17. **Growth's capacity was *unreachable*, not merely unhelpful — closed 2026-09-21 by PLAN.md C4,
+    and the VAL-4 measurement is a null.** Item 10 spent five updates on growth, and its last one
+    (B5, 2026-09-16) found the reason growth changed nothing: grown neurons sent **zero** synapses
+    to the original population, because both sprout paths grouped candidates into disjoint index
+    blocks and growth appends past every original's block. Recorded as its own item rather than a
+    sixth update to item 10 because the *kind* of finding is different: every earlier entry there
+    was "we configured growth this way and measured this"; this one is "no configuration of growth
+    could have mattered", which is the only structural blocker in this document's record rather
+    than a tuning one. The fix and its three rejected alternatives are §12 decision 15.
+
+    **The topology claim, verified rather than argued.** Sprout reach is now a quantity separate
+    from NET-2's k-WTA competition group (`reach.rs`'s `SproutReach`), with a spatial variant over
+    `NeuronArena::coords`, available to *both* sprout paths — item 10's own 2026-09-13 addendum
+    established there are two wiring mechanisms and both were blocked, so fixing one would have
+    left the other. `FixedNeighbourhoods` keeps its k-WTA job untouched.
+
+    The mechanism test is a VAL-9 ablation in the strict sense, and it is deliberately not a
+    counter (item 13's standing lesson, relearned four times here): the same network, the same
+    seed, the same growth, differing *only* in the reach scheme.
+    `crates/brain-core/tests/sprout_reach.rs` asserts that spatial reach produces grown → original
+    synapses **and** that the index-block scheme produces exactly zero, with a third test
+    confirming the control arm still sprouts grown → grown — so its zero is a statement about
+    *reach* and not about sprouting being switched off, which is the distinction item 10 spent
+    three updates separating. The FFI carries it: `canonicalBrain.test.ts`'s own tripwire (which
+    asserted zero newborn → original synapses, with a note to update this document if it ever
+    fired) now sits alongside a dedicated test measuring **0 → 82** on that fixture.
+
+    **Every pre-C4 configuration is bit-identical**, which is what four golden rasters and both
+    pinned VAL-4 figures (0.1650 and 0.2036) are for; `SproutReach::IndexBlocks` is the default and
+    is the old code path unchanged. A reach scheme is configuration, not state, so the snapshot
+    format is untouched — tested by a mid-run snapshot/restore under spatial reach rather than
+    asserted.
+
+    **Measured directly on the real VAL-4 network, not only in a unit test.** The same instrumented
+    condition item 10's own B5 update ran (growth at the burst pace, seed 11, sampled every 1,500
+    characters), with the reach as the only difference. Full data:
+    `scripts/investigate-c4-sprout-reach.samples.md`.
+
+    | char index | index-block reach: grown → ORIGINAL | spatial reach r=50: grown → ORIGINAL |
+    |---|---|---|
+    | 3,000 | 0 | 3,253 |
+    | 4,500 | 0 | 14,180 |
+    | 9,000 | 0 | 15,011 |
+    | 13,500 | 0 | **15,822** |
+
+    The control arm reproduces item 10's finding exactly — zero at every checkpoint, while
+    `synapsesFromGrown` climbs to 25,133 and `synapsesOntoGrown` to 32,382. Those two numbers are
+    the reason the narrow measurement matters: grown neurons always *had* outgoing synapses (B3
+    made a newborn a legitimate sprout source), they simply had nobody but fellow newborns to
+    sprout to. Only the onto-original count distinguishes reachable capacity from unreachable
+    capacity, and it is the one that was zero.
+
+    **VAL-4, and it is a null for growth — `scripts/investigate-c4-sprout-reach.ts`, three radii ×
+    (growth / no growth), confirmation seeds 11–15, 15,000-character corpus slice.** Rows C, B and
+    E are read back from B5's own checkpoint rather than re-measured. The bar every number is read
+    against is item 7's "always guess space" mode baseline, **16.56%**; trigram is 29.07% and the
+    VAL-4 milestone is not met either way.
+
+    | condition | mean | per seed | vs C | seeds better than C |
+    |---|---|---|---|---|
+    | C: no growth, index-block reach (B5's winner) | 19.05% | 18.90, 18.10, 21.45, 19.30, 17.50 | — | — |
+    | B: C + growth, burst pace, index blocks | 19.05% | identical to C on every seed | +0.00 | 0/5 |
+    | E: C + growth, gentle pace, index blocks | 19.05% | identical to C on every seed | +0.00 | 0/5 |
+    | NG-25: **no growth**, spatial r=25 | 19.50% | 18.95, 20.65, 19.95, 19.25, 18.70 | +0.45 | 3/5 |
+    | NG-50: **no growth**, spatial r=50 | 19.86% | 19.15, 20.35, 21.20, 19.70, 18.90 | +0.81 | 4/5 |
+    | NG-100: **no growth**, spatial r=100 | 19.62% | 20.75, 19.55, 20.10, 18.70, 19.00 | +0.57 | 3/5 |
+    | SB-25: C + growth, burst pace, spatial r=25 | 19.34% | 20.20, 20.15, 19.30, 18.10, 18.95 | +0.29 | 3/5 |
+    | SB-50: C + growth, burst pace, spatial r=50 | 19.59% | 18.05, 20.20, 20.70, 19.55, 19.45 | +0.54 | 3/5 |
+    | SB-100: C + growth, burst pace, spatial r=100 | 18.78% | 18.80, 19.75, 17.55, 18.55, 19.25 | −0.27 | 2/5 |
+    | SE-50: C + growth, gentle pace, spatial r=50 | 19.85% | 19.15, 20.35, 21.20, 19.70, 18.85 | +0.80 | 4/5 |
+
+    **The `NG-*` rows are what make this table readable, and they are why decision 15 insists a
+    radius is overlapping where a block is disjoint.** Every neuron gets its own candidate set
+    instead of sharing one with its block, so the candidate-pair count changes with growth switched
+    off entirely. Without those rows, `SB-50`'s +0.54 would look like growth finally paying.
+
+    **The finding: growth's newly reachable capacity does not help, and at every radius it is at or
+    below its own no-growth control at the same radius.**
+
+    | radius | growth row − its own no-growth control | seeds where growth is worse |
+    |---|---|---|
+    | 25 | −0.16 | 3/5 |
+    | 50 (burst pace) | −0.27 | 4/5 |
+    | 50 (gentle pace) | −0.01 | 1/5, and **bit-equal on the other 4** |
+    | 100 | −0.84 | 3/5 |
+
+    Two things in that table are worth more than the means. First, the ordering is monotone in the
+    radius: the *more* reachable growth is made, the more it costs — which is mechanistically
+    coherent, since a wider reach is precisely more grown→original synapses injected into the
+    population the prediction is decoded from, with no relationship to which character occurred.
+    Three points is not a curve, but it is the direction a wider search would have to argue against.
+    Second, the gentle-pace row reproduces its no-growth control **bit-identically on four of five
+    seeds**, which is the same signature item 10 found before C4 existed, at a different absolute
+    number: at that pace growth still barely participates even now that it can.
+
+    **On the `NG-*` rows' own +0.45 to +0.81: it did not replicate, and that is worth more than the
+    original number.** The rows above are B5's *confirmation* seeds, so picking a radius on them
+    would be selection on a held-out set — the trap item 10's own segmentsPerNeuron correction
+    records. Re-run on B5's ten **selection** seeds, which are independent of 11–15 (90 fresh
+    trials, `investigate-c4-sprout-reach.selection-seeds.results.md`):
+
+    | radius | seeds 11–15 | seeds 1–10 | verdict |
+    |---|---|---|---|
+    | r=25 | +0.45 | **−0.83** | sign reverses |
+    | r=50 | +0.81 | **+0.16** | holds, 5× smaller |
+    | r=100 | +0.57 | **−0.51** | sign reverses |
+
+    Two of three radii reverse. The survivor falls to +0.16, and over all fifteen seeds is +0.38
+    while winning on 11 of 15 — against this document's own every-seed clear-win bar. **So there is
+    no measured improvement here; the +0.81 was seed luck, and reporting it as a result would have
+    been the exact failure Requirement 13.6 exists to prevent.** The within-row per-seed spread is
+    ~2 points against a between-row spread of ~0.4, which is the arithmetic reason to expect this.
+
+    One genuine bonus from those 90 trials: the growth rows came out **identical to the no-growth row
+    on all ten seeds** under index blocks — an independent replication of item 10's central finding
+    on ten more seeds than it was originally measured with.
+
+    **Adopted anyway, as an explicit judgement, and recorded as one rather than dressed up as a
+    measurement (decided 2026-09-21 with the user).** `canonicalBrain.ts` — the library's
+    "every mechanism live" configuration — now sets `sproutReachRadius` by default. The basis is
+    *not* that it measured better, because it did not. It is that the change is measurably costless
+    in both directions across three radii and fifteen seeds, and that a coordinate-based reach is a
+    better-founded topology than construction-order-as-topology, which `inhibition.rs`'s own module
+    docs already name as the thing to move away from. A reader who wants the accuracy justification
+    will not find one; a reader who wants the topology justification will.
+
+    **What this changes and, more importantly, what it does not.** It does not move any VAL-4 figure,
+    and the reason is a fact about this codebase worth knowing: **VAL-4's structural-plasticity
+    configuration has no shipped home in the library.** `charPrediction.ts`'s `DEFAULT_CONFIG` leaves
+    `structuralPlasticity` undefined entirely (item 10's Phase A consequence, never revisited), so no
+    sprout sweep runs there at all and there is nothing for a radius to attach to. The pinned
+    0.1650 and 0.2036 regressions each hardcode their own frozen replica of "exactly as that search
+    ran it", so neither reads a shared default. The B5 winner exists only as a search condition
+    reconstructed by `scripts/b5-search/conditions.ts`. Promoting that winner into `DEFAULT_CONFIG`
+    would be a separate and much larger decision — it would turn structural plasticity on for every
+    caller who currently gets none — and is not taken here.
+
+    **Radius 60, not the 50 the VAL-4 rows used, and that is not an inconsistency.** A radius is
+    meaningful only against the population it is measured on: 50 reaches 13% of VAL-4's 800-neuron
+    line and 67% of this fixture's 150-neuron one. On the fixture the sweep's `neighbourhoodSize` is
+    already `WIDTH`, so a radius can only *narrow*, and narrowing far enough silences prediction —
+    classified-as-predicted counts over a 400-tick run go 0 (r=40), 0 (r=45), 1 (r=50), 1 (r=55),
+    2 (r=60), 2 (index blocks). 60 is the smallest tested radius that costs the C3 assertion's
+    already-thin margin nothing, and it delivers the same reachability (13 grown→original synapses
+    at r=40, 13 at r=60). **Requirement 12.1's burst radius stays off by default**: no burst radius
+    has been measured on the real network at all, because `charPrediction.ts` disables that path
+    outright, and adopting an unmeasured thing is a weaker basis than adopting a measured wash.
+
+    **Cost (ENG-9, PLAN.md C4 point 3): measured, and it does not show up.**
+    `benches/sprout_reach_cost.rs` isolates the candidate scan from the cost of the extra synapses a
+    wider reach creates — the battery's own wall-clock per row rises with the radius (60s at r=25 to
+    99s at r=100) but that number mixes the two, and a trial sprouting 118,386 synapses against one
+    sprouting 27,882 is not a measurement of a scan. Holding the population, the eligibility and the
+    topology fixed at growth's ceiling (1,200 neurons, every block full so every insert is
+    `BlockFull`), one sweep costs **1.364 ms** under index blocks and **2.908 ms** under spatial
+    reach at r=50: 2.13×, or **+1.54 ms per sweep**. At VAL-4's cadence (a sweep every 200 ticks,
+    ~150 sweeps in a 15,000-character trial) that is ~0.23 s on a ~70 s trial — about **0.3%**. So
+    the O(N²) scan is not what makes a wide radius slower; the synapses it creates are. No spatial
+    index was built, per decision 15's own "not for a cost nobody has seen".
+
+    **Honest framing, and it was written before the result** (the script's own header carries it):
+    unblocking a path is not the same as the path being useful, and B3 already produced exactly this
+    shape of outcome — it dissolved the growth deadlock and the newly functional capacity did not
+    help. What this item owed was that the capacity is *reachable* and that the measurement is
+    honest, not that the number goes up. Both are delivered, and the "topology limit, not a tuning
+    one" question is now closed in the direction that the limit was real and was not the thing
+    holding VAL-4 down.
+
+    **Coverage.** `reach.rs`'s own unit tests (inclusive-at-the-radius, symmetry, the `2r + 1`
+    property on the unit line); `structural.rs`'s (a late index paired with an early one where
+    blocks cannot, the overlapping-vs-disjoint pair count, ascending-index visit order under a
+    deliberately mismatched distance order, the source-index restriction still honoured, and
+    PLAN.md C4 point 4's unplaced-newborn edge case — a newborn left at `coordsOrigin` `[0,0,0]`
+    sits exactly where original neuron 0 does, and is reachable as a sprout *target* while never
+    being eligible as a *source*); `predictive.rs`'s (the same for 12.1's burst path, plus the fact
+    that a radius **overrides** a size-1 neighbourhood rather than intersecting with it);
+    `tests/sprout_reach.rs`'s whole-network ablation, determinism, omitted-equals-index-blocks
+    identity and mid-run snapshot/restore; `tests/partitioning_reference.rs`'s four new cases; and
+    `canonicalBrain.test.ts`'s end-to-end ablation plus the partitioned-mode refusal.
+
+    **One thing this item found and did not fix, recorded because it nearly shipped as a silent
+    regression.** Spatial reach was switched on in `canonicalBrain.ts` first, and backed out. On
+    that 150-neuron fixture *with growth not firing* — which is the C3 test's own scenario, since it
+    drives the fixture without the synthetic collision signal — a sweep radius anywhere in 5..40
+    stops the network predicting, so Requirement 12.2/12.3 never classify, nothing dopamine-gated is
+    written, and a rewarded run's mean permanence becomes *bit-identical* to an unrewarded one —
+    quietly emptying the assertion item 16's own work put there. At radius 60+ (and under index
+    blocks) it returns. So spatial reach is opt-in there, via `withSpatialSproutReach`, and the
+    fixture's tripwire stays as a statement about the default rather than about what is possible.
+
+    **Why the radius does that here, which is the *opposite* of what it does on the VAL-4 network,
+    and is the part that makes it not a contradiction.** `canonicalSimulationOptions` sets the
+    sweep's `neighbourhoodSize` to `WIDTH` — the whole population — so the index-block "reach" is
+    already everybody, and a radius can only **narrow** it (radius 40 reaches 81 of 150). On VAL-4
+    the block is 100 of 800, so a radius of comparable size instead **crosses** block boundaries.
+    Same option, opposite effect. The recovery at radius 75, which reaches all 150 again and
+    reproduces the index-block numbers exactly, is what pins the cause on the narrowing rather than
+    on the spatial scheme itself.
+
+    **Correction, 2026-09-21, to this item's own evidence rather than to its conclusion.** The
+    paragraph above originally read "takes the peak `predictive` value **at the end of** a 400-tick
+    run from 0.9048 to 0.0000", and inferred from that one instant that prediction had stopped. One
+    instant cannot support that: a network could predict throughout and simply be quiet on the last
+    tick. A second explanation was equally consistent with the data, and a more interesting one —
+    that 12.2/12.3 *did* fire and their permanence writes coincided at both dopamine levels, which
+    is the staircase item 16 left undiagnosed for a modulator gain.
+
+    Settled by measurement rather than argument. `predictionOutcomeTotals()` was added to the FFI
+    (OBS-2) to accumulate Requirement 12's outcomes over a whole run instead of reporting a smoothed
+    rate or an instantaneous depolarisation, and the answer is unambiguous: at radius 20 and 40,
+    `classifiedAsPredicted` is **0** and the peak `predictive` value over **every tick** is exactly
+    **0.0000**. The network never predicts once. So the original conclusion stands and the staircase
+    explanation is ruled out here rather than left open.
+
+    **What the same measurement found that matters more than the correction.** Under the
+    index-block default this fixture classifies **2 outcomes out of 1,200** as "was predicted"
+    (`correct` 2, `falsePositive` 0, `unpredicted` 1,198). Those two events carry the *entire*
+    difference the C3 assertion detects between a rewarded and an unrewarded run. **That assertion
+    has a margin two events wide**, and anything perturbing the fixture's wiring can close it —
+    which is what happened here, and what would have happened silently to some later change if C4
+    had not tripped it first. The precondition is now asserted explicitly in that test, so a future
+    failure reports "this scenario stopped predicting" rather than the misleading "the reward path
+    is disconnected".
+
+    The generalisation is the part worth carrying: **changing a sprout candidate set can silence
+    dendritic prediction outright on a network whose wiring depended on the old one**, and the
+    symptom is an assertion elsewhere going vacuous. The second-order lesson is about evidence, not
+    mechanism: *an end-of-run reading of an instantaneous quantity cannot answer a question about
+    whether something ever happened*, and this codebase had no cumulative tally to ask with until
+    this item added one.
 
 ### 13.13 Mechanisms the evidence base names but §3–§9 does not specify
 

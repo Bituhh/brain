@@ -273,8 +273,8 @@ impl NeuronArena {
     }
 
     /// Splits this arena's hot fields (everything [`Scheduler::deliver`]/
-    /// [`Scheduler::evaluate_and_resolve`] touch -- not `coords` or the
-    /// lifecycle arrays, which only construction and snapshot code need)
+    /// [`Scheduler::evaluate_and_resolve`] *mutate* -- not the lifecycle
+    /// arrays, which only construction and snapshot code need)
     /// into `ranges.len()` disjoint, mutable [`NeuronArenaViewMut`]s
     /// (RUN-4), one per partition. `ranges` must be contiguous, gapless,
     /// and start at 0 (exactly what [`crate::partition::PartitionPlan`]
@@ -284,10 +284,24 @@ impl NeuronArena {
     /// cannot alias: no `unsafe` anywhere in this method or in
     /// [`OffsetSlice`]'s indexing.
     ///
+    /// `coords` is the one exception to the disjointness above, and
+    /// deliberately so (PLAN.md C4): every view gets the *same*, whole,
+    /// **shared** coordinate slice, addressed by global index like every
+    /// other field here. Nothing on the per-tick path writes a coordinate
+    /// -- only construction, `growth::apply_growth` and
+    /// `plasticity::newborn` do, all of them outside any view's lifetime --
+    /// so a shared borrow costs nothing and needs no splitting. It is here
+    /// because `reach::SproutReach::Spatial` asks a question about physical
+    /// position from inside `evaluate_and_resolve`'s burst-sprout path, and
+    /// a whole-arena answer is what makes that question's answer independent
+    /// of how the arena happens to be partitioned.
+    ///
     /// [`Scheduler::deliver`]: crate::scheduler::Scheduler::deliver
     /// [`Scheduler::evaluate_and_resolve`]: crate::scheduler::Scheduler::evaluate_and_resolve
     pub fn split_views_mut(&mut self, ranges: &[std::ops::Range<u32>]) -> Vec<NeuronArenaViewMut<'_>> {
         let total = self.capacity_len();
+        // Shared, whole-arena, never split -- see this method's doc comment.
+        let coords: &[[f32; 3]] = &self.coords;
         let mut membrane_rest = self.membrane.as_mut_slice();
         let mut threshold_rest = self.threshold.as_mut_slice();
         let mut predictive_rest = self.predictive.as_mut_slice();
@@ -326,6 +340,7 @@ impl NeuronArena {
 
             views.push(NeuronArenaViewMut {
                 total_neuron_count: total,
+                coords,
                 membrane: OffsetSlice::new(base, membrane),
                 threshold: OffsetSlice::new(base, threshold),
                 predictive: OffsetSlice::new(base, predictive),
@@ -347,8 +362,10 @@ impl NeuronArena {
     /// before views existed.
     pub fn whole_view_mut(&mut self) -> NeuronArenaViewMut<'_> {
         let total = self.capacity_len();
+        let coords: &[[f32; 3]] = &self.coords;
         NeuronArenaViewMut {
             total_neuron_count: total,
+            coords,
             membrane: OffsetSlice::whole(&mut self.membrane),
             threshold: OffsetSlice::whole(&mut self.threshold),
             predictive: OffsetSlice::whole(&mut self.predictive),
@@ -371,6 +388,13 @@ impl NeuronArena {
 /// type -- see `offset_slice.rs`'s module docs for why.
 pub struct NeuronArenaViewMut<'a> {
     total_neuron_count: usize,
+    /// Every neuron's coordinates (NET-1/Requirement 6.2), whole-arena and
+    /// **shared** rather than split per partition -- see
+    /// [`NeuronArena::split_views_mut`]'s doc comment for why that is safe
+    /// and why `reach::SproutReach::Spatial` needs it. Read via
+    /// [`Self::coords_of`], which keeps the global-index convention
+    /// explicit at the call site.
+    coords: &'a [[f32; 3]],
     pub membrane: OffsetSlice<'a, f32>,
     pub threshold: OffsetSlice<'a, f32>,
     pub predictive: OffsetSlice<'a, f32>,
@@ -399,6 +423,15 @@ impl<'a> NeuronArenaViewMut<'a> {
 
     pub fn owns(&self, neuron_index: u32) -> bool {
         self.range().contains(&neuron_index)
+    }
+
+    /// One neuron's coordinates, by **global** index -- readable for any
+    /// index in the whole arena, not only the ones this view owns, because
+    /// `reach::SproutReach::Spatial`'s answer must not depend on the
+    /// partition layout (PLAN.md C4). Read-only: nothing on the per-tick
+    /// path may move a neuron.
+    pub fn coords_of(&self, neuron_index: u32) -> [f32; 3] {
+        self.coords[neuron_index as usize]
     }
 }
 

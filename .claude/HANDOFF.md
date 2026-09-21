@@ -14,7 +14,17 @@ finished, and told the *next* item nothing.
 
 ## Where things stand
 
-- **Last completed:** PLAN.md **C3** (dopamine carries a reward *prediction
+- **Last completed:** PLAN.md **C4** (growth cannot reach the readout — spatial
+  sprout *reach*, separated from the inhibition neighbourhood), 2026-09-21.
+  Result: **the topology limit is closed and it was not what was holding VAL-4
+  down.** The same instrumented VAL-4 condition that measured 0 grown→original
+  synapses now measures 15,822; growth is still a null, and at every radius it
+  sits at or *below* its own no-growth control at the same radius, monotonically
+  worse as the radius widens. **Spatial reach is nonetheless on by default in
+  `canonicalBrain.ts` (radius 60) as an explicit judgement call, not a measured
+  win** — see fact 2. `SproutReach::IndexBlocks` remains the *core's* default.
+  No VAL-4 figure moved. See fact 2, README §12 decision 15 and §13.12 item 17.
+- **Previously:** PLAN.md **C3** (dopamine carries a reward *prediction
   error*, routed onto permanence), 2026-09-20 17:21 +0100. Result: a null on
   VAL-4, and a null **by construction** — see fact 14(c). The raw reward it
   replaced costs 0.5 points on both seed sets; the RPE reproduces the shipped
@@ -36,24 +46,19 @@ finished, and told the *next* item nothing.
   child became a plain number. The twelve external citations that moved were
   updated in the same pass (README, `plasticity/newborn.rs`,
   `check-requirement-coverage.mjs`, `canonicalBrain.ts` and its test).
-- **Next up:** **C4** (growth cannot reach the readout — sprout *reach*,
-  separated from the inhibition neighbourhood), **inserted 2026-09-21 and the
-  reason `C4…C11` renumbered to `C5…C12`.** Fact 2 is the whole item: it is the
-  only thing still open in Phase C that the repo's own record says **cannot**
-  help as currently wired, rather than "has not been measured yet". Sequenced
-  before D4 so a 1-3 week re-tune is not run on a network that cannot use the
-  capacity it grows.
-- **After that:** **C5** (modulators reach `StdpParams` — the shared hook for
-  C6, C7 and F19). Fact 10 is the reason it exists: the field still has only
-  three read sites in the whole core, and nothing lets a modulator reach an STDP
-  *window*, an LTP/LTD *ratio*, a threshold or a routing decision. After C3,
-  three of four channels have a real producer and the bottleneck is entirely on
-  the consumer side.
+- **Next up:** **C5** (modulators reach `StdpParams` — the shared hook for
+  C6, C7 and F19). Fact 10 is the reason it exists: the field is read in only
+  **two functions** in the whole core and both merely multiply a delta by a
+  level, so nothing lets a modulator reach an STDP *window*, an LTP/LTD
+  *ratio*, a threshold or a routing decision. After C3, three of four channels
+  have a real producer and the bottleneck is entirely on the consumer side.
+  **C5 also settles the staircase question** (fact 14's closing) before C6 and
+  C7 search over a modulator gain — see its prompt's task step 5.
 - **A neuromodulator audit sits behind all of this:**
   `.claude/scratch/neuromodulators/investigation.md`, 2026-09-20. Six channels,
   claim by claim, against primary sources, with the code status of each. Read it
   before touching C2–C9 or F19–F21.
-- **Phase A is closed** (A1–A4). Phase B is closed (B1–B5). C1, C2 and C3 are
+- **Phase A is closed** (A1–A4). Phase B is closed (B1–B5). C1, C2, C3 and C4 are
   closed.
 
 ## The headline result so far
@@ -78,6 +83,16 @@ consolidation on a cadence during the stream) was measured with and without,
 5.5–7.0 points, dropping below the 16.56% bar. Consolidation is therefore not
 enabled in the shipped values. README §13.12 item 13 has the write-up.
 
+**Neither did C2, C3 or C4.** All three are honest nulls on this number and
+none is adopted. C4's is the most load-bearing of the three for planning: it
+closes the *last* structural excuse: growth's capacity is now reachable and
+still does not help, so a future growth idea cannot be justified by "it was
+never reachable". One measured caveat worth carrying into any radius work: the
+**no-growth** rows at a spatial radius looked like +0.45 to +0.81 over condition
+C on five confirmation seeds and **did not replicate** on ten independent ones
+(two of three radii reversed sign). Nothing about VAL-4's number changed.
+README §13.12 item 17.
+
 ## Cross-cutting facts that bite across items
 
 These are the ones that have actually caused wrong work, not a general list.
@@ -88,31 +103,104 @@ These are the ones that have actually caused wrong work, not a general list.
    and consolidation's global downscale. Any pre-B5 intuition of the form "that
    only touches weight, so prediction is unaffected" is now false. (Count mode
    still ignores weight, and is still the default for a bare `SimulationOptions`.)
-2. **Growth cannot reach the readout, and it is topology, not tuning.**
-   `FixedNeighbourhoods` groups neurons into fixed blocks by index; grown neurons
-   take indices past the original population's blocks, so sprouting can never
-   connect a newborn *back* to the original population, in either sprout path.
-   Measured: 400 grown neurons firing on ~11,200 of 15,000 characters, 33,104
-   synapses received, **zero** sent to an original neuron. Any item that wants
-   growth to matter must change the neighbourhood scheme first; no growth
-   parameter can help. (README §12 decision 13, §13.12 item 10.)
-   **This is now PLAN.md C4, the next item** (added 2026-09-21). The framing it
-   settled on, recorded here because it is the part that is not obvious from the
-   finding: `FixedNeighbourhoods` is doing *two* jobs — the k-WTA competition
-   group and the sprout candidate set — and biology does not conflate them, so
-   separating the two is what lets sprout reach change without touching NET-2's
-   sparsity contract or any golden raster. B3 already did the hard half of the
-   likely fix: `newborn.rs` places a newborn at the **centroid of its input
-   sources' coordinates**, so a newborn already sits spatially *among* the
-   originals while its index sits past them — a coordinate-based reach includes
-   them immediately, an index-based one never can. **The design call is taken
-   (2026-09-21): spatial reach.** Two things worth carrying even if you never
-   touch C4: the structural sprout sweep runs **once globally** even in
-   partitioned mode (`PartitionRuntime` holds one shared `StructuralPlasticity`
-   and calls `maybe_sweep_partitioned` after stage 3), so only
-   `predictive.rs`'s burst path carries partition risk here; and a radius is
-   **overlapping** where a block is disjoint, so candidate-pair counts change
-   even with growth off.
+2. **Growth CAN now reach the readout — the topology limit is closed, and it did
+   not help VAL-4.** Until C4 (2026-09-21) this fact said the opposite, and the
+   reversal is the point: `FixedNeighbourhoods` was doing *two* jobs — NET-2's
+   k-WTA competition group *and* the sprout candidate set — and both answered by
+   index, so grown neurons (indices past every original's block) could never be
+   paired with an original in either sprout path. Measured then: 400 grown
+   neurons, 33,104 synapses received, **zero** sent to an original.
+   **PLAN.md C4 separated the two quantities** (README §12 decision 15): sprout
+   reach is now `reach.rs`'s `SproutReach`, opt-in per path, with a **spatial**
+   variant over `NeuronArena::coords`. Grown neurons demonstrably send synapses
+   to original-population neurons now, with the index-block scheme kept as the
+   VAL-9 ablation proving they could not
+   (`crates/brain-core/tests/sprout_reach.rs`, and end-to-end through the FFI in
+   `canonicalBrain.test.ts`). **`FixedNeighbourhoods` is unchanged** — NET-2,
+   every golden raster and both pinned VAL-4 figures are untouched.
+
+   What a later item needs from this, beyond "it works now":
+   - **The VAL-4 result is a null** — see README §13.12 item 17 for the numbers
+     and the no-growth control. So "growth is unreachable" is no longer a
+     reason for a growth idea to be blocked, and "growth helps VAL-4" is still
+     not a thing anyone has measured.
+   - **The no-growth rows' +0.45 to +0.81 did NOT replicate, and that number
+     is in an older note somewhere — do not cite it.** On B5's ten selection
+     seeds (independent of the confirmation seeds it was measured on), two of
+     three radii *reverse sign* and the survivor falls to +0.16. Over all 15
+     seeds: +0.38, winning 11 of 15, against an every-seed bar. Treat any
+     half-point VAL-4 effect measured on five seeds as unmeasured until it is
+     re-run on an independent set; the within-row per-seed spread here is ~2
+     points against a between-row spread of ~0.4.
+   - **Spatial reach IS on by default in `canonicalBrain.ts` (radius 60), and
+     the basis is a judgement, not a measurement.** Decided 2026-09-21 with the
+     user: costless in both directions across three radii and fifteen seeds,
+     and a coordinate-based reach is better-founded than
+     construction-order-as-topology. Anyone looking for the accuracy
+     justification will not find one — that is deliberate and recorded.
+     `SproutReach::IndexBlocks` is still the *core's* default, and 12.1's burst
+     radius is still off (never measured on the real network).
+   - **`DEFAULT_CONFIG` has no `structuralPlasticity` at all, so VAL-4 has no
+     shipped sprout configuration to change.** This surprised C4 and is worth
+     knowing before anyone tries to "turn on" anything sprout-related for
+     VAL-4: `charPrediction.ts`'s default leaves it undefined (item 10's Phase A
+     consequence, never revisited), so no sweep runs there; both pinned
+     regressions (0.1650, 0.2036) hardcode their own frozen replicas of what
+     their searches ran; and B5's winner exists only as a condition
+     reconstructed by `scripts/b5-search/conditions.ts`. Promoting that winner
+     into `DEFAULT_CONFIG` is a real, separate decision — it would turn
+     structural plasticity on for every caller who currently gets none.
+   - **A radius is overlapping where a block is disjoint.** Every neuron gets its
+     own candidate set rather than sharing one with its block, so candidate-pair
+     counts change *with growth off entirely*. Any measurement of a reach change
+     needs a no-growth row at the same radius or its movement is unattributable.
+   - **A radius overrides `neighbourhoodSize`, it does not intersect with it.**
+     `charPrediction.ts` disables the burst path by setting that to 1 (a measured
+     400× cost at 800 neurons); setting a radius there brings the cost back.
+   - **The two sprout paths have different partitioning answers.**
+     `structural.rs`'s sweep runs **once globally** even in partitioned mode, so
+     a spatial reach there is safe at any partition count and is tested as
+     bit-identical across them. `predictive.rs`'s burst path runs on
+     partition-scoped views and skips unowned candidates, so a spatial reach
+     there is **refused above one partition** (`PartitionRuntime::new` asserts;
+     the FFI returns a clean error for `threadCount > 1`). Growth is already
+     single-partition only, so nothing that needs it is blocked today.
+   - **`NeuronArenaViewMut` now carries `coords`** — whole-arena and *shared*,
+     not split per partition, because a spatial answer must not depend on the
+     layout. Read it via `coords_of`. Nothing on the per-tick path may write a
+     coordinate.
+   - **A radius can NARROW the candidate set, not widen it, and which one you
+     get depends entirely on the existing `neighbourhoodSize`.** If the block
+     was already the whole population, a radius can only restrict. On
+     `canonicalBrain.ts` the sweep's block *is* `WIDTH`, so radius 40 reaches
+     81 of 150 — a restriction. On VAL-4 the block is 100 of 800, so radius 50
+     crosses block boundaries — a rearrangement. Same option, opposite effect;
+     check which one you are getting before reading any result.
+   - **Enabling spatial reach on the canonical fixture stops it predicting
+     entirely, and that is how it was nearly shipped as a silent regression.**
+     With growth *not* firing (the C3 test's own scenario), a sweep radius in
+     5..40 gives `classifiedAsPredicted` = **0** and a peak `predictive` of
+     **0.0000 over every tick** — verified with a cumulative tally, not
+     inferred from one instant. So 12.2/12.3 never classify, nothing
+     dopamine-gated is written, and a rewarded run's mean permanence becomes
+     bit-identical to an unrewarded one, quietly emptying C3's own standing
+     assertion. Opt-in there via `withSpatialSproutReach`, not on by default.
+   - **That C3 assertion's margin is two events wide.** Under the default reach
+     the fixture classifies **2 outcomes out of 1,200** as "was predicted", and
+     those two carry the whole rewarded-vs-unrewarded difference. The
+     precondition is now asserted explicitly, so a future failure reports "this
+     scenario stopped predicting" rather than "the reward path is
+     disconnected". Treat any assertion resting on that fixture's *predictions*
+     as fragile until you have checked the count.
+   - **`predictionOutcomeTotals()` now exists (OBS-2)** — Requirement 12's four
+     outcomes accumulated over every `step()`, in both runtime modes.
+     `predictionAccuracy()` is a smoothed rate and `predictiveView()` is an
+     instantaneous value; neither can answer "did 12.2/12.3 ever fire over this
+     run". Reach for it before concluding anything about whether a mechanism
+     ran. The lesson that produced it: *an end-of-run reading of an
+     instantaneous quantity cannot answer a question about whether something
+     ever happened* — C4 made exactly that inference and had to go back and
+     measure it properly (it happened to be right).
 3. **A test that a mechanism was *configured* is not a test that it *works*.**
    `canonicalBrain.ts` shipped `growth` without B3's `newbornMaturation` for five
    days — growing neurons that could never fire — and its standing test passed
@@ -152,14 +240,25 @@ These are the ones that have actually caused wrong work, not a general list.
    Before concluding that a weight-scaling intervention did nothing, check
    whether another scaling sweep is composing it away.
 9. **Search/experiment logs are UTC** (`toISOString()`); this machine is UTC+1.
-10. **Three of four neuromodulator channels have no producer, and the field has
-    only two read sites in the whole core.** `three_factor.rs`'s
-    `apply_modulated_update` and `predictive.rs`'s `modulator_scale`, both of
-    which just multiply a delta by a level. Nothing lets a modulator reach an
-    STDP *window*, an LTP/LTD *ratio*, a threshold, or a routing decision — so
-    any item that assumes "we have a neuromodulator field, this is a config
-    change" is wrong. It is plumbing. PLAN.md C5 builds that hook once for C6,
-    C7 and F19. Also: the shipped VAL-4 config *does* use acetylcholine
+10. **The producers are mostly built; the *consumers* are the whole remaining
+    gap.** This fact's header used to read "three of four neuromodulator
+    channels have no producer" — C2 and C3 falsified that, and it is corrected
+    here rather than deleted because the inversion is what a later item needs
+    to know. **Three of four channels now have a real producer**
+    (noradrenaline and acetylcholine from C2, dopamine from C3); serotonin is
+    the only one without, deliberately (PLAN.md F19).
+
+    What has *not* changed is the consumer side. The field is read in exactly
+    **two functions** in the whole core — `three_factor.rs`'s
+    `apply_modulated_update` and `predictive.rs`'s `modulator_scale` (four
+    arithmetic reads between them, since C2 gave each a second, multiplicative
+    gain channel) — and every one of them does the same thing: multiply a delta
+    by a level. **Nothing lets a modulator reach an STDP *window*, an LTP/LTD
+    *ratio*, a threshold, or a routing decision.** So any item that assumes "we
+    have a neuromodulator field, this is a config change" is wrong. It is
+    plumbing, and PLAN.md C5 builds that hook once for C6, C7 and F19.
+
+    Also, and still true: the shipped VAL-4 config *does* use acetylcholine
     (`modulatorChannel: 1`, held at 1.0 by `tonicModulator`), so README §13.12
     item 13's "only DOPAMINE is ever injected or read" is out of date.
 
@@ -250,6 +349,21 @@ These are the ones that have actually caused wrong work, not a general list.
     knob in this configuration**, and a search over one would report a
     staircase. Recorded as an inference in
     `scripts/investigate-c3-reward-prediction-error.results.md`.
+
+    **This is now PLAN.md C5's task step 5, and it must be answered before C6**
+    (scoped 2026-09-21): C6 and C7 are *searches* over exactly this knob, so a
+    staircase would have them reporting tread edges as a response curve. Two
+    things a session picking it up should carry. **C4 ruled it out for one case
+    only, and that case does not generalise**: on `canonicalBrain.ts`'s fixture
+    a rewarded and an unrewarded run went bit-identical because the network had
+    stopped predicting entirely (`classifiedAsPredicted` 0, peak `predictive`
+    exactly 0.0000 over every tick), not because graded writes collapsed onto
+    the same values — the gated rule was absent, which says nothing about what
+    happens when it fires. And **`predictionOutcomeTotals()` is the instrument
+    for it** (added by C4, OBS-2): it distinguishes "the rule never fired" from
+    "the rule fired and its writes coincided", which is this question's exact
+    shape, and it is what stops the next person inferring it from an end-of-run
+    reading the way C4 did.
 
 15. **A seeding call that runs after a restore corrupts the field it seeds —
     and C2's coupling had this bug for a day without failing anything.**
