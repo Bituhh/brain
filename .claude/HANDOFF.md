@@ -22,6 +22,13 @@ finished, and told the *next* item nothing.
   no VAL-4 figure moved. Read fact 14 (the answer, and the trap it leaves) and
   fact 16 (what a user of the hook must know) before C6 or C7; README §12
   decision 16 and §13.12 item 18 carry the reasoning and the data.
+  **A post-close review (2026-09-21) re-checked C5's 6,000-character
+  conclusions at the protocol's 15,000 and qualified both halves:** the weight
+  path is *sensitive* there, not continuous, and the permanence path is *nearly*
+  inert. The review also found C6's knob reversing with horizon and the
+  noradrenaline level resting at 0.9991, not 1.0
+  (`scripts/investigate-c5-horizon.results.md`, README §13.12 item 18's
+  addendum). Facts 12, 14 and 16 below are updated for it.
 - **Previously:** PLAN.md **C4** (growth cannot reach the readout — spatial
   sprout *reach*, separated from the inhibition neighbourhood), 2026-09-21.
   Result: **the topology limit is closed and it was not what was holding VAL-4
@@ -289,7 +296,12 @@ These are the ones that have actually caused wrong work, not a general list.
     Any future mechanism gated on surprise will be inert on VAL-4 for the same
     reason — that is a property of the task, not a bug, and the way to exercise
     such a mechanism is a corpus with a deliberate contingency switch (see
-    `tests/prediction_error_coupling.rs`, which builds one). Acetylcholine's
+    `tests/prediction_error_coupling.rs`, which builds one). **Re-measured on
+    B5's configuration over a full 15,000-character run (C5's post-close
+    review):** zero 88.0–89.3% of characters, max 0.0042–0.0095, and almost all
+    of the rest in the *first third* of the run — the middle third is 100% zero.
+    The **level** (not the signal) rests at **0.9991**, not at the drive's
+    baseline of 1.0, and never exceeds 1.0014. Acetylcholine's
     *expected* uncertainty is the opposite: median 0.44 and never zero, so it
     is the channel with something to say about this task.
 
@@ -355,6 +367,16 @@ These are the ones that have actually caused wrong work, not a general list.
     bits (`scripts/c5-observe.ts`), on a run where the gated rule fires ~50,000
     times:
 
+    **Everything in the five bullets below was measured at 6,000 characters, and
+    the post-close review (README §13.12 item 18's addendum) re-checked it at
+    15,000.** At the protocol's horizon, the permanence path is *nearly* inert:
+    accuracy is unchanged across b in 0.5–1.5 on all three seeds, but weights move
+    on every seed and 120 synapses drop below threshold on one; reinforce : punish
+    is 12.6–16.5 : 1, not 272.5 : 1. The weight path is *sensitive*, not
+    continuous: a 1e-4 nudge moves topology on one seed, and a 1e-3 nudge moves
+    accuracy by up to 0.40 points. So below ~0.5 points, nearby settings differ by
+    noise. Read the bullets as the 6,000-character record.
+
     - **The permanence path is *inert*, not stepped.** Across 101 values of a held
       dopamine level (0.5–1.5) on three seeds the permanence hash differs at
       *every* value and Σ permanence is strictly monotone — the write reached the
@@ -383,8 +405,9 @@ These are the ones that have actually caused wrong work, not a general list.
       smoothly (spans 10–13 and 5–6.5 points at 6,000 characters), and a
       perturbation test separates *continuous* from *chaotic*, which a hash
       comparison cannot: g = 1 nudged by 1e-6 leaves topology, accuracy and the
-      outcome counts identical, and the change in `correct` is proportional to the
-      nudge from 1e-4 to 0.025. The window's own integer staircase is not visible
+      outcome counts identical, and the change in `correct` grows with the nudge
+      from 1e-4 to 0.025 (roughly linearly, within a factor of ~3 across seeds; not
+      strictly proportional). The window's own integer staircase is not visible
       (Welch *t* = 1.4 for pairs crossing a tread edge).
     - **But the response is horizon-dependent, and this is the trap.** At 6,000
       characters *weaker* depression is a 4–5 point win; at the protocol's 15,000
@@ -392,7 +415,11 @@ These are the ones that have actually caused wrong work, not a general list.
       × 0.75 16.12%; × 1.25 17.18%; three seeds). A search or a lead taken at a
       shorter horizon than the protocol's is not evidence about the protocol.
       Consequence for C7: the shipped ratio is already the best of four measured
-      values, so a modulator-driven ratio must beat a *tuned constant*.
+      values, so a modulator-driven ratio must beat a *tuned constant*. **The same
+      turned out to be true of C6's knob** (post-close review): at 15,000
+      characters no joint time scale in 0.75–1.5 beats the shipped window on all
+      seeds. Narrowing to 0.75 *helped* at 6,000 characters (+0.63), but at 15,000
+      it hurts on every seed (−3.02 mean), a second reversal with horizon.
 
     What a later item should carry: **before spending a search on a knob, check
     it reaches behaviour** — hash the end state at a few values of the knob
@@ -429,10 +456,17 @@ These are the ones that have actually caused wrong work, not a general list.
 
     - **The scale is affine about a `reference`, not a bare multiplier:**
       `clamp(1 + gain × (level − reference), min, max)`. Unlike the two older
-      consumers, level 0 is *not* a degenerate curve — and **noradrenaline is
-      exactly 0 for 89.5% of a VAL-4 run** (fact 12), so this is what keeps a
-      resting channel from meaning "no window". At `level == reference` the scale
-      is exactly 1.0 and the run is bit-identical to hook-unset.
+      consumers, level 0 is *not* a degenerate curve. At `level == reference` the
+      scale is exactly 1.0 and the run is bit-identical to hook-unset. (This
+      bullet used to say noradrenaline's *level* is 0 for 89.5% of a run. That is
+      the *signal*; see fact 12 for the level.)
+    - **Set `reference` to the channel's measured resting level, not to the
+      producer's nominal baseline.** C2's coupling at baseline 1.0 rests at
+      0.9991 on B5's configuration. `reference: 1.0` therefore gives a scale of
+      1 − 0.0009 × gain at rest, which is 9% narrower at gain 100: a static retune
+      attributed to noradrenaline. Also, a driven channel has a gain of its own
+      (`baseline + drive_gain × signal`), so only `map_gain × drive_gain` is
+      identifiable. A search must fix one of the two.
     - **"At the reference" means *exactly* at it, and the harness's tonic level is
       not.** `tonicModulator` tops a level up once per character, so between
       top-ups it has decayed a few tenths of a percent: the scale is 0.998, not
@@ -445,8 +479,14 @@ These are the ones that have actually caused wrong work, not a general list.
       window" built from a tau scale is silently invisible past the cutoff. Use
       `StdpModulation::joint_time_scale`, which also holds `window/τ` — and so the
       step at the cutoff — constant. The window itself is a staircase in integer
-      `dt` (`floor(window × scale)`, a step every 1/window in scale); it is not
-      visible at the resolution measured (README §13.12 item 18).
+      `dt` (`floor(window × scale)`, a step every 1/window in scale — 0.05 at B5's
+      window of 20); it is not visible at the resolution measured (README §13.12
+      item 18). **The joint scale also scales the kernel's area**, so it mixes
+      "wider" with "more plasticity per pairing". At 15,000 characters the width
+      effect is the larger of the two: holding the area fixed makes widening to
+      1.5 *worse*, not neutral. The area-held control is
+      `investigate-c5-horizon.ts`'s A3 rows (amplitude maps of gain −1/g at a
+      held level); reuse it.
     - **The level is read at event time and stored in eligibility.** It is not
       re-scaled when the level later moves, which differs from the older
       multiplicative gate (read when eligibility is cashed in).
@@ -463,6 +503,12 @@ These are the ones that have actually caused wrong work, not a general list.
 
 ## Infrastructure worth reusing before writing anything new
 
+- `scripts/investigate-c5-horizon.ts` — the same instrument at the protocol's
+  horizon, reusing the staircase's checkpoint keys so already-measured rows are
+  read, not re-run. It writes the reading of each question into its header
+  before running, and `C5_DRY=1` lists what would run. `runCharPredictionTrial`
+  now also takes an optional per-character `onCharacter(sim)` callback, which
+  this script uses to sample the noradrenaline signal and level.
 - `scripts/investigate-c5-staircase.ts` + `scripts/c5-observe.ts` — the template
   for "does this knob reach behaviour, and is its response continuous?": a
   resumable worker pool that reduces each run's end state to bit-exact hashes

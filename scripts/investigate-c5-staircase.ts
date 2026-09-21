@@ -389,7 +389,7 @@ out.push(`## Is the response a curve or a draw? -- adjacent-grid differences aga
 out.push(``);
 out.push(`For each sweep and seed: the range of the outcome across the whole grid, the mean absolute change between neighbouring grid points, and`);
 out.push(`their ratio. A smooth response has a ratio near (grid step / span), i.e. small; a chaotic one has neighbouring points about as far apart as`);
-out.push(`points chosen at random, i.e. a ratio near 1/3. Accuracy is on the 6,000-character window at the end of the run.`);
+out.push(`points chosen at random, i.e. a ratio near 1/3. Accuracy is the harness's 2,000-character sliding window at the end of the run.`);
 out.push(``);
 out.push(`| sweep | seed | accuracy range | mean abs adjacent change | ratio | Σweight range | mean abs adjacent change | ratio |`);
 out.push(`| --- | --- | --- | --- | --- | --- | --- | --- |`);

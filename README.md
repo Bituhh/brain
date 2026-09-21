@@ -1865,7 +1865,13 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     - **A shape has no meaningful zero.** A delta times 0 is "no learning this tick", which is a
       fine thing for a gate to mean; a window times 0 is "no pairing counts" and a tau times 0
       divides by zero. C2 measured noradrenaline exactly 0 for 89.5% of a VAL-4 run, so a bare
-      multiplier would make the *resting* state a degenerate curve.
+      multiplier would make the *resting* state a degenerate curve. *(Corrected 2026-09-21: that
+      89.5% is the surprise **signal**, not the level. The level is
+      `ChannelDrive::target` = `clamp(baseline + gain × surprise, 0, max_level)`, which on B5's
+      configuration rests at 0.9991 — near C2's baseline of 1.0, not 0 (§13.12 item 18's
+      addendum). So this bullet's example is wrong; the argument still stands for any channel a
+      caller might feed from a producer with no floor, and the reference's real job is the next
+      bullet's: it decouples "where the curve rests" from whatever baseline the producer uses.)*
     - **The biology is stated relative to a resting state.** "β-adrenergic activation widened the
       window by ~15 ms" and "M1 activation converts LTP to LTD" are both changes *from* the curve
       without the modulator. `reference` is the level at which the configured constant holds.
@@ -1890,7 +1896,18 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     silently invisible past the cutoff. `StdpModulation::joint_time_scale` sets `tau_plus`,
     `tau_minus` and `window_ticks` from one map, which also holds `window / tau` — and so the size
     of the step at the cutoff, `a·exp(−window/τ)`, 0.7% of `a` at the shipped 5τ — constant in the
-    scale.
+    scale. **It also scales the kernel's area** (∫ = a·τ), so it mixes "wider" with "more
+    plasticity per pairing"; measured at 15,000 characters the width effect is the larger of the two
+    (§13.12 item 18's addendum, rows A3, which hold the area fixed with amplitude maps of gain −1/g
+    at a held level and are the control to reuse).
+
+    **Two gains in series.** A channel driven by `PredictionErrorCoupling` is already affine
+    (`baseline + gain × signal`), so a `LevelMap` on it gives scale
+    `1 + map_gain × (baseline + drive_gain × signal − reference)`. With `reference` at the resting
+    level, only the product `map_gain × drive_gain` is identifiable: a search must fix one of them.
+    And the resting level is **not** exactly `baseline` (0.9991 at baseline 1.0 on B5's
+    configuration), so `reference: baseline` leaves a small constant offset that a large gain turns
+    into a static retune — the same trap as the harness's tonic top-up (HANDOFF fact 16).
 
     **`window_ticks` is not rounded, and it still has a staircase.** The prompt worried that rounding
     an integer per event "has a cost and a discontinuity". The cost is avoidable — `dt` is already
@@ -1898,7 +1915,9 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     and compares, with no per-event `round()`. The discontinuity is inherent, not introduced: `dt`
     is an *integer* tick count, so the effective bound is `floor(window × scale)` and the set of
     pairings that count changes only when that crosses an integer, a step every `1/window` in scale
-    (0.025 at the shipped `windowTicks: 40`). Pinned by a test so nobody "fixes" it into a rounding
+    (0.05 at B5's `windowTicks: 20` — *corrected 2026-09-21 from "0.025 at the shipped
+    `windowTicks: 40`"; 40/8 is `scripts/b5-search/conditions.ts`'s base, not B5's winner, which
+    runs τ = 4 and a window of 20*). Pinned by a test so nobody "fixes" it into a rounding
     call without reading why.
 
     **When the level is read.** At event time, inside the `kernel` call, and the contribution is
@@ -1933,7 +1952,8 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
 
     **What this item deliberately does not do.** No channel is wired to anything in
     `canonicalBrain.ts` or `charPrediction.ts`'s defaults, and no VAL-4 figure was measured with the
-    hook on — that is C6's and C7's. The FFI carries the option so they can, and so the FFI does not
+    hook on on the 5-seed protocol — that is C6's and C7's. (Single-dimension, three-seed runs at
+    the protocol's length were measured with it, §13.12 item 18; none is a protocol figure.) The FFI carries the option so they can, and so the FFI does not
     become "a copy that stops being a copy" (HANDOFF fact 14(a)).
 
 ## 12a. Open questions
@@ -4073,7 +4093,13 @@ Three claims, in decreasing order of confidence that they are unprecedented.
       0.0141. Surprise is `max(0, fast − slow)` — a *change* detector — and English prose contains no
       contingency switches, so the two timescales track each other. A multiplier that is exactly 1.0
       for nine characters in ten cannot move an accuracy figure, which is why the NA rows reproduce
-      the reference *per seed identically* on all five selection seeds. **This is a fact about VAL-4
+      the reference *per seed identically* on all five selection seeds. *(Corrected 2026-09-21: only
+      the row where NA gates **predictive learning** (permanence) does. The rows where it gates
+      **STDP** (weight) differ on every selection seed — paired Δ −0.65 to +0.40, mean −0.07, and
+      +0.41 on the confirmation seeds — because the weight path turns even a ≤1.4% multiplicative
+      change on a tenth of the ticks into a few tenths of a point of per-seed jitter. That is a null
+      of a different kind from a bit-identical one, and it is the kind a 5-seed battery can mistake
+      for a half-point effect. §13.12 item 18's addendum measures the same sensitivity directly.)* **This is a fact about VAL-4
       as a task, not about the mechanism**, and the two are worth keeping apart: the mechanism's own
       behaviour is pinned by `tests/prediction_error_coupling.rs`, where a deliberate contingency
       switch does produce surprise and a settled world does not.
@@ -4628,7 +4654,12 @@ Three claims, in decreasing order of confidence that they are unprecedented.
 
 18. **Is a modulator gain a continuous knob, or a staircase? — settled 2026-09-21 by PLAN.md C5
     (task step 5), and the answer is neither of the two C3 guessed at: on the permanence path a
-    gain is *inert*; on the weight path, which is where C6 and C7 act, it is *continuous*.** This
+    gain is *inert*; on the weight path, which is where C6 and C7 act, it is *continuous*.**
+    **Corrected 2026-09-21, post-close review: both halves of that answer were measured at 6,000
+    characters, and neither holds as stated at the protocol's 15,000 — the permanence path is
+    *nearly* inert there, and the weight path is *sensitive* by a criterion fixed before the
+    re-check ran. See "Re-checked at 15,000 characters" at the end of this item; the text between
+    here and there is the original 6,000-character record, left as written.** This
     also records what the STDP modulation hook (§12 decision 16) costs. Scripts:
     `scripts/investigate-c5-staircase.ts` (+ `.results.md`, 6,000 characters × 3 seeds × 585
     trials), `.long.results.md` (15,000 characters), `investigate-c5-permanence-distribution.ts`,
@@ -4801,12 +4832,65 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     checked afterwards rather than known, and a stash is not a thing to do under a live worker pool.
 
     **What C6 and C7 inherit.** The gain on the weight path is a continuous knob, and a search over it
-    is legitimate — *at the protocol's horizon*. Their prompts now say so, and carry the four things
+    is legitimate — *at the protocol's horizon*. *(Corrected: continuity was only shown at 6,000
+    characters; at 15,000 a 1e-4 nudge already moves topology on one seed and a 1e-3 nudge moves
+    accuracy by up to 0.40 points — see the addendum below.)* Their prompts now say so, and carry the four things
     above that would otherwise be rediscovered: the response can reverse between horizons; the
     accuracy readout's own noise is ~0.3–0.5 points against seed-to-seed spreads of 2+; the hash
     instrument exists to confirm a knob reaches behaviour *before* a search is spent on it (the
     permanence path would have been a wasted battery); and the reference-level, joint-time-scale and
     event-time-read semantics of the hook itself (§12 decision 16, HANDOFF fact 16).
+
+    **Re-checked at 15,000 characters (2026-09-21, after a review of the C5 commit).** The review
+    found that the item's own lesson — a response at 6,000 characters reversed at 15,000 — had not
+    been applied to its other conclusions: continuity was never tested at 15,000, the joint time scale
+    (C6's knob) was never run there at all, the permanence-path explanation of C3 (a 15,000-character
+    observation) came from 6,000-character data, and the "noradrenaline is 0 for 89.5% of a run"
+    figure was the *signal*, over 4,000 characters of seed 7 on `DEFAULT_CONFIG`, not the level on
+    B5's configuration. `scripts/investigate-c5-horizon.ts` (+ `.results.md`) re-measured all four at
+    15,000 characters on seeds 1–3, 69 new trials plus 6 reused, with the reading of each question
+    written into the script header before any trial ran. All nine exactness controls pass.
+
+    - **Q1, continuity of the weight path: *sensitive* by the pre-set rule.** A 1e-6 nudge of g = 1
+      changes nothing on any seed for either knob, but a 1e-4 nudge already changes the connected set
+      on seed 3 (both knobs), and a 1e-3 nudge moves seed 1's accuracy by +0.40 points (both knobs).
+      The counts still respond gradually, but 2–4× more steeply than at 6,000 (Δ correct per unit g
+      8–9×10⁵ against ~2×10⁵). What a search needs from this: at the protocol's horizon, accuracy
+      differences under ~0.5 points between nearby settings are readout noise.
+    - **Q2, the joint time scale (C6's knob) at 15,000: nothing beats the shipped window, and the
+      narrowing side REVERSED with horizon.** Mean Δ against the hook-unset run: g = 0.75 −3.02
+      (−2.40 / −2.05 / −4.60), 0.9 −0.50, 1.1 −0.07 (+0.65 / +0.75 / −1.60), 1.25 −0.87, 1.5 −2.45
+      (every seed −1.35 or worse). At 6,000 characters narrowing to 0.75 *helped* (+0.63 mean); at
+      15,000 it hurts on every seed. By the pre-set rule widening is "unresolved at 3 seeds" (seed 2
+      is +0.35 at 1.25), not "hurts".
+    - **Q3, width or area: width.** Holding the kernel's area fixed while widening it (amplitudes ×
+      1/g, rows A3) does not flatten the response: it matches S3 within 0.3 points at 0.75 and is
+      much *worse* at 1.5 (−4.65 / −4.90 / −9.60 against −1.45 / −1.35 / −4.55) — the extra area in
+      the plain joint scale was hiding about half the damage of widening. So the joint scale mixes a
+      width effect and an area effect, and the width effect is the larger. (The review had predicted
+      the opposite, that at 5τ the joint scale is "mostly an area change"; the data refutes it, which
+      makes sense with τ = 4 and pairings landing at whole-tick lags.)
+    - **Q4, the permanence path: *nearly* inert at 15,000, not inert.** Across dopamine held at
+      0.5 / 0.9 / 1.0 / 1.1 / 1.5, accuracy is identical on every seed (15 runs), but the weight hash
+      differs on every seed (2–5 distinct values of 5 — at 6,000 it moved on one), seed 1 at b = 1.5
+      has 120 sub-threshold synapses and different outcome tallies, and Σ permanence is no longer
+      monotone in b. Reinforce : punish is 12.6–16.5 : 1, not 272.5 : 1, and synapses knocked back
+      from the clamp now exist (the 1 − 0.05·b values). The account of C3 above is right about why
+      its three time constants matched at 6,000; at the protocol horizon the path reaches weights and
+      occasionally topology, which fits C3's RPE moving 2 of 10 seeds.
+    - **Q5, how often noradrenaline moves on B5's configuration (C2's coupling, nothing reading
+      it).** The surprise signal is exactly zero 88.0–89.3% of characters, which confirms C2's
+      89.5%, with max 0.0042–0.0095. Almost all of it is in the **first third** of the run (65.6–68.8%
+      zero there; 100% in the middle third; 98.5–99.6% in the last). The **level rests at 0.9991,
+      not at the drive's baseline of 1.0**, and peaks at 1.0003–1.0014 — so a map with
+      `reference: 1.0` gives scale 1 − 0.0009·gain at rest, a constant narrowing (9% at gain 100)
+      that would be a static retune, not noradrenaline. The largest excursion above rest is +0.0023.
+
+    **What this changes.** The hook is unaffected. C6's and C7's prompts are corrected again (PLAN.md):
+    the knob is noisy at ~0.4 points at the protocol's horizon rather than continuous; the shipped
+    window, like the shipped ratio, already looks near-tuned; and for C6 the noradrenaline signal is
+    close to absent after the first third of the run, so a VAL-4 null is the expected outcome and
+    `reference` must be the measured resting level, not the drive's nominal baseline.
 
 ### 13.13 Mechanisms the evidence base names but §3–§9 does not specify
 

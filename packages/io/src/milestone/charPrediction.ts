@@ -788,6 +788,14 @@ export function runCharPredictionTrial(
    * (every other caller) changes nothing.
    */
   inspect?: (sim: Simulation) => void,
+  /**
+   * Called after every character, once it is scored and every modulator
+   * top-up and reward for it has been injected -- for a measurement of how a
+   * quantity evolves over the run (PLAN.md C5's horizon check samples the
+   * noradrenaline signal and level here). Read-only by convention, like
+   * `inspect`; `undefined` (every other caller) changes nothing.
+   */
+  onCharacter?: (sim: Simulation) => void,
 ): TrialResult {
   const encoderConfig = charEncoderConfig(config.width, config.density);
   const candidates = buildCandidates(encoderConfig);
@@ -935,6 +943,7 @@ export function runCharPredictionTrial(
       replayedSpikes += report.replayedSpikes;
       prunedBySleep += report.pruned;
     }
+    onCharacter?.(sim);
     if (onProgress !== undefined && charactersDone % PROGRESS_EVERY_CHARACTERS === 0) {
       onProgress(charactersDone, source.length);
     }

@@ -50,6 +50,11 @@ are specific to a curve *shape* rather than a delta:
    for a gate to mean. `window × 0` is "no pairing counts", `tau × 0` is a division by zero. C2
    measured noradrenaline exactly 0 for 89.5% of a VAL-4 run, so a raw multiplier would make the
    *resting* state a degenerate curve.
+   **[Corrected 2026-09-21, post-close review]** The 89.5% is the surprise *signal* (4,000
+   characters, seed 7, `DEFAULT_CONFIG`), not the level. The level is
+   `baseline + gain × surprise`, clamped, and on B5's configuration it rests at 0.9991
+   (`scripts/investigate-c5-horizon.results.md`, Q5). The example is wrong; the point about shapes
+   having no meaningful zero stands, and point 2 is the stronger reason for the reference.
 2. **The biology is stated relative to a resting state.** "β-adrenergic activation widened the
    window by ~15 ms", "M1 activation converts LTP to LTD" are both changes *from* the curve without
    the modulator. `reference` is the level at which the configured constant holds, so the
@@ -84,6 +89,9 @@ call.** The discontinuity is not avoidable and is inherent, not introduced: `dt`
 tick difference, so the effective bound is `floor(window × scale)` and the set of pairings that
 count changes only when `window × scale` crosses an integer. That is a staircase in `scale` with
 treads `1/window` wide (1/40 = 0.025 at the shipped `windowTicks: 40`).
+**[Corrected 2026-09-21]** B5's winner runs `windowTicks: 20` and τ = 4 (40/8 is the search's base
+in `scripts/b5-search/conditions.ts`), so the treads are 1/20 = 0.05 wide. The 5τ edge figure below
+is unchanged.
 
 How bad the *jump* at each edge is depends on how much kernel mass is sitting at the edge:
 `a · exp(-window·scale / (tau·scale_tau))`. With the window and tau scaled **together** that ratio
@@ -166,6 +174,16 @@ ever shows this: the scales are constant across a whole tick (the level is a bro
 be hoisted to once per tick per rule instead of once per event. Not built: it needs the rule to know
 tick boundaries, `PlasticityRule` takes `&self` and is `Sync`, and 2.4% of a run with the worst-case
 configuration is not a cost anyone has seen matter.
+
+### Post-close review (2026-09-21): the 6,000-character conclusions at 15,000
+
+`scripts/investigate-c5-horizon.ts` re-checked what this item measured only at 6,000 characters.
+Summary (full account in README §13.12 item 18's addendum): the weight path is *sensitive*, not
+continuous, at 15,000 (a 1e-4 nudge moves topology on one seed; a 1e-3 nudge moves accuracy up to
+0.40 points); the joint time scale's narrowing side reversed with horizon and nothing beats the
+shipped window; its effect is mainly *width*, not area; the permanence path is *nearly* inert; and
+noradrenaline's signal is almost absent after the first third of a run, with its level resting at
+0.9991 rather than the drive's baseline of 1.0.
 
 ### Things this item's own scripts got wrong first
 
