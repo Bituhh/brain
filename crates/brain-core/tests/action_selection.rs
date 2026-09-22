@@ -1,7 +1,7 @@
 //! Action selection / gating (NET-13, Phase 5.5 Requirements 3-5).
 //!
 //! Two halves, built and tested separately before being combined, per
-//! README §12a item 4's own framing:
+//! docs/decisions.md decision 21's own framing:
 //!
 //! - **Suppress** (Requirement 3): real Dale-signed inhibitory neurons,
 //!   wired cross-population via `GraphBuilder::connect_between` onto
@@ -248,7 +248,7 @@ fn build_race(reward_enabled: bool) -> (NeuronArena, SynapseArena, Scheduler, u3
 /// direct extra stimulation A never receives) and rewarded each time via
 /// `Scheduler::reward`, B's synapse from the shared trigger must have
 /// potentiated (causal pre-then-post, converted to a weight change by the
-/// *existing* three-factor rule -- README §12's split, 2026-09-13, moved
+/// *existing* three-factor rule -- docs/decisions.md's split, 2026-09-13, moved
 /// this from permanence to weight) -- while an identical, unrewarded run
 /// leaves both synapses exactly as they started (the modulator stays at
 /// its zero baseline, matching

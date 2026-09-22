@@ -25,7 +25,7 @@
 //! - **Unpredicted spike / burst** (12.1): `predictive_now` was
 //!   negligible but the neuron committed anyway. Reinforces (or sprouts,
 //!   structurally connected at/above the connection threshold but at a
-//!   near-zero weight -- README §12's split, 2026-09-13, mirroring
+//!   near-zero weight -- docs/decisions.md's split, 2026-09-13, mirroring
 //!   `structural.rs`'s convention) synapses from *other currently-
 //!   recently-active* neurons in the same neighbourhood onto a fixed
 //!   target segment -- so that the same context predicts this neuron next
@@ -45,12 +45,12 @@ use crate::synapse::SynapseArenaViewMut;
 
 /// Which variable predictive learning's reinforce/punish (12.2/12.3) and
 /// the burst path's existing-synapse reinforcement (12.1) adjust (PLAN.md
-/// B5, README §12 decision 13). Re-decided under weighted dendritic votes,
+/// B5, docs/decisions.md decision 13). Re-decided under weighted dendritic votes,
 /// not carried forward from decision 11's permanence-only call: that call
 /// was made when a segment's coincidence count could not see weight at all
 /// (`apply_local_effect`'s fixed ±1 `signum` step), so a weight-only target
 /// was structurally invisible to prediction and measurably collapsed VAL-4
-/// accuracy to 0 (README §12 decision 11). Under `segment::DendriticVote::Weighted`
+/// accuracy to 0 (docs/decisions.md decision 11). Under `segment::DendriticVote::Weighted`
 /// that reason no longer holds -- weight now reaches the tally directly --
 /// so the B5 search re-tests all three rather than assuming the old result
 /// still applies.
@@ -76,7 +76,7 @@ pub struct PredictiveLearningParams {
     pub significance_threshold: f32,
     /// Delta applied to a correct prediction's segment (12.3), to the
     /// variable(s) `learning_target` names. **Defaulted to permanence, not
-    /// weight** (README §12 decision 11, 2026-09-13; re-decided, not
+    /// weight** (docs/decisions.md decision 11, 2026-09-13; re-decided, not
     /// assumed, by decision 13/PLAN.md B5) -- see `adjust_segment`'s doc
     /// comment: before B5, a dendritic segment's coincidence count was a
     /// binary, permanence-gated signum step (`scheduler.rs`'s
@@ -101,7 +101,7 @@ pub struct PredictiveLearningParams {
     pub burst_target_segment: u32,
     /// Permanence a burst-sprouted synapse starts at.
     ///
-    /// **Semantics flipped by README §12's weight/permanence split
+    /// **Semantics flipped by docs/decisions.md's weight/permanence split
     /// (2026-09-13), mirroring `structural.rs`'s `sprout_permanence`
     /// exactly.** Before the split this was deliberately sub-threshold; a
     /// sub-threshold synapse is invisible to `deliver` and therefore to
@@ -140,7 +140,7 @@ pub struct PredictiveLearningParams {
     /// at all (dopamine, once LRN-11's reward signal drives permanence).
     /// This one *scales*: it names the channel whose level says how
     /// strongly anything being encoded right now should be encoded --
-    /// noradrenaline's "surprise/arousal" (README §2.5), driven from the
+    /// noradrenaline's "surprise/arousal" (docs/prior-art.md §2.5), driven from the
     /// network's own prediction-failure rate by
     /// [`crate::neuromodulator::NoradrenalineCoupling`].
     ///
@@ -246,7 +246,7 @@ impl PredictionOutcomeCounts {
     }
 
     /// The fraction of this tick's classified neurons whose prediction
-    /// failed, in `[0, 1]` -- README §2.7's prediction error, aggregated to
+    /// failed, in `[0, 1]` -- docs/prior-art.md §2.7's prediction error, aggregated to
     /// a single scalar before anything can route on it (LRN-5, invariant
     /// 2).
     ///
@@ -270,7 +270,7 @@ pub struct PredictiveLearning {
     /// Only consulted for its `size()`, and only by
     /// [`SproutReach::IndexBlocks`] -- the *candidate set* half of the job
     /// `FixedNeighbourhoods` used to do alongside NET-2's k-WTA competition
-    /// group, separated by PLAN.md C4 (README §12 decision 15).
+    /// group, separated by PLAN.md C4 (docs/decisions.md decision 15).
     neighbourhoods: FixedNeighbourhoods,
     /// Which other neurons 12.1's burst path may sprout *from*
     /// (`reach.rs`). Defaults to [`SproutReach::IndexBlocks`], every
@@ -292,7 +292,7 @@ impl PredictiveLearning {
     }
 
     /// Opts 12.1's burst path into a different [`SproutReach`] (PLAN.md C4,
-    /// README §12 decision 15). Without this call the reach is
+    /// docs/decisions.md decision 15). Without this call the reach is
     /// [`SproutReach::IndexBlocks`] and every burst decision is
     /// bit-identical to before this existed.
     ///
@@ -342,13 +342,13 @@ impl PredictiveLearning {
     /// (indexing an out-of-range id) would have been the latter.
     ///
     /// **Writes `self.params.learning_target`'s variable(s) -- permanence
-    /// by default, a deliberate exception to README §12's general
+    /// by default, a deliberate exception to docs/decisions.md's general
     /// weight/permanence split (2026-09-13, decision 11), found while
     /// verifying VAL-4 against that split, and re-decided rather than
     /// assumed by PLAN.md B5 (decision 13).** Before B5, `apply_local_
     /// effect`'s dendritic branch (`scheduler.rs`) incremented a segment's
     /// coincidence count by `signed_current.signum()` -- a fixed ±1 step,
-    /// per README §13.12 item 11a's own binary-not-weighted design -- so a
+    /// per docs/findings.md finding 11a's own binary-not-weighted design -- so a
     /// dendritic synapse's contribution to future predictions depended only
     /// on whether it cleared `connection_threshold` (permanence), never on
     /// its weight's magnitude. Predictive learning's entire purpose (LRN-8)
@@ -639,7 +639,7 @@ mod tests {
         assert_eq!(synapses.weight[syn as usize], 0.3, "predictive learning must not touch weight -- see adjust_segment_permanence's doc comment");
     }
 
-    /// PLAN.md B5 (README §12 decision 13): `SegmentLearningTarget::Weight`
+    /// PLAN.md B5 (docs/decisions.md decision 13): `SegmentLearningTarget::Weight`
     /// moves weight and leaves permanence untouched -- the mirror image of
     /// the default `Permanence` target's own test above.
     #[test]
@@ -911,7 +911,7 @@ mod tests {
         }
     }
 
-    // -- PLAN.md C4: spatial sprout reach (README §12 decision 15) --
+    // -- PLAN.md C4: spatial sprout reach (docs/decisions.md decision 15) --
 
     /// `n` neurons on the unit-spaced 1-D line `buildColumns` produces,
     /// with the neurons named in `relocate` moved -- the shape a grown
@@ -939,7 +939,7 @@ mod tests {
         );
     }
 
-    /// **The second blocked path, unblocked** (README §13.12 item 10's own
+    /// **The second blocked path, unblocked** (docs/findings.md finding 10's own
     /// "there are two wiring mechanisms, not one"). Neuron 3 sits in a
     /// different index block from the bursting neuron 0, so the index-block
     /// reach never presents it. Its *coordinate* sits next to neuron 0's,

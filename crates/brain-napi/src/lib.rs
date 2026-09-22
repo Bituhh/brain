@@ -223,7 +223,7 @@ pub struct SegmentsConfig {
     /// How many simultaneously-active synapses on one segment are needed
     /// for it to depolarise its neuron (`segment.rs`'s `BinaryCoincidence`).
     pub coincidence_threshold: u32,
-    /// PLAN.md B5 (README §12 decision 13): omit for `segment::DendriticVote::Count`
+    /// PLAN.md B5 (docs/decisions.md decision 13): omit for `segment::DendriticVote::Count`
     /// (every existing caller's behaviour, bit-identical to pre-B5). When
     /// set, a dendritic delivery contributes `sign × min(weight /
     /// voteReferenceWeight, 1)` to its segment's tally instead of `sign ×
@@ -270,7 +270,7 @@ impl SegmentsConfig {
     }
 }
 
-/// Silent synapses (PLAN.md B4, fix 1, README §12 decision 12) --
+/// Silent synapses (PLAN.md B4, fix 1, docs/decisions.md decision 12) --
 /// `scheduler::SilentSynapseParams`'s FFI mirror. Omit to keep pre-B4
 /// transmission exactly: every silent synapse is unsilenced by its first
 /// delivery. Independent of `segments`: a silent synapse passes no current
@@ -309,8 +309,8 @@ pub struct PredictiveLearningConfig {
     pub punish_amount: f64,
     pub burst_target_segment: u32,
     pub burst_sprout_permanence: f64,
-    /// Weight (§2.5's efficacy) a burst-sprouted synapse starts at --
-    /// README §12's weight/permanence split (2026-09-13): deliberately
+    /// Weight (docs/prior-art.md §2.5's efficacy) a burst-sprouted synapse starts at --
+    /// docs/decisions.md's weight/permanence split (2026-09-13): deliberately
     /// small, the weight-side counterpart to `burst_sprout_permanence`
     /// above, which is now expected to sit at/above `connectionThreshold`
     /// (structurally connected, the "silent synapse" pattern) rather than
@@ -341,7 +341,7 @@ pub struct PredictiveLearningConfig {
     /// "nearby" for structural discovery than for k-WTA competition.
     pub neighbourhood_size: u32,
     pub neighbourhood_k: u32,
-    /// PLAN.md B5 (README §12 decision 13): which variable reinforce/punish
+    /// PLAN.md B5 (docs/decisions.md decision 13): which variable reinforce/punish
     /// adjusts -- `"permanence"` (omit for this, today's behaviour, bit-
     /// identical), `"weight"`, or `"both"`. Re-decided under weighted
     /// dendritic votes rather than carried forward from decision 11's
@@ -349,7 +349,7 @@ pub struct PredictiveLearningConfig {
     /// doc comment.
     pub learning_target: Option<String>,
     /// `reach::SproutReach::Spatial`'s FFI mirror for Requirement 12.1's
-    /// burst path (PLAN.md C4, README §12 decision 15): when set, a
+    /// burst path (PLAN.md C4, docs/decisions.md decision 15): when set, a
     /// bursting neuron's candidate sources are every neuron within this
     /// Euclidean radius of it in `coordsView()` space, instead of its
     /// `neighbourhoodSize` index block. Omit (the default) for the
@@ -430,7 +430,7 @@ pub struct ChannelDriveConfig {
 }
 
 /// PLAN.md C2: drives neuromodulator channels from the network's own
-/// prediction error (LRN-5, LRN-8, README §2.5/§2.7).
+/// prediction error (LRN-5, LRN-8, docs/prior-art.md §2.5/docs/prior-art.md §2.7).
 ///
 /// One two-timescale estimate of the prediction-failure rate feeds two
 /// channels, because Yu & Dayan (2005) assign acetylcholine *expected*
@@ -484,7 +484,7 @@ impl PredictionErrorCouplingConfig {
 }
 
 /// PLAN.md C3: makes `reward()` inject a reward *prediction error* instead of
-/// a raw reward (LRN-4, LRN-11, README §2.5 "dopamine = reward prediction
+/// a raw reward (LRN-4, LRN-11, docs/prior-art.md §2.5 "dopamine = reward prediction
 /// error").
 ///
 /// Omitting this is every pre-C3 behaviour, bit-identically: `reward(amount)`
@@ -554,8 +554,8 @@ impl RewardPredictionErrorConfig {
 /// homeostatic sweep disabled, matching every pre-Phase-5 caller exactly.
 #[napi(object)]
 pub struct HomeostaticScalingConfig {
-    /// README §12's weight/permanence split (2026-09-13): this sweep now
-    /// renormalises weight (§2.5's efficacy), not permanence (SYN-3's
+    /// docs/decisions.md's weight/permanence split (2026-09-13): this sweep now
+    /// renormalises weight (docs/prior-art.md §2.5's efficacy), not permanence (SYN-3's
     /// structural quantity) -- renaming this field from the pre-split
     /// `targetTotalPermanence` to match.
     pub target_total_weight: f64,
@@ -571,7 +571,7 @@ pub struct HomeostaticScalingConfig {
 /// mechanism was built and unit-tested since Phase 0-3 but had no FFI
 /// surface at all until the canonical-brain-constructor review found it
 /// sitting alongside consolidation and three neuromodulator channels as a
-/// mechanism with zero callers (README §13.12 item 13).
+/// mechanism with zero callers (docs/findings.md finding 13).
 #[napi(object)]
 pub struct IntrinsicHomeostasisConfig {
     pub target_rate: f64,
@@ -625,7 +625,7 @@ pub struct InhibitionHomeostasisConfig {
 #[napi(object)]
 pub struct StructuralPlasticityConfig {
     pub prune_floor: f64,
-    /// Permanence a newly-sprouted synapse starts at -- README §12's split
+    /// Permanence a newly-sprouted synapse starts at -- docs/decisions.md's split
     /// (2026-09-13): should now sit at/above `connectionThreshold`
     /// (structurally connected from birth), paired with `sproutWeight`
     /// below for its actual near-zero initial efficacy. See
@@ -647,7 +647,7 @@ pub struct StructuralPlasticityConfig {
     /// *source* (still eligible as a sprout target). `undefined`/`None`
     /// (default) imposes no restriction, matching every caller before this
     /// field existed. Added for the NET-10 growth-regression investigation
-    /// (README §13.12): lets a caller test whether grown, never-stimulated,
+    /// (docs/findings.md): lets a caller test whether grown, never-stimulated,
     /// never-decoded neurons wiring themselves *onto* the original,
     /// decoded population is a source of decode-time noise.
     pub max_sprout_source_index: Option<u32>,
@@ -668,7 +668,7 @@ pub struct StructuralPlasticityConfig {
     /// (PLAN.md B4, fix 4). Omit to disable, the pre-B4 behaviour.
     pub silent_elimination_ticks: Option<u32>,
     /// `reach::SproutReach::Spatial`'s FFI mirror for LRN-7's sweep
-    /// (PLAN.md C4, README §12 decision 15): when set, a neuron's sprout
+    /// (PLAN.md C4, docs/decisions.md decision 15): when set, a neuron's sprout
     /// candidates are every neuron within this Euclidean radius of it in
     /// `coordsView()` space, instead of the members of its
     /// `neighbourhoodSize` index block. Omit (the default) for the
@@ -678,7 +678,7 @@ pub struct StructuralPlasticityConfig {
     /// 10). Grown neurons take indices past every original neuron's block,
     /// so an index-block reach can never pair one with an original --
     /// measured as 400 grown neurons sending exactly zero synapses to the
-    /// original 800 (README §13.12 item 10). `newbornMaturation` already
+    /// original 800 (docs/findings.md finding 10). `newbornMaturation` already
     /// places a newborn at the *centroid* of its input sources'
     /// coordinates, so it sits spatially among the originals even though
     /// its index does not, and a radius includes it immediately.
@@ -784,7 +784,7 @@ pub struct GrowthConfig {
     pub seed: BigInt,
 }
 
-/// Newborn neuron integration (PLAN.md B3, NET-10/NET-11, README §13.12
+/// Newborn neuron integration (PLAN.md B3, NET-10/NET-11, docs/findings.md
 /// item 10's three-lock diagnosis) -- `NewbornMaturation`'s FFI-layer
 /// mirror. Meaningless without `growth` also configured (there is nothing
 /// for it to act on); like `growth`, **not supported together with
@@ -792,7 +792,7 @@ pub struct GrowthConfig {
 /// partition only). Omit to leave a newly grown neuron exactly as
 /// `apply_growth` allocates it -- zero synapses, `growth`'s shared
 /// `coordsOrigin`, normal threshold -- the pre-PLAN.md-B3 behaviour README
-/// §13.12 item 10's 2026-09-14 update confirms never lets a grown neuron
+/// docs/findings.md finding 10's 2026-09-14 update confirms never lets a grown neuron
 /// receive current at all.
 #[napi(object)]
 pub struct NewbornMaturationConfig {
@@ -1011,7 +1011,7 @@ impl PlasticityConfig {
 #[napi(object)]
 pub struct ConsolidationConfig {
     pub replay_window: u32,
-    /// README §12's weight/permanence split (2026-09-13): retargets weight,
+    /// docs/decisions.md's weight/permanence split (2026-09-13): retargets weight,
     /// not permanence -- same fix as `HomeostaticScalingConfig`'s own
     /// rename, for the same reason.
     pub downscale_target_total_weight: f64,
@@ -1045,7 +1045,7 @@ pub struct ProbeOptionsFfi {
 pub struct WeightSampleFfi {
     pub synapse_id: u32,
     pub permanence: f64,
-    /// README §12's weight/permanence split (2026-09-13): `WeightSample`
+    /// docs/decisions.md's weight/permanence split (2026-09-13): `WeightSample`
     /// now actually carries weight too, not just permanence.
     pub weight: f64,
 }
@@ -1077,7 +1077,7 @@ pub struct ProbeDataFfi {
 pub struct MetricsSnapshotFfi {
     pub sparsity: f64,
     pub mean_permanence: f64,
-    /// README §12's weight/permanence split (2026-09-13): reported
+    /// docs/decisions.md's weight/permanence split (2026-09-13): reported
     /// alongside `mean_permanence` since the two now carry independent
     /// meanings.
     pub mean_weight: f64,
@@ -1095,7 +1095,7 @@ pub struct MetricsSnapshotFfi {
 /// anything over this run", which is the question C4's own fixture finding
 /// turned on: a single end-of-run reading of `predictiveView()` was used to
 /// infer that a configuration had stopped predicting *at all*, and that
-/// inference was not sound from one instant (README §13.12 item 17's
+/// inference was not sound from one instant (docs/findings.md finding 17's
 /// closing paragraph records the correction). A monotonically accumulating
 /// integer tally is the thing that answers it, and integer addition is
 /// associative so the partitioned merge cannot make it depend on partition
@@ -1253,7 +1253,7 @@ pub struct NativeSimulation {
     /// only (`graph.rs`'s `build_column` stores it and nothing live reads
     /// it -- `FixedNeighbourhoods` in the scheduler is the one real scheme),
     /// so a column claiming a different k-WTA scheme than the one running
-    /// used to build silently. README §12a item 8 flagged this as the next
+    /// used to build silently. docs/findings.md finding 21 flagged this as the next
     /// place that exact class of bug could recur after `segments` was fixed;
     /// `build_columns` now validates it. `density_target` is deliberately
     /// not part of this comparison -- it is a scheduler-level refinement of
@@ -1525,7 +1525,7 @@ pub struct ColumnConfig {
     /// `SimulationOptions.inhibition`. `build_columns` therefore requires
     /// them either to restate that scheme exactly, or -- when no inhibition
     /// is configured -- to declare no competition with `k ==
-    /// neighbourhoodSize`, refusing to build otherwise (README §12a item 8,
+    /// neighbourhoodSize`, refusing to build otherwise (docs/findings.md finding 21,
     /// validated 2026-09-19).
     pub neighbourhood_size: u32,
     pub k: u32,
@@ -1786,7 +1786,7 @@ impl NativeSimulation {
     /// ordinary, expected outcome (design.md's Error Handling table).
     #[napi]
     pub fn connect(&mut self, source: u32, target: u32, segment: u32, delay: u32, permanence: f64) -> Option<u32> {
-        // README §12's weight/permanence split (2026-09-13): ordinary,
+        // docs/decisions.md's weight/permanence split (2026-09-13): ordinary,
         // caller-driven wiring seeds weight from the same value as
         // permanence -- initial dynamics are therefore unaffected by the
         // split, and only diverge once a plasticity rule that moves weight
@@ -1841,7 +1841,7 @@ impl NativeSimulation {
                 )));
             }
             // The same validation as `segments` above, for the same reason,
-            // on the field README §12a item 8 named as the next place this
+            // on the field docs/findings.md finding 21 named as the next place this
             // class of bug could recur (PLAN.md item A1's audit, 2026-09-19).
             // `ColumnSpec.inhibition` is inert bookkeeping; the scheduler's
             // own `FixedNeighbourhoods` is the only k-WTA scheme that runs.
@@ -2070,8 +2070,8 @@ impl NativeSimulation {
         unsafe { Float32Array::with_external_data(ptr, len, |_ptr, _len| {}) }
     }
 
-    /// A zero-copy view over every synapse slot's weight (§2.5's efficacy --
-    /// README §12's weight/permanence split, 2026-09-13): how much current a
+    /// A zero-copy view over every synapse slot's weight (docs/prior-art.md §2.5's efficacy --
+    /// docs/decisions.md's weight/permanence split, 2026-09-13): how much current a
     /// *connected* synapse actually passes, independent of
     /// `synapse_permanence_view`'s structural "is this connected" gate.
     /// Same safety contract as `membrane_view` above.
@@ -2135,7 +2135,7 @@ impl NativeSimulation {
     /// `reward` existed and were tested since Phase 0-3, but nothing before
     /// Phase 5 exposed them past `crates/brain-napi`, which made a
     /// TypeScript-driven reinforcement experiment impossible rather than
-    /// merely awkward (README §12a item 4). Dispatches exactly like
+    /// merely awkward (docs/decisions.md decision 21). Dispatches exactly like
     /// `stimulate` above; in partitioned mode this always calls
     /// `PartitionRuntime::inject_modulator`'s *broadcasting* form (never
     /// `inject_modulator_into_partition` -- nothing at this boundary
@@ -2150,7 +2150,7 @@ impl NativeSimulation {
     /// baseline, at which point the shortcut silently bypassed the entire
     /// mechanism: every TypeScript caller kept injecting a raw reward while
     /// the Rust tests, which call `Scheduler::reward` directly, passed. This
-    /// is README §13.12 item 13's trap in its FFI form -- a mechanism that is
+    /// is docs/findings.md finding 13's trap in its FFI form -- a mechanism that is
     /// configured, tested, and reachable from nothing.
     #[napi]
     pub fn reward(&mut self, amount: f64) {
@@ -2218,7 +2218,7 @@ impl NativeSimulation {
     /// Empty when no coupling is configured. Observability, not control: this
     /// is what makes "the coupling did nothing on this corpus" a measurement
     /// rather than an inference from a flat accuracy table, which is the
-    /// distinction §13.12 item 13's own lesson is about.
+    /// distinction docs/findings.md finding 13's own lesson is about.
     ///
     /// A `-1.0` entry means "no evidence yet" (nothing classified at that
     /// timescale) and is deliberately distinguishable from a genuine `0.0`,
@@ -2246,7 +2246,7 @@ impl NativeSimulation {
     ///
     /// Observability only: nothing in the engine reads this back. It exists
     /// because a modulator whose producer cannot be inspected is how
-    /// README §13.12 item 13's trap keeps recurring -- "the numbers moved" is
+    /// docs/findings.md finding 13's trap keeps recurring -- "the numbers moved" is
     /// not evidence that the mechanism is the thing moving them.
     #[napi]
     pub fn expected_reward(&self) -> f64 {
@@ -2834,7 +2834,7 @@ impl NativeSimulation {
             scheduler = scheduler.with_newborn_maturation(wiring, maturation);
         }
         scheduler.restore_transient_state(restored.tick, restored.ring, &restored.dirty_members);
-        // README §12a item 6 / RUN-9a: the dendritic coincidence window's
+        // docs/decisions.md decision 22 / RUN-9a: the dendritic coincidence window's
         // decaying state, format version 5. Safe even when `segments` is
         // `None` above -- nothing ever reads these arrays in that case.
         scheduler.restore_segment_coincidence_state(restored.segment_counts, restored.segment_last_touched_tick);
@@ -2967,7 +2967,7 @@ impl NativeSimulation {
     /// replays a bounded recent window of `self.raster` via
     /// `Scheduler::run_consolidation`, then force-applies downscaling and
     /// an aggressive pruning pass. Never runs as a side effect of `step()`
-    /// -- an explicit call only (Requirement 12.1), since README §2.9/§2.10
+    /// -- an explicit call only (Requirement 12.1), since docs/prior-art.md §2.9/docs/prior-art.md §2.10
     /// frames consolidation as a distinct operating state.
     ///
     /// **Single-mode only**, matching `run_consolidation`'s own Rust-level

@@ -246,11 +246,11 @@ pub struct PredictionErrorRawState {
 }
 
 /// Drives neuromodulator channels from the network's own prediction error
-/// (PLAN.md C2, LRN-5, LRN-8, README §2.5/§2.7).
+/// (PLAN.md C2, LRN-5, LRN-8, docs/prior-art.md §2.5/docs/prior-art.md §2.7).
 ///
 /// **What this is.** `plasticity/predictive.rs` already classifies every dirty
 /// neuron, every tick, into correct prediction / false positive / unpredicted
-/// spike (LRN-8). That is a prediction error in README §2.7's sense, computed
+/// spike (LRN-8). That is a prediction error in docs/prior-art.md §2.7's sense, computed
 /// locally and for free, and before C2 it was aggregated nowhere. This type is
 /// its one consumer.
 ///
@@ -426,9 +426,9 @@ pub struct RewardBaselineRawState {
 }
 
 /// Turns the raw scalar `reward()` injects into a reward *prediction error*
-/// (PLAN.md C3, LRN-4, LRN-11, README §2.5).
+/// (PLAN.md C3, LRN-4, LRN-11, docs/prior-art.md §2.5).
 ///
-/// **The gap this closes.** README §2.5 says "dopamine = reward prediction
+/// **The gap this closes.** docs/prior-art.md §2.5 says "dopamine = reward prediction
 /// error". Before C3 the substrate delivered a raw reward: `Scheduler::reward`
 /// injected whatever amount the caller passed, so a network right 90% of the
 /// time received the same dopamine burst for an expected success as for a
@@ -483,7 +483,7 @@ pub struct RewardBaselineRawState {
 /// "RPE on" and "no reward signal at all" is caused by prediction error and
 /// not by a change of scale. That property is the reason to prefer a tonic
 /// baseline over rectifying at zero, and it is what makes the VAL-4
-/// measurement in README §13.12 interpretable.
+/// measurement in docs/findings.md interpretable.
 ///
 /// **The qualifier that claim needs, because the unqualified version is
 /// false.** This is a *phasic* channel: [`Self::set_level`] writes it when a
@@ -506,7 +506,7 @@ pub struct RewardBaselineRawState {
 /// *tag*, and the tag must capture plasticity-related proteins to convert
 /// early-LTP into late-LTP. Dopamine gates that conversion -- hippocampal
 /// D1/D5 blockade within ~15 min of exploration blocks late-LTP and persistent
-/// place memory (Redondo & Morris, *PNAS* 2010). Against README §12's
+/// place memory (Redondo & Morris, *PNAS* 2010). Against docs/decisions.md's
 /// weight/permanence split that is **persistence, not strength**: `permanence`
 /// (does this synapse stick) rather than `weight` (how strong is it right
 /// now). So dopamine belongs on `PredictiveLearningParams`, whose

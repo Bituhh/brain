@@ -1,5 +1,5 @@
 // PLAN.md C3: does dopamine carrying a reward *prediction error* rather than a
-// raw reward move VAL-4? (LRN-4, LRN-11, README §2.5.)
+// raw reward move VAL-4? (LRN-4, LRN-11, docs/prior-art.md §2.5.)
 //
 // WHY THESE ROWS, AND WHY THE MIDDLE ONE IS NOT OPTIONAL. C3 changes two
 // things at once in the fixture it was written against, and HANDOFF fact 14
@@ -335,7 +335,7 @@ const report = [
   `# PLAN.md C3 -- dopamine as a reward prediction error, measured on VAL-4`,
   ``,
   `Generated ${new Date().toISOString()}. ${ROWS.length} conditions x ${SEEDS.length} seeds x ${CORPUS_LENGTH} characters.`,
-  `Reference is B5's winner (README §12 decision 13), unchanged.`,
+  `Reference is B5's winner (docs/decisions.md decision 13), unchanged.`,
   ``,
   `**Read the two differences separately.** "vs reference" is the effect of giving dopamine a producer at all`,
   `(switching LRN-8's modulated reinforce/punish path on). "vs raw reward" is the effect of that producer carrying`,
@@ -343,7 +343,7 @@ const report = [
   `HANDOFF fact 14 warned would otherwise be attributed to it.`,
   ``,
   `The bar to quote alongside any number here: **16.56%**, the "always guess space" mode baseline`,
-  `(README §13.12 item 7). A configuration below it has undone the only real progress this network has made.`,
+  `(docs/findings.md finding 7). A configuration below it has undone the only real progress this network has made.`,
   ...table("Confirmation seeds", CONFIRMATION_SEEDS),
   ...table("Selection seeds", SELECTION_SEEDS),
   ...inertnessCheck(),

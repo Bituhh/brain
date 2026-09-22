@@ -1,6 +1,6 @@
 // PLAN.md C7, task step 3: acetylcholine sets the LTP/LTD ratio -- measured on VAL-4, pre-registered.
 // Every choice below was fixed and written here before any trial ran, and nothing in it is re-tuned
-// after the fact. Design decisions (with the user, 2026-09-22): README §12 decision 18.
+// after the fact. Design decisions (with the user, 2026-09-22): docs/decisions.md decision 18.
 //
 // THE MECHANISM UNDER TEST. An `aPlus` map on acetylcholine (channel 1) through C5's hook:
 // scale = clamp(1 - g x (level - reference), floor, 1.0). High acetylcholine (high expected

@@ -2,7 +2,7 @@
 //! to or from (LRN-7's "targets in its neighbourhood") -- a quantity
 //! deliberately separate from NET-2's k-WTA competition group
 //! (`inhibition.rs`'s [`crate::inhibition::FixedNeighbourhoods`]).
-//! README §12 decision 15, PLAN.md C4.
+//! docs/decisions.md decision 15, PLAN.md C4.
 //!
 //! **Why this module exists at all.** `FixedNeighbourhoods` was doing two
 //! jobs: it decided who inhibits whom (NET-2's sparsity contract) *and* who
@@ -15,7 +15,7 @@
 //! original neuron's block, a grown neuron could never be paired with an
 //! original one in either direction -- measured directly on the VAL-4
 //! network: 400 grown neurons, 33,104 synapses received, **zero** sent to
-//! any of the original 800 (README §13.12 item 10). That is a topology
+//! any of the original 800 (docs/findings.md finding 10). That is a topology
 //! limit, not a tuning one, and it is what invariant 10 ("capacity is
 //! grown, not configured") actually fails on.
 //!

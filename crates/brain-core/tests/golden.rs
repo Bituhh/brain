@@ -184,7 +184,7 @@ fn run_engine_mechanisms_scenario() -> SpikeRaster {
     raster
 }
 
-/// PLAN.md B5's golden coverage (README §12 decision 13): eight neurons,
+/// PLAN.md B5's golden coverage (docs/decisions.md decision 13): eight neurons,
 /// deliberately *non-uniform* synapse weight (`weight_for` below spans
 /// roughly 0.1-1.0 across pairs, unlike every earlier golden scenario's
 /// uniform weight) so a change to how weight reaches the dendritic tally is
@@ -276,7 +276,7 @@ impl B4Switches {
     const ALL: B4Switches = B4Switches { silent_gate: true, timing_window: true, segment_spread: true, silent_elimination: true };
 }
 
-/// PLAN.md B4's golden coverage (README §12 decision 12): a small network
+/// PLAN.md B4's golden coverage (docs/decisions.md decision 12): a small network
 /// whose sprouts genuinely transmit (`sprout_permanence` at/above its
 /// connection threshold, unlike the engine-mechanisms scenario above), with
 /// STDP live so a sprout can actually be potentiated and unsilenced, and a

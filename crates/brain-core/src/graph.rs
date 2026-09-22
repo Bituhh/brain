@@ -7,7 +7,7 @@
 //! decision is drawn via `rng::derive_stream`, keyed by
 //! `(seed, entity_id, purpose, second_id)` -- never a persistent generator
 //! -- so a given seed produces the same topology regardless of thread,
-//! iteration order, or partitioning (RUN-3, README §12 decision 7).
+//! iteration order, or partitioning (RUN-3, docs/decisions.md decision 7).
 //!
 //! Nothing here excludes self-connections, cycles, or recurrence
 //! (Requirement 6.1): a source-to-target pair is just two neuron indices,
@@ -21,7 +21,7 @@
 //! actually makes it matter, which the ENG-11 throughput budget is
 //! explicitly out of scope for here (matching this project's established
 //! "measure before optimising" pattern -- see the settling-tail note in
-//! `neuron.rs` and the rayon-vs-hand-rolled note in README §12a).
+//! `neuron.rs` and the rayon-vs-hand-rolled note in docs/open-questions.md).
 
 use crate::arena::{NeuronArena, NeuronSpec};
 use crate::column::{ColumnRegistry, ColumnSpec};
@@ -51,7 +51,7 @@ mod purpose {
     pub const VOTE_CONNECT_DECISION: u32 = 3;
     pub const VOTE_DELAY_DRAW: u32 = 4;
     /// Which of the target neuron's `segments_per_neuron` dendritic segments
-    /// an accepted `connect` synapse lands on (README §13.12 item 6). Keyed
+    /// an accepted `connect` synapse lands on (docs/findings.md finding 6). Keyed
     /// on the same `(source, target)` pair as `CONNECT_DECISION`/
     /// `DELAY_DRAW` but a distinct purpose tag, so it draws its own
     /// independent stream rather than reusing (and so correlating with)
@@ -63,7 +63,7 @@ mod purpose {
 /// probability falls off exponentially with distance between neuron
 /// coordinates. Exponential falloff is a standard, simple choice matching
 /// the "mostly nearby, long tail of distant connections" biology described
-/// in README §2.1; a Gaussian profile would be an equally defensible
+/// in docs/prior-art.md §2.1; a Gaussian profile would be an equally defensible
 /// alternative -- no requirement mandates one over the other.
 #[derive(Clone, Copy, Debug)]
 pub struct DistancePolicy {
@@ -80,7 +80,7 @@ pub struct DistancePolicy {
     /// already-established wiring, not a provisional structural-plasticity
     /// sprout (see `plasticity::structural`'s `sprout_weight`/
     /// `sprout_permanence` doc comments for that distinct case) -- `weight`
-    /// defaults to this same value at insertion (README §12's weight/
+    /// defaults to this same value at insertion (docs/decisions.md's weight/
     /// permanence split, 2026-09-13), so a freshly-built network's initial
     /// dynamics are unaffected by the split and only diverge once a
     /// plasticity rule that moves weight acts.
@@ -160,11 +160,11 @@ impl GraphBuilder {
     /// design.md's Error Handling table.
     ///
     /// `segments_per_neuron` distributes each accepted synapse across the
-    /// *target* neuron's dendritic segments (README §2.3, NEU-5) rather than
+    /// *target* neuron's dendritic segments (docs/prior-art.md §2.3, NEU-5) rather than
     /// funnelling every synapse onto segment `0` -- found 2026-09-11 as
-    /// §13.12 item 6: with everything on one shared segment, a population's
+    /// docs/findings.md finding 6: with everything on one shared segment, a population's
     /// entire internal recurrent web is a single coincidence detector and
-    /// (once segments are actually enabled -- §12a item 8) is purely
+    /// (once segments are actually enabled -- docs/findings.md finding 21) is purely
     /// depolarising (NEU-6), never contributing direct excitatory current.
     /// The assignment is drawn from its own `purpose::SEGMENT_ASSIGN`
     /// stream, keyed by `(source, target)` exactly like `CONNECT_DECISION`/
@@ -214,7 +214,7 @@ impl GraphBuilder {
     /// which is Requirement 1's Acceptance Criteria 1-2 by construction.
     /// `segments.segments_per_neuron` is forwarded straight to `connect`, so
     /// the column's own internal wiring is distributed across its neurons'
-    /// dendritic segments exactly as any other `connect` call now is (§13.12
+    /// dendritic segments exactly as any other `connect` call now is (docs/findings.md
     /// item 6) -- this is plain field access, not a new dependency on the
     /// scheduler-level config `segments` mirrors (see `column.rs`'s
     /// `ColumnSpec` doc comment on that field's own, separate, still-open
@@ -502,7 +502,7 @@ mod tests {
         );
     }
 
-    // -- Segment distribution (README §13.12 item 6, NEU-5): `connect` must
+    // -- Segment distribution (docs/findings.md finding 6, NEU-5): `connect` must
     // spread accepted synapses across a target's dendritic segments rather
     // than funnelling everything onto segment 0, deterministically (RUN-3),
     // and must leave the single-segment case exactly as it was before this
@@ -592,7 +592,7 @@ mod tests {
         // extends to this parameter too: a column built with
         // segments_per_neuron > 1 must show the same spread `connect`
         // itself does, not silently stay collapsed onto segment 0 the way
-        // it did before this fix (§13.12 item 6).
+        // it did before this fix (docs/findings.md finding 6).
         let mut neurons = NeuronArena::new();
         let mut synapses = SynapseArena::new(50);
         let builder = GraphBuilder::new(5);

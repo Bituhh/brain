@@ -18,7 +18,7 @@
 //! toward uniform saturation while still respecting which of them Hebbian
 //! learning judged strongest.
 //!
-//! README §12's weight/permanence split (2026-09-13): this sweep now
+//! docs/decisions.md's weight/permanence split (2026-09-13): this sweep now
 //! renormalises `weight` (efficacy), not `permanence` (structural
 //! connectivity). Before the split, this rescale silently performed
 //! structural plasticity -- a downscaling sweep could push a synapse's one
@@ -198,7 +198,7 @@ impl IntrinsicHomeostasis {
 /// `scheduler.rs`'s existing addressing scheme) instead of by neuron index.
 ///
 /// Exists because a hand-picked absolute `BinaryCoincidenceParams.threshold`
-/// (README §2.3, §13.12 items 6/7) does not mean the same thing once
+/// (docs/prior-art.md §2.3, docs/findings.md findings 6/7) does not mean the same thing once
 /// `segments_per_neuron` or synapse density changes -- `evaluate_and_resolve`
 /// combines a neuron's segments by `max`, so splitting synapses across more
 /// segments under one fixed threshold gives a neuron more independent
@@ -276,7 +276,7 @@ impl SegmentThresholdHomeostasis {
 /// Self-tuning k-WTA sparsity (inhibition-homeostasis spec, Requirement 1):
 /// [`IntrinsicHomeostasis`]'s EMA/error/proportional-nudge/`interval_ticks`
 /// template applied to `inhibition.rs`'s `FixedNeighbourhoods` k, which
-/// today is a hand-picked absolute count fixed at construction (README §12
+/// today is a hand-picked absolute count fixed at construction (docs/decisions.md
 /// decision 10) -- the "correct" k for a population depends on its size and
 /// connectivity, which invariant 10/NET-10 explicitly do not treat as fixed
 /// forever.
@@ -462,7 +462,7 @@ mod tests {
         let new_total: f32 = incoming.iter().map(|&id| synapses.weight[id as usize]).sum();
         assert!((new_total - 1.5).abs() < 1e-4, "incoming weight total should be rescaled to the target, got {new_total}");
 
-        // README §12's fix, tested directly: a scaling sweep must no longer
+        // docs/decisions.md's fix, tested directly: a scaling sweep must no longer
         // double as structural plasticity -- permanence never moves.
         let permanence_after: Vec<f32> = incoming.iter().map(|&id| synapses.permanence[id as usize]).collect();
         assert_eq!(permanence_after, permanence_before, "homeostatic scaling must not touch permanence at all");

@@ -5,7 +5,7 @@
 //! (`mean_weight_stays_within_bounds_over_an_extended_soak`) runs 10,000
 //! ticks and checks that mean incoming *permanence* stays bounded -- it
 //! says nothing about whether the network's *predictions* stay accurate,
-//! which is the specific NELL-style ("precision decayed as it ran," §13.7)
+//! which is the specific NELL-style ("precision decayed as it ran," docs/prior-art.md §13.7)
 //! gap this test targets. Reuses `predictive_learning.rs`'s minimal
 //! two-neuron A-then-B repeating-sequence network (the smallest shape that
 //! can demonstrate genuine, unsupervised prediction) rather than inventing

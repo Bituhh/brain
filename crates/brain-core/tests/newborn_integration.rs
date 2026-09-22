@@ -1,5 +1,5 @@
 //! Whole-network integration tests for newborn neuron integration (PLAN.md
-//! B3, NET-10/NET-11, README §13.12 item 10's three-lock diagnosis).
+//! B3, NET-10/NET-11, docs/findings.md finding 10's three-lock diagnosis).
 //!
 //! `plasticity/newborn.rs`'s own unit tests exercise `NewbornMaturation`
 //! directly (calling `wire_and_place_newborns`/`maybe_sweep` by hand); these
@@ -226,7 +226,7 @@ fn a_snapshot_taken_mid_maturation_restores_and_continues_identically() {
 
 #[test]
 fn ablation_without_newborn_maturation_a_newly_grown_neuron_never_fires() {
-    // Reproduces README §13.12 item 10's B2 finding directly: `with_growth`
+    // Reproduces docs/findings.md finding 10's B2 finding directly: `with_growth`
     // alone (no `with_newborn_maturation`) leaves a grown neuron with zero
     // synapses forever, so it can never receive current and therefore never
     // fires -- even with drivers actively firing all around it.
@@ -281,8 +281,7 @@ fn ablation_hyperexcitability_measurably_changes_how_many_newborns_integrate() {
 // original population, so they land in a partially-filled trailing
 // `FixedNeighbourhoods` neighbourhood. A *fixed* `k` gives that trailing
 // group no real competition at all once its membership drops below `k` --
-// measured directly on the real char-prediction network (README §13.12 item
-// 10's 2026-09-14 diagnosis): a 40-member trailing group let all 40 fire
+// measured directly on the real char-prediction network (docs/findings.md finding 10's 2026-09-14 diagnosis): a 40-member trailing group let all 40 fire
 // every tick against an 8% target. `FixedNeighbourhoods::with_density_target`
 // (`inhibition.rs`) fixes this; these two tests demonstrate the defect it
 // closes and the fix, at the `Scheduler::step` integration level rather than

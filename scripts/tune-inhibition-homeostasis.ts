@@ -52,7 +52,7 @@ const CONFIRM_SEEDS = [1n, 2n, 3n, 4n, 5n];
 // candidate -- only targetRate is swept, matching
 // tune-segment-threshold-homeostasis.ts's own "isolate one variable"
 // choice. intervalTicks=200 mirrors segmentThresholdHomeostasis's own
-// converged value (README §13.12 item 7) for the same network; with
+// converged value (docs/findings.md finding 7) for the same network; with
 // ~30,000 ticks per trial that gives ~150 sweeps, plenty to converge.
 // adjustmentRate=4.0 is large in k-units deliberately: k here ranges over
 // tens (round(800*0.08)=64), not the single digits `tests/

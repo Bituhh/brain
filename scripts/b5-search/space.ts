@@ -1,4 +1,4 @@
-// The parameter space PLAN.md B5's value search explores (README §12
+// The parameter space PLAN.md B5's value search explores (docs/decisions.md
 // decision 13, requirements.md Requirement 9.2): reference weight (with
 // count mode as one of its levels), coincidence threshold, the STDP
 // settings, the predictive-learning target, homeostatic scaling on/off, and
@@ -42,8 +42,7 @@ export type B5ParamName = (typeof B5_PARAM_NAMES)[number];
 const VOTE_REFERENCE_WEIGHT_LEVELS = [0, 0.05, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 1.0];
 
 /**
- * Segment-threshold homeostasis is not in this space (README §12 decision
- * 13 keeps that decided by B4's own default and only re-measures it as an
+ * Segment-threshold homeostasis is not in this space (docs/decisions.md decision 13 keeps that decided by B4's own default and only re-measures it as an
  * ablation, per requirements.md Requirement 6's homeostasis/silent-gate
  * framing being about weight *rescaling*, not threshold homeostasis).
  * `coincidenceThreshold` is fixed's own `BinaryCoincidenceParams::threshold`

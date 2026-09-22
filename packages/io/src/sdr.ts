@@ -3,7 +3,7 @@
 // consumes one, and `overlap`/`overlapFraction` are the *only*
 // implementations of "how similar are two SDRs" -- so IO-1's "semantically
 // similar inputs produce overlapping SDRs" is checked once, against this
-// module, rather than reimplemented per encoder (README §2.1's ~2%-on-bits
+// module, rather than reimplemented per encoder (docs/prior-art.md §2.1's ~2%-on-bits
 // sparsity target is the density this type is built to carry explicitly,
 // independent of width).
 

@@ -1,4 +1,4 @@
-// PLAN.md B5, Requirement 9.5: re-runs README §13.12 item 10's growth
+// PLAN.md B5, Requirement 9.5: re-runs docs/findings.md finding 10's growth
 // conditions (B, D, E, F) at B5's value-search winner, since growth is where
 // new wiring should earn its place. B4's scope was condition C only, so this
 // is the first time the growth battery runs with any of B4's fixes or B5's

@@ -6,7 +6,7 @@
 //! directly (Requirement 8.8) -- there is no separate "plain STDP"
 //! implementation; it is this rule evaluated with a constant modulator,
 //! which is the literal reading of Requirement 8.8's "reduces to." README
-//! §12's weight/permanence split (2026-09-13) moved this from permanence to
+//! docs/decisions.md's weight/permanence split (2026-09-13) moved this from permanence to
 //! weight: STDP is the fast, per-spike-pair mechanism, and permanence
 //! (SYN-3's structural quantity) is now touched only by structural
 //! plasticity (LRN-7).

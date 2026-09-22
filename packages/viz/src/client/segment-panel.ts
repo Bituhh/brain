@@ -12,7 +12,7 @@ export interface SegmentMember {
   readonly synapseId: number;
   readonly source: number;
   readonly permanence: number;
-  /** §2.5's efficacy -- README §12's weight/permanence split (2026-09-13). */
+  /** docs/prior-art.md §2.5's efficacy -- docs/decisions.md's weight/permanence split (2026-09-13). */
   readonly weight: number;
 }
 

@@ -88,8 +88,8 @@
 //! full tick resolution -- proven directly by
 //! `tests/partitioning_reference.rs`'s
 //! `cross_column_spike_phase_is_identical_across_partitioning_and_threading`
-//! (README §12a item 6, resolved 2026-09-10). If this barrier is ever
-//! relaxed or removed in pursuit of §12a item 1's per-core throughput
+//! (docs/decisions.md decision 22, resolved 2026-09-10). If this barrier is ever
+//! relaxed or removed in pursuit of docs/open-questions.md item 1's per-core throughput
 //! question, that test is the one to re-run first: phase drift across
 //! partitions is the risk item 6 originally anticipated, and it does not
 //! exist today only because this barrier stands.
@@ -336,9 +336,9 @@ impl BoundaryNeuronLocalTable {
 }
 
 /// How `PartitionRuntime::step` runs stage 1 and stage 3's per-partition
-/// work (§12a open question 2, **resolved in rayon's favour, decisively**
+/// work (docs/open-questions.md open question 2, **resolved in rayon's favour, decisively**
 /// -- `benches/core_bench.rs`'s `rayon_vs_pinned_pool` group and README
-/// §12a's write-up of the numbers). Both non-sequential variants run the
+/// docs/open-questions.md's write-up of the numbers). Both non-sequential variants run the
 /// *identical* per-partition algorithm; only the mechanism dispatching it
 /// to threads differs, and `tests/partitioning_reference.rs` holds all
 /// three to the same bit-identical standard -- `Pinned` is kept as the
@@ -355,7 +355,7 @@ enum Executor {
     /// A hand-rolled alternative using `std::thread::scope`: one scoped
     /// `std::thread::spawn` per partition, per stage, joined before the
     /// stage's results are used. This is the "each tick spawns fresh
-    /// threads" variant, not README §12a's ideal of threads pinned for a
+    /// threads" variant, not docs/open-questions.md's ideal of threads pinned for a
     /// whole run and fed work over a channel between ticks -- that variant
     /// needs either a scope spanning the *entire* multi-tick run (with
     /// work handed across ticks via a channel) or `unsafe` lifetime
@@ -363,7 +363,7 @@ enum Executor {
     /// what this simplification costs: OS thread creation/teardown, paid
     /// twice per tick per partition, dominates completely -- ~9x slower
     /// than rayon at 2 threads, worsening to ~10x at 8, on the measured
-    /// network (README §12a). Kept as the benchmark's comparison point and
+    /// network (docs/open-questions.md). Kept as the benchmark's comparison point and
     /// documented evidence for the decision, not as a candidate for
     /// further investment. `usize` is the requested thread count --
     /// `std::thread::scope` has no persistent pool object of its own to
@@ -448,7 +448,7 @@ impl PartitionRuntime {
         assert_eq!(plan.partition_count(), schedulers.len(), "one Scheduler per partition is required");
         // PLAN.md C2: refuse rather than silently ignore. A scheduler's own
         // coupling is applied by `Scheduler::step`, which this runtime never
-        // calls, so accepting one here would reproduce README §12a item 8's
+        // calls, so accepting one here would reproduce docs/findings.md finding 21's
         // "configured, and configures nothing" defect exactly. Use
         // [`Self::with_noradrenaline_coupling`] instead -- it has to be a
         // separate call regardless, because the tally must be merged across
@@ -481,7 +481,7 @@ impl PartitionRuntime {
         // sprouts through a deferred, canonically-ordered outbox applied
         // identically in `Scheduler::step` too -- real machinery, not worth
         // building before anything measures a spatial burst reach as useful
-        // (README §12 decision 15's own open note). `structural.rs`'s sweep
+        // (docs/decisions.md decision 15's own open note). `structural.rs`'s sweep
         // is unaffected: it runs once globally with the whole arenas
         // addressable, so a spatial reach there has no partition problem at
         // all. One partition is exempt because there is no other partition
@@ -610,7 +610,7 @@ impl PartitionRuntime {
 
     /// As [`Self::with_thread_count`], but dispatches stage 1/stage 3 via
     /// the hand-rolled `std::thread::scope`-based executor instead of
-    /// rayon (§12a open question 2, `Executor::Pinned`'s doc comment for
+    /// rayon (docs/open-questions.md open question 2, `Executor::Pinned`'s doc comment for
     /// what this variant does and does not implement). `thread_count <= 1`
     /// returns to the sequential path, same as `with_thread_count`.
     pub fn with_pinned_thread_count(mut self, thread_count: usize) -> Self {

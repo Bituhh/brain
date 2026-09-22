@@ -21,7 +21,7 @@ fn make_plasticity() -> RuleChain {
 }
 
 /// Trains a-then-b for `ticks`, returns the learned synapse's id (its
-/// weight is what STDP moves -- README §12's weight/permanence split,
+/// weight is what STDP moves -- docs/decisions.md's weight/permanence split,
 /// 2026-09-13 -- permanence stays fixed at its initial value).
 fn train(ticks: u32) -> (NeuronArena, SynapseArena, Scheduler, u32, u32, u32) {
     let mut neurons = NeuronArena::new();

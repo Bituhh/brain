@@ -67,8 +67,8 @@ pub struct LocalContext {
 /// here but three borrowed scalars.
 pub struct SynapseMut<'a> {
     pub permanence: &'a mut f32,
-    /// Synaptic efficacy (§2.5) -- what STDP and predictive learning's
-    /// reinforce/punish actually move (README §12's weight/permanence
+    /// Synaptic efficacy (docs/prior-art.md §2.5) -- what STDP and predictive learning's
+    /// reinforce/punish actually move (docs/decisions.md's weight/permanence
     /// split, 2026-09-13). `permanence` above stays structural: no rule
     /// reachable through this type writes it.
     pub weight: &'a mut f32,

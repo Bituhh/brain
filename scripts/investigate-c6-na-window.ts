@@ -2,7 +2,7 @@
 // "noradrenaline widens the STDP window". This is a CONFIRMATION, not a search: every choice below
 // was fixed and written here before any trial ran, and nothing in it is re-tuned after the fact.
 //
-// WHY A NULL IS EXPECTED (README §13.12 item 18's addendum, HANDOFF fact 12). On B5's configuration
+// WHY A NULL IS EXPECTED (docs/findings.md finding 18's addendum, HANDOFF fact 12). On B5's configuration
 // with C2's coupling the noradrenaline surprise signal is exactly zero on 88-89% of characters and
 // 100% of the middle third; the level's largest excursion above rest is ~+0.0023, so a map gain of
 // 100 widens the window by at most ~23%, briefly; and a STATIC window change in either direction
@@ -16,7 +16,7 @@
 //   is the product's other factor), maxLevel 4.0. Acetylcholine stays B5's tonic 1.0; nothing else
 //   reads noradrenaline. The window map is `joint_time_scale` on channel 2: tauPlus, tauMinus and
 //   windowTicks from one map, WIDTH ONLY (no amplitude slot), min 1.0 (a level below `reference`
-//   does not narrow the window -- README §12 decision 17), max 1.5 (the widest joint scale C5
+//   does not narrow the window -- docs/decisions.md decision 17), max 1.5 (the widest joint scale C5
 //   measured at 15,000 characters, where a static widening cost -2.45 points).
 //
 //   REFERENCE = the channel's MEASURED resting level, as a pairing reads it. Measured in phase 1 by

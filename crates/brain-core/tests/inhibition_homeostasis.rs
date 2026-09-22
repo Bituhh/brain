@@ -2,7 +2,7 @@
 //! `inhibition.rs`'s `FixedNeighbourhoods` fixes `k`/`size` once at
 //! construction with no adjustment path -- a hand-picked absolute count
 //! whose correctness depends on network scale and connectivity, directly
-//! contradicting README §12 decision 10's own standing rule (the same
+//! contradicting docs/decisions.md decision 10's own standing rule (the same
 //! problem this project already found and fixed once for dendritic
 //! coincidence thresholds, `tests/segment_threshold_homeostasis.rs`).
 //!
@@ -40,7 +40,7 @@ fn build_population() -> NeuronArena {
 
 /// Same technique as `tests/sparsity.rs`'s own `stimulate_varied_drive`:
 /// deterministic, reproducible per-tick drive via `derive_stream`, no
-/// persistent generator (README §12 decision 7).
+/// persistent generator (docs/decisions.md decision 7).
 fn stimulate_varied_drive(sched: &mut Scheduler, neurons: &NeuronArena, seed: u64, tick: u32, drive_fraction: f32) {
     const PURPOSE_DRIVE_SELECT: u32 = 100;
     for idx in 0..POPULATION as u32 {

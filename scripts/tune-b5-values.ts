@@ -1,4 +1,4 @@
-// PLAN.md B5's value search (README §12 decision 13, requirements.md
+// PLAN.md B5's value search (docs/decisions.md decision 13, requirements.md
 // Requirement 9): finds the values for weighted dendritic votes -- the
 // reference weight (with count mode as one of its own levels), the
 // coincidence threshold, the STDP settings, the predictive-learning target,

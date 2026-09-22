@@ -1,4 +1,4 @@
-// PLAN.md B4's value search (README §12 decision 12, §13.12 item 10): finds
+// PLAN.md B4's value search (docs/decisions.md decision 12, docs/findings.md finding 10): finds
 // the values for B4's four structural-plasticity fixes and for the STDP they
 // depend on, in one unattended, resumable run.
 //
@@ -17,7 +17,7 @@
 //      are measured at the winner;
 //   4. hand-set STDP values -> STDP settings are part of the search.
 // And one the user raised: a one-parameter-at-a-time climb stops on the
-// first hill it reaches (README §13.12's segment search missed a 7.7-point
+// first hill it reaches (docs/findings.md's segment search missed a 7.7-point
 // better peak that way). So the search first samples the whole space at
 // once, climbs from several distinct hills, and extends a range whenever
 // the best value sits at its edge. "Distinct" is asked of the landscape, not

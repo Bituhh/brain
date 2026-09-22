@@ -39,7 +39,7 @@ export interface TopologySynapsesMessage {
   readonly targetNeuron: Uint32Array;
   readonly targetSegment: Uint32Array;
   readonly permanence: Float32Array;
-  /** §2.5's efficacy -- README §12's weight/permanence split (2026-09-13): how much current a *connected* synapse actually passes, independent of `permanence`'s structural "is this connected" gate. */
+  /** docs/prior-art.md §2.5's efficacy -- docs/decisions.md's weight/permanence split (2026-09-13): how much current a *connected* synapse actually passes, independent of `permanence`'s structural "is this connected" gate. */
   readonly weight: Float32Array;
   readonly delay: Uint16Array;
   readonly occupied: Uint8Array;
@@ -65,7 +65,7 @@ export interface MetricsSnapshotMessage {
   readonly type: "metricsSnapshot";
   readonly sparsity: number;
   readonly meanPermanence: number;
-  /** README §12's weight/permanence split (2026-09-13): reported alongside `meanPermanence` since the two now carry independent meanings. */
+  /** docs/decisions.md's weight/permanence split (2026-09-13): reported alongside `meanPermanence` since the two now carry independent meanings. */
   readonly meanWeight: number;
   readonly excitatoryFraction: number;
   readonly synapseCount: number;

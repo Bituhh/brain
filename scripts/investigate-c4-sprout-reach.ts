@@ -1,13 +1,12 @@
 // PLAN.md C4, task step 7: does making grown capacity *reachable* change
 // VAL-4?
 //
-// WHAT THIS ANSWERS, AND WHAT IT DELIBERATELY DOES NOT. README §13.12 item
-// 10 measured growth as inert on VAL-4 for a reason no growth parameter can
+// WHAT THIS ANSWERS, AND WHAT IT DELIBERATELY DOES NOT. docs/findings.md finding 10 measured growth as inert on VAL-4 for a reason no growth parameter can
 // touch: both sprout paths grouped candidates into disjoint index blocks,
 // and growth appends neurons at indices past every original's block, so a
 // grown neuron could receive 33,104 synapses and send exactly zero to the
 // original 800. C4 replaces that grouping with a Euclidean reach over each
-// neuron's coordinates (README §12 decision 15). The Rust side already
+// neuron's coordinates (docs/decisions.md decision 15). The Rust side already
 // proves the topology claim -- `crates/brain-core/tests/sprout_reach.rs`
 // asserts grown -> original synapses exist under spatial reach and are zero
 // under index blocks. This script asks the separate question: now that the
@@ -93,7 +92,7 @@ const CORPUS_LENGTH = 15_000;
  * to +0.81 over condition C, and a reader may reasonably want to adopt a
  * radius on the strength of that. They cannot, from this seed set: 11-15 are
  * B5's *confirmation* seeds, so choosing a value on them is selection on a
- * held-out set, which is the trap README §13.12 item 10's own
+ * held-out set, which is the trap docs/findings.md finding 10's own
  * segmentsPerNeuron correction records. `C4_SEEDS=1,2,...,10` re-runs the
  * same rows on B5's *selection* seeds, which are independent of 11-15 --
  * that is the comparison an adoption decision needs, and a direction that
@@ -101,7 +100,7 @@ const CORPUS_LENGTH = 15_000;
  */
 const SEEDS: readonly bigint[] =
   process.env.C4_SEEDS === undefined ? ([11n, 12n, 13n, 14n, 15n] as const) : process.env.C4_SEEDS.split(",").map((s) => BigInt(s.trim()));
-/** README §13.12 item 7's mode baseline. Quoted in the report because a change that improves a delta but drops under this has undone the only real progress the network has made (`.claude/HANDOFF.md`'s headline). */
+/** docs/findings.md finding 7's mode baseline. Quoted in the report because a change that improves a delta but drops under this has undone the only real progress the network has made (`.claude/HANDOFF.md`'s headline). */
 const ALWAYS_GUESS_SPACE = 0.1656;
 
 const corpus = readFileSync(paths.corpus, "utf8").slice(0, CORPUS_LENGTH);
@@ -234,7 +233,7 @@ process.on("unhandledRejection", (reason) => {
 //
 // The battery above reports accuracy. This reports whether the topology
 // claim actually holds on the real 800-neuron VAL-4 network, which is the
-// part README §13.12 item 10 measured as zero and the part PLAN.md C4 owes
+// part docs/findings.md finding 10 measured as zero and the part PLAN.md C4 owes
 // regardless of what accuracy does. Counted exactly the way
 // `investigate-growth-regression.ts` counts it (straight off
 // `synapseOccupiedView`/`synapseTargetNeuronView`, not a proxy), then
@@ -368,10 +367,10 @@ if (process.env.C4_INSTRUMENT === "1") {
   writeFileSync(
     paths.samples,
     `# PLAN.md C4 -- instrumented runs\n\nGenerated ${new Date().toISOString()} by scripts/investigate-c4-sprout-reach.ts with C4_INSTRUMENT=1. Seed ${seed}, sampled every ${SAMPLE_INTERVAL} characters.\n\n` +
-      "The column that matters is the last one: **grown -> ORIGINAL** synapses, i.e. occupied slots whose source index is at or past `width` and whose target index is below it. README §13.12 item 10's own instrumented run measured that quantity as exactly **0** across the whole 15,000-character run, with 33,104 synapses going the other way -- grown capacity that could listen to the original population and never speak to it. `synapsesFromGrown` is *not* the same quantity and was already non-zero before C4 (PLAN.md B3 made a newborn a legitimate sprout source; it just had only fellow newborns to sprout to).\n",
+      "The column that matters is the last one: **grown -> ORIGINAL** synapses, i.e. occupied slots whose source index is at or past `width` and whose target index is below it. docs/findings.md finding 10's own instrumented run measured that quantity as exactly **0** across the whole 15,000-character run, with 33,104 synapses going the other way -- grown capacity that could listen to the original population and never speak to it. `synapsesFromGrown` is *not* the same quantity and was already non-zero before C4 (PLAN.md B3 made a newborn a legitimate sprout source; it just had only fellow newborns to sprout to).\n",
   );
   log(`=== instrumented pass, seed ${seed} ===`);
-  runInstrumented("B: growth burst pace, index-block reach (the README §13.12 item 10 control)", withGrowth(winnerConfig, growthBurst()), seed);
+  runInstrumented("B: growth burst pace, index-block reach (the docs/findings.md finding 10 control)", withGrowth(winnerConfig, growthBurst()), seed);
   runInstrumented("SB-50: growth burst pace, spatial reach r=50", withReach(withGrowth(winnerConfig, growthBurst()), 50), seed);
   log(`=== instrumented pass done: ${paths.samples} ===`);
 } else {
@@ -444,7 +443,7 @@ if (process.env.C4_INSTRUMENT === "1") {
     "",
     `Winner these rows build on (tune-b5-values.chosen.json): ${conditionLabel(searchCondition(winner))}.`,
     "",
-    `**The bar to read every number against** is README §13.12 item 7's mode baseline, "always guess space": **${pct(ALWAYS_GUESS_SPACE)}**. A change that improves a delta but drops back under it has undone the only real progress this network has made. Trigram on this corpus is 29.07%; the VAL-4 milestone is not met either way.`,
+    `**The bar to read every number against** is docs/findings.md finding 7's mode baseline, "always guess space": **${pct(ALWAYS_GUESS_SPACE)}**. A change that improves a delta but drops back under it has undone the only real progress this network has made. Trigram on this corpus is 29.07%; the VAL-4 milestone is not met either way.`,
     "",
     "Rows C, B and E are read from `investigate-b5-growth.checkpoint.jsonl` rather than re-run -- same key scheme, same seeds, same corpus slice.",
     "",
@@ -480,7 +479,7 @@ if (process.env.C4_INSTRUMENT === "1") {
 
   lines.push(
     "",
-    "Per-seed identity is worth checking by eye as well as by mean: README §13.12 item 10's finding was that growth rows reproduced condition C's accuracy *identically on every seed*, which is a much stronger statement than their means agreeing.",
+    "Per-seed identity is worth checking by eye as well as by mean: docs/findings.md finding 10's finding was that growth rows reproduced condition C's accuracy *identically on every seed*, which is a much stronger statement than their means agreeing.",
     "",
     "The direct topology measurement (grown -> original synapse counts on the real network) is in `investigate-c4-sprout-reach.samples.md`, produced by re-running this script with `C4_INSTRUMENT=1`.",
   );

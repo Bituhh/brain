@@ -69,7 +69,7 @@ const DEFERRED = new Set([
   '5.2',
   // Phase 5 Requirement 17 (LRN-12 fast-binding): a design-only requirement
   // (requirements.md's own text: "satisfied by a written, reviewed decision
-  // -- not by code"). Satisfied by README §12 decision 8, not by a citing
+  // -- not by code"). Satisfied by docs/decisions.md decision 8, not by a citing
   // test -- there is deliberately no fast-binding code in this phase to
   // cite it (17.5 requires exactly that). See requirements.md's Requirement
   // 17 for the full acceptance criteria this decision discharges.
@@ -80,7 +80,7 @@ const DEFERRED = new Set([
   '17.5',
   '17.6',
   // Phase 5.5 Requirement 7 (LRN-12 build/no-build decision): the same
-  // shape as Phase 5's Requirement 17 above. Satisfied by README §12
+  // shape as Phase 5's Requirement 17 above. Satisfied by docs/decisions.md
   // decision 9 ("not built" -- see requirements.md's Requirement 7,
   // Acceptance Criterion 2), not by a citing test; ACs 3-5 describe the
   // conditional-build branch, which this decision did not take, so there is

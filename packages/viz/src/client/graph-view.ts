@@ -15,7 +15,7 @@ export interface SynapseTopology {
   readonly targetNeuron: Uint32Array;
   readonly targetSegment: Uint32Array;
   readonly permanence: Float32Array;
-  /** §2.5's efficacy -- README §12's weight/permanence split (2026-09-13): how much current a *connected* synapse actually passes, independent of `permanence`'s structural "is this connected" gate. */
+  /** docs/prior-art.md §2.5's efficacy -- docs/decisions.md's weight/permanence split (2026-09-13): how much current a *connected* synapse actually passes, independent of `permanence`'s structural "is this connected" gate. */
   readonly weight: Float32Array;
   readonly delay: Uint16Array;
   readonly occupied: Uint8Array;
@@ -156,8 +156,8 @@ export class GraphView {
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
       if (connected) {
-        // README §12's weight/permanence split (2026-09-13): a connected
-        // edge's visual strength reflects weight (§2.5's efficacy, what
+        // docs/decisions.md's weight/permanence split (2026-09-13): a connected
+        // edge's visual strength reflects weight (docs/prior-art.md §2.5's efficacy, what
         // actually reaches the soma), not permanence (the structural gate
         // already decided above).
         const w = weight[id]!;

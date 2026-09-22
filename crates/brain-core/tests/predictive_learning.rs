@@ -123,7 +123,7 @@ fn no_label_or_external_error_signal_is_needed_anywhere_in_this_path() {
 
     let learned = synapses.occupied_in_block(a).find(|&id| synapses.target_neuron[id as usize] == b);
     assert!(learned.is_some(), "the network must have sprouted its own a->b connection with no external error signal");
-    // README §12's weight/permanence split (2026-09-13): predictive
+    // docs/decisions.md's weight/permanence split (2026-09-13): predictive
     // learning's reinforce/punish moves permanence, not weight -- a
     // deliberate exception to the general split (see predictive.rs's
     // `adjust_segment_permanence` doc comment): dendritic coincidence

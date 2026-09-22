@@ -174,7 +174,7 @@ pub struct MetricsSnapshot {
     /// Mean permanence across every occupied synapse (`0.0` if none exist).
     pub mean_permanence: f32,
     /// Mean weight across every occupied synapse (`0.0` if none exist) --
-    /// README §12's weight/permanence split (2026-09-13): reported
+    /// docs/decisions.md's weight/permanence split (2026-09-13): reported
     /// alongside `mean_permanence` since the two now carry independent
     /// meanings (structural connectivity vs. efficacy).
     pub mean_weight: f32,

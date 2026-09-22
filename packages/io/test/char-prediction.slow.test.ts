@@ -78,7 +78,7 @@ test("assessMilestone's tolerance band requires a margin, not just any positive 
   assert.equal(assessMilestone(trials, 0.05).milestoneMet, false, "a 0.05 tolerance band must not be cleared by a 0.01 margin");
 });
 
-// PLAN.md B4 (README §12 decision 12): locks in the value search's result
+// PLAN.md B4 (docs/decisions.md decision 12): locks in the value search's result
 // so a change that reintroduces the drag, or silently changes what the
 // chosen config does, is caught. Condition C (structural plasticity alone,
 // no growth) sat at 6.40% once B1 made every sprout connected from birth.
@@ -144,7 +144,7 @@ test("condition C with B4's searched values reproduces the value search's own re
   );
 });
 
-// PLAN.md B5 (README §12 decision 13): locks in the weighted-vote value
+// PLAN.md B5 (docs/decisions.md decision 13): locks in the weighted-vote value
 // search's result the same way the B4 test above locks in B4's.
 // `scripts/tune-b5-values.ts` searched reference weight, coincidence
 // threshold, predictive-learning target, homeostatic scaling, STDP and B4's

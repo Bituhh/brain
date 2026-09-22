@@ -1,4 +1,4 @@
-//! The dendritic coincidence window (README §12a item 6, settled
+//! The dendritic coincidence window (docs/decisions.md decision 22, settled
 //! 2026-09-11): by default a segment only ever sees deliveries that land
 //! on the *same* tick, so synapses whose axonal delays differ even by one
 //! tick can never jointly cross a coincidence threshold. This is the exact

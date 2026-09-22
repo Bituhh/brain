@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Requirement-ID coverage checker (README §9's VAL-10, §13.12 item 14, PLAN.md item A3).
+// Requirement-ID coverage checker (README §9's VAL-10, docs/findings.md finding 14, PLAN.md item A3).
 //
 // check-traceability.mjs answers "does every numbered acceptance criterion in a slice spec's
 // requirements.md have a citing test" -- a different id space from this script. This one answers
-// the question §13.12 item 14 raised: for README's own requirement IDs (NEU-*, SYN-*, LRN-*,
+// the question docs/findings.md finding 14 raised: for README's own requirement IDs (NEU-*, SYN-*, LRN-*,
 // NET-*, RUN-*, IO-*, ENG-*, OBS-*, VAL-*, VIZ-*), which are cited by a test, which are only
 // mentioned in production code, and which are not mentioned anywhere at all?
 //
@@ -28,16 +28,16 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const README_PATH = path.join(repoRoot, 'README.md');
 const thisFile = fileURLToPath(import.meta.url);
 
-// Deliberate, reviewed gaps -- known-unbuilt requirements named in README §13.12 item 14, not
+// Deliberate, reviewed gaps -- known-unbuilt requirements named in docs/findings.md finding 14, not
 // oversights. Add to this list only with a comment explaining why, exactly like check-
 // traceability.mjs's own DEFERRED list does.
 const DEFERRED = new Set([
   // NET-6 (feedback carries predictions, should): no implementation, no test, no mention of the
-  // id anywhere in crates/ or packages/ -- §13.12 item 14's first bullet. §13.13(b) and PLAN.md
+  // id anywhere in crates/ or packages/ -- docs/findings.md finding 14's first bullet. docs/prior-art.md §13.13(b) and PLAN.md
   // item F10 are the path to closing this, not this script.
   'NET-6',
   // NET-8 (emergent oscillations, could): nothing built -- expected for a could-priority item,
-  // per §13.12 item 14's second bullet.
+  // per docs/findings.md finding 14's second bullet.
   'NET-8',
   // NET-11 (critical periods, could): PARTIALLY built, so this checker will report it as "now
   // covered" -- it stays deferred deliberately. NET-11 asks for two things: a global plasticity
@@ -47,16 +47,16 @@ const DEFERRED = new Set([
   // newborn.rs/scheduler.rs/newborn_integration.rs, which is where the citations come from. The
   // global annealing signal does not exist, and hyperexcitability is not a plasticity rate, so
   // the requirement is not met. Do not remove just because the checker says otherwise -- see
-  // README §13.12 item 14's NET-11 bullet, corrected 2026-09-19.
+  // docs/findings.md finding 14's NET-11 bullet, corrected 2026-09-19.
   'NET-11',
   // LRN-12 (fast one-shot binding, should): interfaces prepared (ReplaySource is abstract for
-  // exactly this reason), mechanism absent -- §13.12 item 14's third bullet. PLAN.md item F6 is
+  // exactly this reason), mechanism absent -- docs/findings.md finding 14's third bullet. PLAN.md item F6 is
   // the path to closing this.
   'LRN-12',
 
   // The entries below were found by this script's own first run (PLAN.md item A3) -- real gaps
   // beyond the four item 14 already named, recorded here rather than silently papered over by
-  // inventing citations. See README §13.12 item 15 for the write-up.
+  // inventing citations. See docs/findings.md finding 15 for the write-up.
 
   // NEU-3 (pluggable neuron dynamics): the trait (`NeuronDynamics`) is generic and the scheduler
   // is monomorphic over it, but `Lif` is the only implementation this codebase ever builds or
@@ -88,8 +88,7 @@ const DEFERRED = new Set([
   // deferred, and the distinction matters: that test asserts every partition's private field
   // broadcasts *identical* levels, which is a determinism property (RUN-3). RUN-6 asks for shared
   // state behind atomics, and the field is still copied per partition with no atomic anywhere. A
-  // test citing an id is not a test of what the id requires -- the same lesson README §13.12 item
-  // 13 records for mechanisms, applied to requirements.
+  // test citing an id is not a test of what the id requires -- the same lesson docs/findings.md finding 13 records for mechanisms, applied to requirements.
   'RUN-6',
   // RUN-7 (partition assignment minimises cross-partition edges): `PartitionRuntime::
   // cross_partition_edge_fraction` exists to measure exactly this, but nothing -- no test, no

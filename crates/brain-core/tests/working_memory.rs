@@ -24,7 +24,7 @@
 //! join the attractor -- there is nothing for inhibition to suppress them
 //! *from*. This keeps the experiment's first cut simple: no `FixedNeighbourhoods`,
 //! no dendritic segments, and therefore no `predictive`-state gotcha to
-//! reset (README §12a item 3's carried-forward warning about frozen
+//! reset (docs/decisions.md decision 20's carried-forward warning about frozen
 //! `predictive` residue does not apply here, since segments are never
 //! configured and `predictive` never leaves its resting value of `0.0`).
 //!

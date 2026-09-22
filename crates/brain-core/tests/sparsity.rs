@@ -38,7 +38,7 @@ fn build_population() -> NeuronArena {
 /// with strong enough current to reliably cross threshold in one step
 /// (tau_m=5 -> factor ~0.181; input=50 -> ~9.06, comfortably over 1.0),
 /// using `derive_stream` for which-neurons-fire-this-tick so the pattern
-/// is reproducible without a persistent generator (README §12 decision 7).
+/// is reproducible without a persistent generator (docs/decisions.md decision 7).
 fn stimulate_varied_drive(sched: &mut Scheduler, neurons: &NeuronArena, seed: u64, tick: u32, drive_fraction: f32) {
     use brain_core::rng::derive_stream;
     const PURPOSE_DRIVE_SELECT: u32 = 100;

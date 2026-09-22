@@ -81,7 +81,7 @@ export interface CharPredictionConfig {
    * this network's configuration. `undefined` disables the mechanism
    * entirely (every segment evaluates against `segments.coincidenceThreshold`
    * exactly as before this existed). `DEFAULT_CONFIG` carries the current
-   * best-known value from README §13.12 item 7's tuning table.
+   * best-known value from docs/findings.md finding 7's tuning table.
    */
   readonly segmentThresholdHomeostasis?: SegmentThresholdHomeostasisConfig;
   /**
@@ -116,7 +116,7 @@ export interface CharPredictionConfig {
   readonly rewardSignal?: "correctness";
   /**
    * PLAN.md C3: makes the reward above a reward *prediction error* instead of
-   * a raw one (LRN-4, LRN-11, README §2.5 "dopamine = reward prediction
+   * a raw one (LRN-4, LRN-11, docs/prior-art.md §2.5 "dopamine = reward prediction
    * error"). `undefined` (default) leaves `rewardSignal`'s behaviour exactly
    * as C3 found it: `sim.reward(hit ? 1.0 : 0.0)` injects the hit indicator
    * itself, so a network right 90% of the time receives the same dopamine
@@ -127,7 +127,7 @@ export interface CharPredictionConfig {
    * `clamp(baseline + gain * (hit - expected), 0, maxLevel)`.
    *
    * **`baseline: 1.0, gain: 1.0` is the value with a property worth having**,
-   * and is why the measurement in README §13.12 is interpretable: a perfectly
+   * and is why the measurement in docs/findings.md is interpretable: a perfectly
    * predicted reward then reproduces a modulator of exactly 1.0, which is the
    * unmodulated rule (`rewardSignal` unset, `x 1.0`). So "RPE on" differs from
    * "no reward signal" only where prediction error is non-zero, not by a
@@ -169,7 +169,7 @@ export interface CharPredictionConfig {
    * existed. **Meaningful only together with `newbornMaturation` below,
    * not `structuralPlasticity` alone** -- an earlier revision of this
    * comment said structural plasticity's sprouting was what let a grown
-   * neuron receive input; re-measured 2026-09-14 (README §13.12 item 10's
+   * neuron receive input; re-measured 2026-09-14 (docs/findings.md finding 10's
    * B2 update) and found wrong: `apply_growth` gives a grown neuron zero
    * synapses, and `StructuralPlasticity::sprout` requires prior activity
    * from a candidate before it is eligible as *either* a sprout source or
@@ -201,13 +201,13 @@ export interface CharPredictionConfig {
    */
   readonly structuralPlasticity?: StructuralPlasticityConfig;
   /**
-   * Newborn neuron integration (PLAN.md B3, NET-10/NET-11, README §13.12
+   * Newborn neuron integration (PLAN.md B3, NET-10/NET-11, docs/findings.md
    * item 10's three-lock diagnosis). `growth`'s own doc comment above
    * (written before B3) said structural plasticity alone was what let
    * growth do anything -- re-measured 2026-09-14 and found false: a grown
    * neuron's own `sprout` eligibility requires prior activity it can
    * structurally never have, so `structuralPlasticity` alone never wires a
-   * synapse to or from a grown neuron either (§13.12 item 10's B2 update).
+   * synapse to or from a grown neuron either (docs/findings.md finding 10's B2 update).
    * This is what actually closes that gap: a newly grown neuron's inputs
    * are wired directly from recently-active neurons onto the feedforward
    * segment (not a dendritic one), placed at their coordinate centroid,
@@ -238,9 +238,9 @@ export interface CharPredictionConfig {
    * `SimulationOptions.segments` identically -- `NativeSimulation.
    * buildColumns` refuses to build if the two disagree (see `buildNetwork`'s
    * own doc comment on the `segments` option below for why that check
-   * exists). Added for README §13.12's Phase 7 VAL-4 retuning pass: prior
+   * exists). Added for docs/findings.md's Phase 7 VAL-4 retuning pass: prior
    * to this field, `segmentsPerNeuron` was hardcoded at `2` in both places
-   * and had never itself been searched, only guessed at when §13.12 item 6
+   * and had never itself been searched, only guessed at when docs/findings.md finding 6
    * fixed the single-segment collapse. `undefined` defaults to `2`,
    * matching every existing caller's behaviour exactly.
    */
@@ -249,7 +249,7 @@ export interface CharPredictionConfig {
    * `BinaryCoincidenceParams::threshold`, threaded into *both* `columnConfig`
    * and `buildNetwork`'s scheduler-wide `segments` identically, same
    * mismatch-refusal reasoning as `segmentsPerNeuron`. `undefined` defaults
-   * to `3`, this harness's long-standing fixed value. PLAN.md B5 (README §12
+   * to `3`, this harness's long-standing fixed value. PLAN.md B5 (docs/decisions.md
    * decision 13): under weighted votes an established synapse still casts
    * exactly one vote, so the threshold keeps meaning "this many established
    * synapses" -- but a *mixed* population of established and still-weak
@@ -259,14 +259,14 @@ export interface CharPredictionConfig {
    */
   readonly coincidenceThreshold?: number;
   /**
-   * `SimulationOptions.silentSynapses` (PLAN.md B4, fix 1, README §12
+   * `SimulationOptions.silentSynapses` (PLAN.md B4, fix 1, docs/decisions.md
    * decision 12). `undefined` keeps pre-B4 transmission exactly.
    */
   readonly silentSynapses?: SilentSynapsesConfig;
   /**
    * Local STDP (LRN-2/3/4, `SimulationOptions.plasticity`). `undefined`
    * (default) leaves every synapse's weight fixed for the whole run -- which
-   * is how every VAL-4 figure in README §13.12 before PLAN.md B4's second
+   * is how every VAL-4 figure in docs/findings.md before PLAN.md B4's second
    * pass was measured. Added so B4 could test whether a silent sprout that
    * STDP potentiates actually becomes useful: with weights frozen, no sprout
    * can ever be unsilenced, so that question cannot be asked at all.
@@ -323,7 +323,7 @@ export interface CharPredictionConfig {
    */
   readonly plasticityGainChannel?: number;
   /**
-   * Weight-aware dendritic votes (PLAN.md B5, README §12 decision 13),
+   * Weight-aware dendritic votes (PLAN.md B5, docs/decisions.md decision 13),
    * threaded into *both* `columnConfig`'s own `segments` and `buildNetwork`'s
    * scheduler-wide `SimulationOptions.segments` identically -- same
    * mismatch-refusal reasoning as `segmentsPerNeuron` above.
@@ -335,7 +335,7 @@ export interface CharPredictionConfig {
   readonly voteReferenceWeight?: number;
   /**
    * Which variable predictive learning's reinforce/punish adjusts (PLAN.md
-   * B5, README §12 decision 13). `undefined` (default) leaves it at
+   * B5, docs/decisions.md decision 13). `undefined` (default) leaves it at
    * `"permanence"`, today's behaviour, bit-identical. Re-decided under
    * weighted votes rather than carried forward from decision 11's
    * permanence-only finding -- see `PredictiveLearningConfig.learningTarget`'s
@@ -344,7 +344,7 @@ export interface CharPredictionConfig {
   readonly predictiveLearningTarget?: "permanence" | "weight" | "both";
   /**
    * `SimulationOptions.homeostaticScaling` (LRN-6) -- never wired into this
-   * harness before PLAN.md B5 (README §12 decision 13, requirements.md
+   * harness before PLAN.md B5 (docs/decisions.md decision 13, requirements.md
    * Requirement 6): with weighted votes, a weight-renormalising sweep now
    * reaches predictions directly (a rescaled synapse's dendritic
    * contribution changes with it), so the B5 search measures this on/off
@@ -354,8 +354,8 @@ export interface CharPredictionConfig {
    */
   readonly homeostaticScaling?: HomeostaticScalingConfig;
   /**
-   * Offline consolidation (LRN-10, README §2.9) run on a cadence *during*
-   * the stream, rather than never (PLAN.md C1, README §13.12 item 13's
+   * Offline consolidation (LRN-10, docs/prior-art.md §2.9) run on a cadence *during*
+   * the stream, rather than never (PLAN.md C1, docs/findings.md finding 13's
    * first bullet). `undefined` (default) is every VAL-4 figure in this
    * repository before C1 *and after it*: the network streams the whole
    * corpus without ever sleeping.
@@ -366,7 +366,7 @@ export interface CharPredictionConfig {
    * than seed noise and in opposite directions on the two seed sets, and a
    * 250-character cadence cost 5.5-7.0 points, dropping below the 16.56%
    * "always guess space" baseline. Before switching this on in a shipped
-   * configuration, read README §13.12 item 13 -- in particular that two of
+   * configuration, read docs/findings.md finding 13 -- in particular that two of
    * LRN-10's three components (the global downscale and the aggressive
    * prune) are measurably inert here, so what this option actually buys is
    * replay, and replay is the part that costs.
@@ -379,7 +379,7 @@ export interface CharPredictionConfig {
  *
  * **Why a fixed character cadence rather than a metric trigger.** Three
  * reasons, in order of weight. (1) Biology: sleep pressure in the
- * synaptic-homeostasis account (Tononi & Cirelli 2020, README §13.13(h))
+ * synaptic-homeostasis account (Tononi & Cirelli 2020, docs/prior-art.md §13.13(h))
  * accumulates with time *awake*, not with task performance -- an animal
  * does not sleep because it got a prediction wrong. (2) Measurement: a
  * trigger read off prediction accuracy would couple the intervention to
@@ -416,7 +416,7 @@ export interface ConsolidationCadence {
    * within that window.
    */
   readonly downscaleTargetTotalWeight: number;
-  /** `ConsolidationConfig.pruneFloor`, on permanence. README §12 decision 12: "typically stricter (higher) than whatever floor any online `StructuralPlasticity` uses, since this runs far less often and is meant to be aggressive." */
+  /** `ConsolidationConfig.pruneFloor`, on permanence. docs/decisions.md decision 12: "typically stricter (higher) than whatever floor any online `StructuralPlasticity` uses, since this runs far less often and is meant to be aggressive." */
   readonly pruneFloor: number;
   /** Purely descriptive: measured spike events per character for *this* network, used only to turn `replayedSpikes` into `ConsolidationStats.charactersReplayed`. It changes no behaviour, and setting it to a worst-case rate makes that figure a lower bound rather than wrong. */
   readonly eventsPerCharacter: number;
@@ -451,7 +451,7 @@ function consolidationSeed(seed: bigint, sleepIndex: number): bigint {
   return seed * 1_000_003n + BigInt(sleepIndex);
 }
 
-/** What the consolidation cadence actually did over one trial (PLAN.md C1) -- reported so an accuracy figure can be read alongside the mechanism's own counts, rather than alongside the assumption that it ran. README §13.12 item 13's closing lesson: a test (or a results table) that a mechanism was *configured* is not one that it did anything. */
+/** What the consolidation cadence actually did over one trial (PLAN.md C1) -- reported so an accuracy figure can be read alongside the mechanism's own counts, rather than alongside the assumption that it ran. docs/findings.md finding 13's closing lesson: a test (or a results table) that a mechanism was *configured* is not one that it did anything. */
 export interface ConsolidationStats {
   /** How many sleeps happened. */
   readonly passes: number;
@@ -481,7 +481,7 @@ export const DEFAULT_CONFIG: CharPredictionConfig = {
   stimulateCurrent: 10.0,
   slidingWindow: 2000,
   // Converged value from `scripts/tune-segment-threshold-homeostasis.ts`'s
-  // automated search (README §13.12 item 7's tuning table): targetRate=0.99
+  // automated search (docs/findings.md finding 7's tuning table): targetRate=0.99
   // -- the search's practical ceiling (one MIN_STEP short of the `< 1.0`
   // bound `SegmentThresholdHomeostasis::new` enforces) -- gives mean
   // network accuracy 13.18% (5 official seeds), a 4x improvement over the
@@ -545,7 +545,7 @@ export function columnConfig(
 
 /**
  * `segmentThresholdHomeostasis` defaults to `DEFAULT_CONFIG`'s current
- * best-known value (README §13.12 item 7's tuning table) rather than being
+ * best-known value (docs/findings.md finding 7's tuning table) rather than being
  * hardcoded inline, so `scripts/tune-segment-threshold-homeostasis.ts` can
  * pass a different candidate per trial without rebuilding this function.
  * Pass `undefined` explicitly to disable the mechanism entirely.
@@ -615,11 +615,11 @@ export function buildNetwork(
     // inhibition-homeostasis spec, Requirement 1: self-tunes the k above
     // toward a target population activity rate instead of it staying
     // fixed at `round(width * density)` for the network's whole lifetime
-    // (README §12 decision 10). Spread rather than assigned directly, same
+    // (docs/decisions.md decision 10). Spread rather than assigned directly, same
     // `exactOptionalPropertyTypes` reasoning as `segmentThresholdHomeostasis`
     // below.
     ...(inhibitionHomeostasis !== undefined && { inhibitionHomeostasis }),
-    // Found 2026-09-11 (README §11 Phase 5 status, §12a item 6's
+    // Found 2026-09-11 (README §11 Phase 5 status, docs/decisions.md decision 22's
     // neighbour finding): this line was missing entirely. `columnConfig`
     // below sets a `segments` value on the *column*, but a column's own
     // `segments` has no live effect independent of this scheduler-wide
@@ -634,7 +634,7 @@ export function buildNetwork(
     // (`NativeSimulation.buildColumns`'s mismatch refusal), so both read
     // the same `voteReferenceWeight` parameter, spread only if defined.
     segments: { segmentsPerNeuron, coincidenceThreshold, ...(voteReferenceWeight !== undefined && { voteReferenceWeight }) },
-    // dendritic-threshold-homeostasis spec (README §13.12 items 6/7):
+    // dendritic-threshold-homeostasis spec (docs/findings.md findings 6/7):
     // fixing the segment-0 collapse bug and letting both real segments
     // receive distinct wiring made accuracy *worse*, 13.22% -> 3.23%, and
     // pushed predictiveView()'s density artefact toward 97/97 candidates
@@ -643,7 +643,7 @@ export function buildNetwork(
     // no longer meaningful once wiring is spread across two) with a
     // self-tuning per-segment threshold instead -- the caller-supplied
     // value (default: `DEFAULT_CONFIG`'s current best-known one). See
-    // README §13.12 item 7's tuning table for every trial's measured VAL-4
+    // docs/findings.md finding 7's tuning table for every trial's measured VAL-4
     // result (Requirement 13.6: honestly, not just the best one kept), and
     // `scripts/tune-segment-threshold-homeostasis.ts` for the search that
     // produced it.
@@ -682,7 +682,7 @@ export function buildNetwork(
       reinforceAmount: 0.08,
       punishAmount: 0.05,
       burstTargetSegment: 0,
-      // README §12's weight/permanence split (2026-09-13): permanence now
+      // docs/decisions.md's weight/permanence split (2026-09-13): permanence now
       // at/above connectionThreshold (structurally connected from birth),
       // paired with a near-zero burstSproutWeight -- though neither value
       // is ever exercised here, since neighbourhoodSize=1/neighbourhoodK=1
@@ -831,7 +831,7 @@ export function runCharPredictionTrial(
   let context = "";
   let charactersDone = 0;
 
-  // LRN-10 / README §2.9, PLAN.md C1. Accumulated here rather than read
+  // LRN-10 / docs/prior-art.md §2.9, PLAN.md C1. Accumulated here rather than read
   // back off the simulation afterwards: `ConsolidationReport` is returned
   // per call and nothing retains it.
   const cadence = config.consolidation;
@@ -845,7 +845,7 @@ export function runCharPredictionTrial(
   // PLAN.md C2: refuse rather than silently produce a wrong level. A channel
   // driven by the coupling AND topped up by a hand-held tonic level has two
   // writers per tick, and the top-up drags it back toward a constant the
-  // coupling is trying to move -- README §12a item 8's "configured, and
+  // coupling is trying to move -- docs/findings.md finding 21's "configured, and
   // configures nothing" failure mode, one level up.
   if (config.predictionErrorCoupling !== undefined && config.tonicModulator !== undefined) {
     const driven = [config.predictionErrorCoupling.unexpected?.channel, config.predictionErrorCoupling.expected?.channel];
@@ -925,7 +925,7 @@ export function runCharPredictionTrial(
     trigram.observe(context, step.actual);
     context = (context + step.input.char).slice(-2);
     charactersDone++;
-    // The sleep itself (LRN-10, README §2.9's "required operating state").
+    // The sleep itself (LRN-10, docs/prior-art.md §2.9's "required operating state").
     // Placed after the character is scored, so a sleep never falls between
     // presenting a character and scoring its prediction; and skipped on the
     // final character, where it could not affect any prediction. Every

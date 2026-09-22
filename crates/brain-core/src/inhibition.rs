@@ -19,7 +19,7 @@
 //!
 //! **That last sentence came due in a narrower way than it anticipated,
 //! and the resolution was to split the question rather than answer it**
-//! (PLAN.md C4, README §12 decision 15, 2026-09-21). This type was being
+//! (PLAN.md C4, docs/decisions.md decision 15, 2026-09-21). This type was being
 //! used for *two* jobs: the k-WTA competition group above, and the sprout
 //! candidate set in both of `plasticity/structural.rs`'s sweep and
 //! `plasticity/predictive.rs`'s burst path. Those are different quantities

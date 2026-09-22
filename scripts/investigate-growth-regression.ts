@@ -1,4 +1,4 @@
-// Phase A of the NET-10 growth-regression investigation (README §13.12
+// Phase A of the NET-10 growth-regression investigation (docs/findings.md
 // item 10) diagnosed a bootstrapping deadlock: `apply_growth` gives a grown
 // neuron zero synapses, `StructuralPlasticity::sprout` requires both a
 // candidate source *and* target to already have an activity streak (driven
@@ -8,7 +8,7 @@
 // restriction tried) measured bit-for-bit identical, because growth was
 // invisible to the one mechanism meant to wire it in. The root cause named
 // there was item 12: `permanence` was simultaneously SYN-3's structural
-// gate and §2.5's efficacy field, so a synapse below `connectionThreshold`
+// gate and docs/prior-art.md §2.5's efficacy field, so a synapse below `connectionThreshold`
 // was not just weak -- it was **invisible to `deliver` and every plasticity
 // rule**, meaning even a deliberately-provisional low-permanence sprout
 // could never be potentiated by activity either.
@@ -65,7 +65,7 @@
 // maxSproutSourceIndex`) tests this directly: neuron indices past the
 // cutoff can still be sprout *targets*, just never sprout *sources*.
 //
-// Update, PLAN.md B3 (2026-09-14): B2's re-run (below, and README §13.12
+// Update, PLAN.md B3 (2026-09-14): B2's re-run (below, and docs/findings.md
 // item 10's 2026-09-14 update) found B1 did NOT dissolve the deadlock --
 // conditions B-F were still bit-identical to C, and direct instrumentation
 // showed grown neurons never acquired a single synapse across the whole
@@ -146,7 +146,7 @@ writeFileSync(
   RESULTS_PATH,
   "# NET-10 growth-regression investigation -- results\n\n" +
     `Generated ${new Date().toISOString()} by scripts/investigate-growth-regression.ts (PLAN.md B3 re-run: newborn input wiring + hyperexcitability on top of B1's weight/permanence split, since B2's own re-run found the split alone insufficient).\n\n` +
-    "5-seed official protocol (seeds [1,2,3,4,5], 15,000-character corpus slice, matching every other VAL-4 figure in README §13.12).\n\n" +
+    "5-seed official protocol (seeds [1,2,3,4,5], 15,000-character corpus slice, matching every other VAL-4 figure in docs/findings.md).\n\n" +
     `The 30 (condition x seed) trials ran concurrently across a ${POOL_SIZE}-worker-thread pool (one native Simulation per thread, no shared state). Each trial's own duration is still measured individually; "wall-clock" below is the *sum* of a condition's 5 individual trial durations -- a compute-time proxy comparable in spirit to Phase A's original sequential measurement -- not the actual (shorter) parallel batch time, which is logged separately below the table.\n\n` +
     "| condition | mean network accuracy | range across seeds | mean trigram accuracy | wall-clock (summed per-seed) |\n" +
     "|---|---|---|---|---|\n",
@@ -181,7 +181,7 @@ const CEILING = WIDTH + 400; // README §11 Phase 7 status's own figure
 function structuralPlasticityParams(maxSproutSourceIndex?: number): StructuralPlasticityConfig {
   return {
     pruneFloor: 0.05,
-    // README §12's weight/permanence split (PLAN.md B1, landed
+    // docs/decisions.md's weight/permanence split (PLAN.md B1, landed
     // 2026-09-14): a sprout must now start *at or above*
     // `connectionThreshold` (0.3, buildNetwork's own value) to be
     // structurally connected at all -- Phase A's original 0.1 here was
@@ -207,7 +207,7 @@ function structuralPlasticityParams(maxSproutSourceIndex?: number): StructuralPl
 // PLAN.md B3 (added 2026-09-14 while this script's B2 re-run was still in
 // flight): B1's weight/permanence split alone did not dissolve the deadlock
 // after all -- re-measured, grown neurons still never acquired a single
-// synapse (see this file's own header and README §13.12 item 10's
+// synapse (see this file's own header and docs/findings.md finding 10's
 // 2026-09-14 update). The reason is two further locks B1 never touched:
 // `sprout` requires prior activity from a candidate before it is eligible
 // as *either* a source or target, and even a hypothetically-eligible sprout
@@ -431,7 +431,7 @@ const SAMPLE_INTERVAL = 1500;
  * source (`floor(slot / capPerNeuron)`) or target neuron index falls at or
  * past `width` -- the boundary between the original, externally-stimulated
  * population and grown (internal-only) capacity. `apply_growth` itself
- * never creates a synapse (README §13.12 item 10), so any slot touching a
+ * never creates a synapse (docs/findings.md finding 10), so any slot touching a
  * grown index here was necessarily created by structural-plasticity
  * sprouting -- this is a direct measurement of "did sprouting actually
  * reach a grown neuron", not a proxy.

@@ -31,11 +31,11 @@ pub struct SynapseArena {
     /// by whoever is delivering spikes, not as an intrinsic property of
     /// storage.
     pub permanence: Vec<f32>,
-    /// Synaptic efficacy (§2.5): how much current a *connected* synapse
+    /// Synaptic efficacy (docs/prior-art.md §2.5): how much current a *connected* synapse
     /// actually passes, independent of whether it is connected at all.
     /// Bounded to `[0, 1]` (SYN-4, via `plasticity::clamp_weight`) --
     /// unlike `permanence`, this field carries no structural meaning and
-    /// is never read by `connection_threshold`'s gate. See README §12's
+    /// is never read by `connection_threshold`'s gate. See docs/decisions.md's
     /// weight/permanence split decision (2026-09-13) for why these are two
     /// fields rather than one: aliasing them made "firmly connected but
     /// weak" inexpressible and made `HomeostaticScaling` silently perform
@@ -62,7 +62,7 @@ pub struct SynapseArena {
     /// delivery.
     pub eligibility_updated_at: Vec<u32>,
     /// The tick this synapse became *silent*, or [`NOT_SILENT`] (PLAN.md B4,
-    /// README §12 decision 12). A silent synapse is the biological "silent
+    /// docs/decisions.md decision 12). A silent synapse is the biological "silent
     /// synapse": a structural contact with NMDA-type but no AMPA-type
     /// receptors, so it passes no current at rest and cannot itself help
     /// initiate a dendritic spike, but is still a site where pairing-induced

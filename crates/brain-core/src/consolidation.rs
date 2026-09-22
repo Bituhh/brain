@@ -22,10 +22,10 @@ use crate::synapse::SynapseArena;
 
 /// What consolidation replays *from* (Requirement 10.6). Deliberately an
 /// abstraction rather than a concrete `&SpikeRaster`: a spike raster is a
-/// tape recorder, not the fast store README §2.9 and LRN-10 both assume
+/// tape recorder, not the fast store docs/prior-art.md §2.9 and LRN-10 both assume
 /// exists -- it has no pattern separation and no one-shot binding, and
 /// replaying it satisfies LRN-10 literally while bypassing the mechanism
-/// LRN-12 (README §12 decision 8) exists to supply. Pinning `&SpikeRaster`
+/// LRN-12 (docs/decisions.md decision 8) exists to supply. Pinning `&SpikeRaster`
 /// into `run_consolidation`'s signature would make LRN-12 a breaking change
 /// to a shipped core API instead of an added `impl`.
 ///
@@ -72,7 +72,7 @@ pub struct ConsolidationParams {
     /// [`ReplaySource::recent_events`].
     pub replay_window: usize,
     /// Downscaling target (Requirement 11.1): `HomeostaticScaling::force_apply`
-    /// run once, unconditionally, at this target. README §12's weight/
+    /// run once, unconditionally, at this target. docs/decisions.md's weight/
     /// permanence split (2026-09-13): this now retargets `weight`, not
     /// `permanence` -- same fix as the online sweep (`homeostatic.rs`), for
     /// the same reason: consolidation's downscale is the identical
@@ -124,7 +124,7 @@ impl Scheduler {
     /// own `StructuralPlasticity` is built with a `FixedNeighbourhoods` of
     /// size 1 -- a neighbourhood of one neuron has no *other* neuron to
     /// pair with, so `sprout()`'s inner loop is always empty regardless of
-    /// activity streaks. LRN-10 (README §2.9) describes replay, global
+    /// activity streaks. LRN-10 (docs/prior-art.md §2.9) describes replay, global
     /// downscaling, and an aggressive pruning pass -- not sprouting -- so
     /// this is a deliberate, not accidental, restriction; `min_activity_streak`
     /// is still threaded through for forward-compatibility if a future
@@ -212,9 +212,9 @@ impl Scheduler {
             segments_per_neuron: 1,
             spread_sprout_segments: false,
             // PLAN.md B4 fix 4: off, and PLAN.md C1 (2026-09-19) settles
-            // the follow-up README §12 decision 12 deferred here rather
+            // the follow-up docs/decisions.md decision 12 deferred here rather
             // than leaving it open. Two reasons it stays off, not one.
-            // (1) With the canonical `silent_transmits: true` (README §12
+            // (1) With the canonical `silent_transmits: true` (docs/decisions.md
             // decision 13), silence is no longer a functional state: a
             // "silent" synapse delivers at its own weight and casts a
             // weighted dendritic vote exactly like any other, so
@@ -234,7 +234,7 @@ impl Scheduler {
         // guaranteed no-op. **Do not plumb PLAN.md C4's `with_sprout_reach`
         // through here without deciding you want consolidation to sprout**
         // -- a radius *overrides* the neighbourhood size rather than
-        // intersecting with it (README §12 decision 15), so setting one
+        // intersecting with it (docs/decisions.md decision 15), so setting one
         // would silently switch this pass from "prune aggressively" to
         // "prune aggressively and also rewire", which is not what LRN-10
         // asks for and not what any caller measured.
@@ -329,7 +329,7 @@ mod run_consolidation_tests {
         // "preserves order" by erasing the very difference this test needs
         // to observe. A modest target keeps both synapses comfortably
         // below the ceiling, so the STDP-driven difference between them
-        // survives the common rescale factor. README §12's split: STDP
+        // survives the common rescale factor. docs/decisions.md's split: STDP
         // moves weight and downscaling now retargets weight too, so both
         // the credited difference and the rescale land on the same field.
         let params = ConsolidationParams { downscale_target_total_weight: 1.0, ..default_params() };
@@ -396,7 +396,7 @@ mod run_consolidation_tests {
         let mut sched = Scheduler::new(4, 0.01); // low enough that a 0.02-permanence synapse still transmits pre-prune
         let raster = SpikeRaster::new();
         let lif_params = LifParams::new(5.0, 0.0, 0.0, 0);
-        // README §12's split: downscaling now retargets weight, not
+        // docs/decisions.md's split: downscaling now retargets weight, not
         // permanence, so it can no longer inflate this synapse's permanence
         // back above the prune floor at all -- pruning depends only on
         // `prune_floor` vs. the permanence set directly above.

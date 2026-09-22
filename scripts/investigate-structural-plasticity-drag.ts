@@ -1,4 +1,4 @@
-// PLAN.md B4's confirming experiments (README §13.12 item 10's 2026-09-14
+// PLAN.md B4's confirming experiments (docs/findings.md finding 10's 2026-09-14
 // diagnosis update): a design-review diagnosis, not yet re-measured against
 // the network, that condition C's (structural plasticity alone, no growth)
 // regression from Phase A's 13.04% to B1/B2/B3's 6.40% is a cost B1
@@ -142,8 +142,8 @@ const CONDITIONS: readonly Condition[] = [
 writeFileSync(
   RESULTS_PATH,
   "# Structural plasticity drag -- confirming experiments\n\n" +
-    `Generated ${new Date().toISOString()} by scripts/investigate-structural-plasticity-drag.ts (PLAN.md B4's own confirming experiments 1-2, plus one additional prune-floor experiment; README §13.12 item 10's 2026-09-14 diagnosis update).\n\n` +
-    "5-seed official protocol (seeds [1,2,3,4,5], 15,000-character corpus slice, matching every other VAL-4 figure in README §13.12). Every condition here is condition C's own config (structural plasticity alone, no growth) with exactly one parameter changed, except the Fix-1-validation condition, which is B3's own condition B (growth on) re-run against today's code.\n\n" +
+    `Generated ${new Date().toISOString()} by scripts/investigate-structural-plasticity-drag.ts (PLAN.md B4's own confirming experiments 1-2, plus one additional prune-floor experiment; docs/findings.md finding 10's 2026-09-14 diagnosis update).\n\n` +
+    "5-seed official protocol (seeds [1,2,3,4,5], 15,000-character corpus slice, matching every other VAL-4 figure in docs/findings.md). Every condition here is condition C's own config (structural plasticity alone, no growth) with exactly one parameter changed, except the Fix-1-validation condition, which is B3's own condition B (growth on) re-run against today's code.\n\n" +
     `All trials ran concurrently across a shared ${POOL_SIZE}-worker-thread pool (one native Simulation per thread), not separate OS processes -- this machine's own measured contention ceiling (investigate-growth-regression.ts's header) is well below its logical core count, so more OS-level parallelism than this would not be faster.\n\n` +
     "| condition | mean network accuracy | range across seeds | wall-clock (summed per-seed) |\n" +
     "|---|---|---|---|\n",

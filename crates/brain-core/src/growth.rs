@@ -5,7 +5,7 @@
 //! `GrowthPolicy::should_grow` deliberately does not match design.md's
 //! illustrative sketch (`fn should_grow(&mut self, stats: &PopulationStats,
 //! rng: &mut Pcg32) -> u32`) literally: that signature assumes a
-//! persistent, advancing generator, which README §12 decision 7 settled
+//! persistent, advancing generator, which docs/decisions.md decision 7 settled
 //! against for exactly this kind of call site -- a persistent generator
 //! pinned to whichever policy instance happens to be evaluated, in
 //! whatever order, is precisely the "depends on who asks and when" shape

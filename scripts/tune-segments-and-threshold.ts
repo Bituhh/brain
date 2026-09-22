@@ -4,7 +4,7 @@
 // charPrediction.ts) instead of a value hardcoded at `2` in both
 // `columnConfig` and `buildNetwork`'s scheduler-wide `segments` option.
 //
-// README §13.12 item 7's own record flags this as the highest-confidence
+// docs/findings.md finding 7's own record flags this as the highest-confidence
 // untried lead: `targetRate` was searched properly by `scripts/tune-
 // segment-threshold-homeostasis.ts`'s automated coordinate search, and
 // `NETWORK_WIDTH` by `scripts/tune-network-width-and-threshold.ts`'s joint
@@ -191,5 +191,5 @@ appendFileSync(
 );
 
 console.log(`\nOverall best: segmentsPerNeuron=${overallBestSegments}, targetRate=${overallBest.targetRate.toFixed(4)}, mean network accuracy=${(overallBest.score * 100).toFixed(2)}%`);
-console.log(`Compare against DEFAULT_CONFIG's current segmentsPerNeuron=2, targetRate=${BASE_HOMEOSTASIS.targetRate} (README §13.12 item 7/9's 17.37%).`);
+console.log(`Compare against DEFAULT_CONFIG's current segmentsPerNeuron=2, targetRate=${BASE_HOMEOSTASIS.targetRate} (docs/findings.md finding 7/9's 17.37%).`);
 console.log(`\nFull trial log written to ${RESULTS_PATH}`);

@@ -1,5 +1,5 @@
 // PLAN.md C1: does sleeping help? Measures VAL-4 with and without an
-// offline consolidation cadence (LRN-10, README §2.9) wired into the
+// offline consolidation cadence (LRN-10, docs/prior-art.md §2.9) wired into the
 // streaming harness, at B5's winning configuration.
 //
 // WHY THESE ROWS. The reference is B5's winner exactly, which never sleeps
@@ -239,7 +239,7 @@ const lines = [
   "",
   `Base configuration (never varied): ${conditionLabel(searchCondition(chosen.winner))}.`,
   "",
-  `Replay windows are sized at ${EVENTS_PER_CHARACTER} spike events per character (the measured late-run rate), so each sleep replays at least the whole interval it follows. "always guess space" on this slice is 16.56% (README §13.12 item 7) -- a row below that bar has undone B5's only real gain, whatever its delta says.`,
+  `Replay windows are sized at ${EVENTS_PER_CHARACTER} spike events per character (the measured late-run rate), so each sleep replays at least the whole interval it follows. "always guess space" on this slice is 16.56% (docs/findings.md finding 7) -- a row below that bar has undone B5's only real gain, whatever its delta says.`,
   "",
   ...table(`Confirmation seeds ${CONFIRMATION_SEEDS.join(", ")}`, CONFIRMATION_SEEDS),
   ...table(`Selection seeds ${SELECTION_SEEDS.join(", ")}`, SELECTION_SEEDS),

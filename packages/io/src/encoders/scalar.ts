@@ -1,5 +1,5 @@
 // The scalar encoder (Requirement 3): the classic HTM-style
-// sliding-window-over-a-bit-array construction (README §13.1) -- bucket
+// sliding-window-over-a-bit-array construction (docs/prior-art.md §13.1) -- bucket
 // the value's position in [min, max], turn on a contiguous run of bits
 // centered there. Nearby values share most of their run (substantial
 // overlap); far values share none (Requirement 3.2).

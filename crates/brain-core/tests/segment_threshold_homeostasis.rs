@@ -4,7 +4,7 @@
 //! human, for one specific network shape. This is not a one-time tuning
 //! cost: invariant 10 ("capacity is grown, not configured") and NET-7 mean
 //! `segments_per_neuron` and synapse density are a moving target over a
-//! running network's lifetime, and README §13.12 items 6/7 found that
+//! running network's lifetime, and docs/findings.md findings 6/7 found that
 //! spreading synapses across more segments under one shared fixed threshold
 //! made things *worse*, not better -- `evaluate_and_resolve` combines a
 //! neuron's segments by `max`, so more segments means more independent

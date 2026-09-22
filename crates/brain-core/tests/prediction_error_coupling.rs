@@ -1,6 +1,6 @@
 //! PLAN.md C2: noradrenaline and acetylcholine driven from the network's own
-//! prediction error (LRN-5, LRN-8, README §2.5 "surprise/arousal" and
-//! "attention/uncertainty", §2.7 "learning is driven by the mismatch").
+//! prediction error (LRN-5, LRN-8, docs/prior-art.md §2.5 "surprise/arousal" and
+//! "attention/uncertainty", docs/prior-art.md §2.7 "learning is driven by the mismatch").
 //!
 //! Every test here drives the real scheduler pipeline -- `stimulate`/`step`,
 //! the classification `evaluate_and_resolve` already performs, the real
@@ -571,7 +571,7 @@ impl WindowTrial {
         // from the 0 clamp, where a count-mode vote would vanish.
         let mut rule = ThreeFactorParams::new(stdp, 50.0, 0.001, SEROTONIN);
         if let Window::Noradrenaline { reference, map_gain } = window {
-            // `min: 1.0` is C6's width-only decision (README §12 decision 17):
+            // `min: 1.0` is C6's width-only decision (docs/decisions.md decision 17):
             // noradrenaline can widen the window; a level below `reference`
             // does not narrow it below the configured curve.
             let map = LevelMap::new(NORADRENALINE, reference, map_gain, 1.0, WIDEST);
@@ -798,7 +798,7 @@ enum Ratio {
     /// An `a_plus` map on acetylcholine, affine about `reference`, `max` 1.0
     /// (a level below `reference` never *enhances* LTP) and `min` = `floor`:
     /// negative lets a causal pairing invert into depression (C7's sign call,
-    /// README §12 decision 18), 0.0 is the twin that only suppresses.
+    /// docs/decisions.md decision 18), 0.0 is the twin that only suppresses.
     Acetylcholine { reference: f32, map_gain: f32, floor: f32 },
 }
 
@@ -969,8 +969,7 @@ fn resting_probe_contribution() -> f32 {
     StdpParams { a_plus: 0.1, a_minus: 0.1, tau_plus: 1.0, tau_minus: 1.0, window_ticks: RATIO_WINDOW }.kernel(RATIO_PROBE_DT as f32)
 }
 
-/// PLAN.md C7, the mechanism, with the sign call it made (README §12 decision
-/// 18): while the network is uncertain, acetylcholine is high and the *same*
+/// PLAN.md C7, the mechanism, with the sign call it made (docs/decisions.md decision 18): while the network is uncertain, acetylcholine is high and the *same*
 /// causal pairing -- same lag, same spikes -- lays down depression instead of
 /// potentiation, and the synapse weakens; once the network has learned,
 /// acetylcholine is back at rest and the pairing potentiates again. Seol et al.

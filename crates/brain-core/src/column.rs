@@ -35,7 +35,7 @@ use std::ops::Range;
 /// **`inhibition` and `segments` are identity/bookkeeping data, not a live
 /// per-column scheme -- found 2026-09-11 while tracking down a VAL-4 bug.**
 /// A `Scheduler` (and therefore a `PartitionRuntime` partition, which owns
-/// one `Scheduler` per partition -- README §12a item 3) carries at most one
+/// one `Scheduler` per partition -- docs/decisions.md decision 20) carries at most one
 /// `Option<FixedNeighbourhoods>` and one `Option<SegmentConfig>` for *all*
 /// the neurons it owns, set once via `with_inhibition`/`with_segments`.
 /// Nothing reads a `ColumnSpec`'s own `inhibition`/`segments` back out to
@@ -49,7 +49,7 @@ use std::ops::Range;
 /// own live behaviour is mistaken in exactly the way
 /// `crates/brain-napi/src/lib.rs`'s `SegmentsConfig` doc comment describes
 /// for `segments` specifically. **Both are validated at the FFI layer as of
-/// 2026-09-19** (README §12a item 8, which had left `inhibition` explicitly
+/// 2026-09-19** (docs/findings.md finding 21, which had left `inhibition` explicitly
 /// unchecked): `NativeSimulation::build_columns` refuses a column whose
 /// `neighbourhood_size`/`k` disagree with the scheduler's own scheme, and
 /// refuses a column that claims competition (`k < neighbourhood_size`) when

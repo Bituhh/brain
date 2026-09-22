@@ -57,7 +57,7 @@ fn segments() -> SegmentConfig {
     SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 2 })
 }
 
-/// PLAN.md B5 (README §12 decision 13): same shape as `segments()`, in
+/// PLAN.md B5 (docs/decisions.md decision 13): same shape as `segments()`, in
 /// weighted mode -- used by this file's own dedicated weighted-vote
 /// determinism test below, not the count-mode tests above (which stay on
 /// `segments()` so this file keeps its existing count-mode coverage too).
@@ -200,7 +200,7 @@ fn run_partitioned_with_segments(seed: u64, partition_count: usize, executor: Ex
     for tick in 0..TICKS {
         // Phase 5 Requirement 15.3: the broadcasting form replaces this
         // file's own hand-rolled per-partition loop -- exactly the trap
-        // §12a item 4 identified, now closed at the source.
+        // docs/decisions.md decision 21 identified, now closed at the source.
         runtime.inject_modulator(DOPAMINE, 1.0);
         let (neuron, current) = stimulate_tick(tick);
         runtime.stimulate(&neurons, neuron, current);
@@ -277,7 +277,7 @@ fn two_partitions_match_the_unpartitioned_reference() {
     assert_identical_synapses(&plain.synapses, &two_partitions.synapses, TOTAL_NEURONS, "2-partition vs plain");
 }
 
-/// PLAN.md B5 (README §12 decision 13), Requirement 7.2: the same crux
+/// PLAN.md B5 (docs/decisions.md decision 13), Requirement 7.2: the same crux
 /// claim as the two count-mode tests above, under `DendriticVote::Weighted`
 /// specifically -- the contribution is computed from the delivery's own
 /// `signed_current` at the receiving scheduler (design.md's Architecture
@@ -320,7 +320,7 @@ fn real_threading_matches_the_sequential_reference_at_every_thread_count() {
     }
 }
 
-/// §12a open question 2's other candidate: the hand-rolled
+/// docs/open-questions.md open question 2's other candidate: the hand-rolled
 /// `std::thread::scope`-based executor must be held to the exact same
 /// bit-identical standard as rayon, at every thread count the benchmark
 /// (`benches/core_bench.rs`) will compare it against.
@@ -341,7 +341,7 @@ fn pinned_executor_matches_the_sequential_reference_at_every_thread_count() {
 /// A sanity check that this scenario actually exercises the mechanism
 /// under test: if nothing ever spiked, or no synapse's weight ever
 /// moved, the equality assertions above would be trivially (and
-/// uselessly) true. README §12's weight/permanence split (2026-09-13):
+/// uselessly) true. docs/decisions.md's weight/permanence split (2026-09-13):
 /// this scenario only configures STDP (`with_plasticity`), which now
 /// moves weight, not permanence -- permanence never moves here.
 #[test]
@@ -360,7 +360,7 @@ fn the_reference_scenario_actually_produces_activity_and_learning() {
     assert!(moved, "test scenario must actually exercise plasticity for the comparison tests to be meaningful");
 }
 
-/// README §12a item 6's feasibility check, resolved: relative spike *phase*
+/// docs/decisions.md decision 22's feasibility check, resolved: relative spike *phase*
 /// between two populations -- not just which neurons spiked each tick --
 /// survives partitioning and real threading exactly.
 ///
@@ -445,7 +445,7 @@ fn structural_plasticity() -> StructuralPlasticity {
     StructuralPlasticity::new(params, FixedNeighbourhoods::new(COLUMN_SIZE, 2))
 }
 
-/// README §12's weight/permanence split (2026-09-13): homeostatic scaling
+/// docs/decisions.md's weight/permanence split (2026-09-13): homeostatic scaling
 /// no longer touches permanence, so nothing in the "always on" scenarios
 /// below ever drifts a synapse's permanence down toward
 /// `structural_plasticity()`'s prune_floor (every synapse here starts at
@@ -519,7 +519,7 @@ fn run_partitioned_with_always_on_plasticity(seed: u64, partition_count: usize, 
     for tick in 0..TICKS {
         // Phase 5 Requirement 15.3: the broadcasting form replaces this
         // file's own hand-rolled per-partition loop -- exactly the trap
-        // §12a item 4 identified, now closed at the source.
+        // docs/decisions.md decision 21 identified, now closed at the source.
         runtime.inject_modulator(DOPAMINE, 1.0);
         let (neuron, current) = stimulate_tick(tick);
         runtime.stimulate(&neurons, neuron, current);
@@ -575,7 +575,7 @@ fn always_on_homeostasis_and_structural_plasticity_are_identical_across_partitio
 /// every partition equally, not just whichever partition a caller happened
 /// to address. Two completely disjoint, symmetric causally-spiking pairs,
 /// one wholly inside each of two partitions, with no cross-partition wiring
-/// at all: if the broadcast reached only one partition (the bug §12a item 4
+/// at all: if the broadcast reached only one partition (the bug docs/decisions.md decision 21
 /// found -- `inject_modulator_into_partition` never did, and nothing forced
 /// a caller to loop over every partition), only one pair's synapse would
 /// potentiate. Both must show identical, non-zero potentiation.
@@ -887,7 +887,7 @@ fn the_coupling_scenario_actually_moves_the_levels() {
     assert!(spread(&ach) > 0.01, "the acetylcholine channel must actually move in this scenario: spread {}", spread(&ach));
 }
 
-/// README §12a item 8's "configured, and configures nothing" defect, refused at
+/// docs/findings.md finding 21's "configured, and configures nothing" defect, refused at
 /// the source: a `Scheduler` carrying its own coupling inside a
 /// `PartitionRuntime` would be applied by `Scheduler::step`, which the runtime
 /// never calls. It must panic rather than silently do nothing.
@@ -925,7 +925,7 @@ fn a_partition_runtime_refuses_a_scheduler_carrying_its_own_reward_baseline() {
 }
 
 // ---------------------------------------------------------------------------
-// PLAN.md C4 (README §12 decision 15): spatial sprout *reach*, and the two
+// PLAN.md C4 (docs/decisions.md decision 15): spatial sprout *reach*, and the two
 // halves of its partitioning story -- which are genuinely different, and were
 // checked against the code rather than argued from the design.
 //
@@ -1092,7 +1092,7 @@ fn a_spatial_sprout_sweep_is_identical_across_partitioning_and_threading() {
 /// The test above is only evidence if the spatial reach actually *changes*
 /// which pairs sprout on this network. Without this, a radius that happened
 /// to reproduce the index blocks exactly would make it pass for free --
-/// exactly README §13.12 item 13's counter-instead-of-mechanism trap.
+/// exactly docs/findings.md finding 13's counter-instead-of-mechanism trap.
 ///
 /// The comparison is on the **set of wired (source, target) pairs**, not on
 /// the synapse count, and that distinction was found the hard way here: at

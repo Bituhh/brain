@@ -98,7 +98,7 @@ fn splitmix64(mut z: u64) -> u64 {
 /// `(base_seed, entity_id, purpose, tick)` rather than advanced from
 /// persistent per-thread state.
 ///
-/// This is the construction settled on for README §12a(3): RUN-3 requires
+/// This is the construction settled on for docs/open-questions.md(3): RUN-3 requires
 /// determinism across single-threaded and multi-threaded runs, and RUN-9a
 /// requires a bit-identical snapshot round-trip. Together, no stochastic
 /// decision may depend on which thread made it, on what order draws happen
@@ -222,7 +222,7 @@ mod tests {
         }
     }
 
-    // -- derive_stream: README §12a(3)'s counter-based construction --
+    // -- derive_stream: docs/open-questions.md(3)'s counter-based construction --
     //
     // The property that actually matters for RUN-3/RUN-9a is not "looks
     // random" but "depends on nothing except the (seed, entity, purpose,

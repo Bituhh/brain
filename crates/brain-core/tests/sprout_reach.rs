@@ -1,5 +1,5 @@
 //! Whole-network integration tests for **spatial sprout reach** (PLAN.md
-//! C4, README §12 decision 15, §13.12 item 10).
+//! C4, docs/decisions.md decision 15, docs/findings.md finding 10).
 //!
 //! `reach.rs`, `plasticity/structural.rs` and `plasticity/predictive.rs`
 //! each have their own unit tests for the mechanism in isolation. These
@@ -11,7 +11,7 @@
 //! > a neuron that developmental growth added sends a synapse **to a
 //! > neuron in the original population**.
 //!
-//! README §13.12 item 10 measured that quantity as exactly **zero** on the
+//! docs/findings.md finding 10 measured that quantity as exactly **zero** on the
 //! real VAL-4 network: 400 grown neurons, firing on ~11,200 of 15,000
 //! characters, receiving 33,104 synapses, and sending not one to any of the
 //! original 800. The cause is topology, not tuning -- both sprout paths
@@ -19,7 +19,7 @@
 //! every original's block.
 //!
 //! So this file's headline test is a **VAL-9 ablation in the strict sense**
-//! (README §10's own discipline, and §13.12 item 13's standing lesson about
+//! (README §10's own discipline, and docs/findings.md finding 13's standing lesson about
 //! asserting a counter instead of a mechanism): the same network, the same
 //! seed, the same growth, differing *only* in the reach scheme. Spatial
 //! reach must produce grown -> original synapses; the index-block scheme
@@ -135,12 +135,12 @@ fn drive(neurons: &mut NeuronArena, synapses: &mut SynapseArena, sched: &mut Sch
 
 /// **The measured quantity**, defined exactly as
 /// `scripts/investigate-growth-regression.ts`'s `synapsesFromGrown` is, and
-/// then narrowed the way README §13.12 item 10's instrumented run narrowed
+/// then narrowed the way docs/findings.md finding 10's instrumented run narrowed
 /// it: not "does a grown neuron have any outgoing synapse" (B3 already made
 /// that non-zero, by sprouting newborn -> newborn) but "does a grown neuron
 /// send to an **original-population** index". That narrowing is the whole
 /// finding, so counting the wrong one would reproduce exactly the
-/// counter-instead-of-mechanism mistake §13.12 item 13 records.
+/// counter-instead-of-mechanism mistake docs/findings.md finding 13 records.
 fn grown_to_original_synapses(synapses: &SynapseArena, neurons: &NeuronArena) -> usize {
     (WIDTH..neurons.capacity_len() as u32)
         .map(|source| synapses.occupied_in_block(source).filter(|&id| synapses.target_neuron[id as usize] < WIDTH).count())
@@ -179,7 +179,7 @@ fn spatial_reach_lets_grown_neurons_reach_the_original_population_and_index_bloc
 
     assert_eq!(
         block_count, 0,
-        "VAL-9 ablation: with the index-block reach, a grown neuron must send ZERO synapses to the original population -- README §13.12 item 10's measured finding, reproduced here as the control"
+        "VAL-9 ablation: with the index-block reach, a grown neuron must send ZERO synapses to the original population -- docs/findings.md finding 10's measured finding, reproduced here as the control"
     );
     assert!(
         spatial_count > 0,
@@ -191,7 +191,7 @@ fn spatial_reach_lets_grown_neurons_reach_the_original_population_and_index_bloc
 /// already made a newborn a legitimate sprout source, it just had nobody but
 /// its fellow newborns to sprout *to*. Recorded as its own assertion because
 /// it is what makes the ablation above a statement about *reach* rather than
-/// about eligibility, which is the distinction README §13.12 item 10 spent
+/// about eligibility, which is the distinction docs/findings.md finding 10 spent
 /// three updates separating.
 #[test]
 fn the_index_block_control_still_sprouts_grown_to_grown_just_never_grown_to_original() {

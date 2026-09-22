@@ -3,8 +3,8 @@
 **This file is maintained, not archived.** Every item updates it as part of being
 done (PLAN.md §4's house rules). It is deliberately short: it carries what does
 *not* live anywhere else, plus pointers. When something here grows into a real
-record, move it to README.md (§12 decisions, §13.12 findings) or PLAN.md (the
-item's Status row) and leave a pointer behind.
+record, move it to `docs/decisions.md` (decisions), `docs/findings.md` (findings) or PLAN.md
+(the item's Status row) and leave a pointer behind.
 
 It replaces the per-item `RESUME.md` that used to be written for one in-flight
 item and deleted when it landed — that shape went stale the moment the item
@@ -23,8 +23,8 @@ finished, and told the *next* item nothing.
   only** (cash-in moved to held serotonin, bit-identical to B5). Every map
   configuration collapses VAL-4 to 0.5–7% — the never-inverting twin and low
   dose too, and with the loop opened — see fact 17. Not adopted, not in
-  `canonicalBrain.ts`. New counter `amplitudeInverted`. README §12 decision 18,
-  §13.12 item 20, §13.13 (i).
+  `canonicalBrain.ts`. New counter `amplitudeInverted`. docs/decisions.md decision 18,
+  docs/findings.md finding 20, docs/prior-art.md §13.13 (i).
 - **Before that:** PLAN.md **C6** (noradrenaline widens the STDP timing
   window), 2026-09-21. Result: **the mechanism works where it can be seen, and
   VAL-4 cannot see it.** On a contingency switch
@@ -33,23 +33,22 @@ finished, and told the *next* item nothing.
   never with the coupling cut. On VAL-4 a pre-registered, paired, ten-seed
   confirmation gives the predicted null at both map gains (100: +0.02 / +0.12;
   400: −0.48 / +0.39 points on seeds 1–5 / 11–15). Width only; the triangular
-  window is deferred (README §12 decision 17). Not adopted anywhere, and
+  window is deferred (docs/decisions.md decision 17). Not adopted anywhere, and
   deliberately not in `canonicalBrain.ts`. New instrument:
-  `stdpModulationStats()` (fact 16). README §13.12 item 19.
+  `stdpModulationStats()` (fact 16). docs/findings.md finding 19.
 - **Earlier:** PLAN.md **C5** (modulators reach `StdpParams` — the
   shared hook — and the staircase question), 2026-09-21. Result: **the hook
   exists and is unset in every shipped configuration, and a modulator gain is
   not the staircase C3 inferred: on the permanence path it is *inert*, on the
   weight path (which C6 and C7 act on) it is *continuous*.** Nothing adopted and
   no VAL-4 figure moved. Read fact 14 (the answer, and the trap it leaves) and
-  fact 16 (what a user of the hook must know) before C6 or C7; README §12
-  decision 16 and §13.12 item 18 carry the reasoning and the data.
+  fact 16 (what a user of the hook must know) before C6 or C7; docs/decisions.md decision 16 and docs/findings.md finding 18 carry the reasoning and the data.
   **A post-close review (2026-09-21) re-checked C5's 6,000-character
   conclusions at the protocol's 15,000 and qualified both halves:** the weight
   path is *sensitive* there, not continuous, and the permanence path is *nearly*
   inert. The review also found C6's knob reversing with horizon and the
   noradrenaline level resting at 0.9991, not 1.0
-  (`scripts/investigate-c5-horizon.results.md`, README §13.12 item 18's
+  (`scripts/investigate-c5-horizon.results.md`, docs/findings.md finding 18's
   addendum). Facts 12, 14 and 16 below are updated for it.
 - **Earlier still:** PLAN.md **C4** (growth cannot reach the readout — spatial
   sprout *reach*, separated from the inhibition neighbourhood), 2026-09-21.
@@ -60,7 +59,7 @@ finished, and told the *next* item nothing.
   worse as the radius widens. **Spatial reach is nonetheless on by default in
   `canonicalBrain.ts` (radius 60) as an explicit judgement call, not a measured
   win** — see fact 2. `SproutReach::IndexBlocks` remains the *core's* default.
-  No VAL-4 figure moved. See fact 2, README §12 decision 15 and §13.12 item 17.
+  No VAL-4 figure moved. See fact 2, docs/decisions.md decision 15 and docs/findings.md finding 17.
 - **Before C4:** PLAN.md **C3** (dopamine carries a reward *prediction
   error*, routed onto permanence), 2026-09-20 17:21 +0100. Result: a null on
   VAL-4, and a null **by construction** — see fact 14(c). The raw reward it
@@ -68,7 +67,7 @@ finished, and told the *next* item nothing.
   configuration per seed exactly on 5 of 5 selection seeds. Nothing adopted.
 - **PLAN.md was reordered from Phase C down on 2026-09-20.** Phases A and B are
   untouched (closed). Everything from C onward was re-sequenced and every item
-  re-scoped to **one session**, splitting the nine that did not fit. Read §2's
+  re-scoped to **one session**, splitting the nine that did not fit. Read docs/prior-art.md §2's
   reordering note before using any prompt below C1 — several items changed
   scope, and nine parents now hand part of their work to a child.
 - **Item IDs were renumbered to match position** (2026-09-20). §3's table now
@@ -100,20 +99,20 @@ on selection seeds, against trigram's **29.07%**. The milestone is **not met** a
 saying otherwise is a reporting error.
 
 What *is* new: this is the first configuration to clearly beat the **16.56%
-"always guess space"** mode baseline (README §13.12 item 7), which every earlier
+"always guess space"** mode baseline (docs/findings.md finding 7), which every earlier
 figure in the repo failed to clear. Quote that bar alongside any new VAL-4 number
 — a change that improves a delta but drops back under 16.56% has undone the only
 real progress the network has made.
 
 The shipped values live in `packages/io/src/canonicalBrain.ts` (`B5_VALUES`) and
 are pinned by a regression test in `packages/io/test/char-prediction.slow.test.ts`.
-Full reasoning: README §12 decision 13.
+Full reasoning: docs/decisions.md decision 13.
 
 **C1 did not move this number, and that is the result.** Sleeping (LRN-10
 consolidation on a cadence during the stream) was measured with and without,
 12 conditions × 10 seeds: it never helps, and a 250-character cadence costs
 5.5–7.0 points, dropping below the 16.56% bar. Consolidation is therefore not
-enabled in the shipped values. README §13.12 item 13 has the write-up.
+enabled in the shipped values. docs/findings.md finding 13 has the write-up.
 
 **Neither did C2, C3, C4 or C6.** All four are honest nulls on this number and
 none is adopted (C6's was pre-registered as the expected outcome). **C7 is the
@@ -127,7 +126,7 @@ never reachable". One measured caveat worth carrying into any radius work: the
 **no-growth** rows at a spatial radius looked like +0.45 to +0.81 over condition
 C on five confirmation seeds and **did not replicate** on ten independent ones
 (two of three radii reversed sign). Nothing about VAL-4's number changed.
-README §13.12 item 17.
+docs/findings.md finding 17.
 
 ## Cross-cutting facts that bite across items
 
@@ -146,7 +145,7 @@ These are the ones that have actually caused wrong work, not a general list.
    index, so grown neurons (indices past every original's block) could never be
    paired with an original in either sprout path. Measured then: 400 grown
    neurons, 33,104 synapses received, **zero** sent to an original.
-   **PLAN.md C4 separated the two quantities** (README §12 decision 15): sprout
+   **PLAN.md C4 separated the two quantities** (docs/decisions.md decision 15): sprout
    reach is now `reach.rs`'s `SproutReach`, opt-in per path, with a **spatial**
    variant over `NeuronArena::coords`. Grown neurons demonstrably send synapses
    to original-population neurons now, with the index-block scheme kept as the
@@ -156,7 +155,7 @@ These are the ones that have actually caused wrong work, not a general list.
    every golden raster and both pinned VAL-4 figures are untouched.
 
    What a later item needs from this, beyond "it works now":
-   - **The VAL-4 result is a null** — see README §13.12 item 17 for the numbers
+   - **The VAL-4 result is a null** — see docs/findings.md finding 17 for the numbers
      and the no-growth control. So "growth is unreachable" is no longer a
      reason for a growth idea to be blocked, and "growth helps VAL-4" is still
      not a thing anyone has measured.
@@ -241,12 +240,12 @@ These are the ones that have actually caused wrong work, not a general list.
    `canonicalBrain.ts` shipped `growth` without B3's `newbornMaturation` for five
    days — growing neurons that could never fire — and its standing test passed
    throughout, because it asserted a counter moved. When you add a mechanism to
-   the canonical constructor, assert the mechanism's effect. (§13.12 item 13.)
+   the canonical constructor, assert the mechanism's effect. (docs/findings.md finding 13.)
 4. **Per-column `inhibition`/`segments` are bookkeeping, not live config.** The
    scheduler runs exactly one k-WTA scheme and one segment scheme for every
    neuron it owns. Both are now validated at `buildColumns`, so a contradiction
    is refused rather than silently ignored — but if you add another per-column
-   field, assume it is inert until you have checked. (README §12a item 8.)
+   field, assume it is inert until you have checked. (docs/findings.md finding 21.)
 5. **Never `import` or execute `scripts/tune-*.ts` to inspect it** — a bare import
    runs the real multi-hour search. Read the source, or use its documented
    `*_SMOKE=1` entry point.
@@ -259,15 +258,14 @@ These are the ones that have actually caused wrong work, not a general list.
    Anything that consumes the raster (consolidation's `replay_window` counts
    these *events*, not ticks or characters; `MAX_RASTER_EVENTS` = 200,000 is
    therefore ~2,180 characters of history, not the ~1,500 an older estimate
-   here claimed) is mostly consuming a re-recording of the corpus. README §12a
-   item 9(b).
+   here claimed) is mostly consuming a re-recording of the corpus. docs/open-questions.md item 3(b).
 7. **Replay is not the learning a live tick does.** `commit_and_schedule` runs
    STDP but, by documented design, not predictive-learning classification, and
    replay never calls `step()`, so no homeostatic, structural or
    segment-threshold sweep runs for the replayed span while `tick` advances
    past their schedules. Measured consequence: with the online LRN-6 sweep on,
    a 750-character sleep cadence costs 1.69 points; with it off, 8.32. Any item
-   that replays anything inherits this. README §12a item 9(a).
+   that replays anything inherits this. docs/open-questions.md item 3(a).
 8. **A multiplicative renormalising sweep erases an earlier one, exactly.**
    `HomeostaticScaling::force_apply` rescales each neuron's incoming total to a
    target, so a sleep-time downscale followed by the online LRN-6 sweep at its
@@ -300,8 +298,7 @@ These are the ones that have actually caused wrong work, not a general list.
     STDP and false for everything else. F19 is its next user.
 
     Also, and still true: the shipped VAL-4 config *does* use acetylcholine
-    (`modulatorChannel: 1`, held at 1.0 by `tonicModulator`), so README §13.12
-    item 13's "only DOPAMINE is ever injected or read" is out of date.
+    (`modulatorChannel: 1`, held at 1.0 by `tonicModulator`), so docs/findings.md finding 13's "only DOPAMINE is ever injected or read" is out of date.
 
 11. **Any scalar derived from per-tick event counts in this engine will measure
     the duty cycle of *activity*, not the thing you wanted, unless it is
@@ -349,7 +346,7 @@ These are the ones that have actually caused wrong work, not a general list.
 14. **Dopamine now carries a reward prediction error, and the three things C3
     found on the way there are what a later item will trip over.** Fact 14 used
     to be "dopamine has no producer and that silently disables both modulated
-    learning rules"; that is closed (PLAN.md C3, README §13.12 item 16). What
+    learning rules"; that is closed (PLAN.md C3, docs/findings.md finding 16). What
     replaces it is the part that outlived the fix.
 
     **(a) `reward()` is only a prediction error if a baseline is configured, and
@@ -390,8 +387,7 @@ These are the ones that have actually caused wrong work, not a general list.
     A mechanism that needs reward surprise needs a corpus with a contingency
     switch, not a different parameter.
 
-    **The staircase question is answered (PLAN.md C5 task 5, 2026-09-21; README
-    §13.12 item 18), and it is neither of the two things C3 guessed.** C3
+    **The staircase question is answered (PLAN.md C5 task 5, 2026-09-21; docs/findings.md finding 18), and it is neither of the two things C3 guessed.** C3
     recorded that three time constants matched on structural counts *to the
     synapse* and inferred a step function: permanence deltas crossing the clamp
     and the connection threshold after the same integer number of events. Measured
@@ -400,7 +396,7 @@ These are the ones that have actually caused wrong work, not a general list.
     times:
 
     **Everything in the five bullets below was measured at 6,000 characters, and
-    the post-close review (README §13.12 item 18's addendum) re-checked it at
+    the post-close review (docs/findings.md finding 18's addendum) re-checked it at
     15,000.** At the protocol's horizon, the permanence path is *nearly* inert:
     accuracy is unchanged across b in 0.5–1.5 on all three seeds, but weights move
     on every seed and 120 synapses drop below threshold on one; reinforce : punish
@@ -483,8 +479,7 @@ These are the ones that have actually caused wrong work, not a general list.
     make C6 or C7 measure the wrong thing.** The API is `stdp.rs`'s
     `StdpModulation` (five optional `LevelMap`s, one per `StdpParams` constant),
     attached with `ThreeFactorParams::with_stdp_modulation` and exposed as
-    `PlasticityConfig.stdpModulation`; nothing sets it anywhere. README §12
-    decision 16 has the reasoning.
+    `PlasticityConfig.stdpModulation`; nothing sets it anywhere. docs/decisions.md decision 16 has the reasoning.
 
     - **The scale is affine about a `reference`, not a bare multiplier:**
       `clamp(1 + gain × (level − reference), min, max)`. Unlike the two older
@@ -524,8 +519,7 @@ These are the ones that have actually caused wrong work, not a general list.
       `StdpModulation::joint_time_scale`, which also holds `window/τ` — and so the
       step at the cutoff — constant. The window itself is a staircase in integer
       `dt` (`floor(window × scale)`, a step every 1/window in scale — 0.05 at B5's
-      window of 20); it is not visible at the resolution measured (README §13.12
-      item 18). **The joint scale also scales the kernel's area**, so it mixes
+      window of 20); it is not visible at the resolution measured (docs/findings.md finding 18). **The joint scale also scales the kernel's area**, so it mixes
       "wider" with "more plasticity per pairing". At 15,000 characters the width
       effect is the larger of the two: holding the area fixed makes widening to
       1.5 *worse*, not neutral. The area-held control is
@@ -633,7 +627,7 @@ These are the ones that have actually caused wrong work, not a general list.
   replay, not about consolidation in general.** C1's own finding 1 is that the
   downscale it measured could not have done anything: it changes only scale, and
   the online LRN-6 sweep renormalises scale away exactly. The selective version
-  §13.13(h) actually asks for changes ratios instead, which survive that sweep.
+  docs/prior-art.md §13.13(h) actually asks for changes ratios instead, which survive that sweep.
   That is C12, and it is untested — do not cite C1 against it.
 - **The noradrenaline → window map is not in `canonicalBrain.ts`, on purpose**
   (PLAN.md C6). On that fixture surprise is exactly 0 on every tick, so a map
@@ -651,7 +645,7 @@ These are the ones that have actually caused wrong work, not a general list.
   users, C6 and C7, are both unset everywhere).** What is
   still missing on the consumer side is a threshold or a routing decision.
   **Nothing any of them drives is adopted in a shipped config** — NA gating and
-  ACh driving measured as no effect / unresolved (README §13.12 item 13), and
+  ACh driving measured as no effect / unresolved (docs/findings.md finding 13), and
   the dopamine RPE as a null by construction (item 16). `DEFAULT_CONFIG` still
   leaves `rewardSignal` unset. See
   `.claude/scratch/neuromodulators/investigation.md`.
@@ -660,11 +654,11 @@ These are the ones that have actually caused wrong work, not a general list.
   `PredictiveLearningParams` writes permanence and routes on **dopamine**,
   because synaptic tagging and capture makes dopamine a gate on *persistence*,
   not strength. Putting dopamine back on the weight-writing rule is the inverse
-  of what it models. README §2.5 and §13.12 item 16 carry the reasoning and the
+  of what it models. docs/prior-art.md §2.5 and docs/findings.md finding 16 carry the reasoning and the
   honest caveat (noradrenaline is a co-gate on the same protein process, not
   merely a gain term).
 - **`excitatoryFraction: 1.0` everywhere.** A genuine 80:20 population is gated
-  behind D1–D4 in that order; turning it on early rediscovers §13.12 item 11 by
+  behind D1–D4 in that order; turning it on early rediscovers docs/findings.md finding 11 by
   accident. This is also why Phase A's fixes were cheap — no golden-raster churn.
 - **Fixes 1 and 4 of B4 ship switched OFF**, because B5 measured both as losses
   at the current values. "Everything on" means every mechanism live, not every
@@ -672,8 +666,7 @@ These are the ones that have actually caused wrong work, not a general list.
 - **NET-11 is half-built** (newborn hyperexcitability yes, global annealing
   plasticity rate no) and stays on the deferred list with that explanation.
 - **Growth condition D measured +1.0 point with no identified mechanism.**
-  Recorded as measured, not claimed. If you explain it, it belongs in §13.12
-  item 10.
+  Recorded as measured, not claimed. If you explain it, it belongs in docs/findings.md finding 10.
 
 ## Maintaining this file
 

@@ -9,7 +9,7 @@
 //! the *effective* threshold, it does not bypass it -- Requirement 10.3).
 //!
 //! **The coincidence window defaults to one tick, and is optionally
-//! widenable (README §12a item 6, settled 2026-09-11).** `active` is a
+//! widenable (docs/decisions.md decision 22, settled 2026-09-11).** `active` is a
 //! *count*, not a boolean tally, of how many distinct synapses on this
 //! segment delivered within the window -- accumulated by the scheduler
 //! (`scheduler.rs`'s `apply_local_effect`/`evaluate_and_resolve`) via a
@@ -54,13 +54,13 @@ pub trait SegmentModel {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BinaryCoincidenceParams {
     /// Minimum simultaneously-active synapses for this segment to fire
-    /// (README §2.3: biologically, roughly 8-20).
+    /// (docs/prior-art.md §2.3: biologically, roughly 8-20).
     pub threshold: u16,
 }
 
 /// The binary segment model (Requirement 10.6): fires at full strength
 /// once `active >= threshold`, otherwise not at all. Cheap, and -- per
-/// README §2.3 -- sufficient on its own to produce high-order sequence
+/// docs/prior-art.md §2.3 -- sufficient on its own to produce high-order sequence
 /// memory; a graded model is a real extension, not a prerequisite.
 pub struct BinaryCoincidence;
 
@@ -92,8 +92,8 @@ impl SegmentModel for BinaryCoincidence {
 pub const FEEDFORWARD_SEGMENT: u32 = u32::MAX;
 
 /// How a dendritic delivery contributes to its segment's coincidence tally
-/// (PLAN.md B5, README §12 decision 13, reopening decision 11's and
-/// §13.12 item 11a's fixed-1.0-magnitude call).
+/// (PLAN.md B5, docs/decisions.md decision 13, reopening decision 11's and
+/// docs/findings.md finding 11a's fixed-1.0-magnitude call).
 ///
 /// `Count` is `apply_local_effect`'s pre-B5 behaviour: a delivery adds
 /// exactly its sign, whatever the synapse's weight. `Weighted` caps each
@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn a_decayed_fractional_count_below_threshold_does_not_fire() {
-        // Requirement (§12a item 6): a widened window's accumulator is a
+        // Requirement (docs/decisions.md decision 22): a widened window's accumulator is a
         // graded f32, not an integer tally -- a partially-decayed residual
         // that has not reached a whole additional coincidence must not
         // round up to one.

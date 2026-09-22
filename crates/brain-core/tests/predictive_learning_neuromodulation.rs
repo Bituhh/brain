@@ -54,7 +54,7 @@ impl Trial {
             reinforce_amount: 0.2,
             punish_amount: 0.2,
             burst_target_segment: 0,
-            burst_sprout_permanence: 0.4, // above connection_threshold (0.3): structurally connected from birth, README §12's split
+            burst_sprout_permanence: 0.4, // above connection_threshold (0.3): structurally connected from birth, docs/decisions.md's split
             burst_sprout_weight: 0.05,
             recently_active_window_ticks: 20,
             modulator_index: Some(DOPAMINE),
@@ -94,7 +94,7 @@ impl Trial {
 /// `resolve()` call, a higher modulator level produces a proportionally
 /// larger permanence *delta* after the same fixed number of exposures.
 ///
-/// README §12's weight/permanence split (2026-09-13): predictive
+/// docs/decisions.md's weight/permanence split (2026-09-13): predictive
 /// learning's reinforce/punish is a deliberate exception to the general
 /// split and still moves permanence, not weight -- see
 /// `predictive.rs`'s `adjust_segment_permanence` doc comment (dendritic
@@ -157,7 +157,7 @@ fn two_exposures_produce_proportionally_different_permanence_across_modulator_le
 /// no more exposures than a lower level, and strictly fewer at these two
 /// levels specifically.
 ///
-/// README §12's weight/permanence split (2026-09-13): the sprouted synapse
+/// docs/decisions.md's weight/permanence split (2026-09-13): the sprouted synapse
 /// is already structurally connected (permanence above
 /// `connection_threshold`, 0.3) from the moment it sprouts (at 0.4), so
 /// "reaches connection_threshold" is no longer a meaningful learning

@@ -1,7 +1,7 @@
-//! Newborn neuron integration (PLAN.md B3, NET-10/NET-11, README §13.12
+//! Newborn neuron integration (PLAN.md B3, NET-10/NET-11, docs/findings.md
 //! item 10's three-lock diagnosis).
 //!
-//! B1's weight/permanence split (README §12 decision 11) closed only one
+//! B1's weight/permanence split (docs/decisions.md decision 11) closed only one
 //! of three locks a grown neuron sits behind: `apply_growth` still
 //! allocates a neuron with zero synapses at a shared placeholder
 //! coordinate, and the two structural-plasticity sprout paths (LRN-7,
@@ -10,7 +10,7 @@
 //! that can never receive current can never spike, so it can never clear
 //! that bar, regardless of the weight/permanence split. This module closes
 //! locks 1 (eligibility) and 2 (wiring location) directly, following the
-//! adult-hippocampal-neurogenesis precedent README §13.12 item 10's
+//! adult-hippocampal-neurogenesis precedent docs/findings.md finding 10's
 //! closing paragraph names: exuberant, activity-*independent* initial
 //! synaptogenesis (wired onto recently-active input, not by distance --
 //! every newborn shares one coordinate until this module places it) onto
@@ -23,7 +23,7 @@
 //!
 //! This is scheduler-invoked wiring outside the `PlasticityRule` interface
 //! -- the same precedent `predictive.rs`'s burst-sprout path already sets
-//! (README §12a item 5(b)): it does not violate invariant 1, because the
+//! (docs/open-questions.md item 2(b)): it does not violate invariant 1, because the
 //! inputs it wires are a pure function of this neuron's own recent local
 //! history (`NeuronArena::last_spike`), not a global credit-assignment
 //! signal, and invariant 4 (enforced sparsity) is untouched -- newborns
@@ -62,7 +62,7 @@ pub struct NewbornWiringParams {
     /// Permanence a newborn's input synapses start at -- at/above the
     /// scheduler's own `connection_threshold`, structurally connected from
     /// birth, matching `StructuralPlasticityParams::sprout_permanence`'s
-    /// post-B1 meaning (README §12 decision 11).
+    /// post-B1 meaning (docs/decisions.md decision 11).
     pub input_permanence: f32,
     /// Weight (efficacy) a newborn's input synapses start at -- deliberately
     /// small, matching `sprout_weight`'s "silent synapse" reasoning:
@@ -77,7 +77,7 @@ pub struct NewbornWiringParams {
 }
 
 /// Governs a newborn's temporary hyperexcitability and its survival check,
-/// both keyed by its own birth tick (README §13.12 item 10's other named
+/// both keyed by its own birth tick (docs/findings.md finding 10's other named
 /// biological precedent -- enhanced excitability during integration, and
 /// a "use it or lose it" critical window).
 #[derive(Clone, Copy, Debug)]
@@ -177,7 +177,7 @@ impl NewbornMaturation {
         // Candidate pool: every currently-alive neuron (excluding this
         // batch's own newborns, which cannot have fired yet) that fired
         // within the window -- "what was just being represented when
-        // saturation was detected" (README §13.12 item 10's closing
+        // saturation was detected" (docs/findings.md finding 10's closing
         // paragraph). Computed once for the whole batch since it does not
         // depend on which newborn is asking.
         let alive = neurons.raw_lifecycle().1;

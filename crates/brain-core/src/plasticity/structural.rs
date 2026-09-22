@@ -29,7 +29,7 @@ pub struct StructuralPlasticityParams {
     pub prune_floor: f32,
     /// Permanence a newly-sprouted candidate synapse starts at.
     ///
-    /// **Semantics flipped by README §12's weight/permanence split
+    /// **Semantics flipped by docs/decisions.md's weight/permanence split
     /// (2026-09-13, item 12's NET-10 addendum).** Before the split this was
     /// deliberately *below* the scheduler's connection threshold (a
     /// "potential" connection, invisible to delivery and therefore to every
@@ -45,7 +45,7 @@ pub struct StructuralPlasticityParams {
     /// coordinates the two values, just in the opposite direction than
     /// before.
     pub sprout_permanence: f32,
-    /// Weight (efficacy, §2.5) a newly-sprouted candidate synapse starts
+    /// Weight (efficacy, docs/prior-art.md §2.5) a newly-sprouted candidate synapse starts
     /// at -- deliberately small, so a new structural contact transmits only
     /// a trickle until activity potentiates it via STDP (see
     /// `sprout_permanence`'s doc comment above for the full reasoning).
@@ -84,7 +84,7 @@ pub struct StructuralPlasticityParams {
     /// restriction, matching every caller before this field existed.
     ///
     /// Added for the NET-10 growth-regression investigation (README
-    /// §13.12, saturation-driven-growth retest): grown neurons are, by a
+    /// docs/findings.md, saturation-driven-growth retest): grown neurons are, by a
     /// caller's own design (`charPrediction.ts`'s `growth` doc comment),
     /// never externally stimulated or decoded -- they are internal-only
     /// capacity with no relationship to which symbol actually occurred.
@@ -101,13 +101,13 @@ pub struct StructuralPlasticityParams {
     pub max_sprout_source_index: Option<u32>,
     /// The causal timing window a candidate pair must fall inside before
     /// [`StructuralPlasticity::sprout`] creates a synapse, and in which
-    /// direction (PLAN.md B4, fix 2, README §12 decision 12). `None` is the
+    /// direction (PLAN.md B4, fix 2, docs/decisions.md decision 12). `None` is the
     /// pre-B4 behaviour: any two co-active candidates sprout both `a -> b`
     /// and `b -> a`, with no notion of which fired first.
     pub sprout_timing: Option<SproutTimingWindow>,
     /// This mechanism's own deterministic seed (PLAN.md B4, fix 3),
     /// mirroring `GrowthConfig.seed`'s existing FFI precedent -- there is
-    /// no simulation-wide seed (RUN-3, README §12 decision 7: every
+    /// no simulation-wide seed (RUN-3, docs/decisions.md decision 7: every
     /// mechanism that draws randomness carries its own). Feeds
     /// [`purpose::SPROUT_SEGMENT_ASSIGN`]'s draw in `sprout`; unused when
     /// segments are not spread.
@@ -127,7 +127,7 @@ pub struct StructuralPlasticityParams {
     /// segment 0 either way, matching `graph.rs`'s own guard.
     pub spread_sprout_segments: bool,
     /// Eliminate a synapse still silent (`SynapseArena::silent_since`) this
-    /// many ticks after it became silent (PLAN.md B4, fix 4, README §12
+    /// many ticks after it became silent (PLAN.md B4, fix 4, docs/decisions.md
     /// decision 12): a second, independent prune criterion alongside the
     /// permanence floor, not a change to it. `None` disables it (pre-B4).
     ///
@@ -139,7 +139,7 @@ pub struct StructuralPlasticityParams {
     /// mechanism created it. It cannot touch an established synapse at all,
     /// because established synapses are never silent -- which is also why it
     /// cannot repeat E3's confirmed-harmful blanket permanence-floor result
-    /// (README §13.12 item 10), and why homeostatic scaling shrinking a
+    /// (docs/findings.md finding 10), and why homeostatic scaling shrinking a
     /// mature synapse's weight can never trigger it.
     pub silent_elimination_ticks: Option<u32>,
 }
@@ -169,12 +169,12 @@ pub struct StructuralPlasticity {
     /// Only ever consulted for its `size()`, and only by
     /// [`SproutReach::IndexBlocks`] -- this is the *candidate set* half of
     /// the job `FixedNeighbourhoods` used to do alongside NET-2's k-WTA
-    /// competition group, which PLAN.md C4 separated (README §12
+    /// competition group, which PLAN.md C4 separated (docs/decisions.md
     /// decision 15). It stays here because it is still the default reach,
     /// and because changing it would change every existing configuration.
     neighbourhoods: FixedNeighbourhoods,
     /// Which other neurons [`Self::sprout`] may pair a neuron with
-    /// (`reach.rs`, README §12 decision 15). Defaults to
+    /// (`reach.rs`, docs/decisions.md decision 15). Defaults to
     /// [`SproutReach::IndexBlocks`], every pre-C4 caller's behaviour.
     reach: SproutReach,
     last_swept_at: u32,
@@ -219,7 +219,7 @@ impl StructuralPlasticity {
     }
 
     /// Opts this sweep into a different [`SproutReach`] (PLAN.md C4,
-    /// README §12 decision 15). Without this call the reach is
+    /// docs/decisions.md decision 15). Without this call the reach is
     /// [`SproutReach::IndexBlocks`] and every sprout decision is
     /// bit-identical to before this existed.
     ///
@@ -985,7 +985,7 @@ mod tests {
 
     #[test]
     fn sprouted_synapse_starts_structurally_connected_but_near_zero_weight() {
-        // README §12's weight/permanence split (2026-09-13): a new sprout
+        // docs/decisions.md's weight/permanence split (2026-09-13): a new sprout
         // now starts at/above the caller's connection threshold (this
         // test's `sprout_permanence: 0.6`) with a separate, near-zero
         // `sprout_weight` -- the "silent synapse" pattern that dissolves
@@ -1153,7 +1153,7 @@ mod tests {
         assert_eq!(report.reclaimed_neurons, 0, "a never-fired neuron must not be reclaimed just for being new");
     }
 
-    // -- PLAN.md C4: spatial sprout reach (README §12 decision 15) --
+    // -- PLAN.md C4: spatial sprout reach (docs/decisions.md decision 15) --
 
     /// Lays `n` neurons out on the 1-D, unit-spaced line `buildColumns`
     /// actually produces (`[base_x + j, base_y, base_z]`), then moves the
@@ -1183,7 +1183,7 @@ mod tests {
         assert_eq!(spatial.sprout_reach(), SproutReach::Spatial { radius: 2.0 });
     }
 
-    /// **The mechanism, in miniature** (PLAN.md C4, README §13.12 item 10).
+    /// **The mechanism, in miniature** (PLAN.md C4, docs/findings.md finding 10).
     /// Neuron 4 sits past the index block neurons 0-3 belong to, but its
     /// *coordinate* sits right next to neuron 1's. Under the index-block
     /// reach it can never be paired with any of them -- which is exactly
@@ -1215,7 +1215,7 @@ mod tests {
 
         assert!(
             outgoing_from_4(None).is_empty(),
-            "index blocks: neuron 4 is alone in block 1, so it can never send to an original -- the exact property README §13.12 item 10 measured as zero"
+            "index blocks: neuron 4 is alone in block 1, so it can never send to an original -- the exact property docs/findings.md finding 10 measured as zero"
         );
         assert_eq!(
             outgoing_from_4(Some(SproutReach::spatial(1.5))),

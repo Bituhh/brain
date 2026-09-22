@@ -3,7 +3,7 @@
 // what is TRUE TODAY: sparsity stays roughly near target, permanence and
 // weight both stay in [0,1], nothing panics, every mechanism's FFI surface is reachable and
 // well-formed, and a snapshot taken mid-run round-trips. It does NOT
-// assert anything the known, open defects (README §13.12 items 11-14)
+// assert anything the known, open defects (docs/findings.md findings 11-14)
 // would fail -- e.g. no claim about E/I balance or about growth/structural
 // plasticity *improving* anything, since neither is measured here. The
 // point is a fixture later items (A2, B1, C1, C2, D1-D4, ...) tighten as
@@ -83,7 +83,7 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
     }
     // PLAN.md C2: sample the two driven channels as the run proceeds, so the
     // assertion below can be about the mechanism rather than about a counter
-    // (README §13.12 item 13's own lesson, which this very file learned the
+    // (docs/findings.md finding 13's own lesson, which this very file learned the
     // hard way with `growth` and `newbornMaturation`).
     drivenLevels.push([sim.modulatorLevels()[1] ?? 0, sim.modulatorLevels()[2] ?? 0]);
   }
@@ -146,7 +146,7 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
   assert.ok(meanSpikeFraction < 0.5, `mean spike fraction ${meanSpikeFraction} must stay well below saturation`);
 
   // SYN-3/SYN-4: permanence and weight both stay in [0,1] for every
-  // occupied synapse slot -- independently exercised (README §12's
+  // occupied synapse slot -- independently exercised (docs/decisions.md's
   // weight/permanence split, 2026-09-13), not just permanence.
   const occupied = sim.synapseOccupiedView();
   const permanence = sim.synapsePermanenceView();
@@ -185,7 +185,7 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
   // mechanism instead: a newborn is wired from recently-active neurons,
   // fires, and survives its maturation window (an unintegrated newborn is
   // reclaimed, which `liveCount > WIDTH` above would then catch).
-  assert.ok(newbornSpikeCount > 0, "grown neurons must actually fire -- otherwise growth is allocating inert capacity (README §13.12 item 10's deadlock)");
+  assert.ok(newbornSpikeCount > 0, "grown neurons must actually fire -- otherwise growth is allocating inert capacity (docs/findings.md finding 10's deadlock)");
   const capPerNeuron = sim.synapseCapPerNeuron();
   const targets = sim.synapseTargetNeuronView();
   let ontoNewborn = 0;
@@ -208,40 +208,40 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
   // point.** It began as a tripwire asserting ZERO newborn->original
   // synapses -- a known limitation of the index-block sprout reach, recorded
   // as such, with a note to update the README if it ever fired
-  // (README §12 decision 13). PLAN.md C4 gave the sweep a coordinate-based
+  // (docs/decisions.md decision 13). PLAN.md C4 gave the sweep a coordinate-based
   // reach and made it fixable; the fix was left opt-in at first, so the
   // tripwire stayed as a statement about the default; then the default
-  // changed (2026-09-21, README §12 decision 15). This is that update.
+  // changed (2026-09-21, docs/decisions.md decision 15). This is that update.
   //
   // What it asserts now is the property C4 exists for: grown capacity can
   // *speak to* the population the readout decodes, not merely listen to it.
   // `fromNewborn > 0` above was already true before C4 -- a newborn could
   // always sprout to its fellow newborns -- so only the onto-ORIGINAL count
   // distinguishes reachable capacity from unreachable capacity, which is
-  // exactly the counter-versus-mechanism distinction §13.12 item 13 records.
+  // exactly the counter-versus-mechanism distinction docs/findings.md finding 13 records.
   // The ablation that keeps this honest is the dedicated test below, which
   // asserts this same count is ZERO under `withIndexBlockSproutReach`.
   assert.ok(
     fromNewbornOntoOriginal > 0,
-    "grown neurons must send at least one synapse back to the original population -- the property README §13.12 item 10 " +
+    "grown neurons must send at least one synapse back to the original population -- the property docs/findings.md finding 10 " +
       `measured as exactly zero under the index-block reach (got ${fromNewbornOntoOriginal}). A zero here means the default ` +
       "sproutReachRadius has stopped reaching, not that the limitation is acceptable again",
   );
 });
 
 /**
- * PLAN.md C4 (README §12 decision 15), the end-to-end half of its VAL-9
+ * PLAN.md C4 (docs/decisions.md decision 15), the end-to-end half of its VAL-9
  * ablation: `crates/brain-core/tests/sprout_reach.rs` proves the mechanism
  * inside the core, and this proves the FFI surface actually carries it to a
  * real network built the way a caller builds one.
  *
- * The measured quantity is the one README §13.12 item 10's instrumented run
+ * The measured quantity is the one docs/findings.md finding 10's instrumented run
  * measured as exactly **zero**: does a neuron developmental growth added
  * send a synapse to a neuron in the *original* population. Not "does a grown
  * neuron have any outgoing synapse at all" -- that was already non-zero
  * before C4, because a newborn could always sprout to its fellow newborns,
  * and counting it would reproduce exactly the counter-instead-of-mechanism
- * mistake §13.12 item 13 records.
+ * mistake docs/findings.md finding 13 records.
  */
 test("spatial sprout reach lets grown neurons reach the original population, and the index-block scheme it replaced cannot (PLAN.md C4)", () => {
   function grownOntoOriginal(options: SimulationOptions): { count: number; live: number; grownSpiked: boolean } {
@@ -268,10 +268,10 @@ test("spatial sprout reach lets grown neurons reach the original population, and
     return { count, live: sim.liveNeuronCount(), grownSpiked };
   }
 
-  // The default is now spatial (README §12 decision 15), so the ablation
+  // The default is now spatial (docs/decisions.md decision 15), so the ablation
   // runs the other way round from how C4 first wrote it: `withIndexBlockSproutReach`
   // is the control. `withSpatialBurstSproutReach` is added to the default arm
-  // because §13.12 item 10 measured *both* sprout paths as blocked, and the
+  // because docs/findings.md finding 10 measured *both* sprout paths as blocked, and the
   // burst path is still on index blocks by default -- see its own doc comment.
   const blocks = grownOntoOriginal(withIndexBlockSproutReach(canonicalSimulationOptions(SEED)));
   const spatial = grownOntoOriginal(withSpatialBurstSproutReach(canonicalSimulationOptions(SEED)));
@@ -291,7 +291,7 @@ test("spatial sprout reach lets grown neurons reach the original population, and
     blocks.count,
     0,
     "VAL-9 ablation: under the index-block reach a grown neuron must send ZERO synapses to the original population -- " +
-      `README §13.12 item 10's measured finding, reproduced here as the control (got ${blocks.count})`,
+      `docs/findings.md finding 10's measured finding, reproduced here as the control (got ${blocks.count})`,
   );
   assert.ok(
     spatial.count > 0,
@@ -574,7 +574,7 @@ test("the canonical brain is deterministic across repeated runs of the same seed
  *    That switched LRN-8's 12.2/12.3 path ON.
  *
  * **The trap this still guards**, and the reason the assertions below are
- * shaped the way they are (README §13.12 item 13, which this very file has
+ * shaped the way they are (docs/findings.md finding 13, which this very file has
  * now rediscovered three times): weight and permanence *do* move in this
  * configuration even with every modulated rule dead, because LRN-6 homeostatic
  * scaling and the burst-sprout path are not modulator-gated. "The numbers
@@ -674,7 +674,7 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
     finalDopamine(rarelyRewarded) > finalDopamine(alwaysRewarded) + 0.5,
     "the SAME reward of 1.0, delivered where it was not expected, must produce a real burst -- " +
       `surprising=${finalDopamine(rarelyRewarded)} vs predictable=${finalDopamine(alwaysRewarded)}. If these are equal, ` +
-      "dopamine is carrying a raw reward again and README §2.5's claim is aspirational once more",
+      "dopamine is carrying a raw reward again and docs/prior-art.md §2.5's claim is aspirational once more",
   );
   assert.ok(
     alwaysRewarded.expectedReward > 0.9,
@@ -701,7 +701,7 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
   //     fixture's wiring can close it.
   //
   //     Asserted rather than commented so the next person to close it gets
-  //     the diagnosis instead of the puzzle. See README §13.12 item 17.
+  //     the diagnosis instead of the puzzle. See docs/findings.md finding 17.
   for (const [label, arm] of [
     ["unrewarded", unrewarded],
     ["always rewarded", alwaysRewarded],
@@ -711,7 +711,7 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
       arm.classifiedAsPredicted > 0,
       `${label}: this scenario must classify at least one outcome as "was predicted", or Requirement 12.2/12.3 never runs and ` +
         "assertions 4 and 5 below are vacuous rather than passing. A zero here means the fixture stopped predicting -- " +
-        "fix the cause, do not adjust this test (README §13.12 item 17 records the time that was nearly done)",
+        "fix the cause, do not adjust this test (docs/findings.md finding 17 records the time that was nearly done)",
     );
   }
 
@@ -725,7 +725,7 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
     alwaysRewarded.permanence,
     unrewarded.permanence,
     "rewarding must change mean permanence -- if these are equal, LRN-8's 12.2/12.3 path is disconnected from dopamine rather " +
-      "than merely undriven, which is exactly the distinction README §13.12 item 13 keeps rediscovering here",
+      "than merely undriven, which is exactly the distinction docs/findings.md finding 13 keeps rediscovering here",
   );
   assert.notEqual(
     rarelyRewarded.permanence,

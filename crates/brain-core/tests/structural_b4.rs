@@ -1,6 +1,6 @@
 //! Whole-network VAL-9 ablation tests for PLAN.md B4's four structural
 //! plasticity fixes (LRN-7 sprouting and pruning, and the silent-synapse
-//! state LRN-2's STDP unsilences; README §12 decision 12). Each test drives a real
+//! state LRN-2's STDP unsilences; docs/decisions.md decision 12). Each test drives a real
 //! network purely through `Scheduler::step`, asserts the property its fix
 //! exists to guarantee, then switches that one fix off and asserts the
 //! property fails -- VAL-9's "disable it, assert the property fails", the
@@ -174,8 +174,7 @@ fn silent_sprouts_never_predict_anything_and_ablation_letting_them_transmit_does
 }
 
 /// Fix 1's other half: STDP can unsilence a sprout, which then does predict.
-/// This is the property the first pass could not show (README §13.12 item
-/// 10): a sprout is not just switched off, it switches on once it earns it.
+/// This is the property the first pass could not show (docs/findings.md finding 10): a sprout is not just switched off, it switches on once it earns it.
 #[test]
 fn stdp_unsilences_causal_sprouts_which_then_predict() {
     let outcome = run(Setup { silent: SilentSynapseParams { unsilence_weight: 0.15, silent_transmits: false }, timing: Some(SproutTimingWindow { min_gap_ticks: 1, max_gap_ticks: 2 }), stdp: true, ..BASE }, 1500);

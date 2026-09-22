@@ -33,8 +33,8 @@ fn make_chain() -> RuleChain {
 }
 
 proptest! {
-    /// Requirement 6.7, SYN-4: weight (§2.5's efficacy -- what `ThreeFactorStdp`
-    /// actually moves, per README §12's weight/permanence split, 2026-09-13)
+    /// Requirement 6.7, SYN-4: weight (docs/prior-art.md §2.5's efficacy -- what `ThreeFactorStdp`
+    /// actually moves, per docs/decisions.md's weight/permanence split, 2026-09-13)
     /// stays within `[0, 1]` no matter what sequence of deliveries,
     /// post-spikes, ticks, or modulator levels a synapse is driven through --
     /// the `RuleChain`'s clamp is the only thing standing between an
@@ -143,12 +143,12 @@ proptest! {
         }
     }
 
-    /// README §13.12 item 11a/11b: the dendritic path must not drop the
+    /// docs/findings.md finding 11a/11b: the dendritic path must not drop the
     /// source's sign the way the somatic path's sibling test above already
     /// proves it doesn't. Routes through a non-zero `target_segment`
     /// (`with_segments` configured) specifically because the pre-fix defect
     /// was invisible on `target_segment = 0`/no-`with_segments` -- see this
-    /// suite's module doc and README §13.12 item 11b on why the old test
+    /// suite's module doc and docs/findings.md finding 11b on why the old test
     /// alone could not have caught this.
     #[test]
     fn synapse_sign_reaches_the_dendritic_segment_it_targets(
@@ -184,7 +184,7 @@ proptest! {
         }
     }
 
-    /// PLAN.md B5 (README §12 decision 13), design.md's Testing Strategy:
+    /// PLAN.md B5 (docs/decisions.md decision 13), design.md's Testing Strategy:
     /// in weighted mode, no single delivery's contribution ever exceeds
     /// magnitude 1 (the cap), and a segment's tally after a sequence of
     /// deliveries equals the capped sum of each delivery's own contribution

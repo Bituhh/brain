@@ -3,7 +3,7 @@
 // `packages/io/src/milestone/charPrediction.ts`'s VAL-4 network -- Phase 7
 // Requirement 5 (`.claude/scratch/brain-engine-phase7/requirements.md`).
 //
-// README §13.12 item 7's own record is explicit that this has never
+// docs/findings.md finding 7's own record is explicit that this has never
 // actually been done: `targetRate` was searched properly by
 // `scripts/tune-segment-threshold-homeostasis.ts`'s automated coordinate
 // search, but `NETWORK_WIDTH` was only ever tried by hand at three values

@@ -8,13 +8,13 @@
 //! activity is strongly correlated on STDP's *potentiating* side -- exactly
 //! the condition under which uncorrected Hebbian potentiation pushes every
 //! incoming synapse toward saturation. This is the scenario homeostatic
-//! scaling exists to correct (README §2.5): without it, correlated
+//! scaling exists to correct (docs/prior-art.md §2.5): without it, correlated
 //! activity has no counterforce and weight should climb toward the
 //! ceiling; with it, the incoming total is actively renormalised toward a
 //! modest configured target regardless of how much STDP would otherwise
 //! push it up.
 //!
-//! README §12's weight/permanence split (2026-09-13) exposed a latent bug
+//! docs/decisions.md's weight/permanence split (2026-09-13) exposed a latent bug
 //! in this file's original same-tick stimulation pattern (source and
 //! target driven in the *same* step, not staggered by the synapse's own
 //! delay): that pattern is actually anti-causal relative to `deliver`'s

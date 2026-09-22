@@ -1,10 +1,10 @@
 //! PLAN.md C3: dopamine carries a reward *prediction error*, not a raw reward
-//! (LRN-4, LRN-11, README §2.5 "dopamine = reward prediction error").
+//! (LRN-4, LRN-11, docs/prior-art.md §2.5 "dopamine = reward prediction error").
 //!
 //! **The gap these tests close.** Before C3, `Scheduler::reward(amount)`
 //! injected `amount`. Nothing subtracted an expectation, so a network right
 //! 90% of the time received the same dopamine burst for an expected success as
-//! for a surprising one -- README §2.5's claim was aspirational, and
+//! for a surprising one -- docs/prior-art.md §2.5's claim was aspirational, and
 //! `charPrediction.ts`'s `sim.reward(hit ? 1.0 : 0.0)` was literally the hit
 //! indicator wearing dopamine's name.
 //!
@@ -87,7 +87,7 @@ fn field_taus(dopamine_tau: f32) -> [f32; NUM_MODULATORS] {
 
 /// Routed on dopamine and writing **permanence** -- PLAN.md C3 task 2.
 /// Synaptic tagging and capture (Redondo & Morris 2011) is dopamine gating the
-/// conversion of early-LTP into late-LTP, which against README §12's
+/// conversion of early-LTP into late-LTP, which against docs/decisions.md's
 /// weight/permanence split is persistence, not strength.
 /// `SegmentLearningTarget::Permanence` is already the default; it is spelled
 /// out here because it is the thing under test.
@@ -305,12 +305,12 @@ fn dopamine_gates_permanence_and_leaves_weight_alone() {
     assert_ne!(
         rewarded_p, unrewarded_p,
         "the dopamine-gated reinforce/punish path writes permanence, so rewarding must change it -- if these are equal, \
-         LRN-8's 12.2/12.3 path is disconnected rather than merely undriven (README §13.12 item 13's trap)"
+         LRN-8's 12.2/12.3 path is disconnected rather than merely undriven (docs/findings.md finding 13's trap)"
     );
     assert_eq!(
         rewarded_w, unrewarded_w,
         "and it must leave weight untouched: permanence is 'does this stick', weight is 'how strong right now', and \
-         Redondo & Morris's tagging-and-capture is the former (README §12's split)"
+         Redondo & Morris's tagging-and-capture is the former (docs/decisions.md's split)"
     );
 }
 

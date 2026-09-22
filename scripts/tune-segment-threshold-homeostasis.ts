@@ -1,6 +1,6 @@
 // Automated 1D search over `segmentThresholdHomeostasis.targetRate` for
 // `packages/io/src/milestone/charPrediction.ts`'s VAL-4 network (README
-// §13.12 item 7's tuning table) -- manual trials (0.05, 0.1, 0.3, 0.7, 0.9)
+// docs/findings.md finding 7's tuning table) -- manual trials (0.05, 0.1, 0.3, 0.7, 0.9)
 // found accuracy rising monotonically with targetRate, so this automates
 // the same "vary and measure" loop with a coordinate-search step
 // (climb while a candidate improves on the current best; halve the step
@@ -14,7 +14,7 @@
 // winning rate is then re-confirmed against the full 5-seed official
 // protocol (`examples/char-prediction.ts`'s own `SEEDS`) so the final
 // reported number is directly comparable to every figure already recorded
-// in README §13.12 item 7's table.
+// in docs/findings.md finding 7's table.
 //
 // This script only searches and prints its recommendation -- it does not
 // edit charPrediction.ts itself. Apply the winning value to
@@ -25,7 +25,7 @@
 // 5-seed confirmation) is appended to LOG_PATH as a markdown table row as
 // soon as it's measured, not just printed to the console -- so a trial is
 // never lost even if this long-running search is interrupted, and the log
-// can be pasted straight into README §13.12 item 7's tuning table
+// can be pasted straight into docs/findings.md finding 7's tuning table
 // (Requirement 13.6: every trial recorded honestly, not just the best one
 // kept). The `seeds` column is what distinguishes a fast search estimate
 // from an official-protocol confirmation -- both belong in the same
@@ -62,7 +62,7 @@ const CONFIRM_SEEDS = [1n, 2n, 3n, 4n, 5n];
 
 // The base homeostasis config every trial holds fixed -- only `targetRate`
 // is swept (the same "isolating targetRate as the one variable" choice
-// every manual trial in README §13.12 item 7's table already made).
+// every manual trial in docs/findings.md finding 7's table already made).
 const BASE_HOMEOSTASIS = DEFAULT_CONFIG.segmentThresholdHomeostasis;
 if (BASE_HOMEOSTASIS === undefined) {
   throw new Error("DEFAULT_CONFIG.segmentThresholdHomeostasis must be set for this search to have a smoothing/adjustmentRate/minThreshold/intervalTicks baseline to sweep targetRate against.");
@@ -165,7 +165,7 @@ if (trialCount >= MAX_TRIALS) {
 console.log(`\nSearch finished after ${trialCount} trials (${SEARCH_SEEDS.length} seeds each), ${Date.now() - searchStart}ms.`);
 console.log(`Best targetRate found: ${best.targetRate.toFixed(4)} (search-time mean network accuracy over ${SEARCH_SEEDS.length} seeds: ${(best.score * 100).toFixed(2)}%)`);
 
-console.log(`\nConfirming with the official ${CONFIRM_SEEDS.length}-seed protocol (matching every other figure in README §13.12 item 7's table)...`);
+console.log(`\nConfirming with the official ${CONFIRM_SEEDS.length}-seed protocol (matching every other figure in docs/findings.md finding 7's table)...`);
 const confirmTrials = runCharPredictionTrials(corpus, CONFIRM_SEEDS, configFor(best.targetRate));
 const confirmed = assessMilestone(confirmTrials);
 const perSeed = confirmTrials.map((t) => t.networkAccuracy);

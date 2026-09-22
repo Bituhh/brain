@@ -23,7 +23,7 @@ const options: SimulationOptions = {
   homeostaticScaling: { targetTotalWeight: 4.0, intervalTicks: 200 },
   structuralPlasticity: {
     pruneFloor: 0.02,
-    // README §12's weight/permanence split (2026-09-13): structurally
+    // docs/decisions.md's weight/permanence split (2026-09-13): structurally
     // connected from birth (at/above connectionThreshold), near-zero
     // sproutWeight -- the "silent synapse" pattern.
     sproutPermanence: 0.35,

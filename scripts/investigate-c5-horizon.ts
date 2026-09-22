@@ -282,7 +282,7 @@ out.push(`Generated ${new Date().toISOString()}. ${CORPUS_LENGTH} characters per
 out.push(`2,000-character sliding window at the end of the run. The readings for Q1-Q5 were written in the script header before any trial ran;`);
 out.push(`this file reports the data against them and does not re-state a verdict the data does not give.`);
 out.push(``);
-out.push(`**Three seeds.** Enough to tell identical from different and a large effect from none; not enough for any claim under ~1 point (README §13.12 items 13 and 17).`);
+out.push(`**Three seeds.** Enough to tell identical from different and a large effect from none; not enough for any claim under ~1 point (docs/findings.md finding 13 and 17).`);
 
 // exactness
 out.push(``);

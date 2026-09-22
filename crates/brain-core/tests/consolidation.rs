@@ -12,7 +12,7 @@
 //!
 //! Setup: two source neurons (`a`, `b`) converge onto one shared target
 //! (`post`), with online homeostatic scaling active throughout (a fixed
-//! total-incoming-weight budget -- README §12's weight/permanence split,
+//! total-incoming-weight budget -- docs/decisions.md's weight/permanence split,
 //! 2026-09-13: STDP and homeostatic scaling both moved from permanence to
 //! weight, so this test's "synapse strength"/interference measurement now
 //! reads weight, not permanence, which stays fixed at its initial value

@@ -6,7 +6,7 @@
 // parameter has an ordered list of levels; a neighbour is one level either
 // side, and stepping past the last level extends the list, within a hard
 // bound, instead of treating the edge as the peak -- the failure README
-// §13.12 recorded when a search stopped at targetRate 0.5 and missed a
+// docs/findings.md recorded when a search stopped at targetRate 0.5 and missed a
 // better peak at 0.99.
 
 /**

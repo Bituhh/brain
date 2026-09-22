@@ -320,7 +320,7 @@ function columnConfig(overrides: Partial<ColumnConfig> = {}): ColumnConfig {
     // `inhibition` omitted, so no k-WTA runs at all; the previous `k: 1`
     // claimed competition nothing enforced -- `ColumnSpec.inhibition` is
     // bookkeeping that nothing reads. `buildColumns` now refuses that
-    // contradiction (README §12a item 8, closed 2026-09-19), exactly as it
+    // contradiction (docs/findings.md finding 21, closed 2026-09-19), exactly as it
     // already refused a mismatched `segments`. A test whose simulation does
     // configure `inhibition` overrides both values to match it.
     k: 4,
@@ -549,12 +549,12 @@ test("Simulation.predictiveView is a bulk zero-copy view, independent of membran
   assert.ok(predictiveView[b]! > 0, "predictiveView must reflect b's dendritic depolarisation with no re-fetch");
 });
 
-// -- PLAN.md B5 (README §12 decision 13): weight-aware dendritic votes,
+// -- PLAN.md B5 (docs/decisions.md decision 13): weight-aware dendritic votes,
 // exposed through the real compiled addon.
 
 test("SegmentsConfig.voteReferenceWeight: weighted mode changes whether a weak synapse's coincidence depolarises the target (Requirement 1, 10's FFI layer)", () => {
   // `connect`'s single `permanence` argument sets weight to the same value
-  // at insertion (README §12 decision 11's construction-time convention),
+  // at insertion (docs/decisions.md decision 11's construction-time convention),
   // so a low/high permanence here is also a low/high weight -- no separate
   // weight-poke call is needed. connectionThreshold is set low enough that
   // even the weak synapse's permanence clears it and actually transmits.
@@ -643,12 +643,12 @@ test("Simulation.buildColumns refuses a column whose voteReferenceWeight disagre
   );
 });
 
-// README §12a item 8's other half, closed 2026-09-19: `ColumnSpec.
+// docs/findings.md finding 21's other half, closed 2026-09-19: `ColumnSpec.
 // inhibition` has the identical shape to the `segments` bug above -- a
 // per-column value nothing live reads, while the scheduler's own
 // `FixedNeighbourhoods` is the one real scheme -- and was explicitly left
 // unvalidated when `segments` was fixed. Both directions are refused now.
-test("Simulation.buildColumns refuses a column whose inhibition disagrees with the scheduler-wide one (README §12a item 8)", () => {
+test("Simulation.buildColumns refuses a column whose inhibition disagrees with the scheduler-wide one (docs/findings.md finding 21)", () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     { maxDelay: 1, connectionThreshold: 0.3, synapseCapPerNeuron: 1, inhibition: { neighbourhoodSize: 4, k: 1 } },
@@ -659,7 +659,7 @@ test("Simulation.buildColumns refuses a column whose inhibition disagrees with t
   );
 });
 
-test("Simulation.buildColumns refuses a column claiming k-WTA competition when the simulation runs no inhibition at all (README §12a item 8)", () => {
+test("Simulation.buildColumns refuses a column claiming k-WTA competition when the simulation runs no inhibition at all (docs/findings.md finding 21)", () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     { maxDelay: 1, connectionThreshold: 0.3, synapseCapPerNeuron: 1 }, // no `inhibition`
@@ -838,7 +838,7 @@ test("Simulation.create rejects growth configured together with threadCount > 1 
 // lands in a partially-filled trailing `FixedNeighbourhoods` neighbourhood,
 // which a *fixed* `k` gives no real competition at all once its membership
 // drops below `k` -- measured on the real char-prediction network (README
-// §13.12 item 10's 2026-09-14 diagnosis): a 40-member trailing group let
+// docs/findings.md finding 10's 2026-09-14 diagnosis): a 40-member trailing group let
 // all 40 fire every tick against an 8% target. `InhibitionConfig.
 // densityTarget` fixes this. These two tests exercise it through the real
 // compiled addon (not brain-core's own Rust-level tests of the same
@@ -939,7 +939,7 @@ test("Simulation.reward measurably changes a plasticity outcome through the real
   // and `zero_modulator_leaves_weight_unchanged_despite_spiking` combined:
   // a synapse starting well below the downstream threshold is driven
   // through many causal pre-then-post rounds. With reward active, STDP
-  // potentiates its *weight* (README §12's weight/permanence split,
+  // potentiates its *weight* (docs/decisions.md's weight/permanence split,
   // 2026-09-13) until a *single* later delivery is enough to cross
   // threshold on its own; with reward never injected (modulator stays at
   // its zero baseline), weight never moves, so that later delivery never
@@ -961,7 +961,7 @@ test("Simulation.reward measurably changes a plasticity outcome through the real
   function trainThenProbe(withReward: boolean): boolean {
     const sim = Simulation.create(lif, options);
     // 0.1: a single delivery at the *initial* weight (0.3, seeded from
-    // `connect`'s permanence argument -- README §12's split) lands well
+    // `connect`'s permanence argument -- docs/decisions.md's split) lands well
     // below this (LIF's single-tick delivery gain is `1 - exp(-1/tauM)`,
     // measured at ~0.18 here, so 0.3 weight delivers ~0.054 -- see the
     // debug run this threshold was picked from), but a delivery at the
@@ -1253,7 +1253,7 @@ test("Simulation synapse bulk views expose a connected synapse's real data, and 
   assert.equal(sim.synapseTargetNeuronView()[synId], b);
   assert.equal(sim.synapseTargetSegmentView()[synId], 3);
   assert.equal(sim.synapsePermanenceView()[synId], Math.fround(0.75));
-  // README §12's weight/permanence split (2026-09-13): `connect` seeds
+  // docs/decisions.md's weight/permanence split (2026-09-13): `connect` seeds
   // weight from the same value as permanence, so ordinary wiring's initial
   // dynamics are unaffected by the split.
   assert.equal(sim.synapseWeightView()[synId], Math.fround(0.75));

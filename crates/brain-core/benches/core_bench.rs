@@ -1,11 +1,11 @@
 //! Criterion benchmarks (Req 15.2, ENG-11). `bench_version` is Step 1's
 //! original wiring stub; `rayon_vs_pinned_pool` is Phase 4 Step 18's
-//! resolution of README §12a's open question 2 (rayon's work-stealing
+//! resolution of docs/open-questions.md's open question 2 (rayon's work-stealing
 //! scheduler vs. a hand-rolled `std::thread::scope`-based pool) --
 //! whichever wins on this workload's actual access pattern (long-lived
 //! partitions, short per-tick bursts of work) becomes `PartitionRuntime`'s
 //! documented default; the numbers this group reports are what the
-//! decision is based on, recorded in README §12a once measured, not
+//! decision is based on, recorded in docs/open-questions.md once measured, not
 //! predicted in this file's comments.
 
 use brain_core::arena::NeuronArena;
@@ -88,7 +88,7 @@ fn stimulate_tick(total_neurons: u32, tick: u32) -> (u32, f32) {
     (neuron, current)
 }
 
-/// Requirement 10, Acceptance Criterion 5 / §12a open question 2: rayon
+/// Requirement 10, Acceptance Criterion 5 / docs/open-questions.md open question 2: rayon
 /// (`PartitionRuntime::with_thread_count`) vs. the hand-rolled
 /// `std::thread::scope`-based pool (`with_pinned_thread_count`), at
 /// matched partition/thread counts, on the identical network and
@@ -257,12 +257,12 @@ fn count_synaptic_events(topology: &str, total_neurons: u32) -> u64 {
 /// a column-free flat network and a column-built one, at thread counts
 /// 1/2/4/8 and this machine's available parallelism -- checking ENG-11's
 /// events-per-second-per-core target (at least one million) against a real,
-/// reported number (§12a open question 1) rather than an assumption.
+/// reported number (docs/open-questions.md open question 1) rather than an assumption.
 /// `sample_size(10)` (the minimum criterion allows) bounds total runtime:
 /// Requirement 10 AC6 only needs this to *run correctly* in CI, not to
 /// produce production-scale numbers there -- the numbers this reports when
 /// run locally with a real time budget are what get recorded in README
-/// §12a.
+/// docs/open-questions.md.
 fn bench_synaptic_events_per_second(c: &mut Criterion) {
     let mut group = c.benchmark_group("synaptic_events_per_second");
     group.sample_size(10);
@@ -360,7 +360,7 @@ const LOCALITY_DRIVEN_SUBSET_SIZE: u32 = 10;
 const LOCALITY_K: u32 = LOCALITY_DRIVEN_SUBSET_SIZE;
 /// 32 columns x `scale_common::SCALE_COLUMN_SIZE` (200) = 6,400 neurons --
 /// exactly double `COLUMN_COUNT * COLUMN_SIZE`'s existing 3,200-neuron
-/// benchmark, the scale README §12a item 1 flagged as too small for
+/// benchmark, the scale docs/open-questions.md item 1 flagged as too small for
 /// `PartitionRuntime`'s fixed per-tick bookkeeping to be amortised against
 /// enough real per-neuron work. `scale_common::build_scale_columns`'s
 /// per-column (not whole-network) `connect` calls keep construction cost
@@ -448,7 +448,7 @@ fn count_locality_realistic_synaptic_events(total_neurons: u32) -> u64 {
 /// Requirement 1(c): synaptic events/second/core against ENG-11's
 /// at-least-1M target, on Requirement 1(a)/(b)'s real, locality-realistic,
 /// emergent-behaviour-validated topology at `LOCALITY_COLUMN_COUNT`
-/// columns -- the throughput benchmark Phase 4 deferred and §12a item 1
+/// columns -- the throughput benchmark Phase 4 deferred and docs/open-questions.md item 1
 /// flagged as still open, closed here with a topology that actually has
 /// locality rather than `tests/scale.rs`'s ring-wiring memory-only stand-in.
 fn bench_locality_realistic_synaptic_events_per_second(c: &mut Criterion) {

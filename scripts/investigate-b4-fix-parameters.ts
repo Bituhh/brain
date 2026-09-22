@@ -1,5 +1,5 @@
-// PLAN.md B4's confirming experiments, second pass (README §12 decision 12,
-// §13.12 item 10). Builds on, and does not repeat,
+// PLAN.md B4's confirming experiments, second pass (docs/decisions.md decision 12,
+// docs/findings.md finding 10). Builds on, and does not repeat,
 // scripts/investigate-structural-plasticity-drag.ts (control 6.40%,
 // sprout-disabled 16.51%, prune-floor-raised 1.78%). The first pass of this
 // script measured a superseded design; its results are kept in
@@ -249,7 +249,7 @@ function note(text: string): void {
 writeFileSync(
   RESULTS_PATH,
   "# B4 fix-parameter sweep -- second pass\n\n" +
-    `Generated ${new Date().toISOString()} by scripts/investigate-b4-fix-parameters.ts. See that script's header for the design, stages and selection rule, and README §12 decision 12 / §13.12 item 10 for what the results mean. 5-seed official protocol (seeds 1-5, 15,000-character slice). Reference points from investigate-structural-plasticity-drag.ts: condition C control 6.40%, sprout disabled 16.51%, condition A (no structural plasticity) 17.37%.\n`,
+    `Generated ${new Date().toISOString()} by scripts/investigate-b4-fix-parameters.ts. See that script's header for the design, stages and selection rule, and docs/decisions.md decision 12 / docs/findings.md finding 10 for what the results mean. 5-seed official protocol (seeds 1-5, 15,000-character slice). Reference points from investigate-structural-plasticity-drag.ts: condition C control 6.40%, sprout disabled 16.51%, condition A (no structural plasticity) 17.37%.\n`,
 );
 
 const s01 = await run("Stages 0-2 (sanity; each fix alone with weights frozen; STDP settings on condition A)", [

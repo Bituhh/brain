@@ -79,7 +79,7 @@ impl ProbeOptions {
 }
 
 /// One weight sample: which synapse, and its permanence and weight at the
-/// tick this was recorded (README §12's weight/permanence split,
+/// tick this was recorded (docs/decisions.md's weight/permanence split,
 /// 2026-09-13) -- both fields, since a probe watching a synapse's history
 /// wants to see structural connectivity and efficacy independently.
 #[derive(Clone, Copy, Debug, PartialEq)]

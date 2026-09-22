@@ -1,5 +1,5 @@
 //! Whole-network VAL-9 ablation test for PLAN.md B5's weighted dendritic
-//! votes (README §12 decision 13, requirements.md Requirement 10.2).
+//! votes (docs/decisions.md decision 13, requirements.md Requirement 10.2).
 //!
 //! The scenario design.md names directly: a `target` neuron whose segment 0
 //! has an *established* context synapse (full weight, at/above the
@@ -14,7 +14,7 @@
 //! weight now gates influence, not just connection. Count mode is the
 //! ablation: switching `DendriticVote::Count` back on lets the *same*
 //! distractor synapse complete the *same* coincidence, because count mode
-//! contributes a fixed ±1 regardless of weight (README §13.12 item 11a).
+//! contributes a fixed ±1 regardless of weight (docs/findings.md finding 11a).
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::neuron::{Lif, LifParams};
@@ -23,7 +23,7 @@ use brain_core::segment::{BinaryCoincidenceParams, DendriticVote, SegmentConfig}
 use brain_core::synapse::SynapseArena;
 
 const REFERENCE_WEIGHT: f32 = 0.8;
-/// B4's convention for a freshly sprouted, unproven contact (README §12
+/// B4's convention for a freshly sprouted, unproven contact (docs/decisions.md
 /// decision 12's `sprout_weight`) -- near zero, far below `REFERENCE_WEIGHT`.
 const DISTRACTOR_WEIGHT: f32 = 0.05;
 /// An established synapse STDP has already strengthened to (at or above)
@@ -72,7 +72,7 @@ fn weighted_mode_a_distractor_synapse_alone_cannot_complete_the_coincidence_an_e
 /// VAL-9's "disable it, assert the property fails": the exact same
 /// distractor synapse, at the exact same weight, against the exact same
 /// threshold -- only the vote mode changes. Count mode contributes a fixed
-/// ±1 per delivery regardless of weight (README §13.12 item 11a), so the
+/// ±1 per delivery regardless of weight (docs/findings.md finding 11a), so the
 /// property above does not hold here.
 #[test]
 fn ablation_count_mode_lets_the_same_distractor_synapse_complete_the_coincidence() {

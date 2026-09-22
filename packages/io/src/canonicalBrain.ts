@@ -4,8 +4,7 @@
 // network from a config object that hand-picks which mechanisms to switch
 // on, runs it, and throws it away -- the shape of a training run, which
 // README §1.1 explicitly rejects. Worse, it is a diagnostic blind spot:
-// paths nobody picks are never exercised. That is exactly how README
-// §13.12 items 11 and 13 happened -- a segment-sign bug that only bites
+// paths nobody picks are never exercised. That is exactly how docs/findings.md finding 11 and 13 happened -- a segment-sign bug that only bites
 // once a synapse is actually inhibitory, a consolidation path with zero
 // callers, and three neuromodulator channels with no producer or consumer
 // anywhere in the tree. This module is the one place every mechanism
@@ -16,7 +15,7 @@
 // existed before this -- with three deliberate departures, all explained
 // below rather than silently copied or silently "fixed":
 //
-// 1. `excitatoryFraction` stays `1.0` here too. README §13.12 item 11
+// 1. `excitatoryFraction` stays `1.0` here too. docs/findings.md finding 11
 //    documents a real, open segment-sign bug (an inhibitory synapse
 //    currently counts as evidence *for* a dendritic prediction) and a
 //    homeostatic-scaling bug (mixing excitatory and inhibitory weight
@@ -39,7 +38,7 @@
 //    values this constructor now ships -- see `B5_VALUES` below. They stay
 //    implemented, with their own ablation tests in `tests/structural_b4.rs`;
 //    what this module guarantees is that no mechanism is off by *oversight*.
-//    Distinguishing the two is the point: README §13.12 item 13's newest
+//    Distinguishing the two is the point: docs/findings.md finding 13's newest
 //    bullet records this module itself shipping `growth` without
 //    `newbornMaturation` for five days, which was an oversight, and its own
 //    standing test passing anyway because it asserted a counter rather than
@@ -53,7 +52,7 @@
 // `with_intrinsic_homeostasis` and `crates/brain-napi`'s
 // `IntrinsicHomeostasisConfig`: built and unit-tested since Phase 0-3 but,
 // until now, reachable from no caller at all -- the same shape README
-// §13.12 item 13 names for consolidation and three neuromodulator
+// docs/findings.md finding 13 names for consolidation and three neuromodulator
 // channels), per-segment threshold homeostasis, structural plasticity
 // (LRN-7), saturation-driven growth (NET-10) together with newborn-neuron
 // integration (NET-11, PLAN.md B3 -- growth without it allocates neurons
@@ -92,7 +91,7 @@
 import { Simulation, type LifConfig, type SimulationOptions, type ColumnConfig, type ProbeOptions } from "@brain/core";
 import { wrapColumnHandles, type ColumnHandle } from "./columns.ts";
 
-/** README §2.1: "at any moment only ~1-2% of neurons are active." The generic default this constructor targets -- not tuned for any particular task. */
+/** docs/prior-art.md §2.1: "at any moment only ~1-2% of neurons are active." The generic default this constructor targets -- not tuned for any particular task. */
 export const TARGET_SPARSITY = 0.02;
 
 /**
@@ -106,7 +105,7 @@ export const WIDTH = 150;
 const K = Math.max(1, Math.round(WIDTH * TARGET_SPARSITY));
 
 /**
- * PLAN.md C4 (README §12 decision 15): the Euclidean radius LRN-7's sweep
+ * PLAN.md C4 (docs/decisions.md decision 15): the Euclidean radius LRN-7's sweep
  * uses to find sprout candidates, in place of a fixed index block. **On by
  * default** in `canonicalSimulationOptions` below, as of 2026-09-21 — see
  * that field's own comment for the decision and its honest basis.
@@ -139,7 +138,7 @@ const K = Math.max(1, Math.round(WIDTH * TARGET_SPARSITY));
  * margin that is already only two events wide. **60 is the smallest tested
  * radius that costs that margin nothing**, and it delivers the same
  * grown-to-original reachability C4 exists for (13 synapses at radius 40,
- * 13 at 60). README §13.12 item 17 has the full account.
+ * 13 at 60). docs/findings.md finding 17 has the full account.
  */
 export const SPROUT_REACH_RADIUS = 60;
 
@@ -160,7 +159,7 @@ export const SPROUT_REACH_RADIUS = 60;
 export const BURST_SPROUT_REACH_RADIUS = 10;
 
 /**
- * PLAN.md B5's values (README §12 decision 13), the winner of
+ * PLAN.md B5's values (docs/decisions.md decision 13), the winner of
  * `scripts/tune-b5-values.ts`'s search on VAL-4 condition C (results in
  * `scripts/tune-b5-values.results.md`), which replace B4's (decision 12).
  * Adopted under the clear-win rule: on the five confirmation seeds the
@@ -219,10 +218,10 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
     synapseCapPerNeuron: WIDTH,
     // NET-2
     inhibition: { neighbourhoodSize: WIDTH, k: K },
-    // NEU-5/6, with PLAN.md B5's weighted votes (README §12 decision 13).
+    // NEU-5/6, with PLAN.md B5's weighted votes (docs/decisions.md decision 13).
     // Value: see `B5_VALUES` above.
     segments: { segmentsPerNeuron: 2, coincidenceThreshold: 3, voteReferenceWeight: B5_VALUES.voteReferenceWeight },
-    // PLAN.md B4 fix 1 (README §12 decision 12), switched off by B5: silence
+    // PLAN.md B4 fix 1 (docs/decisions.md decision 12), switched off by B5: silence
     // is tracked but a silent sprout still transmits, at its own weight.
     // Values: see `B5_VALUES` above.
     silentSynapses: { unsilenceWeight: B5_VALUES.unsilenceWeight, silentTransmits: B5_VALUES.silentTransmits },
@@ -236,7 +235,7 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       // right now. Dopamine's role in the literature this repo cites is
       // synaptic tagging and capture (Redondo & Morris 2011): gating whether
       // an early-LTP tag is converted into a lasting change, which against
-      // README §12's weight/permanence split is *permanence*. Routing dopamine
+      // docs/decisions.md's weight/permanence split is *permanence*. Routing dopamine
       // onto a weight-writing rule is the inverse of "permanently reinforced",
       // and `.claude/scratch/neuromodulators/investigation.md` §3.3 flags it
       // as a latent trap. Until C3 it was harmless, because dopamine had no
@@ -244,7 +243,7 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       // producer is exactly what makes it stop being harmless.
       //
       // Acetylcholine is the defensible destination rather than an arbitrary
-      // one: it is attention/uncertainty (README §2.5), it has had a real
+      // one: it is attention/uncertainty (docs/prior-art.md §2.5), it has had a real
       // producer since C2 (`predictionErrorCoupling.expected` below), and it
       // is what the shipped VAL-4 configuration has always routed this rule on
       // (`char-prediction.slow.test.ts`, where it is held at a constant 1.0).
@@ -257,7 +256,7 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       // mechanism is off by *oversight*, and distinguishing the two is the
       // point (see this file's doc comment).
       gainModulatorChannel: 2, // NORADRENALINE
-      // PLAN.md C6 (README §12 decision 17): noradrenaline CAN widen this rule's
+      // PLAN.md C6 (docs/decisions.md decision 17): noradrenaline CAN widen this rule's
       // timing window (`stdpModulation`, a joint tau/window map on channel 2),
       // and it is deliberately NOT set here -- a decision, not an oversight,
       // which this module's contract requires saying. Measured on this fixture's
@@ -272,14 +271,14 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       // exercised where surprise exists: `tests/prediction_error_coupling.rs`'s
       // contingency switch.
       //
-      // PLAN.md C7 (README §12 decision 18): acetylcholine CAN set this rule's
+      // PLAN.md C7 (docs/decisions.md decision 18): acetylcholine CAN set this rule's
       // LTP/LTD ratio (an `aPlus` map on channel 1 whose floor lets a causal
       // pairing invert into depression), and it is deliberately NOT set here
       // either. On VAL-4 every configuration of it collapsed accuracy to
       // 0.5-7% -- the never-inverting twin and low dose included, and with the
       // loop opened -- because expected uncertainty is high for the first third
       // of every run and suppressing causal LTP then is a deficit the run never
-      // repairs (README §13.12 item 20). It also needs this rule's cash-in off
+      // repairs (docs/findings.md finding 20). It also needs this rule's cash-in off
       // acetylcholine (`modulatorChannel` above) to be the configuration the
       // biology describes, which would change what every other mechanism here
       // runs under. Exercised where it is proven:
@@ -288,7 +287,7 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
     },
     // LRN-6. Target chosen from this column's own wiring: ~p0*WIDTH ≈ 15
     // incoming synapses per neuron at initialPermanence 0.4 (which also
-    // seeds initial weight -- README §12's weight/permanence split,
+    // seeds initial weight -- docs/decisions.md's weight/permanence split,
     // 2026-09-13) is a total incoming weight around 6 -- the scaling
     // target sits at that scale rather than an arbitrary one.
     homeostaticScaling: { targetTotalWeight: 6.0, intervalTicks: 50 },
@@ -298,7 +297,7 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
     // surface until this constructor's own review added one).
     intrinsicHomeostasis: { targetRate: TARGET_SPARSITY, smoothing: 0.9, adjustmentRate: 0.05, minThreshold: 0.1, intervalTicks: 50 },
     // Per-segment threshold homeostasis. Also a live default, not a copy of
-    // README §13.12 item 7's VAL-4-tuned `targetRate: 0.99` -- that value
+    // docs/findings.md finding 7's VAL-4-tuned `targetRate: 0.99` -- that value
     // was converged against charPrediction's specific candidate-decode
     // task and copying it here would misleadingly imply this generic
     // network inherited that tuning, which it has not.
@@ -309,7 +308,7 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
     // much larger scale.
     structuralPlasticity: {
       pruneFloor: 0.05,
-      // README §12's weight/permanence split (2026-09-13): a new sprout
+      // docs/decisions.md's weight/permanence split (2026-09-13): a new sprout
       // now starts structurally connected (permanence at/above
       // connectionThreshold, 0.3) with a separate, near-zero sproutWeight
       // -- the "silent synapse" pattern that dissolves the NET-10
@@ -323,13 +322,13 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       minCrossPartitionDelay: 2,
       neighbourhoodSize: WIDTH,
       k: 5,
-      // PLAN.md B4 fixes 2 and 3 (README §12 decision 12) at B5's values;
+      // PLAN.md B4 fixes 2 and 3 (docs/decisions.md decision 12) at B5's values;
       // fix 4 (silent elimination) off. See `B5_VALUES` above.
       minTemporalGapTicks: B5_VALUES.minTemporalGapTicks,
       maxTemporalGapTicks: B5_VALUES.maxTemporalGapTicks,
       spreadSproutSegments: B5_VALUES.spreadSproutSegments,
       seed,
-      // PLAN.md C4 (README §12 decision 15), **on by default as of
+      // PLAN.md C4 (docs/decisions.md decision 15), **on by default as of
       // 2026-09-21, and the basis for that is worth stating precisely
       // because it is not "it measured better".**
       //
@@ -340,7 +339,7 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       // original. Grown capacity could listen to the population and speak
       // only to its fellow newborns -- measured on the real 800-neuron
       // VAL-4 network as 33,104 synapses received and exactly **zero**
-      // sent (README §13.12 item 10). With a radius it sends 15,822.
+      // sent (docs/findings.md finding 10). With a radius it sends 15,822.
       //
       // What it does NOT do is improve VAL-4. Across three radii and two
       // seed sets it is a wash: the +0.81 points that looked like a win on
@@ -351,7 +350,7 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       // better-founded topology than construction-order-as-topology, which
       // `inhibition.rs`'s own module docs already name as the thing to move
       // away from. That is a judgement about foundations, not a measured
-      // improvement, and §13.12 item 17 records it as one.
+      // improvement, and docs/findings.md finding 17 records it as one.
       //
       // Note this changes nothing about VAL-4's reported figures: the
       // pinned 0.1650/0.2036 regressions hardcode their own frozen replicas
@@ -383,7 +382,7 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
     },
     // PLAN.md B3 (NET-10/NET-11), added 2026-09-19: without this, `growth`
     // above allocates neurons with zero synapses that can never receive
-    // current and never fire -- the deadlock README §13.12 item 10 spent
+    // current and never fire -- the deadlock docs/findings.md finding 10 spent
     // three items diagnosing. This constructor was written (A1, 2026-09-13)
     // the day before `newbornMaturation` existed and was never revisited,
     // so it grew inert neurons and its own test only checked the counter
@@ -414,7 +413,7 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       reinforceAmount: 0.08,
       punishAmount: 0.05,
       burstTargetSegment: 0,
-      // README §12's split: same above-threshold/near-zero-weight
+      // docs/decisions.md's split: same above-threshold/near-zero-weight
       // treatment as structuralPlasticity's own sproutPermanence/
       // sproutWeight above.
       burstSproutPermanence: 0.35,
@@ -467,7 +466,7 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       unexpected: { channel: 2 /* NORADRENALINE */, baseline: 1.0, gain: 1.0, maxLevel: 4.0 },
       expected: { channel: 1 /* ACETYLCHOLINE */, baseline: 1.0, gain: 1.0, maxLevel: 4.0 },
     },
-    // PLAN.md C3 (LRN-4, LRN-11, README §2.5): the channel that had no
+    // PLAN.md C3 (LRN-4, LRN-11, docs/prior-art.md §2.5): the channel that had no
     // producer at all before it, and whose absence left BOTH modulated rules
     // above multiplying by exactly zero.
     //
@@ -523,7 +522,7 @@ export function buildCanonicalBrain(seed: bigint): { sim: Simulation; column: Co
 }
 
 /**
- * PLAN.md C4 (README §12 decision 15): reverts LRN-7's sweep to NET-2's
+ * PLAN.md C4 (docs/decisions.md decision 15): reverts LRN-7's sweep to NET-2's
  * **index-block** grouping, undoing the `sproutReachRadius` that
  * `canonicalSimulationOptions` now sets by default.
  *
@@ -532,7 +531,7 @@ export function buildCanonicalBrain(seed: bigint): { sim: Simulation; column: Co
  * exists to deliver — a grown neuron sending a synapse to a neuron in the
  * *original* population — must hold under the default and **fail** under
  * this, or "it works" is an untested claim (README §10's ablation
- * discipline, and §13.12 item 13's standing lesson about asserting a
+ * discipline, and docs/findings.md finding 13's standing lesson about asserting a
  * counter instead of a mechanism). Measured on this fixture: **82** such
  * synapses by default, **0** under this.
  *
@@ -555,7 +554,7 @@ export function withIndexBlockSproutReach(options: SimulationOptions): Simulatio
  * as well, which `canonicalSimulationOptions` deliberately leaves on index
  * blocks.
  *
- * §13.12 item 10 measured *both* sprout paths as blocked, so the burst path
+ * docs/findings.md finding 10 measured *both* sprout paths as blocked, so the burst path
  * genuinely needs this too — with it, this fixture's grown-to-original count
  * rises from 13 to 82. It is not on by default because the 2026-09-21
  * decision to adopt spatial reach rests on a VAL-4 measurement of the

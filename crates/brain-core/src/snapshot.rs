@@ -35,7 +35,7 @@
 //!
 //! **No persistent RNG state exists yet to snapshot.** `rng::derive_stream`
 //! is stateless -- every draw constructs and immediately discards a fresh
-//! `Pcg32` from `(base_seed, entity_id, purpose, tick)` (README §12
+//! `Pcg32` from `(base_seed, entity_id, purpose, tick)` (docs/decisions.md
 //! decision 7) -- so there is no scheduler- or graph-owned generator
 //! whose internal state persists across ticks. `base_seed` itself is
 //! configuration (needed again if, say, Step 9's growth policy draws
@@ -58,10 +58,10 @@ use crate::segment::{BinaryCoincidenceParams, DendriticVote, SegmentConfig};
 use crate::synapse::{SynapseArena, NOT_SILENT};
 
 const MAGIC: [u8; 6] = *b"BRAIN\0";
-/// Bumped 8 -> 9 (README §12's weight/permanence split, 2026-09-13, PLAN.md
+/// Bumped 8 -> 9 (docs/decisions.md's weight/permanence split, 2026-09-13, PLAN.md
 /// item B1) to add a per-synapse weight section: `SynapseArena` gained a
 /// `weight: Vec<f32>` field distinct from `permanence` (SYN-3's structural
-/// gate stays permanence; §2.5's efficacy, what STDP/homeostatic
+/// gate stays permanence; docs/prior-art.md §2.5's efficacy, what STDP/homeostatic
 /// scaling/predictive learning now move, is weight). Follows the version
 /// 7 -> 8 growth-state section's precedent for *why* this is a new trailing
 /// section rather than an inline addition to `write_synapses`'s fixed
@@ -95,7 +95,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 ///
 /// Bumped 6 -> 7 (NET-10 saturation-driven growth, invariant 10) to add a
 /// growth-policy-state section: `GrowthPolicy::raw_state()`'s `hits`/
-/// `total`/`last_grown_at`, the module doc's own §12 decision 7 comment
+/// `total`/`last_grown_at`, the module doc's own docs/decisions.md decision 7 comment
 /// anticipated ("if a future component... introduces a genuinely
 /// persistent generator, its state will need a section here"). Unlike
 /// every prior bump, this state is not addressed by neuron/segment index --
@@ -117,7 +117,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// three new arrays empty for those, exactly what a fresh `Scheduler`
 /// already starts with.
 ///
-/// Bumped 4 -> 5 on 2026-09-11 (README §12a item 6) to add a
+/// Bumped 4 -> 5 on 2026-09-11 (docs/decisions.md decision 22) to add a
 /// dendritic-coincidence-window state section. This closes the item's own
 /// named cost of deferring the fix: "`segment_counts` is within-tick
 /// scratch and therefore not snapshotted, so making it decay turns it into
@@ -131,7 +131,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// `Scheduler` already starts with.
 ///
 /// Bumped 9 -> 10 in PLAN.md item B3 to add a newborn-maturation section
-/// (NET-10/NET-11, README §13.12 item 10). `NewbornMaturation`'s per-neuron
+/// (NET-10/NET-11, docs/findings.md finding 10). `NewbornMaturation`'s per-neuron
 /// `birth_tick`/`mature_threshold` is new, genuinely evolving state -- the
 /// same "not configuration, a decaying/plasticity-relevant value" shape
 /// `adaptation` was in version 4 -- so it is a new trailing section,
@@ -176,7 +176,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// Phase 0-3 to Phase 4; the round-trip mechanism itself (this module) was
 /// already in scope then and is unchanged in its v1 shape.
 ///
-/// Bumped 10 -> 11 (PLAN.md B4, README §12 decision 12) to add a
+/// Bumped 10 -> 11 (PLAN.md B4, docs/decisions.md decision 12) to add a
 /// per-synapse `silent_since` section, following the `weight` section's own
 /// version-9 precedent exactly: a new trailing section rather than an
 /// inline field, so the un-versioned synapse block's byte layout stays
@@ -194,7 +194,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// No real writer ever emitted trailing bytes for its own version, so no
 /// snapshot that restored before this change stops restoring now.
 ///
-/// Bumped 11 -> 12 (PLAN.md B5, README §12 decision 13) to add each
+/// Bumped 11 -> 12 (PLAN.md B5, docs/decisions.md decision 13) to add each
 /// column's dendritic vote mode: a new trailing section
 /// (`write_column_votes`/`read_column_votes`), one `(u8 tag, f32
 /// reference_weight)` pair per column in registration order, rather than an
@@ -492,7 +492,7 @@ fn read_adaptation(r: &mut Reader<'_>, count: usize) -> Result<Vec<f32>, Snapsho
     Ok(adaptation)
 }
 
-/// New in format version 5 (README §12a item 6, settled 2026-09-11): the
+/// New in format version 5 (docs/decisions.md decision 22, settled 2026-09-11): the
 /// dendritic coincidence window's decaying per-segment state
 /// (`Scheduler::segment_coincidence_raw_state`). Unlike `adaptation`
 /// above, this is not one entry per neuron -- it is sized to whatever
@@ -829,7 +829,7 @@ fn read_synapses(r: &mut Reader<'_>) -> Result<SynapseArena, SnapshotError> {
         let eligibility_updated_at = r.u32()?;
         // `weight` defaults to `permanence` here -- the correct value for
         // every payload with no weight section of its own (version <= 8,
-        // before README §12's split existed), and the base a version-9
+        // before docs/decisions.md's split existed), and the base a version-9
         // payload's own weight section (see `read_synapse_weights`)
         // overwrites afterward.
         // `silent_since` defaults to `NOT_SILENT` here -- the reading every
@@ -843,7 +843,7 @@ fn read_synapses(r: &mut Reader<'_>) -> Result<SynapseArena, SnapshotError> {
     Ok(synapses)
 }
 
-/// New in format version 9 (README §12's weight/permanence split,
+/// New in format version 9 (docs/decisions.md's weight/permanence split,
 /// 2026-09-13, PLAN.md item B1): each occupied synapse's `weight`, keyed by
 /// id exactly like `write_synapses`'s own per-occupied-synapse block, but
 /// as its own trailing section so that block's byte layout stays
@@ -879,7 +879,7 @@ fn read_synapse_weights(r: &mut Reader<'_>, synapses: &mut SynapseArena) -> Resu
     Ok(())
 }
 
-/// New in format version 11 (PLAN.md B4, README §12 decision 12): each
+/// New in format version 11 (PLAN.md B4, docs/decisions.md decision 12): each
 /// occupied synapse's `silent_since`, same shape as [`write_synapse_weights`]
 /// exactly -- its own trailing section, recomputing the occupied-id list
 /// rather than threading it through.
@@ -961,7 +961,7 @@ fn read_columns(r: &mut Reader<'_>) -> Result<ColumnRegistry, SnapshotError> {
     Ok(registry)
 }
 
-/// New in format version 12 (PLAN.md B5, README §12 decision 13): each
+/// New in format version 12 (PLAN.md B5, docs/decisions.md decision 13): each
 /// column's [`DendriticVote`], written in the same order `write_columns`
 /// wrote (and `read_columns` will register) its columns -- a trailing
 /// section, not an in-place edit of `write_columns`'s block, per that
@@ -1116,7 +1116,7 @@ pub struct Restored {
     /// same zeroed defaults anyway.
     pub modulator_levels: Modulators,
     pub modulator_last_updated_at: u32,
-    /// New in format version 5 (README §12a item 6). Empty when restoring
+    /// New in format version 5 (docs/decisions.md decision 22). Empty when restoring
     /// a version 1-4 snapshot -- exactly what a fresh `Scheduler` already
     /// starts with, and behaviourally identical to any other value at the
     /// default `segment_count_decay_per_tick == 0.0` regardless (see
@@ -1237,7 +1237,7 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
 
     // Format versions 1-4 have no coincidence-window section -- the only
     // sound migration is "empty," exactly what a fresh `Scheduler` already
-    // starts with (README §12a item 6).
+    // starts with (docs/decisions.md decision 22).
     let (segment_counts, segment_last_touched_tick) = if header.version >= 5 { read_segment_coincidence_state(&mut r)? } else { (Vec::new(), Vec::new()) };
 
     // Format versions 1-5 have no segment-threshold-homeostasis section --
@@ -1260,7 +1260,7 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
 
     // Format versions 1-8 have no weight section -- `read_synapses` above
     // already defaulted every occupied synapse's weight to its permanence,
-    // the only sound migration (README §12's split, PLAN.md item B1).
+    // the only sound migration (docs/decisions.md's split, PLAN.md item B1).
     if header.version >= 9 {
         read_synapse_weights(&mut r, &mut synapses)?;
     }
@@ -1483,7 +1483,7 @@ mod tests {
         let restored = read(&bytes, 1).unwrap();
 
         assert_eq!(restored.synapses.permanence[0], synapses.permanence[0]);
-        assert_eq!(restored.synapses.weight[0], 0.33, "weight must round-trip independently of permanence (README §12's split)");
+        assert_eq!(restored.synapses.weight[0], 0.33, "weight must round-trip independently of permanence (docs/decisions.md's split)");
         assert_eq!(restored.synapses.eligibility[0], 0.77);
         assert_eq!(restored.synapses.target_neuron[0], synapses.target_neuron[0]);
         assert_eq!(restored.synapses.incoming(1).count(), 1, "target-index must be reconstructed on restore");
@@ -1677,7 +1677,7 @@ mod tests {
         assert_eq!(interrupted_trace, uninterrupted_trace, "sanity: the interrupted run's own live trace must match uninterrupted (same seed/inputs throughout)");
     }
 
-    /// README §12a item 6 / RUN-9a: a caller who opts into
+    /// docs/decisions.md decision 22 / RUN-9a: a caller who opts into
     /// `with_segment_coincidence_window` has genuine cross-tick decaying
     /// state now, so a snapshot taken mid-decay (a real, non-zero,
     /// below-threshold residual) must restore and continue bit-identically
@@ -1932,7 +1932,7 @@ mod tests {
 
     /// A version-8 (pre-this-fix) payload has no weight section at all --
     /// `read` must derive `weight` from `permanence` for every occupied
-    /// synapse, the migration README §12's split (2026-09-13, PLAN.md item
+    /// synapse, the migration docs/decisions.md's split (2026-09-13, PLAN.md item
     /// B1) specifies: the same numeric value `deliver` transmitted before
     /// the split existed, so a restored pre-9 snapshot's immediate dynamics
     /// are unchanged.

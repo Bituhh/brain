@@ -29,7 +29,7 @@ const NEURON_COUNT: u32 = 1200;
 const BLOCK_SIZE: u32 = 100;
 /// Matched to `BLOCK_SIZE`'s own grouping: on the unit-spaced line
 /// `buildColumns` produces, a radius of 50 reaches 101 neurons against a
-/// block's 100 (README §12 decision 15).
+/// block's 100 (docs/decisions.md decision 15).
 const RADIUS: f32 = 50.0;
 
 fn params() -> StructuralPlasticityParams {

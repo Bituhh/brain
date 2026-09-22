@@ -91,7 +91,7 @@ test("growth/structuralPlasticity omitted leaves the network deterministic (RUN-
     },
     structuralPlasticity: {
       pruneFloor: 0.05,
-      // README §12's weight/permanence split (2026-09-13): structurally
+      // docs/decisions.md's weight/permanence split (2026-09-13): structurally
       // connected from birth (at/above connectionThreshold, 0.3), near-zero
       // sproutWeight -- the "silent synapse" pattern.
       sproutPermanence: 0.35,
@@ -217,7 +217,7 @@ test("B5's config options (voteReferenceWeight, predictiveLearningTarget, homeos
 
   // Homeostatic scaling moves weight only, and every internal synapse here
   // sits on a dendritic segment, so in count mode it cannot reach the
-  // dynamics at all (README §12 decision 12's finding for STDP, which has
+  // dynamics at all (docs/decisions.md decision 12's finding for STDP, which has
   // the same path). Weighted votes give it one.
   const scaling = { homeostaticScaling: { targetTotalWeight: 2.0, intervalTicks: 20 } };
   assert.deepEqual(runCharPredictionTrial(corpus, 1n, { ...config, ...scaling }), baselineA, "in count mode, homeostatic scaling must have no effect");
@@ -229,10 +229,10 @@ test("B5's config options (voteReferenceWeight, predictiveLearningTarget, homeos
   );
 });
 
-// PLAN.md C1: the consolidation cadence (LRN-10, README §2.9) must reach
+// PLAN.md C1: the consolidation cadence (LRN-10, docs/prior-art.md §2.9) must reach
 // the native `runConsolidation` path and do something to the network --
 // not merely be present in the config. Written deliberately against the
-// *mechanism* rather than a counter, per README §13.12 item 13's closing
+// *mechanism* rather than a counter, per docs/findings.md finding 13's closing
 // lesson (`canonicalBrain.ts` shipped `growth` without `newbornMaturation`
 // for five days behind a test that asserted `growthEventCount()` moved).
 test("a consolidation cadence sleeps on schedule, replays real events, prunes real synapses, and is inert when it never fires (PLAN.md C1)", () => {

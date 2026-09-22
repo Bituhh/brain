@@ -114,7 +114,7 @@ pub enum StdpModulationError {
 /// `StdpParams` keeps meaning "the resting curve" and the biology's own
 /// framing -- a change *from* the curve without the modulator -- is what is
 /// configured. At `level == reference` the scale is exactly 1.0. See
-/// `.claude/scratch/neuromodulators/c5-design.md` §2.
+/// `.claude/scratch/neuromodulators/c5-design.md` docs/prior-art.md §2.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LevelMap {
     /// Which of `Modulators`' channels drives this quantity (LRN-5).
@@ -175,7 +175,7 @@ impl LevelMap {
 /// an amplitude scale is *how much a pairing counts*, a tau scale is *how long
 /// its credit lasts* (and changes the kernel's area, not just its width), a
 /// window scale is *which pairings count at all*. See
-/// `.claude/scratch/neuromodulators/c5-design.md` §2.
+/// `.claude/scratch/neuromodulators/c5-design.md` docs/prior-art.md §2.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct StdpModulation {
     a_plus: Option<LevelMap>,

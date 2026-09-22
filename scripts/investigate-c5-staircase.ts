@@ -20,7 +20,7 @@
 //   (c) it is continuous, or chaotic           -> both DIFFER, and the aggregate is smooth or noisy
 // An accuracy or a count cannot tell (a) from (b); a hash can.
 //
-// THE GATED RULE MUST DEMONSTRABLY FIRE. C4's lesson (README §13.12 item 17): an
+// THE GATED RULE MUST DEMONSTRABLY FIRE. C4's lesson (docs/findings.md finding 17): an
 // end-of-run reading of an instantaneous quantity cannot answer "did it ever
 // happen". Every trial records `predictionOutcomeTotals()` accumulated over EVERY
 // step, and the report states `classifiedAsPredicted` per sweep -- those are the
@@ -319,7 +319,7 @@ function statsFor(rows: readonly Row[], seed: bigint): SweepStats | undefined {
 const out: string[] = [];
 out.push(`# PLAN.md C5 task 5 -- is a modulator gain a continuous knob, or a staircase?`);
 out.push(``);
-out.push(`Generated ${new Date().toISOString()}. ${CORPUS_LENGTH} characters per trial, seeds ${SEEDS.join(", ")}, B5's winner as the base (README §12 decision 13).`);
+out.push(`Generated ${new Date().toISOString()}. ${CORPUS_LENGTH} characters per trial, seeds ${SEEDS.join(", ")}, B5's winner as the base (docs/decisions.md decision 13).`);
 out.push(``);
 out.push(`Observables are counts and **bit-exact hashes** of the end state (scripts/c5-observe.ts): \`topology\` hashes the set of connected synapses`);
 out.push(`(permanence >= ${winner.plasticity ? "connectionThreshold" : ""}), \`perm\` every occupied synapse's permanence bits, \`weight\` likewise. Identical hashes mean identical to the synapse.`);

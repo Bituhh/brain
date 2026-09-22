@@ -77,7 +77,7 @@ export type {
  * `learningTarget` field is a plain `string` in the generated bindings (no
  * `napi(string_enum)` on the Rust side), narrowed here to the three values
  * `PredictiveLearningConfig::validate()` actually accepts (PLAN.md B5,
- * README §12 decision 13). Omit for `"permanence"`, today's behaviour.
+ * docs/decisions.md decision 13). Omit for `"permanence"`, today's behaviour.
  */
 export type PredictiveLearningConfig = Omit<NapiPredictiveLearningConfig, "learningTarget"> & {
   learningTarget?: "permanence" | "weight" | "both";
@@ -136,7 +136,7 @@ export interface SimulationOptions {
   /**
    * Homeostatic synaptic scaling (LRN-6). Omit to leave `step()`'s
    * homeostatic sweep disabled -- STDP alone is unstable over long runs
-   * (README §2.5), so a caller relying on "learning is always on"
+   * (docs/prior-art.md §2.5), so a caller relying on "learning is always on"
    * (Requirement 9.2) for anything beyond a short experiment should
    * configure this.
    */
@@ -155,7 +155,7 @@ export interface SimulationOptions {
    * unit-tested since Phase 0-3 but with no FFI surface at all until the
    * canonical-brain-constructor review found it sitting alongside
    * consolidation and three neuromodulator channels as a mechanism with
-   * zero callers (README §13.12 item 13).
+   * zero callers (docs/findings.md finding 13).
    */
   intrinsicHomeostasis?: IntrinsicHomeostasisConfig;
   /**
@@ -196,7 +196,7 @@ export interface SimulationOptions {
    * one -- only feedforward input can ever make a cell fire), placed at
    * their coordinate centroid, and given a temporarily lowered firing
    * threshold that relaxes back to normal over a maturation window: this
-   * is what closes the two locks README §13.12 item 10's 2026-09-14
+   * is what closes the two locks docs/findings.md finding 10's 2026-09-14
    * update found still shut after `weight`/`permanence` split alone
    * (`growth` above). A newborn that never integrates (never fires, or
    * never gains an outgoing synapse) by the end of its maturation window
@@ -208,7 +208,7 @@ export interface SimulationOptions {
    */
   newbornMaturation?: NewbornMaturationConfig;
   /**
-   * Silent synapses (PLAN.md B4, fix 1, README §12 decision 12): a fresh
+   * Silent synapses (PLAN.md B4, fix 1, docs/decisions.md decision 12): a fresh
    * contact made by structural plasticity or burst-sprouting passes no
    * current and casts no dendritic vote until STDP pushes its weight to
    * `unsilenceWeight`. Omit to keep pre-B4 transmission exactly.
@@ -216,7 +216,7 @@ export interface SimulationOptions {
   silentSynapses?: SilentSynapsesConfig;
   /**
    * PLAN.md C2: drives neuromodulator channels from the network's own
-   * prediction error (LRN-5, LRN-8, README §2.5/§2.7). `undefined` (default)
+   * prediction error (LRN-5, LRN-8, docs/prior-art.md §2.5/docs/prior-art.md §2.7). `undefined` (default)
    * leaves every channel exactly as before C2 -- only ever written by an
    * explicit `injectModulator`/`reward` call.
    *
@@ -232,7 +232,7 @@ export interface SimulationOptions {
   predictionErrorCoupling?: PredictionErrorCouplingConfig;
   /**
    * PLAN.md C3: makes {@link Simulation.reward} inject a reward *prediction
-   * error* rather than a raw reward (LRN-4, LRN-11, README §2.5 "dopamine =
+   * error* rather than a raw reward (LRN-4, LRN-11, docs/prior-art.md §2.5 "dopamine =
    * reward prediction error"). `undefined` (default) is every pre-C3
    * behaviour, bit-identically -- `reward(amount)` injects `amount`.
    *
@@ -635,7 +635,7 @@ export class Simulation {
    * C3).** Without it, `amount` is injected as-is -- a *raw reward*, and a
    * network right 90% of the time gets the same burst for an expected success
    * as for a surprising one. With it, `amount` is measured against a running
-   * expectation first, which is what README §2.5's "dopamine = reward
+   * expectation first, which is what docs/prior-art.md §2.5's "dopamine = reward
    * prediction error" actually claims. See
    * {@link SimulationOptions.rewardPredictionError}.
    */
@@ -676,7 +676,7 @@ export class Simulation {
    * `0` (nothing rewarding has happened yet).
    *
    * Observability only. It exists because a producer that cannot be inspected
-   * is how README §13.12 item 13's trap keeps recurring: "the numbers moved"
+   * is how docs/findings.md finding 13's trap keeps recurring: "the numbers moved"
    * is not evidence that the mechanism is what moved them.
    */
   expectedReward(): number {
@@ -787,8 +787,8 @@ export class Simulation {
   }
 
   /**
-   * Zero-copy view over every synapse slot's weight (§2.5's efficacy --
-   * README §12's weight/permanence split, 2026-09-13): how much current a
+   * Zero-copy view over every synapse slot's weight (docs/prior-art.md §2.5's efficacy --
+   * docs/decisions.md's weight/permanence split, 2026-09-13): how much current a
    * *connected* synapse actually passes, independent of
    * `synapsePermanenceView()`'s structural "is this connected" gate.
    */
@@ -951,7 +951,7 @@ export class Simulation {
    * the reinforce/punish path a neuromodulator gates -- ever fire over this
    * run at all". Reading `predictiveView()` at the end of a run cannot
    * answer that, and inferring it from one instant is the specific mistake
-   * README §13.12 item 17 records having made.
+   * docs/findings.md finding 17 records having made.
    *
    * Not part of snapshot state: restarts from zero after a `restore`, like
    * `structuralStats`' totals.

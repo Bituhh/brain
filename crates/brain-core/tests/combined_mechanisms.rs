@@ -1,4 +1,4 @@
-//! Combined-mechanism interaction test (README §13.12 item 2, settled
+//! Combined-mechanism interaction test (docs/findings.md finding 2, settled
 //! 2026-09-11): "the interaction of §4's rules is the hard part, not any
 //! individual rule... neurogenesis, homeostatic scaling and pruning are
 //! three feedback loops on the same quantity." Every existing whole-network
@@ -56,7 +56,7 @@ use brain_core::synapse::SynapseArena;
 const FAN_IN: u32 = 6;
 const CONNECTION_THRESHOLD: f32 = 0.05;
 const PRUNE_FLOOR: f32 = 0.02; // safely below wherever homeostatic scaling parks the fan-in synapses -- see run()'s doc comment
-/// README §12's weight/permanence split (2026-09-13) exposed a pre-existing
+/// docs/decisions.md's weight/permanence split (2026-09-13) exposed a pre-existing
 /// measurement flaw in this test, found while retargeting its homeostasis
 /// probe from permanence to weight: STDP here (`a_plus`/`a_minus` = 0.02,
 /// reward injected every tick) saturates the fan-in group's weight to the
@@ -155,7 +155,7 @@ fn make_plasticity() -> RuleChain {
     RuleChain::new(vec![Box::new(ThreeFactorStdp::new(params))])
 }
 
-/// README §12's weight/permanence split (2026-09-13): `HomeostaticScaling`
+/// docs/decisions.md's weight/permanence split (2026-09-13): `HomeostaticScaling`
 /// and STDP both moved from permanence to weight, so this file's
 /// homeostasis probe -- originally "mean incoming permanence" -- now reads
 /// weight, the field those two mechanisms actually touch. Permanence stays
@@ -378,7 +378,7 @@ fn all_six_mechanisms_remain_individually_effective_when_run_concurrently() {
     );
 }
 
-/// The interaction claim itself (README §13.12 item 2): homeostasis's
+/// The interaction claim itself (docs/findings.md finding 2): homeostasis's
 /// stabilising effect must still be *load-bearing* -- not merely present
 /// but redundant -- when segments, predictive learning, STDP and
 /// structural plasticity are all simultaneously touching the same

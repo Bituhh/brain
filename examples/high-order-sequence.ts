@@ -54,7 +54,7 @@ function halfRange(symbol: number, half: number): number[] {
   return Array.from({ length: HALF_SIZE }, (_, i) => start + i);
 }
 
-/** Deterministic, stateless per-(a,b,c) hash in [0, 1) -- no persistent generator (README §12 decision 7), just a reproducible mix. */
+/** Deterministic, stateless per-(a,b,c) hash in [0, 1) -- no persistent generator (docs/decisions.md decision 7), just a reproducible mix. */
 function hashToUnit(seed: number, a: number, b: number): number {
   let h = BigInt(seed) * 0x9e3779b97f4a7c15n + BigInt(a) * 0xff51afd7ed558ccdn + BigInt(b) * 0xc4ceb9fe1a85ec53n;
   h &= 0xffffffffffffffffn;
@@ -94,7 +94,7 @@ function buildNetwork(seed: number): Simulation {
       reinforceAmount: 0.05,
       punishAmount: 0.05,
       burstTargetSegment: 0,
-      // README §12's weight/permanence split (2026-09-13): neither value
+      // docs/decisions.md's weight/permanence split (2026-09-13): neither value
       // is ever exercised here (neighbourhoodSize=1/k=1 below makes this
       // path a guaranteed no-op), but permanence now sits at/above
       // CONNECTION_THRESHOLD for consistency with every other sprout site.

@@ -155,7 +155,7 @@ pub struct StepReport {
     pub grown: Vec<u32>,
 }
 
-/// How silent synapses behave on delivery (PLAN.md B4, fix 1, README §12
+/// How silent synapses behave on delivery (PLAN.md B4, fix 1, docs/decisions.md
 /// decision 12). A silent synapse (`SynapseArena::silent_since`) is a fresh
 /// contact that has not been potentiated yet: the brain's AMPA-lacking
 /// "silent synapse", which passes no current and cannot help initiate a
@@ -269,7 +269,7 @@ pub struct Scheduler {
     // scratch, touched only where needed" pattern as `DirtySet` and the
     // inhibition/ring scratch buffers (ENG-9).
     //
-    // Settled 2026-09-11 (README §12a item 6): `segment_counts` is a
+    // Settled 2026-09-11 (docs/decisions.md decision 22): `segment_counts` is a
     // decaying `f32` accumulator, not a per-tick-reset `u16` tally --
     // `segment_last_touched_tick` records the tick each composite was last
     // touched so `apply_local_effect` can decay it by
@@ -287,13 +287,13 @@ pub struct Scheduler {
     segment_counts: Vec<f32>,
     segment_last_touched_tick: Vec<u32>,
     segment_touched: Vec<u32>,
-    /// Coincidence-window decay rate (README §12a item 6), applied to a
+    /// Coincidence-window decay rate (docs/decisions.md decision 22), applied to a
     /// composite's accumulated count for each tick elapsed since it was
     /// last touched. `0.0` (the default -- see [`Scheduler::new`]) means
     /// full decay after any elapsed tick, i.e. the original one-tick-only
     /// window; [`Scheduler::with_segment_coincidence_window`] widens it.
     segment_count_decay_per_tick: f32,
-    /// How silent synapses behave (PLAN.md B4, README §12 decision 12) --
+    /// How silent synapses behave (PLAN.md B4, docs/decisions.md decision 12) --
     /// see [`SilentSynapseParams`] and `SynapseArena::silent_since`. Set via
     /// [`Self::with_silent_synapses`]; the default reproduces pre-B4
     /// transmission exactly.
@@ -369,7 +369,7 @@ pub struct Scheduler {
     /// `IntrinsicHomeostasis`) but never wired to a caller until the
     /// canonical-brain-constructor review found it sitting alongside
     /// `HomeostaticScaling`/`StructuralPlasticity` with the identical
-    /// "built, tested, reachable from no caller" shape README §13.12 item 13
+    /// "built, tested, reachable from no caller" shape docs/findings.md finding 13
     /// already names for consolidation and three neuromodulator channels.
     /// When attached via [`Self::with_intrinsic_homeostasis`], `step()`
     /// drives `maybe_apply` directly against `neurons` every tick, at
@@ -386,7 +386,7 @@ pub struct Scheduler {
     /// out loud.** A partitioned runtime never calls `step()` -- it drives
     /// `deliver`/`evaluate_and_resolve` itself -- so a coupling configured
     /// here would silently do nothing there, which is exactly the
-    /// "configured but inert" shape README §12a item 8 records for
+    /// "configured but inert" shape docs/findings.md finding 21 records for
     /// `ColumnSpec::inhibition`. Rather than repeat it,
     /// `PartitionRuntime::new` refuses a scheduler carrying one, and
     /// `PartitionRuntime::with_prediction_error_coupling` is the partitioned
@@ -419,7 +419,7 @@ pub struct Scheduler {
     firing_rate: FiringRateMeter,
     /// Always-on prediction accuracy (OBS-2, Requirement 5.1, Phase 6).
     prediction_accuracy: PredictionAccuracyMeter,
-    /// `None` means `inhibition`'s `k` never adjusts itself (README §12
+    /// `None` means `inhibition`'s `k` never adjusts itself (docs/decisions.md
     /// decision 10) -- the default, and zero extra cost when never
     /// configured, same shape as `segment_threshold_homeostasis`. When
     /// attached via [`Self::with_inhibition_homeostasis`], `step()` nudges
@@ -435,8 +435,7 @@ pub struct Scheduler {
     growth: Option<GrowthState>,
     /// `None` means a newly grown neuron is left exactly as `apply_growth`
     /// allocates it -- zero synapses, `growth.coords_origin`, normal
-    /// threshold -- the pre-PLAN.md-B3 behaviour, which README §13.12 item
-    /// 10's 2026-09-14 update confirms never lets a grown neuron receive
+    /// threshold -- the pre-PLAN.md-B3 behaviour, which docs/findings.md finding 10's 2026-09-14 update confirms never lets a grown neuron receive
     /// current at all. When attached via [`Self::with_newborn_maturation`]
     /// and `growth` is also configured, `step()` wires each newly grown
     /// neuron's inputs, places it, and lowers its threshold the moment it
@@ -616,7 +615,7 @@ impl Scheduler {
     }
 
     /// Widens the dendritic coincidence window past its one-tick default
-    /// (README §12a item 6, settled 2026-09-11): `tau_ticks` is the
+    /// (docs/decisions.md decision 22, settled 2026-09-11): `tau_ticks` is the
     /// accumulator's decay time constant, in ticks, converted internally
     /// to `exp(-1/tau_ticks)` exactly like `LifParams::with_predictive`'s
     /// own `tau_predictive_ticks` -- a genuine per-tick decay rate, not a
@@ -672,7 +671,7 @@ impl Scheduler {
     }
 
     /// Opts Requirement 12.1's burst-sprout path into a different
-    /// [`SproutReach`] (PLAN.md C4, README §12 decision 15) -- which other
+    /// [`SproutReach`] (PLAN.md C4, docs/decisions.md decision 15) -- which other
     /// neurons a bursting one may sprout *from*, a quantity separate from
     /// NET-2's k-WTA competition group. Requires
     /// [`Self::with_predictive_learning`] first, since there is no burst
@@ -719,7 +718,7 @@ impl Scheduler {
     /// every pre-C3 behaviour, bit-identical. With one, `amount` is measured
     /// against a running expectation first and the channel is *set* to
     /// `clamp(tonic + gain * (amount - expected), 0, max_level)`, which is
-    /// what README §2.5's "dopamine = reward prediction error" actually
+    /// what docs/prior-art.md §2.5's "dopamine = reward prediction error" actually
     /// claims. The raw form is kept rather than removed because it is the
     /// VAL-9 ablation control for the baseline
     /// (`tests/reward_prediction_error.rs`): with the expectation disabled a
@@ -1143,7 +1142,7 @@ impl Scheduler {
         self.modulators.restore_raw_state(levels, last_updated_at);
     }
 
-    /// The dendritic coincidence window's raw decaying state (README §12a
+    /// The dendritic coincidence window's raw decaying state (docs/open-questions.md
     /// item 6, `snapshot.rs` format version 5): `segment_counts` and
     /// `segment_last_touched_tick` in lockstep, both indexed by the same
     /// composite `neuron * segments_per_neuron + segment` addressing
@@ -1429,20 +1428,20 @@ impl Scheduler {
     /// dendritic-vs-feedforward branch), for a neuron this scheduler owns.
     /// On the feedforward path `signed_current`'s full magnitude reaches
     /// `input_accum`. On the dendritic path only its *sign* is used, as a
-    /// fixed +-1.0 step -- README §13.12 item 11's fix. Two design calls,
-    /// recorded there and in README §13.13(a):
+    /// fixed +-1.0 step -- docs/findings.md finding 11's fix. Two design calls,
+    /// recorded there and in docs/prior-art.md §13.13(a):
     ///
     ///  - An inhibitory source (`signed_current < 0`) *subtracts* from the
     ///    segment's coincidence count instead of the pre-fix behaviour of
     ///    ignoring sign entirely (which let inhibition raise a segment's
     ///    depolarisation). Subtracting is the dendritic-veto reading closest
-    ///    to the SST-interneuron biology §13.13(a) names, and is exactly as
+    ///    to the SST-interneuron biology docs/prior-art.md §13.13(a) names, and is exactly as
     ///    cheap as routing inhibitory deliveries into a separate channel the
     ///    segment model would then also have to consult.
     ///  - The step stayed a fixed 1.0 magnitude (HTM's binary coincidence
     ///    reading) rather than being scaled by `signed_current`'s permanence
-    ///    magnitude, from this fix (README §13.12 item 11a) until PLAN.md
-    ///    B5 (README §12 decision 13): `BinaryCoincidenceParams::threshold`
+    ///    magnitude, from this fix (docs/findings.md finding 11a) until PLAN.md
+    ///    B5 (docs/decisions.md decision 13): `BinaryCoincidenceParams::threshold`
     ///    was tuned as a count of coincident synapses, not a sum of
     ///    permanences/weights, and weighting it in unconditionally would
     ///    have silently changed every existing threshold's meaning and
@@ -1478,7 +1477,7 @@ impl Scheduler {
             if last_touched != self.tick {
                 // First delivery to this composite this tick: decay
                 // whatever residual survived from its last touch (README
-                // §12a item 6), then queue it for evaluation. `last_touched
+                // docs/decisions.md decision 22), then queue it for evaluation. `last_touched
                 // == u32::MAX` means "never touched" -- `segment_counts`
                 // is already `0.0` from the resize default above, so there
                 // is nothing to decay. Ticks only ever advance, so
@@ -1493,7 +1492,7 @@ impl Scheduler {
                 self.segment_touched.push(composite as u32);
                 self.segment_last_touched_tick[composite] = self.tick;
             }
-            // README §13.12 item 11a / §12 decision 13 (PLAN.md B5): the
+            // docs/findings.md finding 11a / docs/decisions.md decision 13 (PLAN.md B5): the
             // per-segment vote mode decides the magnitude -- see this
             // method's doc comment.
             self.segment_counts[composite] += config.vote.contribution(signed_current);
@@ -1564,11 +1563,11 @@ impl Scheduler {
             let target = synapses.target_neuron[synapse_id as usize];
             let target_segment = synapses.target_segment[synapse_id as usize];
             let sign = neurons.polarity[source_index as usize] as f32;
-            // README §12's weight/permanence split (2026-09-13): permanence
+            // docs/decisions.md's weight/permanence split (2026-09-13): permanence
             // above is only the connectivity gate now -- the transmitted
-            // magnitude is weight, §2.5's efficacy quantity.
+            // magnitude is weight, docs/prior-art.md §2.5's efficacy quantity.
             let signed_current = sign * synapses.weight[synapse_id as usize];
-            // PLAN.md B4, fix 1 (README §12 decision 12): a silent synapse
+            // PLAN.md B4, fix 1 (docs/decisions.md decision 12): a silent synapse
             // is unsilenced by the first delivery it makes at or above the
             // unsilence weight -- the model's reading of LTP inserting AMPA
             // receptors at a silent contact -- and stays unsilenced after.
@@ -1786,7 +1785,7 @@ impl Scheduler {
         // level a plasticity rule reads on tick N reflects prediction
         // errors up to and including tick N-1 -- a modulator that gated
         // the very updates it was derived from would be reading the
-        // future, and the README §2.5 signal it models is a diffuse
+        // future, and the docs/prior-art.md §2.5 signal it models is a diffuse
         // broadcast that arrives *after* the event, not during it.
         if let Some(mut coupling) = self.prediction_error_coupling {
             coupling.observe(report.outcomes);
@@ -1866,7 +1865,7 @@ impl Scheduler {
                     });
                     // PLAN.md B3: without this, a newly grown neuron keeps
                     // zero synapses and `coords_origin` forever -- README
-                    // §13.12 item 10's 2026-09-14 update confirms that dead
+                    // docs/findings.md finding 10's 2026-09-14 update confirms that dead
                     // end directly (grown neurons never acquire a synapse or
                     // fire, across the full run, at any growth pace).
                     if let Some(newborn_maturation) = &mut self.newborn_maturation {
@@ -1910,7 +1909,7 @@ impl Scheduler {
             let threshold_homeostasis_enabled = self.segment_threshold_homeostasis.is_some();
             for &composite in &self.segment_touched {
                 // Deliberately *not* reset to zero here any more (README
-                // §12a item 6): `segment_counts` is now a decaying
+                // docs/decisions.md decision 22): `segment_counts` is now a decaying
                 // accumulator that persists across ticks, and the decay
                 // itself happens lazily, in `apply_local_effect`, the next
                 // time this composite is touched -- see that method's doc
@@ -2628,7 +2627,7 @@ mod tests {
 
     #[test]
     fn causal_pre_then_post_potentiates_the_weight_not_the_permanence_through_the_real_scheduler_path() {
-        // README §12's weight/permanence split (2026-09-13): STDP is the
+        // docs/decisions.md's weight/permanence split (2026-09-13): STDP is the
         // fast, per-spike-pair mechanism and now moves `weight`, not
         // `permanence` -- LRN-7's structural plasticity is the only thing
         // that still writes permanence.
@@ -2748,7 +2747,7 @@ mod tests {
         assert!(neurons.membrane[b as usize] > 0.0, "FEEDFORWARD_SEGMENT must still drive the soma directly (Requirement 10 is additive)");
     }
 
-    // -- Silent synapses (PLAN.md B4, fix 1, README §12 decision 12).
+    // -- Silent synapses (PLAN.md B4, fix 1, docs/decisions.md decision 12).
 
     /// Builds a -> b on segment 0 (dendritic, threshold 1) plus a -> c on the
     /// feedforward path, both carrying `weight`, and marks both silent iff
@@ -2874,7 +2873,7 @@ mod tests {
         assert!(neurons.membrane[c as usize] > 0.0);
     }
 
-    // -- Dendritic vote mode (PLAN.md B5, README §12 decision 13).
+    // -- Dendritic vote mode (PLAN.md B5, docs/decisions.md decision 13).
 
     /// Two presynaptic neurons, `a1`/`a2`, each with one dendritic synapse
     /// (delay 1, `weight`) onto `b`'s segment 0. Stimulating both `a1` and

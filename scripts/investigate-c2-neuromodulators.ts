@@ -1,6 +1,6 @@
 // PLAN.md C2: does driving neuromodulators from the network's own prediction
 // error help VAL-4? Measures the B5 winner with and without the coupling
-// (LRN-5, LRN-8, README §2.5/§2.7).
+// (LRN-5, LRN-8, docs/prior-art.md §2.5/docs/prior-art.md §2.7).
 //
 // WHY THESE ROWS. The reference is B5's winner exactly -- the shipped
 // configuration, which drives no channel from any signal: it routes the
@@ -296,8 +296,8 @@ const report = [
   "",
   `Generated ${new Date().toISOString()} · corpus ${CORPUS_LENGTH} characters · ${SEEDS.length} seeds · ${ROWS.length} conditions.`,
   "",
-  "Reference is B5's winner exactly (README §12 decision 13): 19.05% on confirmation seeds 11–15, 20.36% on selection seeds 1–5.",
-  'Quote the **16.56% "always guess space"** baseline (README §13.12 item 7) alongside any figure here — a change that improves a delta but drops under that bar has undone the only real progress the network has made.',
+  "Reference is B5's winner exactly (docs/decisions.md decision 13): 19.05% on confirmation seeds 11–15, 20.36% on selection seeds 1–5.",
+  'Quote the **16.56% "always guess space"** baseline (docs/findings.md finding 7) alongside any figure here — a change that improves a delta but drops under that bar has undone the only real progress the network has made.',
   "",
   ...identityCheck(),
   ...table("Confirmation seeds (11–15)", CONFIRMATION_SEEDS),
