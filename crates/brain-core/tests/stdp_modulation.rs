@@ -24,7 +24,7 @@ use brain_core::graph::{DistancePolicy, GraphBuilder};
 use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
-use brain_core::plasticity::stdp::{LevelMap, StdpModulation, StdpParams};
+use brain_core::plasticity::stdp::{LevelMap, StdpModulation, StdpModulationStats, StdpParams};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::{Modulators, RuleChain, DOPAMINE, NORADRENALINE, NUM_MODULATORS};
 use brain_core::scheduler::Scheduler;
@@ -59,11 +59,14 @@ fn every_slot_on_noradrenaline() -> StdpModulation {
     StdpModulation::new(Some(amplitude), Some(amplitude), Some(timing), Some(timing), Some(timing)).unwrap()
 }
 
-fn plasticity(modulation: Option<StdpModulation>) -> RuleChain {
+fn plasticity(modulation: Option<StdpModulation>, observe: bool) -> RuleChain {
     let stdp = StdpParams { a_plus: 0.05, a_minus: 0.05, tau_plus: 20.0, tau_minus: 20.0, window_ticks: 100 };
     let mut params = ThreeFactorParams::new(stdp, 500.0, 1.0, DOPAMINE);
     if let Some(m) = modulation {
         params = params.with_stdp_modulation(m);
+    }
+    if observe {
+        params = params.with_stdp_modulation_observed();
     }
     RuleChain::new(vec![Box::new(ThreeFactorStdp::new(params))])
 }
@@ -127,14 +130,20 @@ struct Outcome {
     neurons: NeuronArena,
     synapses: SynapseArena,
     spiked_per_tick: Vec<Vec<u32>>,
+    /// PLAN.md C6's counters, when the run observed them.
+    stats: Option<StdpModulationStats>,
 }
 
 fn run_plain(modulation: Option<StdpModulation>, level: Level) -> Outcome {
+    run_plain_observed(modulation, level, false)
+}
+
+fn run_plain_observed(modulation: Option<StdpModulation>, level: Level, observe: bool) -> Outcome {
     let (mut neurons, mut synapses, _) = build_network(7);
     let mut sched = Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
         .with_inhibition(FixedNeighbourhoods::new(COLUMN_SIZE, 2))
         .with_segments(segments())
-        .with_plasticity(plasticity(modulation), field_taus(level));
+        .with_plasticity(plasticity(modulation, observe), field_taus(level));
     let params = lif_params();
     let mut spiked_per_tick = Vec::new();
     for tick in 0..TICKS {
@@ -154,7 +163,8 @@ fn run_plain(modulation: Option<StdpModulation>, level: Level) -> Outcome {
         spiked.sort_unstable();
         spiked_per_tick.push(spiked);
     }
-    Outcome { neurons, synapses, spiked_per_tick }
+    let stats = sched.stdp_modulation_stats();
+    Outcome { neurons, synapses, spiked_per_tick, stats }
 }
 
 #[derive(Clone, Copy)]
@@ -165,6 +175,10 @@ enum Exec {
 }
 
 fn run_partitioned(modulation: Option<StdpModulation>, level: Level, partitions: usize, exec: Exec) -> Outcome {
+    run_partitioned_observed(modulation, level, partitions, exec, false)
+}
+
+fn run_partitioned_observed(modulation: Option<StdpModulation>, level: Level, partitions: usize, exec: Exec, observe: bool) -> Outcome {
     let (mut neurons, mut synapses, columns) = build_network(7);
     let plan = PartitionPlan::contiguous(&columns, partitions);
     let schedulers: Vec<Scheduler> = (0..plan.partition_count())
@@ -173,7 +187,7 @@ fn run_partitioned(modulation: Option<StdpModulation>, level: Level, partitions:
             Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
                 .with_inhibition(FixedNeighbourhoods::with_base(range.start, COLUMN_SIZE.min(range.end - range.start), 2))
                 .with_segments(segments())
-                .with_plasticity(plasticity(modulation), field_taus(level))
+                .with_plasticity(plasticity(modulation, observe), field_taus(level))
         })
         .collect();
     let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS);
@@ -200,7 +214,8 @@ fn run_partitioned(modulation: Option<StdpModulation>, level: Level, partitions:
         spiked.sort_unstable();
         spiked_per_tick.push(spiked);
     }
-    Outcome { neurons, synapses, spiked_per_tick }
+    let stats = runtime.stdp_modulation_stats();
+    Outcome { neurons, synapses, spiked_per_tick, stats }
 }
 
 /// Every synapse's mutable plasticity state, by bits: `assert_eq!` on `f32` would
@@ -287,4 +302,33 @@ fn a_set_hook_with_a_varying_level_is_identical_across_partitions_and_thread_cou
     assert_identical(&reference, &two_rayon, "2 partitions, 2 rayon threads");
     let two_pinned = run_partitioned(m, Level::Varying, 2, Exec::Pinned(2));
     assert_identical(&reference, &two_pinned, "2 partitions, 2 pinned threads");
+}
+
+/// PLAN.md C6: the hook's observation counters (`StdpModulationStats`) are a
+/// read-out, never an input -- a run observed is the run unobserved, bit for
+/// bit -- and the network-wide reading is the same however the graph is
+/// partitioned or threaded (RUN-3), because each partition counts its own
+/// events and the merge is sums, mins and maxes.
+#[test]
+fn observing_the_hook_changes_nothing_and_its_counts_do_not_depend_on_partitioning() {
+    let m = Some(every_slot_on_noradrenaline());
+    let unobserved = run_plain(m, Level::Varying);
+    let observed = run_plain_observed(m, Level::Varying, true);
+    assert_identical(&unobserved, &observed, "observed vs unobserved");
+    assert!(unobserved.stats.is_none(), "not asked to observe, so nothing to report");
+
+    let stats = observed.stats.expect("asked to observe");
+    assert!(stats.events > 0 && stats.curve_changed > 0, "the varying level must have moved the curve: {stats:?}");
+    // `{:?}`: the three unmapped channels' levels are NaN, and NaN != NaN.
+    let reading = |o: &Outcome| format!("{:?}", o.stats.expect("asked to observe"));
+    for (label, exec, partitions) in [
+        ("1 partition", Exec::Sequential, 1),
+        ("2 partitions, sequential", Exec::Sequential, 2),
+        ("2 partitions, 2 rayon threads", Exec::Rayon(2), 2),
+        ("2 partitions, 2 pinned threads", Exec::Pinned(2), 2),
+    ] {
+        let run = run_partitioned_observed(m, Level::Varying, partitions, exec, true);
+        assert_identical(&observed, &run, label);
+        assert_eq!(reading(&observed), reading(&run), "{label}: the merged counts");
+    }
 }

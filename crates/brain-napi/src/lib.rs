@@ -947,6 +947,11 @@ pub struct PlasticityConfig {
     /// pre-C5 caller bit-for-bit. Independent of `modulatorChannel` and
     /// `gainModulatorChannel`, which scale the magnitude of the update.
     pub stdp_modulation: Option<StdpModulationConfig>,
+    /// PLAN.md C6: count what `stdpModulation` actually did -- read back with
+    /// `stdpModulationStats()`. Purely observational (the run is bit-identical
+    /// either way) and off when omitted, so no caller pays for it unasked.
+    /// Meaningless without `stdpModulation`.
+    pub observe_stdp_modulation: Option<bool>,
     /// One decay time constant per neuromodulator channel, in ticks, in
     /// the same `DOPAMINE`/`ACETYLCHOLINE`/`NORADRENALINE`/`SEROTONIN`
     /// order `modulatorLevels` returns -- must have exactly four entries.
@@ -994,6 +999,9 @@ impl PlasticityConfig {
         }
         if let Some(modulation) = &self.stdp_modulation {
             rule_params = rule_params.with_stdp_modulation(modulation.resolve()?);
+        }
+        if self.observe_stdp_modulation == Some(true) {
+            rule_params = rule_params.with_stdp_modulation_observed();
         }
         Ok(ResolvedPlasticity { rule_params, modulator_tau_ticks })
     }
@@ -1094,6 +1102,36 @@ pub struct MetricsSnapshotFfi {
 /// count (RUN-6, the same reasoning `PredictionOutcomeCounts`'s own doc
 /// comment gives).
 ///
+/// What the STDP modulation hook actually did over a run (PLAN.md C6,
+/// brain-core's `StdpModulationStats`) -- `stdpModulationStats()`. A level that
+/// *could* reshape the curve is not evidence that it did; this separates the two.
+///
+/// Counts are `f64` for the reason `PredictionOutcomeTotalsFfi`'s are. The
+/// scale and level extremes are NaN when nothing was observed (and, for a
+/// level, on a channel no slot maps). Not snapshot state: restarts from zero
+/// after a `restore`.
+#[napi(object)]
+pub struct StdpModulationStatsFfi {
+    /// STDP pairings evaluated through the modulated curve.
+    pub events: f64,
+    /// Of those, how many had at least one mapped scale other than exactly 1.
+    pub curve_changed: f64,
+    /// Pairings beyond the configured `windowTicks` that the modulated window
+    /// admitted -- pairings that counted *only* because the window widened.
+    pub window_admitted: f64,
+    /// Pairings inside the configured window that a narrowed one cut.
+    pub window_excluded: f64,
+    pub min_scale: f64,
+    pub max_scale: f64,
+    /// Per channel (`modulatorLevels`' order), the lowest and highest level a
+    /// pairing actually read. The lowest is the resting level a map's
+    /// `reference` should be set to: the field is driven after a tick's
+    /// plasticity has run, so a level sampled between ticks is not what any
+    /// pairing saw.
+    pub min_level: Vec<f64>,
+    pub max_level: Vec<f64>,
+}
+
 /// Not snapshot state: these restart from zero after a `restore`, exactly
 /// like `StructuralStats`' totals, and nothing in the simulation reads them.
 #[napi(object)]
@@ -2510,6 +2548,27 @@ impl NativeSimulation {
             unpredicted: f64::from(o.unpredicted),
             classified_as_predicted: f64::from(o.correct) + f64::from(o.false_positive),
         }
+    }
+
+    /// What the STDP modulation hook did since construction, merged over every
+    /// partition (PLAN.md C6) -- see `StdpModulationStatsFfi`. `null` unless
+    /// `plasticity.observeStdpModulation` was set alongside a `stdpModulation`.
+    #[napi]
+    pub fn stdp_modulation_stats(&self) -> Option<StdpModulationStatsFfi> {
+        let stats = match &self.runtime {
+            Runtime::Single(scheduler) => scheduler.stdp_modulation_stats(),
+            Runtime::Partitioned(state) => state.runtime.as_ref().and_then(|pr| pr.stdp_modulation_stats()),
+        }?;
+        Some(StdpModulationStatsFfi {
+            events: stats.events as f64,
+            curve_changed: stats.curve_changed as f64,
+            window_admitted: stats.window_admitted as f64,
+            window_excluded: stats.window_excluded as f64,
+            min_scale: f64::from(stats.min_scale),
+            max_scale: f64::from(stats.max_scale),
+            min_level: stats.min_level.iter().map(|&l| f64::from(l)).collect(),
+            max_level: stats.max_level.iter().map(|&l| f64::from(l)).collect(),
+        })
     }
 
     /// Prediction accuracy over the always-on window (OBS-2, Phase 6

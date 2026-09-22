@@ -31,9 +31,11 @@ use brain_core::inhibition::FixedNeighbourhoods;
 use brain_core::neuromodulator::{ChannelDrive, PredictionErrorCoupling};
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::plasticity::predictive::{PredictionOutcomeCounts, PredictiveLearningParams, SegmentLearningTarget};
-use brain_core::plasticity::{ACETYLCHOLINE, DOPAMINE, NORADRENALINE, NUM_MODULATORS};
+use brain_core::plasticity::stdp::{LevelMap, StdpModulation, StdpModulationStats, StdpParams};
+use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
+use brain_core::plasticity::{RuleChain, ACETYLCHOLINE, DOPAMINE, NORADRENALINE, NUM_MODULATORS, SEROTONIN};
 use brain_core::scheduler::Scheduler;
-use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig};
+use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig, FEEDFORWARD_SEGMENT};
 use brain_core::synapse::SynapseArena;
 
 /// Short relative to this trial's ~7-tick exposure so the levels actually
@@ -497,4 +499,283 @@ fn the_failure_rate_is_a_scalar_over_classified_neurons_only() {
     b_first.merge(a);
     a.merge(b);
     assert_eq!(a, b_first, "merging tallies must not depend on partition order");
+}
+
+// ---------------------------------------------------------------------------
+// PLAN.md C6: noradrenaline widens the STDP timing window.
+// ---------------------------------------------------------------------------
+
+/// The resting window, in ticks, and the probe pairing's lag -- one tick past
+/// it. Small numbers so the whole switch fits in this file's 7-tick exposure.
+const WINDOW: u32 = 2;
+const PROBE_DT: u32 = WINDOW + 1;
+
+/// Widening is capped at 1.75x: `floor(2 x 1.75) = 3` admits the probe's
+/// causal lag and nothing wider, so the probe's *anti-causal* lag (4, to the
+/// previous exposure's post spike) stays outside even at the cap. Without that
+/// the probe would be depressed as well as potentiated and "did its weight
+/// move" would stop being a clean question.
+const WIDEST: f32 = 1.75;
+
+/// A probe pairing on the weight path, laid beside the A->B / A->C switch.
+///
+/// `p` and `q` are stimulated at fixed ticks in every exposure, in both phases,
+/// so the probe's own spike timing never changes -- only the noradrenaline level
+/// does. The probe synapse is `p -> q`, somatic, delay 1: delivered one tick
+/// after `p` fires and `PROBE_DT` ticks before `q` fires, so its causal pairing
+/// sits one tick beyond the resting window. `p`/`q` are their own predictive
+/// neighbourhood (blocks of 3), so predictive learning pairs them with each
+/// other and never with A/B/C: once settled they predict each other and add
+/// correct outcomes to the tally, and they do not change what is surprising.
+struct WindowTrial {
+    sched: Scheduler,
+    neurons: NeuronArena,
+    synapses: SynapseArena,
+    lif: LifParams,
+    a: u32,
+    b: u32,
+    c: u32,
+    p: u32,
+    q: u32,
+    probe: u32,
+}
+
+/// How noradrenaline reaches the STDP curve in a [`WindowTrial`].
+#[derive(Clone, Copy, Debug)]
+enum Window {
+    /// Hook unset: the curve is `StdpParams` as configured, whatever the level.
+    Fixed,
+    /// `StdpModulation::joint_time_scale` on noradrenaline, affine about
+    /// `reference`. `map_gain: 0.0` is the second ablation: the hook is set and
+    /// reading the level, and the scale is exactly 1 anyway.
+    Noradrenaline { reference: f32, map_gain: f32 },
+}
+
+impl WindowTrial {
+    fn new(window: Window) -> Self {
+        let mut neurons = NeuronArena::new();
+        let mut spec = |threshold: f32| neurons.allocate(NeuronSpec { threshold, polarity: 1, coords: [0.0; 3] }).index;
+        let (a, b, c) = (spec(0.5), spec(1.0), spec(1.0));
+        let (p, q) = (spec(1.0), spec(1.0));
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        // Weight 0.1 against q's threshold of 1.0 (0.5 when predicted): the
+        // probe never makes q fire, so q's spike time is the stimulus's alone.
+        let probe = synapses.insert(p, q, FEEDFORWARD_SEGMENT, 1, 0.9, 0.1).expect("room for the probe synapse");
+
+        let stdp = StdpParams { a_plus: 0.1, a_minus: 0.1, tau_plus: 1.0, tau_minus: 1.0, window_ticks: WINDOW };
+        // Routed on serotonin, held at exactly 1.0 below: nothing else drives
+        // it, so the only noradrenaline consumer in this trial is the window.
+        // A small learning rate keeps every other synapse's weight (the
+        // segment synapses predictive learning sprouts, born at 0.05) well away
+        // from the 0 clamp, where a count-mode vote would vanish.
+        let mut rule = ThreeFactorParams::new(stdp, 50.0, 0.001, SEROTONIN);
+        if let Window::Noradrenaline { reference, map_gain } = window {
+            // `min: 1.0` is C6's width-only decision (README §12 decision 17):
+            // noradrenaline can widen the window; a level below `reference`
+            // does not narrow it below the configured curve.
+            let map = LevelMap::new(NORADRENALINE, reference, map_gain, 1.0, WIDEST);
+            rule = rule.with_stdp_modulation(StdpModulation::joint_time_scale(map).unwrap()).with_stdp_modulation_observed();
+        }
+        let mut taus = field_taus();
+        taus[SEROTONIN] = 1.0e30; // exp(-1/1e30) is exactly 1.0 in f32: an injected level holds bit-exactly
+        let coupling = PredictionErrorCoupling::new(TAU_FAST, TAU_SLOW)
+            .with_unexpected(ChannelDrive::new(NORADRENALINE, BASELINE, 2.0, 4.0))
+            .with_expected(ChannelDrive::new(ACETYLCHOLINE, BASELINE, 2.0, 4.0));
+        let mut sched = Scheduler::new(4, 0.3)
+            .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 }))
+            .with_predictive_learning(predictive_params(None, None), FixedNeighbourhoods::new(3, 3))
+            .with_plasticity(RuleChain::new(vec![Box::new(ThreeFactorStdp::new(rule))]), taus)
+            .with_prediction_error_coupling(coupling);
+        sched.inject_modulator(SEROTONIN, 1.0);
+        let lif = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(50.0, 0.5);
+        Self { sched, neurons, synapses, lif, a, b, c, p, q, probe }
+    }
+
+    fn step(&mut self) {
+        self.sched.step::<Lif>(&mut self.neurons, &mut self.synapses, &self.lif);
+    }
+
+    /// `Trial::expose`'s 7 ticks, with the probe pair riding along: `p` with
+    /// `a` on tick 0, `q` on tick 4. Returns the noradrenaline level `q`'s
+    /// spike is evaluated under.
+    fn expose(&mut self, second: u32) -> f32 {
+        self.sched.stimulate(&self.neurons, self.a, 5.0);
+        self.sched.stimulate(&self.neurons, self.p, 6.0);
+        self.step();
+        self.sched.stimulate(&self.neurons, second, 6.0);
+        self.step();
+        self.step();
+        self.step();
+        let level_at_probe = self.noradrenaline();
+        self.sched.stimulate(&self.neurons, self.q, 6.0);
+        self.step();
+        self.step();
+        self.step();
+        level_at_probe
+    }
+
+    fn expose_ab(&mut self) -> f32 {
+        self.expose(self.b)
+    }
+
+    fn expose_ac(&mut self) -> f32 {
+        self.expose(self.c)
+    }
+
+    fn noradrenaline(&self) -> f32 {
+        self.sched.modulator_levels()[NORADRENALINE]
+    }
+
+    fn signals(&self) -> (f32, f32) {
+        let (s, e) = self.sched.prediction_error_signals().expect("a coupling is configured");
+        (s.unwrap_or(0.0), e.unwrap_or(0.0))
+    }
+
+    /// The probe synapse's `(eligibility, weight)`.
+    fn probe(&self) -> (f32, f32) {
+        (self.synapses.eligibility[self.probe as usize], self.synapses.weight[self.probe as usize])
+    }
+}
+
+/// How long the world stays A->B before it switches, and how long it is
+/// watched afterwards -- `noradrenaline_reports_change_not_difficulty`'s
+/// schedule.
+const SETTLED_EXPOSURES: usize = 40;
+const SWITCHED_EXPOSURES: usize = 8;
+
+/// The map gain the mechanism test runs at. Chosen, not tuned for a result:
+/// the switch's largest excursion above rest at `q`'s spike is ~0.065 and the
+/// start-up transient's ~0.040, so a gain of 10 puts the switch's peak scale
+/// (~1.65) past the probe's 1.5 and the transient's (~1.40) short of it. Both
+/// are asserted as preconditions below, so a change elsewhere that moves
+/// either reports itself rather than failing as "the mechanism broke".
+const MAP_GAIN: f32 = 10.0;
+
+/// One run of the whole schedule, recorded per exposure.
+struct WindowRun {
+    /// `(eligibility, weight)` of the probe synapse after each exposure.
+    probe: Vec<(f32, f32)>,
+    /// Surprise after each exposure.
+    surprise: Vec<f32>,
+    stats_after_settling: Option<StdpModulationStats>,
+    stats_at_end: Option<StdpModulationStats>,
+}
+
+fn run_window_trial(window: Window) -> WindowRun {
+    let mut trial = WindowTrial::new(window);
+    let mut run = WindowRun { probe: Vec::new(), surprise: Vec::new(), stats_after_settling: None, stats_at_end: None };
+    for i in 0..SETTLED_EXPOSURES + SWITCHED_EXPOSURES {
+        if i == SETTLED_EXPOSURES {
+            run.stats_after_settling = trial.sched.stdp_modulation_stats();
+        }
+        if i < SETTLED_EXPOSURES {
+            trial.expose_ab();
+        } else {
+            trial.expose_ac();
+        }
+        run.probe.push(trial.probe());
+        run.surprise.push(trial.signals().0);
+    }
+    run.stats_at_end = trial.sched.stdp_modulation_stats();
+    run
+}
+
+/// The resting level noradrenaline is *read at* -- measured, not assumed.
+///
+/// It is not the drive's baseline. The coupling drives the field at the end of
+/// each tick and plasticity reads it mid-tick, one tick of decay later, so at
+/// rest a pairing sees `baseline x exp(-1/tau)` (0.951 here) and not `baseline`.
+/// A map with `reference: baseline` would therefore spend most of a switch's
+/// excursion below its reference, clamped to 1 -- the trap HANDOFF fact 16
+/// records for VAL-4, at 20x the size. The measurement is the one the VAL-4
+/// script makes: a hook set at map gain 0 records the level every pairing read
+/// without changing any of them, and the lowest is the resting level, because
+/// surprise is rectified and the level never goes below it.
+fn measured_resting_level() -> f32 {
+    let run = run_window_trial(Window::Noradrenaline { reference: BASELINE, map_gain: 0.0 });
+    run.stats_at_end.expect("observed").min_level[NORADRENALINE]
+}
+
+/// PLAN.md C6, the mechanism. A pairing one tick beyond the resting window
+/// counts while the world is surprising and not while it is settled: the
+/// window widens with noradrenaline, and so *which pairings count* depends on
+/// whether the contingency just changed.
+///
+/// Asserted on the synapse -- eligibility laid down, weight moved (HANDOFF
+/// fact 3) -- with the hook's own counter as corroboration, not as the claim.
+#[test]
+fn noradrenaline_widens_the_stdp_window_while_the_world_is_surprising() {
+    let resting = measured_resting_level();
+    assert!(
+        resting < BASELINE - 0.01,
+        "precondition: the level a pairing reads at rest sits one tick of decay below the drive's baseline, or the reference below is not what it claims to be: {resting}"
+    );
+    let run = run_window_trial(Window::Noradrenaline { reference: resting, map_gain: MAP_GAIN });
+    let (initial_eligibility, initial_weight) = (0.0f32, 0.1f32);
+
+    // Preconditions: the world really did settle and then really did surprise.
+    let settled_surprise = run.surprise[SETTLED_EXPOSURES - 1];
+    let peak_surprise = run.surprise[SETTLED_EXPOSURES..].iter().cloned().fold(0.0, f32::max);
+    assert!(settled_surprise < 0.05, "precondition: the settled phase must be unsurprised: {settled_surprise}");
+    assert!(peak_surprise > 3.0 * settled_surprise.max(0.01), "precondition: the switch must be surprising: {peak_surprise}");
+    let settled = run.stats_after_settling.expect("observed");
+    let end = run.stats_at_end.expect("observed");
+    let admits_probe = PROBE_DT as f32 / WINDOW as f32;
+    assert!(
+        settled.max_scale < admits_probe,
+        "precondition: no level in the settled phase -- the start-up transient included -- may widen the window far enough to admit the probe, max scale {}",
+        settled.max_scale
+    );
+    assert!(end.max_scale >= admits_probe, "precondition: the switch must widen the window far enough to admit the probe, max scale {}", end.max_scale);
+
+    // (b) Settled: the probe pairing happens on every exposure and never counts.
+    for (i, &(eligibility, weight)) in run.probe[..SETTLED_EXPOSURES].iter().enumerate() {
+        assert_eq!(
+            (eligibility.to_bits(), weight.to_bits()),
+            (initial_eligibility.to_bits(), initial_weight.to_bits()),
+            "settled exposure {i}: a pairing one tick beyond the resting window must lay down nothing and move nothing"
+        );
+    }
+    assert_eq!(settled.window_admitted, 0);
+
+    // (a) Surprised: the same pairing, at the same lag, now counts.
+    let (eligibility, weight) = *run.probe.last().unwrap();
+    assert!(eligibility > 0.0, "after the switch the probe's causal pairing must lay down eligibility: {eligibility}");
+    assert!(weight > initial_weight, "...and that eligibility must move the weight: {weight}");
+    let first_counted = run.probe.iter().position(|&(e, _)| e != 0.0).unwrap();
+    assert!(first_counted >= SETTLED_EXPOSURES, "the first pairing to count must come after the switch, got exposure {first_counted}");
+    assert!(end.window_admitted > 0, "corroboration: the hook's counter must agree that the widened window admitted a pairing");
+}
+
+/// VAL-9: the same schedule with the coupling cut, two ways -- the hook unset,
+/// and the hook set at map gain 0 -- and the property fails: the probe
+/// pairing never counts, before or after the switch. The two ablations are
+/// also bit-identical to each other throughout (a gain-0 map is the configured
+/// curve exactly, Requirement 5.2), and they see the *same* surprise as the
+/// coupled run, so what was removed is the consumer, not the signal.
+#[test]
+fn ablation_without_the_coupling_the_probe_pairing_never_counts() {
+    let resting = measured_resting_level();
+    let unset = run_window_trial(Window::Fixed);
+    let gain_zero = run_window_trial(Window::Noradrenaline { reference: resting, map_gain: 0.0 });
+    let coupled = run_window_trial(Window::Noradrenaline { reference: resting, map_gain: MAP_GAIN });
+
+    for (name, run) in [("hook unset", &unset), ("map gain 0", &gain_zero)] {
+        for (i, &(eligibility, weight)) in run.probe.iter().enumerate() {
+            assert_eq!(
+                (eligibility.to_bits(), weight.to_bits()),
+                (0.0f32.to_bits(), 0.1f32.to_bits()),
+                "{name}, exposure {i}: with the coupling off the probe pairing must never count"
+            );
+        }
+    }
+    let bits = |run: &WindowRun| run.probe.iter().map(|&(e, w)| (e.to_bits(), w.to_bits())).collect::<Vec<_>>();
+    assert_eq!(bits(&unset), bits(&gain_zero), "a map at gain 0 must be the configured curve exactly");
+    assert_eq!(unset.surprise, gain_zero.surprise);
+    // Up to and including the first switched exposure the coupled run's own
+    // spikes are the ablations', so its surprise must be too -- the widening
+    // is a consequence of the surprise, and cannot have caused it.
+    assert_eq!(unset.surprise[..=SETTLED_EXPOSURES], coupled.surprise[..=SETTLED_EXPOSURES]);
+    assert_ne!(bits(&unset), bits(&coupled), "and the coupled run must differ, or the ablation proves nothing");
 }

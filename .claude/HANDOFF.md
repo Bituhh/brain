@@ -14,7 +14,18 @@ finished, and told the *next* item nothing.
 
 ## Where things stand
 
-- **Last completed:** PLAN.md **C5** (modulators reach `StdpParams` — the
+- **Last completed:** PLAN.md **C6** (noradrenaline widens the STDP timing
+  window), 2026-09-21. Result: **the mechanism works where it can be seen, and
+  VAL-4 cannot see it.** On a contingency switch
+  (`tests/prediction_error_coupling.rs`) a pairing one tick beyond the resting
+  window counts while the world is surprising, never while it is settled, and
+  never with the coupling cut. On VAL-4 a pre-registered, paired, ten-seed
+  confirmation gives the predicted null at both map gains (100: +0.02 / +0.12;
+  400: −0.48 / +0.39 points on seeds 1–5 / 11–15). Width only; the triangular
+  window is deferred (README §12 decision 17). Not adopted anywhere, and
+  deliberately not in `canonicalBrain.ts`. New instrument:
+  `stdpModulationStats()` (fact 16). README §13.12 item 19.
+- **Before that:** PLAN.md **C5** (modulators reach `StdpParams` — the
   shared hook — and the staircase question), 2026-09-21. Result: **the hook
   exists and is unset in every shipped configuration, and a modulator gain is
   not the staircase C3 inferred: on the permanence path it is *inert*, on the
@@ -29,7 +40,7 @@ finished, and told the *next* item nothing.
   noradrenaline level resting at 0.9991, not 1.0
   (`scripts/investigate-c5-horizon.results.md`, README §13.12 item 18's
   addendum). Facts 12, 14 and 16 below are updated for it.
-- **Previously:** PLAN.md **C4** (growth cannot reach the readout — spatial
+- **Earlier:** PLAN.md **C4** (growth cannot reach the readout — spatial
   sprout *reach*, separated from the inhibition neighbourhood), 2026-09-21.
   Result: **the topology limit is closed and it was not what was holding VAL-4
   down.** The same instrumented VAL-4 condition that measured 0 grown→original
@@ -61,23 +72,19 @@ finished, and told the *next* item nothing.
   child became a plain number. The twelve external citations that moved were
   updated in the same pass (README, `plasticity/newborn.rs`,
   `check-requirement-coverage.mjs`, `canonicalBrain.ts` and its test).
-- **Next up:** **C6** (noradrenaline widens the STDP timing window), then **C7**
-  (acetylcholine sets the LTP/LTD ratio). Both are the hook's first users, and
-  **both prompts were corrected by C5** with what its staircase measurement
-  found — read them with facts 14 and 16 open. The one thing to carry in before
-  reading either: **a response measured at 6,000 characters *reversed* at the
-  protocol's 15,000** (fact 14), so nothing about either knob is known until it
-  is measured at 15,000. **C6 was re-scoped on 2026-09-21 with the user.** It is now
-  a mechanism test on a contingency switch, plus a pre-registered, paired 10-seed
-  confirmation of the VAL-4 null that the 15,000-character check predicts. It does
-  not search. C7's scope is unchanged, because acetylcholine carries a real
-  signal on VAL-4.
+- **Next up:** **C7** (acetylcholine sets the LTP/LTD ratio), the hook's
+  second user. Its prompt was corrected by C5 and again by C6 — read it with
+  facts 14 and 16 open. The two things to carry in: **a response measured at
+  6,000 characters *reversed* at the protocol's 15,000** (fact 14), so nothing
+  about the knob is known until it is measured at 15,000; and **a map's
+  `reference` must be the level a pairing actually reads, measured with
+  `stdpModulationStats()`** (fact 16). C7's scope is unchanged, because
+  acetylcholine carries a real signal on VAL-4.
 - **A neuromodulator audit sits behind all of this:**
   `.claude/scratch/neuromodulators/investigation.md`, 2026-09-20. Six channels,
   claim by claim, against primary sources, with the code status of each. Read it
   before touching C2–C9 or F19–F21.
-- **Phase A is closed** (A1–A4). Phase B is closed (B1–B5). C1, C2, C3, C4 and C5
-  are closed.
+- **Phase A is closed** (A1–A4). Phase B is closed (B1–B5). C1–C6 are closed.
 
 ## The headline result so far
 
@@ -101,8 +108,9 @@ consolidation on a cadence during the stream) was measured with and without,
 5.5–7.0 points, dropping below the 16.56% bar. Consolidation is therefore not
 enabled in the shipped values. README §13.12 item 13 has the write-up.
 
-**Neither did C2, C3 or C4.** All three are honest nulls on this number and
-none is adopted. C4's is the most load-bearing of the three for planning: it
+**Neither did C2, C3, C4 or C6.** All four are honest nulls on this number and
+none is adopted (C6's was pre-registered as the expected outcome). C4's is
+the most load-bearing of them for planning: it
 closes the *last* structural excuse: growth's capacity is now reachable and
 still does not help, so a future growth idea cannot be justified by "it was
 never reachable". One measured caveat worth carrying into any radius work: the
@@ -272,11 +280,12 @@ These are the ones that have actually caused wrong work, not a general list.
     `modulator_scale` — and both multiply a delta by a level. **C5 built the
     missing hook: a level can now reach an STDP *window*, an LTP/LTD *ratio* and
     the time constants** (`stdp.rs`'s `StdpModulation`; fact 16 below has what a
-    user of it must know). It is still true that **nothing reaches a neuron
-    threshold or a routing decision**, and that **no channel is wired to the hook
-    anywhere** — every shipped configuration leaves it unset — so "we have the
-    hook, this is a config change" is now true for STDP and false for everything
-    else. C6, C7 and F19 are its users.
+    user of it must know). **C6 is its first user** (noradrenaline → window),
+    proven in a Rust test and measured on VAL-4, but **no shipped configuration
+    sets it** — not `charPrediction.ts`, and not `canonicalBrain.ts`, by recorded
+    decision. It is still true that **nothing reaches a neuron threshold or a
+    routing decision**, so "we have the hook, this is a config change" is true for
+    STDP and false for everything else. C7 and F19 are its next users.
 
     Also, and still true: the shipped VAL-4 config *does* use acetylcholine
     (`modulatorChannel: 1`, held at 1.0 by `tonicModulator`), so README §13.12
@@ -307,7 +316,10 @@ These are the ones that have actually caused wrong work, not a general list.
     The **level** (not the signal) rests at **0.9991**, not at the drive's
     baseline of 1.0, and never exceeds 1.0014. Acetylcholine's
     *expected* uncertainty is the opposite: median 0.44 and never zero, so it
-    is the channel with something to say about this task.
+    is the channel with something to say about this task. **Rare signal is not
+    the same as a rarely-moved curve**, though (C6): after any excursion the
+    level relaxes back at the field's τ of 1,000 ticks, so a noradrenaline map
+    had a scale ≠ 1 on 12–30% of STDP pairings on VAL-4, almost always slightly.
 
 13. **A modulator level starts at zero and reaches its baseline by EMA, so
     anything gated on it is multiplied by ≈0 early in a run** unless the
@@ -465,8 +477,20 @@ These are the ones that have actually caused wrong work, not a general list.
       bullet used to say noradrenaline's *level* is 0 for 89.5% of a run. That is
       the *signal*; see fact 12 for the level.)
     - **Set `reference` to the channel's measured resting level, not to the
-      producer's nominal baseline.** C2's coupling at baseline 1.0 rests at
-      0.9991 on B5's configuration. `reference: 1.0` therefore gives a scale of
+      producer's nominal baseline — and measure it *where a pairing reads it*.**
+      A driven channel is driven after a tick's plasticity has run, so pairings
+      read it one tick of decay later than any between-tick sample: on B5's
+      configuration with C2's coupling that is **0.9990898**, identical to the
+      bit on ten seeds (the f32 fixed point of the drive's EMA); at a field τ of
+      20 it is 0.951. The instrument is `stdpModulationStats()` (PLAN.md C6,
+      `plasticity.observeStdpModulation: true`): with the map at gain 0 the run is
+      bit-identical to the reference and `minLevel` is the exact rest.
+      `scripts/investigate-c6-na-window.ts`'s phase 1 is the template. And a
+      driven channel **starts above** that rest (`seed_baselines` seeds the
+      post-drive value) and relaxes at the field's τ, so every run opens with an
+      excursion a map cannot tell from signal (~+0.0009 at τ 1000).
+      C2's coupling at baseline 1.0 rests near 0.9991 on B5's configuration.
+      `reference: 1.0` therefore gives a scale of
       1 − 0.0009 × gain at rest, which is 9% narrower at gain 100: a static retune
       attributed to noradrenaline. Also, a driven channel has a gain of its own
       (`baseline + drive_gain × signal`), so only `map_gain × drive_gain` is
@@ -500,6 +524,13 @@ These are the ones that have actually caused wrong work, not a general list.
       C7's decision to make explicitly. Timing scales must have `min > 0`
       (validated at construction, so a tau cannot reach zero).
 
+    **`stdpModulationStats()` says what the hook did** (PLAN.md C6, OBS-2): how
+    many pairings went through the modulated curve, how many had any scale ≠ 1,
+    how many the window admitted only because it widened (or cut because it
+    narrowed), the scale's extremes and, per mapped channel, the extremes of the
+    level pairings read. Opt-in, observational (bit-identical on or off), not
+    snapshot state, identical across partitions and threads.
+
     Cost, measured: unset costs nothing; all five slots mapped costs **+2.4% of a
     whole VAL-4 run** (bare kernel 2.3–3.6× slower per event, diluted by the rest
     of an event's work). The three `stdp_*` bench groups in `core_bench.rs` are the
@@ -507,6 +538,12 @@ These are the ones that have actually caused wrong work, not a general list.
 
 ## Infrastructure worth reusing before writing anything new
 
+- `scripts/investigate-c6-na-window.ts` — the template for a **pre-registered
+  confirmation**: the protocol, gains and threshold are in the header before
+  anything runs; phase 1 *measures* a map's `reference` (gain-0 rows, which are
+  also exactness controls against the checkpointed reference) and phase 2 uses
+  it; reference rows come from the earlier checkpoints; a held-at-reference row
+  and two fresh hashed runs make the exactness bit-for-bit.
 - `scripts/investigate-c5-horizon.ts` — the same instrument at the protocol's
   horizon, reusing the staircase's checkpoint keys so already-measured rows are
   read, not re-run. It writes the reading of each question into its header
@@ -546,6 +583,10 @@ These are the ones that have actually caused wrong work, not a general list.
   the online LRN-6 sweep renormalises scale away exactly. The selective version
   §13.13(h) actually asks for changes ratios instead, which survive that sweep.
   That is C12, and it is untested — do not cite C1 against it.
+- **The noradrenaline → window map is not in `canonicalBrain.ts`, on purpose**
+  (PLAN.md C6). On that fixture surprise is exactly 0 on every tick, so a map
+  would respond only to the seeding relaxation (fact 16) and its standing test
+  would assert an artefact. The reasoning is beside `plasticity` in the file.
 - **Neuromodulators after C5: three channels have a real producer
   (noradrenaline, acetylcholine, dopamine), serotonin has none deliberately
   (F19), and a level can now reach an STDP window, ratio and time constants

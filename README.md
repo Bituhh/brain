@@ -293,10 +293,10 @@ Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (lat
 | ID | Pri | Requirement |
 |---|---|---|
 | LRN-1 | M | **No backpropagation anywhere.** No global error is routed backwards through the graph. Any change to a synapse must be computable from that synapse's own trace, its pre/post neuron's local state, and the ambient neuromodulator level. This is an architectural invariant enforced by the type system — a plasticity rule is handed only a local context object. |
-| LRN-2 | M | **STDP** with configurable asymmetric potentiation/depression windows and time constants. **Status (PLAN.md C5, 2026-09-21): the curve is now *modulable*, not only configurable.** Before C5 the neuromodulator field had exactly two read sites and both multiplied a delta by a level, so nothing could let a modulator reach a timing *window*, an LTP/LTD *ratio* or a time constant. `stdp.rs`'s `StdpModulation` gives each of `StdpParams`' five constants (`a_plus`, `a_minus`, `tau_plus`, `tau_minus`, `window_ticks`) an optional `LevelMap` — `scale = clamp(1 + gain × (level − reference), min, max)` — evaluated at the moment the kernel is (`StdpParams::kernel_modulated`), attached to `ThreeFactorParams` the way C2's `gain_modulator_index` was and carried across the FFI as `PlasticityConfig.stdpModulation`. **Unset is the default and is bit-identical**; nothing in `canonicalBrain.ts` or `charPrediction.ts` sets it — C6 (noradrenaline → window), C7 (acetylcholine → ratio) and F19 (serotonin) are its first users. The mapping is affine about a `reference` rather than a bare multiplier because a curve shape has no meaningful zero; an amplitude scale may cross zero if the caller's `min` does (sign inversion — C6's and C7's call, not defaulted here) and a timing scale may not (validated). §12 decision 16 has the reasoning, the hot-path cost (measured: +2.4% of a VAL-4 run in the worst case, nothing when unset) and the staircase finding; §13.12 item 18 has the data. |
+| LRN-2 | M | **STDP** with configurable asymmetric potentiation/depression windows and time constants. **Status (PLAN.md C5, 2026-09-21): the curve is now *modulable*, not only configurable.** Before C5 the neuromodulator field had exactly two read sites and both multiplied a delta by a level, so nothing could let a modulator reach a timing *window*, an LTP/LTD *ratio* or a time constant. `stdp.rs`'s `StdpModulation` gives each of `StdpParams`' five constants (`a_plus`, `a_minus`, `tau_plus`, `tau_minus`, `window_ticks`) an optional `LevelMap` — `scale = clamp(1 + gain × (level − reference), min, max)` — evaluated at the moment the kernel is (`StdpParams::kernel_modulated`), attached to `ThreeFactorParams` the way C2's `gain_modulator_index` was and carried across the FFI as `PlasticityConfig.stdpModulation`. **Unset is the default and is bit-identical**; nothing in `canonicalBrain.ts` or `charPrediction.ts` sets it — C6 (noradrenaline → window), C7 (acetylcholine → ratio) and F19 (serotonin) are its first users. The mapping is affine about a `reference` rather than a bare multiplier because a curve shape has no meaningful zero; an amplitude scale may cross zero if the caller's `min` does (sign inversion — C6's and C7's call, not defaulted here) and a timing scale may not (validated). §12 decision 16 has the reasoning, the hot-path cost (measured: +2.4% of a VAL-4 run in the worst case, nothing when unset) and the staircase finding; §13.12 item 18 has the data. **Status (PLAN.md C6, 2026-09-21): noradrenaline widens the window — the hook's first user.** A joint tau/window map on the noradrenaline channel, width only (`min` 1.0: a level above `reference` widens, a level below does not narrow), with `reference` the *measured* level a pairing reads at rest. Proven on a contingency switch (`tests/prediction_error_coupling.rs`): a pairing one tick beyond the resting window counts while the world is surprising, never while it is settled, and never with the coupling cut. On VAL-4 a pre-registered ten-seed confirmation returns the predicted null at both gains, because VAL-4 has no change points to be surprised by; nothing is adopted, and neither `charPrediction.ts` nor `canonicalBrain.ts` sets it (the latter by recorded decision: surprise is exactly 0 on its fixture). The triangular window (LTP on both sides) is deferred, not rejected. `stdpModulationStats()` (OBS-2) now reports what the hook actually did over a run. §12 decision 17, §13.12 item 19, §13.13 (i). |
 | LRN-3 | M | **Eligibility traces**: pre/post coincidence writes a decaying trace on the synapse (τ on the order of seconds of simulated time). |
 | LRN-4 | M | **Three-factor rule**: Δw = η · eligibility · modulator. With modulator ≡ 1 this degenerates to plain STDP. **Status (PLAN.md C3, 2026-09-20): the *routing* is now decided on biological grounds rather than by convenience.** `ThreeFactorStdp` writes weight, so it routes on acetylcholine; `PredictiveLearningParams` writes permanence, so it is where dopamine belongs — synaptic tagging and capture (Redondo & Morris 2011) is dopamine gating the conversion of early-LTP into late-LTP, which against §12's weight/permanence split is persistence, not strength. The audit (`.claude/scratch/neuromodulators/investigation.md` §3.3) flagged the inverse wiring as a latent trap; it was harmless only while dopamine had no producer. |
-| LRN-5 | M | **Neuromodulator field**: a small set of named global/regional scalar signals (dopamine, acetylcholine, noradrenaline, serotonin) with their own decay dynamics, broadcast to neurons by region. Carries no per-synapse routing information. **Status (PLAN.md C2, 2026-09-20): two of the four channels now have a real producer, and the field has more than one consumer for the first time.** `neuromodulator::PredictionErrorCoupling` derives *expected* uncertainty (acetylcholine) and *unexpected* uncertainty (noradrenaline) from one two-timescale estimate of the network's own prediction-failure rate — the slow term and the rectified (fast − slow) term, following Yu & Dayan (2005), whose split is why one estimator feeds two channels rather than two estimators feeding one each. The producer is `plasticity/predictive.rs`'s existing per-neuron classification (LRN-8), reduced to a scalar *before* anything reaches the field, so no per-neuron surprise term exists anywhere (invariant 2). Consumers: `ThreeFactorParams::gain_modulator_index` and `PredictiveLearningParams::gain_modulator_index`, a second **multiplicative** channel kept separate from the routing channel — that one names which signal *licenses* a change, this one how strongly anything being encoded right now *is* encoded. **Dopamine acquired its producer in PLAN.md C3 (2026-09-20)**: `neuromodulator::RewardPredictionError` subtracts a running expectation from the raw scalar `reward()` injects, so three of four channels now carry a real signal. Serotonin still has none, deliberately (PLAN.md F19 records why). §13.12 items 13 and 16 have the measurements. **Status (PLAN.md C5, 2026-09-21): a third kind of consumer exists.** Both consumers above multiply a *delta* by a level; `stdp.rs`'s `StdpModulation` lets a level reach the STDP *curve itself* — amplitude ratio, time constants, window (LRN-2's status row, §12 decision 16). It is unset in every shipped configuration, so no channel's consumer list has changed in practice. |
+| LRN-5 | M | **Neuromodulator field**: a small set of named global/regional scalar signals (dopamine, acetylcholine, noradrenaline, serotonin) with their own decay dynamics, broadcast to neurons by region. Carries no per-synapse routing information. **Status (PLAN.md C2, 2026-09-20): two of the four channels now have a real producer, and the field has more than one consumer for the first time.** `neuromodulator::PredictionErrorCoupling` derives *expected* uncertainty (acetylcholine) and *unexpected* uncertainty (noradrenaline) from one two-timescale estimate of the network's own prediction-failure rate — the slow term and the rectified (fast − slow) term, following Yu & Dayan (2005), whose split is why one estimator feeds two channels rather than two estimators feeding one each. The producer is `plasticity/predictive.rs`'s existing per-neuron classification (LRN-8), reduced to a scalar *before* anything reaches the field, so no per-neuron surprise term exists anywhere (invariant 2). Consumers: `ThreeFactorParams::gain_modulator_index` and `PredictiveLearningParams::gain_modulator_index`, a second **multiplicative** channel kept separate from the routing channel — that one names which signal *licenses* a change, this one how strongly anything being encoded right now *is* encoded. **Dopamine acquired its producer in PLAN.md C3 (2026-09-20)**: `neuromodulator::RewardPredictionError` subtracts a running expectation from the raw scalar `reward()` injects, so three of four channels now carry a real signal. Serotonin still has none, deliberately (PLAN.md F19 records why). §13.12 items 13 and 16 have the measurements. **Status (PLAN.md C5, 2026-09-21): a third kind of consumer exists.** Both consumers above multiply a *delta* by a level; `stdp.rs`'s `StdpModulation` lets a level reach the STDP *curve itself* — amplitude ratio, time constants, window (LRN-2's status row, §12 decision 16). It is unset in every shipped configuration, so no channel's consumer list has changed in practice. **Status (PLAN.md C6, 2026-09-21): noradrenaline has its first curve-shaping consumer** — its level widens the STDP window (LRN-2's status row, §12 decision 17). Still unset in every shipped configuration; on VAL-4 the confirmation is a null because the task never surprises the network (§13.12 item 19). |
 | LRN-6 | M | **Homeostatic synaptic scaling**: periodic multiplicative renormalisation of a neuron's incoming weights toward a target total, on a slow timescale. |
 | LRN-7 | M | **Structural plasticity**: prune synapses whose permanence falls below a floor; sprout new candidates from a co-active neuron toward targets in its neighbourhood, subject to a per-neuron synapse budget. |
 | LRN-8 | M | **Predictive learning**: when a neuron fires *unpredicted*, reinforce its active segments' synapses onto recently-active cells; when a segment predicts a firing that does not occur, punish it. This is the primary unsupervised signal — no labels required. |
@@ -1955,6 +1955,77 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
     hook on on the 5-seed protocol — that is C6's and C7's. (Single-dimension, three-seed runs at
     the protocol's length were measured with it, §13.12 item 18; none is a protocol figure.) The FFI carries the option so they can, and so the FFI does not
     become "a copy that stops being a copy" (HANDOFF fact 14(a)).
+
+17. **Noradrenaline widens the STDP window — width only; the triangular window is deferred, not
+    rejected — decided 2026-09-21 (PLAN.md C6), the first user of decision 16's hook.** The evidence
+    (`.claude/scratch/neuromodulators/investigation.md` §3.2) supports two claims of different size:
+    β-adrenergic activation widens the t-LTP window by ~15 ms, and under a β-family agonist the
+    window becomes *triangular*, with LTP for both pre-before-post and post-before-pre pairings out
+    to ~50 ms (Salgado et al. 2012 add a dose-dependence). Both change *which pairings count*, not
+    how much each counts, which is what makes this a separate mechanism from C2's amplitude gain.
+
+    **What is built.** `ThreeFactorParams::with_stdp_modulation` with
+    `StdpModulation::joint_time_scale` on the noradrenaline channel: one `LevelMap` drives
+    `tau_plus`, `tau_minus` and `window_ticks` together (a tau scale alone is capped by the window,
+    HANDOFF fact 16), with **`min: 1.0`** — a level above `reference` widens the window, a level
+    below it does not narrow it below the configured curve — and no amplitude slot. Crossing the FFI
+    is the same `PlasticityConfig.stdpModulation` C5 shipped; nothing new was needed on the input
+    side. The mechanism test is `tests/prediction_error_coupling.rs`'s contingency switch (§13.12
+    item 19).
+
+    **Width only, and why the triangular window waits.** The triangular result is not "a wider
+    window": it inverts the *anti-causal* side's sign, post-before-pre pairings becoming LTP. Through
+    the hook that is an `a_minus` scale driven below zero (the map's `min` negative), which decision
+    16 deliberately left to this item to choose. Three reasons it is deferred:
+    - It is a much larger behavioural claim. A widened window changes which causal pairings count;
+      a sign inversion rewires what the anti-causal side *means*, network-wide, whenever the channel
+      is high.
+    - Nothing here could measure it. VAL-4 contains no change points, so surprise is absent after
+      the first third of a run (HANDOFF fact 12) and the channel would almost never be high enough
+      to invert anything; and the mechanism test's probe pairing is causal by construction.
+    - The dose-dependence is part of the claim (low NE: broad LTD; high NE: narrow bidirectional),
+      and a single affine map cannot express a non-monotone dose-response. Building it honestly
+      needs a level-to-curve map this hook does not have.
+
+    Deferred, not rejected: the hook permits it (`a_minus` map with negative `min`), and the task
+    that could measure it is a corpus with deliberate contingency switches — a new VAL item with its
+    own baselines, not a longer C6.
+
+    **`reference` is the level a pairing *reads* at rest, measured — not the drive's baseline, and
+    not a level sampled between ticks.** The coupling drives the field at the end of a tick and
+    plasticity reads it one tick of decay later, so at rest a pairing reads a value below the
+    baseline: 0.951 in the mechanism test (τ = 20), **0.9990898** on VAL-4 (τ = 1000; the f32 fixed
+    point of the drive's EMA, identical to the bit on all ten seeds). A map with `reference:
+    baseline` would spend the bottom of every excursion below its reference, clamped to 1. The
+    instrument is new (below); the measurement is a run with the map at gain 0, which reads the level
+    at every pairing without changing any of them, and the lowest level read is rest because surprise
+    is rectified.
+
+    **A start-up excursion that is not surprise.** `PredictionErrorCoupling::seed_baselines` starts a
+    driven channel at `baseline`, which is the *post-drive* resting value, not the value a pairing
+    reads. So every run begins roughly `(1 − exp(−1/τ)) × baseline` above rest and relaxes at the
+    field's own τ: +0.0009 relaxing over ~1,000 ticks on VAL-4, +0.049 relaxing over ~20 in the
+    mechanism test (whose gain is chosen to sit clear of it, and asserts so). A window map sees that
+    excursion exactly as it sees surprise. It is small against VAL-4's surprise excursions (up to
+    +0.005) but it is not zero, and it is why this item did **not** wire the map into
+    `canonicalBrain.ts`: on that fixture surprise is exactly 0 on every tick, so the seeding
+    relaxation is the only thing a map there could respond to (the reasoning is recorded beside
+    `plasticity` in that file). Not fixed here: seeding at the reader's rest instead would change
+    C2's coupling for every caller and every golden test that runs it, which is its own item.
+
+    **An instrument, because "configured" is not "did something".** `StdpModulationStats`
+    (`ThreeFactorParams::with_stdp_modulation_observed`, FFI `plasticity.observeStdpModulation` +
+    `Simulation.stdpModulationStats()`, OBS-2): per run, how many STDP pairings went through the
+    modulated curve, how many had a scale other than exactly 1, how many were admitted only because
+    the window widened (or cut because it narrowed), the extremes of the scale, and per mapped
+    channel the lowest and highest level a pairing read. Opt-in, observational (a run observed is
+    bit-identical to one unobserved — tested at the rule and at the network), not snapshot state,
+    and identical across partitions and thread counts (the merge is sums, mins and maxes; tested
+    across 1 and 2 partitions, sequential, rayon and pinned). Atomics only because a rule must be
+    `Sync`; each partition owns its rule, so they are never contended.
+
+    **What VAL-4 can and cannot show about it** is §13.12 item 19: a pre-registered, paired, ten-seed
+    confirmation of the null the 15,000-character re-check predicted.
 
 ## 12a. Open questions
 
@@ -4892,6 +4963,93 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     close to absent after the first third of the run, so a VAL-4 null is the expected outcome and
     `reference` must be the measured resting level, not the drive's nominal baseline.
 
+19. **Noradrenaline widens the STDP window: proven on a contingency switch, and a pre-registered
+    null on VAL-4 — 2026-09-21, PLAN.md C6.** The first user of the STDP hook (§12 decision 16), and
+    the design is §12 decision 17. Re-scoped with the user before it started: C5's 15,000-character
+    re-check (item 18's addendum) predicted a VAL-4 null from three independent directions, so this
+    item proves the mechanism where it can be seen and confirms the null with a paired, pre-registered
+    run — it does not search. Scripts: `tests/prediction_error_coupling.rs` (the mechanism),
+    `scripts/investigate-c6-na-window.ts` (+ `.results.md`, the confirmation).
+
+    **The mechanism, on a contingency switch.** C2's switching scenario (settle A→B for 40 exposures,
+    switch to A→C) with a probe pair riding along at fixed ticks in both phases: `p` fires, its
+    synapse onto `q` delivers, and `q` fires three ticks later — one tick beyond the resting window of
+    two. Noradrenaline widens the window through a joint tau/window map (gain 10, `min` 1.0, max 1.75,
+    so the probe's anti-causal lag of 4 stays outside even at the cap). Asserted on the synapse
+    (HANDOFF fact 3), with the hook's counter only as corroboration:
+    - **settled** — through all 40 A→B exposures the probe's eligibility and weight are bit-for-bit
+      their initial values: the pairing happens every exposure and never counts;
+    - **surprised** — after the switch it lays down eligibility and moves the weight, and the first
+      exposure at which it counts is after the switch (the widened window admitted it 4 times);
+    - **VAL-9 ablation** — with the hook unset, and separately with the map at gain 0, the probe never
+      counts before or after the switch; the two ablations are bit-identical to each other, and see
+      the same surprise as the coupled run up to the switch, so what was removed is the consumer,
+      not the signal. Sabotaging `kernel_modulated`'s window scaling makes the mechanism test fail at
+      its eligibility assertion.
+
+    Three things the test had to get right, each found by running it rather than by reasoning:
+    - **A predicted neuron with threshold 0.5 re-fires on residual membrane**, because the predictive
+      reduction of 0.5 takes its effective threshold to 0. The first version's `p` did exactly that
+      one tick after `q`'s prediction arrived, and its extra delivery depressed the probe inside the
+      resting window. The probe pair runs at threshold 1.0, like B and C. (The original scenario's A
+      does the same at k2; nothing there depends on it.)
+    - **The level a pairing reads rests at `baseline × exp(−1/τ)`, not at `baseline`.** The coupling
+      drives the field at the end of a tick and plasticity reads it one tick of decay later: 0.951
+      here, against a baseline of 1.0. The switch's peak read level is 1.017: 0.017 above 1.0 but
+      0.065 above the true rest, so `reference: 1.0` would have clamped three quarters of it away. So
+      the test measures rest — a gain-0 run records the lowest level any pairing read — and uses it,
+      which is also exactly what the VAL-4 script does.
+    - **Every run starts above that rest** — see the start-up excursion in decision 17. The margins
+      are deterministic and asserted: the settled phase's largest scale is 1.399 (the start-up
+      excursion), the switch's 1.655, and the probe needs 1.5.
+
+    **The VAL-4 confirmation — pre-registered, paired, ten seeds.** Written into the script header
+    before any trial ran: B5's winner plus C2's coupling on noradrenaline only (tau 100/2000 ticks,
+    drive baseline 1.0, **drive gain fixed at 1.0**, since only map gain × drive gain is
+    identifiable); a joint tau/window map, width only, `min` 1.0, max 1.5; **`reference` = the
+    measured resting level**; map gains **100** (the largest excursion widens by about a fifth) and
+    **400** (the largest excursions reach the cap); and the threshold: an effect only if the paired
+    mean change is ≥ 1 point with the same sign on both seed sets. 34 trials, ~6 minutes on 12
+    workers.
+
+    The reference was measured first, by rule: **0.9990898, identical to the bit on all ten seeds**
+    — the f32 fixed point of the drive's EMA, which is network-independent because at rest the
+    signal is exactly 0. The largest level any pairing read was 1.0003–1.0040 (+0.0012 to +0.0050
+    above rest; seed 11 the largest). All sixteen exactness controls pass: every gain-0 row equals
+    B5's checkpointed row on its seed (and reproduces B5's figures: **20.36%** on seeds 1–5, **19.05%**
+    on 11–15, 19.85 / 20.50 / 21.10% on seeds 1–3); gain-0 equals a fresh B5 run bit for bit
+    (topology, permanence and weight hashes) on seeds 1 and 11; and the map at gain 100 with the
+    level *held exactly* at the reference equals it too.
+
+    | map gain | seeds 1–5, mean Δ | seeds 11–15, mean Δ | per-seed Δ (points) | pairings with scale ≠ 1 | admitted only by widening | max scale |
+    |---|---|---|---|---|---|---|
+    | 100 | **+0.02** | **+0.12** | +0.45, −0.05, 0.00, −0.45, +0.15 / −0.20, +1.30, −0.45, +0.15, −0.20 | 12.4–29.6% | 0.18–0.65% | 1.12–1.50 |
+    | 400 | **−0.48** | **+0.39** | +1.00, −0.15, −0.25, −1.20, −1.80 / −0.75, +2.05, +0.15, +0.05, +0.45 | 12.1–29.4% | 0.70–1.25% | 1.49–1.50 |
+
+    **Verdict against the pre-registered rule: the predicted null at both gains.** Neither mean
+    reaches a point on either seed set, and at gain 400 the two sets disagree in sign. Accuracy stays
+    above the 16.56% "always guess space" bar on every seed at both gains (lowest: 17.30% at gain
+    100, 17.40% at gain 400, against a reference whose own lowest seed is 17.50%). What the
+    numbers do show, and it is not an effect: at gain 400 the per-seed changes are about twice as
+    large (mean |Δ| 0.79 points against 0.34 at gain 100) with no consistent sign — a larger
+    perturbation of the trajectory, read by an accuracy estimator whose own noise at this horizon is
+    ~0.4 points (item 18's addendum). Seed 12 moves up at both gains (+1.30, +2.05) and seed 4 down
+    (−0.45, −1.20); single seeds moving consistently are exactly what the pre-registered rule exists
+    to keep from carrying a verdict.
+
+    **How idle the mechanism is, measured rather than inferred.** `stdpModulationStats()` counts every
+    STDP pairing (~240 million per run). The scale differs from 1 on 12–30% of them — far more than
+    the 11–12% of characters on which the surprise signal is non-zero, because after any excursion
+    the level relaxes back at the field's τ of 1,000 ticks (and every run starts ~0.0009 above rest,
+    decision 17), so small scales persist long after the signal has returned to zero. Almost all of
+    those scales are tiny: the pairings the widened window actually *admitted* — ones that counted
+    only because it was wider — are 0.18–0.65% of the total at gain 100 and 0.70–1.25% at gain 400.
+    So the mechanism was live throughout, reshaped the kernel slightly (the joint map also scales
+    tau, and so area) on an eighth to a third of pairings, and changed which pairings counted on
+    0.2–1.25% of them. That VAL-4 cannot turn that into accuracy is the task's property, not the mechanism's
+    (HANDOFF fact 12): a behavioural positive for noradrenaline needs a corpus with change points in
+    it, a new VAL item with its own baselines. Nothing is adopted; no VAL-4 figure moves.
+
 ### 13.13 Mechanisms the evidence base names but §3–§9 does not specify
 
 Added 2026-09-13 after a review of §2 against §3–§9 and against the shipped core. §13.1–§13.10
@@ -5047,6 +5205,37 @@ several are cheap against structures the core already has.
   the uniform version, and a uniform downscale changes only *scale* where a selective one changes
   the *ratios* within a neuron, which a total-renormalising sweep preserves. Scoped as PLAN.md's
   **C12** row, with that distinction recorded as reasoning rather than measurement.
+
+**(i) A neuromodulator changes *which* pairings count, not only how much** — LRN-2, LRN-5, §2.5.
+
+- **Seol et al. (2007)**, **Salgado, Köhr & Treviño (2012)**, and the β-adrenergic STDP literature
+  since (`.claude/scratch/neuromodulators/investigation.md` §3.2). β-adrenergic activation widens
+  the t-LTP timing window by ~15 ms; under a β-family agonist the window becomes *triangular*, LTP
+  for both orders out to ~50 ms; and the effect is dose-dependent (low NE broad LTD, high NE narrow
+  bidirectional STDP). Acetylcholine's muscarinic effects on the same curve (Seol 2007; Brzosko et
+  al. 2019) are the ratio-side counterpart, and are PLAN.md C7's.
+- **Consequence here.** LRN-5's field was, until 2026-09-21, read only as a multiplier on a delta
+  — "how much" — and this entry's mechanism is a claim about the curve's *shape*. PLAN.md C5 built
+  the hook (§12 decision 16) and **C6 is its first user (§12 decision 17): noradrenaline, driven
+  from the network's own surprise by C2's coupling, now widens the STDP window through a joint
+  tau/window map, width only.** It is proven where it can be seen — on a contingency switch, a
+  pairing one tick beyond the resting window lays down eligibility and moves weight while the
+  world is surprising and never while it is settled, and never at all with the coupling cut
+  (`tests/prediction_error_coupling.rs`, §13.12 item 19).
+- **What VAL-4 can and cannot show about it.** VAL-4 cannot show it helps, and was never going to:
+  English prose contains no contingency switch, so the surprise that drives the channel is almost
+  absent after the first third of a run, and even the largest excursion is a brief, small
+  widening against a window whose static value is already near-tuned at this horizon. The
+  pre-registered ten-seed confirmation (§13.12 item 19) is the record of that, and it is a
+  statement about the task, not about the mechanism: at map gains of 100 and 400 the paired change
+  is +0.02 / +0.12 and −0.48 / +0.39 points on the two seed sets, and every seed stays above the
+  16.56% bar. What VAL-4 *can* show is how idle the mechanism is there — the new
+  `stdpModulationStats()` instrument counts it: the scale moved on 12–30% of ~240 million pairings
+  per run, almost always slightly, and the widened window admitted a pairing it would otherwise have
+  excluded on 0.2–1.25% of them. A behavioural positive
+  needs a corpus with change points in it: a new VAL item with its own baselines, not a longer C6.
+  The triangular window (a sign inversion on the anti-causal side) is deferred for the same reason
+  and recorded in decision 17.
 
 ---
 

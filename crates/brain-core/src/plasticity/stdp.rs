@@ -243,6 +243,85 @@ impl StdpModulation {
     pub fn window_ticks(&self) -> Option<LevelMap> {
         self.window_ticks
     }
+
+    /// Every slot that is set, in declaration order.
+    pub fn mapped(&self) -> impl Iterator<Item = LevelMap> {
+        [self.a_plus, self.a_minus, self.tau_plus, self.tau_minus, self.window_ticks].into_iter().flatten()
+    }
+}
+
+/// What a modulated curve actually did over a run (PLAN.md C6, OBS-2): the
+/// counterpart for the STDP hook of `predictionOutcomeTotals()` for predictive
+/// learning. A level that *could* reshape the curve is not evidence that it did;
+/// on VAL-4 noradrenaline's signal is exactly zero on ~89% of characters
+/// (HANDOFF fact 12), so "the hook was set" and "the curve moved" are different
+/// claims, and only this can separate them.
+///
+/// Opt-in (`ThreeFactorParams::observe_stdp_modulation`) and observational: it
+/// never changes a result. Not serialised in a snapshot -- a restored run counts
+/// from zero, like any other since-construction diagnostic.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StdpModulationStats {
+    /// Kernel evaluations made through the modulated path -- one per STDP
+    /// pairing the rule saw, inside the configured window or not.
+    pub events: u64,
+    /// Of those, how many had at least one mapped slot's scale `!= 1.0`: the
+    /// pairings whose curve the level actually moved.
+    pub curve_changed: u64,
+    /// Pairings with `|dt|` beyond the configured `window_ticks` that the
+    /// modulated window admitted -- a pairing that counted *only* because the
+    /// window widened. Always 0 without a `window_ticks` slot.
+    pub window_admitted: u64,
+    /// The converse: inside the configured window, cut by a narrowed one.
+    pub window_excluded: u64,
+    /// The smallest and largest scale any mapped slot took at an evaluated
+    /// event. NaN when `events == 0`.
+    pub min_scale: f32,
+    pub max_scale: f32,
+    /// Per channel, the lowest and highest level read at an evaluated event --
+    /// the level the curve was *actually* shaped by, which is what a map's
+    /// `reference` must be measured against (a level sampled between ticks is
+    /// not it: the field is driven after the tick's plasticity has run). NaN
+    /// for a channel no slot maps, and when `events == 0`.
+    pub min_level: Modulators,
+    pub max_level: Modulators,
+}
+
+impl StdpModulationStats {
+    /// Nothing observed.
+    pub const EMPTY: Self = Self {
+        events: 0,
+        curve_changed: 0,
+        window_admitted: 0,
+        window_excluded: 0,
+        min_scale: f32::NAN,
+        max_scale: f32::NAN,
+        min_level: [f32::NAN; NUM_MODULATORS],
+        max_level: [f32::NAN; NUM_MODULATORS],
+    };
+
+    /// Two rules' or two partitions' observations as one. Counts add and
+    /// extremes combine, so the result does not depend on the order partitions
+    /// are merged in (RUN-3). `f32::min`/`max` return the non-NaN operand, so an
+    /// empty side leaves the other unchanged.
+    pub fn merge(self, other: Self) -> Self {
+        let mut min_level = self.min_level;
+        let mut max_level = self.max_level;
+        for c in 0..NUM_MODULATORS {
+            min_level[c] = min_level[c].min(other.min_level[c]);
+            max_level[c] = max_level[c].max(other.max_level[c]);
+        }
+        Self {
+            events: self.events + other.events,
+            curve_changed: self.curve_changed + other.curve_changed,
+            window_admitted: self.window_admitted + other.window_admitted,
+            window_excluded: self.window_excluded + other.window_excluded,
+            min_scale: self.min_scale.min(other.min_scale),
+            max_scale: self.max_scale.max(other.max_scale),
+            min_level,
+            max_level,
+        }
+    }
 }
 
 #[cfg(test)]

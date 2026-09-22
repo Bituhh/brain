@@ -41,6 +41,7 @@ import {
   type WeightSampleFfi,
   type MetricsSnapshotFfi,
   type PredictionOutcomeTotalsFfi,
+  type StdpModulationStatsFfi,
   type StructuralStatsFfi,
 } from "@brain/napi";
 import { openSync, writeSync, fsyncSync, closeSync, renameSync, readFileSync } from "node:fs";
@@ -94,6 +95,8 @@ export type WeightSample = WeightSampleFfi;
 export type MetricsSnapshot = MetricsSnapshotFfi;
 /** Requirement 12's four outcomes, accumulated over every `step()` (OBS-2). */
 export type PredictionOutcomeTotals = PredictionOutcomeTotalsFfi;
+/** What the STDP modulation hook did over a run (PLAN.md C6) -- see `Simulation.stdpModulationStats()`. */
+export type StdpModulationStats = StdpModulationStatsFfi;
 export type StructuralStats = StructuralStatsFfi;
 
 /** What one consolidation pass did (Requirement 12). */
@@ -955,6 +958,26 @@ export class Simulation {
    */
   predictionOutcomeTotals(): PredictionOutcomeTotals {
     return this.#native.predictionOutcomeTotals();
+  }
+
+  /**
+   * What `plasticity.stdpModulation` actually did since construction, merged
+   * over every partition (PLAN.md C6, OBS-2): how many STDP pairings were
+   * evaluated through the modulated curve, how many had a scale other than
+   * exactly 1, how many counted only because the window widened, and the
+   * extremes of the scale and of the level each mapped channel was *read at*.
+   *
+   * `null` unless `plasticity.observeStdpModulation` was set. A level that could
+   * reshape the curve is not evidence that it did -- on VAL-4 noradrenaline's
+   * surprise signal is exactly zero on ~89% of characters -- and this is what
+   * tells the two apart. `minLevel` is also how to measure a map's `reference`:
+   * the level a pairing reads is not the one `modulatorLevels()` shows between
+   * ticks (the field is driven after a tick's plasticity has run).
+   *
+   * Not part of snapshot state: restarts from zero after a `restore`.
+   */
+  stdpModulationStats(): StdpModulationStats | null {
+    return this.#native.stdpModulationStats();
   }
 
   /**

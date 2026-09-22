@@ -108,6 +108,14 @@ pub trait PlasticityRule: Send + Sync {
     /// and can compare against when this synapse last delivered
     /// (`syn.last_active`, read, not necessarily written, here).
     fn on_post_spike(&self, syn: SynapseMut<'_>, ctx: &LocalContext);
+
+    /// What this rule's STDP modulation hook did so far, if it has one and was
+    /// asked to observe it (PLAN.md C6, `stdp::StdpModulationStats`). `None` --
+    /// the default, and every rule but an observed `ThreeFactorStdp` -- means
+    /// "nothing to report", not "nothing happened".
+    fn stdp_modulation_stats(&self) -> Option<stdp::StdpModulationStats> {
+        None
+    }
 }
 
 /// Bounds a permanence value to `[0, 1]` (SYN-3) after any rule chain has
@@ -172,6 +180,12 @@ impl RuleChain {
         }
         *syn.permanence = clamp_permanence(*syn.permanence);
         *syn.weight = clamp_weight(*syn.weight);
+    }
+
+    /// Every observing rule's [`PlasticityRule::stdp_modulation_stats`],
+    /// merged; `None` when no rule in the chain observes.
+    pub fn stdp_modulation_stats(&self) -> Option<stdp::StdpModulationStats> {
+        self.rules.iter().filter_map(|rule| rule.stdp_modulation_stats()).reduce(stdp::StdpModulationStats::merge)
     }
 }
 

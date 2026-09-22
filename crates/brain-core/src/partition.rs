@@ -587,6 +587,13 @@ impl PartitionRuntime {
         self.structural_plasticity.as_ref().map(StructuralPlasticity::totals)
     }
 
+    /// Every partition's [`Scheduler::stdp_modulation_stats`], merged (PLAN.md
+    /// C6). Each partition runs its own copy of the rule, so this is the only
+    /// network-wide reading; the merge is order-independent (RUN-3).
+    pub fn stdp_modulation_stats(&self) -> Option<crate::plasticity::stdp::StdpModulationStats> {
+        self.schedulers.iter().filter_map(Scheduler::stdp_modulation_stats).reduce(crate::plasticity::stdp::StdpModulationStats::merge)
+    }
+
     /// Opts into real parallel execution of stage 1 and stage 3 (RUN-4)
     /// over a dedicated `thread_count`-sized rayon pool. `thread_count <= 1`
     /// returns to the sequential path (RUN-8) -- both must (and, per

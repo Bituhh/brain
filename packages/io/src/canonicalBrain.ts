@@ -257,6 +257,20 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       // mechanism is off by *oversight*, and distinguishing the two is the
       // point (see this file's doc comment).
       gainModulatorChannel: 2, // NORADRENALINE
+      // PLAN.md C6 (README §12 decision 17): noradrenaline CAN widen this rule's
+      // timing window (`stdpModulation`, a joint tau/window map on channel 2),
+      // and it is deliberately NOT set here -- a decision, not an oversight,
+      // which this module's contract requires saying. Measured on this fixture's
+      // standing scenario (seed 1, 400 ticks): the surprise signal is exactly 0
+      // on every tick (it classifies 2 of 1,200 outcomes as predicted, so there
+      // is no expectation to violate), and the level a pairing reads never
+      // leaves the slow relaxation from `seed_baselines`' starting value
+      // (0.99967-0.999999, relaxing at tau 1000 toward the 0.99909 rest that
+      // `scripts/investigate-c6-na-window.ts` measured). A window map here would
+      // respond to that seeding artefact and nothing else, and a standing test
+      // asserting its effect would be asserting the artefact. The mechanism is
+      // exercised where surprise exists: `tests/prediction_error_coupling.rs`'s
+      // contingency switch.
       modulatorTauTicks: [1000, 1000, 1000, 1000],
     },
     // LRN-6. Target chosen from this column's own wiring: ~p0*WIDTH ≈ 15

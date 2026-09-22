@@ -25,8 +25,10 @@
 //! with everything else in this engine only doing work when something
 //! happens (Requirement 5.1).
 
-use super::stdp::{StdpModulation, StdpParams};
-use super::{LocalContext, NeuronLocal, PlasticityRule, SynapseMut};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+
+use super::stdp::{StdpModulation, StdpModulationStats, StdpParams};
+use super::{LocalContext, Modulators, NeuronLocal, PlasticityRule, SynapseMut, NUM_MODULATORS};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ThreeFactorParams {
@@ -76,6 +78,11 @@ pub struct ThreeFactorParams {
     /// level is read at the instant the kernel is evaluated and the result is
     /// stored in eligibility, not rescaled when the level later moves.
     pub stdp_modulation: Option<StdpModulation>,
+    /// PLAN.md C6: count what `stdp_modulation` actually did -- see
+    /// [`StdpModulationStats`]. Purely observational (a run is bit-identical
+    /// with it on or off, pinned by a test) and `false` from [`Self::new`], so
+    /// no caller pays for it unasked. Meaningless without `stdp_modulation`.
+    pub observe_stdp_modulation: bool,
 }
 
 impl ThreeFactorParams {
@@ -89,6 +96,7 @@ impl ThreeFactorParams {
             modulator_index,
             gain_modulator_index: None,
             stdp_modulation: None,
+            observe_stdp_modulation: false,
         }
     }
 
@@ -110,15 +118,129 @@ impl ThreeFactorParams {
         self.stdp_modulation = if modulation.is_none() { None } else { Some(modulation) };
         self
     }
+
+    /// PLAN.md C6: turns on [`Self::observe_stdp_modulation`].
+    pub fn with_stdp_modulation_observed(mut self) -> Self {
+        self.observe_stdp_modulation = true;
+        self
+    }
+}
+
+/// An `f32` as a `u32` whose unsigned order is the float's numeric order, so
+/// `fetch_min`/`fetch_max` on the bits are a float min/max. `0` and `u32::MAX`
+/// map back to NaN, which is what the sentinels below rely on.
+fn ordered_bits(x: f32) -> u32 {
+    let b = x.to_bits();
+    if b >> 31 == 1 {
+        !b
+    } else {
+        b | (1 << 31)
+    }
+}
+
+fn from_ordered_bits(u: u32) -> f32 {
+    f32::from_bits(if u >> 31 == 1 { u & !(1 << 31) } else { !u })
+}
+
+/// The live counters behind [`StdpModulationStats`]. Atomic only because
+/// `PlasticityRule` is `Send + Sync`; a rule belongs to exactly one scheduler,
+/// so they are never contended, and every quantity is a sum, a min or a max --
+/// none depends on the order events arrive in (RUN-3).
+struct ModulationCounters {
+    events: AtomicU64,
+    curve_changed: AtomicU64,
+    window_admitted: AtomicU64,
+    window_excluded: AtomicU64,
+    min_scale: AtomicU32,
+    max_scale: AtomicU32,
+    min_level: [AtomicU32; NUM_MODULATORS],
+    max_level: [AtomicU32; NUM_MODULATORS],
+    /// Which channels at least one slot maps -- only those have their level
+    /// recorded.
+    channels: [bool; NUM_MODULATORS],
+}
+
+impl ModulationCounters {
+    fn new(modulation: &StdpModulation) -> Self {
+        let mut channels = [false; NUM_MODULATORS];
+        for map in modulation.mapped() {
+            channels[map.channel] = true;
+        }
+        Self {
+            events: AtomicU64::new(0),
+            curve_changed: AtomicU64::new(0),
+            window_admitted: AtomicU64::new(0),
+            window_excluded: AtomicU64::new(0),
+            min_scale: AtomicU32::new(u32::MAX),
+            max_scale: AtomicU32::new(0),
+            min_level: std::array::from_fn(|_| AtomicU32::new(u32::MAX)),
+            max_level: std::array::from_fn(|_| AtomicU32::new(0)),
+            channels,
+        }
+    }
+
+    /// One kernel evaluation at `dt`. Recomputes the slot scales rather than
+    /// threading them out of `kernel_modulated`, so the path that produces the
+    /// result is the same code whether or not anything is watching.
+    fn record(&self, dt: f32, stdp: &StdpParams, modulation: &StdpModulation, modulators: &Modulators) {
+        self.events.fetch_add(1, Ordering::Relaxed);
+        let mut changed = false;
+        for map in modulation.mapped() {
+            let scale = map.scale(modulators);
+            changed |= scale != 1.0;
+            self.min_scale.fetch_min(ordered_bits(scale), Ordering::Relaxed);
+            self.max_scale.fetch_max(ordered_bits(scale), Ordering::Relaxed);
+        }
+        if changed {
+            self.curve_changed.fetch_add(1, Ordering::Relaxed);
+        }
+        if let Some(window) = modulation.window_ticks() {
+            // The same two comparisons `kernel_modulated` makes.
+            let configured = stdp.window_ticks as f32;
+            let beyond_configured = dt.abs() > configured;
+            let beyond_modulated = dt.abs() > configured * window.scale(modulators);
+            if beyond_configured && !beyond_modulated {
+                self.window_admitted.fetch_add(1, Ordering::Relaxed);
+            } else if !beyond_configured && beyond_modulated {
+                self.window_excluded.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        for (channel, &mapped) in self.channels.iter().enumerate() {
+            if mapped {
+                self.min_level[channel].fetch_min(ordered_bits(modulators[channel]), Ordering::Relaxed);
+                self.max_level[channel].fetch_max(ordered_bits(modulators[channel]), Ordering::Relaxed);
+            }
+        }
+    }
+
+    fn snapshot(&self) -> StdpModulationStats {
+        let load = |a: &AtomicU32| from_ordered_bits(a.load(Ordering::Relaxed));
+        StdpModulationStats {
+            events: self.events.load(Ordering::Relaxed),
+            curve_changed: self.curve_changed.load(Ordering::Relaxed),
+            window_admitted: self.window_admitted.load(Ordering::Relaxed),
+            window_excluded: self.window_excluded.load(Ordering::Relaxed),
+            min_scale: load(&self.min_scale),
+            max_scale: load(&self.max_scale),
+            min_level: std::array::from_fn(|c| load(&self.min_level[c])),
+            max_level: std::array::from_fn(|c| load(&self.max_level[c])),
+        }
+    }
 }
 
 pub struct ThreeFactorStdp {
     pub params: ThreeFactorParams,
+    /// `Some` only when the params ask for observation *and* set a modulation.
+    observed: Option<ModulationCounters>,
 }
 
 impl ThreeFactorStdp {
     pub fn new(params: ThreeFactorParams) -> Self {
-        Self { params }
+        let observed = match (&params.stdp_modulation, params.observe_stdp_modulation) {
+            (Some(modulation), true) => Some(ModulationCounters::new(modulation)),
+            _ => None,
+        };
+        Self { params, observed }
     }
 
     fn decay_eligibility(&self, syn: &mut SynapseMut<'_>, tick: u32) {
@@ -138,7 +260,12 @@ impl ThreeFactorStdp {
     fn kernel(&self, dt: f32, ctx: &LocalContext) -> f32 {
         match &self.params.stdp_modulation {
             None => self.params.stdp.kernel(dt),
-            Some(modulation) => self.params.stdp.kernel_modulated(dt, &ctx.modulators, modulation),
+            Some(modulation) => {
+                if let Some(counters) = &self.observed {
+                    counters.record(dt, &self.params.stdp, modulation, &ctx.modulators);
+                }
+                self.params.stdp.kernel_modulated(dt, &ctx.modulators, modulation)
+            }
         }
     }
 
@@ -183,6 +310,10 @@ impl PlasticityRule for ThreeFactorStdp {
         self.apply_modulated_update(&mut syn, ctx);
         // Deliberately not touching last_active here: it strictly tracks
         // "last delivery", which this event is not. See its doc comment.
+    }
+
+    fn stdp_modulation_stats(&self) -> Option<StdpModulationStats> {
+        self.observed.as_ref().map(ModulationCounters::snapshot)
     }
 }
 
@@ -415,5 +546,66 @@ mod tests {
             (after_second_spike - expected).abs() < 1e-5,
             "got {after_second_spike}, expected {expected} (one tick of decay, not a full re-decay from tick 0)"
         );
+    }
+
+    /// PLAN.md C6: `observe_stdp_modulation` only watches. Same pairs, same
+    /// levels, same bits out, observed or not.
+    #[test]
+    fn observing_the_hook_changes_nothing() {
+        let map = LevelMap::new(2, 1.0, 1.0, 0.25, 8.0);
+        let joint = ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0).with_stdp_modulation(StdpModulation::joint_time_scale(map).unwrap());
+        for level in [0.5, 1.0, 1.3, 2.0] {
+            let m = [1.0, 1.0, level, 1.0];
+            let (e0, w0) = one_causal_pair(joint, m);
+            let (e1, w1) = one_causal_pair(joint.with_stdp_modulation_observed(), m);
+            assert_eq!((e0.to_bits(), w0.to_bits()), (e1.to_bits(), w1.to_bits()), "level {level}");
+        }
+    }
+
+    /// The counters say what the curve did: a pairing beyond the configured
+    /// window counts as *admitted* only when the level widened the window, the
+    /// scale and the level at event time are recorded, and a rule that was not
+    /// asked to observe reports nothing rather than zeros.
+    #[test]
+    fn the_counters_record_what_the_modulated_window_admitted() {
+        // Window 100, reference 1.0, gain 1.0: level 1.5 widens it to 150.
+        let map = LevelMap::new(2, 1.0, 1.0, 1.0, 2.0);
+        let params = ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0).with_stdp_modulation(StdpModulation::joint_time_scale(map).unwrap());
+        assert_eq!(ThreeFactorStdp::new(params).stdp_modulation_stats(), None, "not asked to observe");
+
+        let rule = ThreeFactorStdp::new(params.with_stdp_modulation_observed());
+        let pair_at = |dt: u32, level: f32| {
+            let mut fx = Fixture::new();
+            fx.last_active = 1000;
+            rule.on_post_spike(fx.syn(), &ctx(never_spiked(), spiked_at(1000 + dt), [1.0, 1.0, level, 1.0], 1000 + dt));
+            fx.eligibility
+        };
+        assert_eq!(pair_at(120, 1.0), 0.0, "at the reference, 120 is outside the window of 100");
+        assert!(pair_at(120, 1.5) > 0.0, "at 1.5 the window is 150 and 120 counts");
+        assert_eq!(pair_at(50, 0.8), stdp().kernel(50.0), "below the reference the map's min of 1.0 holds the curve");
+
+        let stats = rule.stdp_modulation_stats().expect("asked to observe");
+        assert_eq!(stats.events, 3);
+        assert_eq!(stats.curve_changed, 1, "only the level-1.5 pairing had a scale other than 1");
+        assert_eq!(stats.window_admitted, 1, "only the level-1.5 pairing at 120 counted because the window widened");
+        assert_eq!(stats.window_excluded, 0);
+        assert_eq!((stats.min_scale, stats.max_scale), (1.0, 1.5));
+        assert_eq!((stats.min_level[2], stats.max_level[2]), (0.8, 1.5), "the level read at event time, clamp or not");
+        assert!(stats.min_level[0].is_nan() && stats.max_level[1].is_nan(), "channels no slot maps are not recorded");
+    }
+
+    #[test]
+    fn merged_counters_do_not_depend_on_the_order_they_are_merged_in() {
+        let a = StdpModulationStats { events: 3, curve_changed: 1, window_admitted: 1, min_scale: 1.0, max_scale: 1.5, ..StdpModulationStats::EMPTY };
+        let mut b = StdpModulationStats { events: 5, window_excluded: 2, min_scale: 0.75, max_scale: 1.0, ..StdpModulationStats::EMPTY };
+        b.min_level[2] = 0.9;
+        b.max_level[2] = 1.1;
+        // `{:?}`, not `==`: the unmapped channels are NaN, and NaN != NaN.
+        let same = |x: StdpModulationStats, y: StdpModulationStats| format!("{x:?}") == format!("{y:?}");
+        assert!(same(a.merge(b), b.merge(a)));
+        let m = a.merge(b);
+        assert_eq!((m.events, m.curve_changed, m.window_admitted, m.window_excluded), (8, 1, 1, 2));
+        assert_eq!((m.min_scale, m.max_scale, m.min_level[2], m.max_level[2]), (0.75, 1.5, 0.9, 1.1));
+        assert!(same(StdpModulationStats::EMPTY.merge(a), a), "an empty side changes nothing");
     }
 }

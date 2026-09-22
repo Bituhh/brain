@@ -645,6 +645,12 @@ impl Scheduler {
         self.structural_plasticity.as_ref().map(StructuralPlasticity::totals)
     }
 
+    /// What the STDP modulation hook did, if a rule observes it (PLAN.md C6,
+    /// `stdp::StdpModulationStats`).
+    pub fn stdp_modulation_stats(&self) -> Option<crate::plasticity::stdp::StdpModulationStats> {
+        self.plasticity.as_ref().and_then(crate::plasticity::RuleChain::stdp_modulation_stats)
+    }
+
     pub fn with_silent_synapses(mut self, params: SilentSynapseParams) -> Self {
         debug_assert!(params.unsilence_weight >= 0.0, "unsilence_weight must be non-negative");
         self.silent_synapses = params;

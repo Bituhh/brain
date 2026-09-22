@@ -1,0 +1,44 @@
+[2026-09-21 21:43:30] === investigate-c6-na-window: 12 workers, 15000 characters, seeds 1, 2, 3, 4, 5, 11, 12, 13, 14, 15 ===
+[2026-09-21 21:43:40] === investigate-c6-na-window: 12 workers, 15000 characters, seeds 1, 2, 3, 4, 5, 11, 12, 13, 14, 15 ===
+[2026-09-21 21:43:40] 12 trials, 0 already in the checkpoint, 12 to run
+[2026-09-21 21:44:40] [heartbeat] 0/12 done, 1.0 min
+[2026-09-21 21:45:13] done F: B5's winner, fresh (hashes for the controls) seed 1: 19.85% in 93 s
+[2026-09-21 21:45:14] done F: B5's winner, fresh (hashes for the controls) seed 11: 18.90% in 94 s
+[2026-09-21 21:45:35] done M: coupling on, map gain 0 (measures reference) seed 5: 19.20% in 115 s
+[2026-09-21 21:45:35] done M: coupling on, map gain 0 (measures reference) seed 3: 21.10% in 115 s
+[2026-09-21 21:45:35] done M: coupling on, map gain 0 (measures reference) seed 2: 20.50% in 116 s
+[2026-09-21 21:45:35] done M: coupling on, map gain 0 (measures reference) seed 13: 21.45% in 116 s
+[2026-09-21 21:45:36] done M: coupling on, map gain 0 (measures reference) seed 15: 17.50% in 116 s
+[2026-09-21 21:45:36] done M: coupling on, map gain 0 (measures reference) seed 4: 21.15% in 116 s
+[2026-09-21 21:45:36] done M: coupling on, map gain 0 (measures reference) seed 11: 18.90% in 116 s
+[2026-09-21 21:45:36] done M: coupling on, map gain 0 (measures reference) seed 12: 18.10% in 117 s
+[2026-09-21 21:45:37] done M: coupling on, map gain 0 (measures reference) seed 14: 19.30% in 117 s
+[2026-09-21 21:45:39] done M: coupling on, map gain 0 (measures reference) seed 1: 19.85% in 120 s
+[2026-09-21 21:45:39] measured resting level (min over ten M rows of the level a pairing read): 0.9990898370742798 (per seed: 0.9990898370742798, 0.9990898370742798, 0.9990898370742798, 0.9990898370742798, 0.9990898370742798, 0.9990898370742798, 0.9990898370742798, 0.9990898370742798, 0.9990898370742798, 0.9990898370742798)
+[2026-09-21 21:45:39] 22 trials, 0 already in the checkpoint, 22 to run
+[2026-09-21 21:46:39] [heartbeat] 0/22 done, 1.0 min
+[2026-09-21 21:47:31] done W: map gain 100 seed 13: 21.00% in 112 s
+[2026-09-21 21:47:32] done W: map gain 100 seed 11: 18.70% in 113 s
+[2026-09-21 21:47:33] done W: map gain 100 seed 2: 20.45% in 113 s
+[2026-09-21 21:47:33] done W: map gain 100 seed 5: 19.35% in 113 s
+[2026-09-21 21:47:33] done W: map gain 100 seed 14: 19.45% in 114 s
+[2026-09-21 21:47:33] done W: map gain 100 seed 12: 19.40% in 114 s
+[2026-09-21 21:47:33] done W: map gain 100 seed 1: 20.30% in 114 s
+[2026-09-21 21:47:34] done W: map gain 100 seed 4: 20.70% in 114 s
+[2026-09-21 21:47:34] done W: map gain 100 seed 3: 21.10% in 115 s
+[2026-09-21 21:47:34] done X: hook at gain 100, noradrenaline held at reference seed 1: 19.85% in 115 s
+[2026-09-21 21:47:34] done W: map gain 100 seed 15: 17.30% in 115 s
+[2026-09-21 21:47:34] done X: hook at gain 100, noradrenaline held at reference seed 11: 18.90% in 115 s
+[2026-09-21 21:47:39] [heartbeat] 12/22 done, 2.0 min
+[2026-09-21 21:48:39] [heartbeat] 12/22 done, 3.0 min
+[2026-09-21 21:49:12] done W: map gain 400 seed 1: 20.85% in 101 s
+[2026-09-21 21:49:12] done W: map gain 400 seed 2: 20.35% in 100 s
+[2026-09-21 21:49:14] done W: map gain 400 seed 3: 20.85% in 101 s
+[2026-09-21 21:49:14] done W: map gain 400 seed 11: 18.15% in 101 s
+[2026-09-21 21:49:14] done W: map gain 400 seed 13: 21.60% in 100 s
+[2026-09-21 21:49:14] done W: map gain 400 seed 15: 17.95% in 100 s
+[2026-09-21 21:49:15] done W: map gain 400 seed 5: 17.40% in 102 s
+[2026-09-21 21:49:15] done W: map gain 400 seed 4: 19.95% in 102 s
+[2026-09-21 21:49:15] done W: map gain 400 seed 14: 19.35% in 101 s
+[2026-09-21 21:49:17] done W: map gain 400 seed 12: 20.15% in 104 s
+[2026-09-21 21:49:17] wrote C:\projects\brain\scripts\investigate-c6-na-window.results.md
