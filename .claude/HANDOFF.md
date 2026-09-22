@@ -14,7 +14,18 @@ finished, and told the *next* item nothing.
 
 ## Where things stand
 
-- **Last completed:** PLAN.md **C6** (noradrenaline widens the STDP timing
+- **Last completed:** PLAN.md **C7** (acetylcholine sets the LTP/LTD ratio),
+  2026-09-22. Result: **the mechanism works on the synapse, and on VAL-4 it is
+  ruinous — a large, clean, pre-registered negative.** Both design calls went to
+  the user, who asked what the brain does; decided on the primary papers (Seol
+  2007, Brzosko 2017; Sugisaki 2011 recorded as dissent): the causal side may
+  **invert** (`aPlus` map, `min` −1), and acetylcholine acts **at induction
+  only** (cash-in moved to held serotonin, bit-identical to B5). Every map
+  configuration collapses VAL-4 to 0.5–7% — the never-inverting twin and low
+  dose too, and with the loop opened — see fact 17. Not adopted, not in
+  `canonicalBrain.ts`. New counter `amplitudeInverted`. README §12 decision 18,
+  §13.12 item 20, §13.13 (i).
+- **Before that:** PLAN.md **C6** (noradrenaline widens the STDP timing
   window), 2026-09-21. Result: **the mechanism works where it can be seen, and
   VAL-4 cannot see it.** On a contingency switch
   (`tests/prediction_error_coupling.rs`) a pairing one tick beyond the resting
@@ -25,7 +36,7 @@ finished, and told the *next* item nothing.
   window is deferred (README §12 decision 17). Not adopted anywhere, and
   deliberately not in `canonicalBrain.ts`. New instrument:
   `stdpModulationStats()` (fact 16). README §13.12 item 19.
-- **Before that:** PLAN.md **C5** (modulators reach `StdpParams` — the
+- **Earlier:** PLAN.md **C5** (modulators reach `StdpParams` — the
   shared hook — and the staircase question), 2026-09-21. Result: **the hook
   exists and is unset in every shipped configuration, and a modulator gain is
   not the staircase C3 inferred: on the permanence path it is *inert*, on the
@@ -40,7 +51,7 @@ finished, and told the *next* item nothing.
   noradrenaline level resting at 0.9991, not 1.0
   (`scripts/investigate-c5-horizon.results.md`, README §13.12 item 18's
   addendum). Facts 12, 14 and 16 below are updated for it.
-- **Earlier:** PLAN.md **C4** (growth cannot reach the readout — spatial
+- **Earlier still:** PLAN.md **C4** (growth cannot reach the readout — spatial
   sprout *reach*, separated from the inhibition neighbourhood), 2026-09-21.
   Result: **the topology limit is closed and it was not what was holding VAL-4
   down.** The same instrumented VAL-4 condition that measured 0 grown→original
@@ -50,7 +61,7 @@ finished, and told the *next* item nothing.
   `canonicalBrain.ts` (radius 60) as an explicit judgement call, not a measured
   win** — see fact 2. `SproutReach::IndexBlocks` remains the *core's* default.
   No VAL-4 figure moved. See fact 2, README §12 decision 15 and §13.12 item 17.
-- **Before that:** PLAN.md **C3** (dopamine carries a reward *prediction
+- **Before C4:** PLAN.md **C3** (dopamine carries a reward *prediction
   error*, routed onto permanence), 2026-09-20 17:21 +0100. Result: a null on
   VAL-4, and a null **by construction** — see fact 14(c). The raw reward it
   replaced costs 0.5 points on both seed sets; the RPE reproduces the shipped
@@ -72,19 +83,15 @@ finished, and told the *next* item nothing.
   child became a plain number. The twelve external citations that moved were
   updated in the same pass (README, `plasticity/newborn.rs`,
   `check-requirement-coverage.mjs`, `canonicalBrain.ts` and its test).
-- **Next up:** **C7** (acetylcholine sets the LTP/LTD ratio), the hook's
-  second user. Its prompt was corrected by C5 and again by C6 — read it with
-  facts 14 and 16 open. The two things to carry in: **a response measured at
-  6,000 characters *reversed* at the protocol's 15,000** (fact 14), so nothing
-  about the knob is known until it is measured at 15,000; and **a map's
-  `reference` must be the level a pairing actually reads, measured with
-  `stdpModulationStats()`** (fact 16). C7's scope is unchanged, because
-  acetylcholine carries a real signal on VAL-4.
+- **Next up:** **C8** (a feedforward/recurrent discriminant reaching the
+  plasticity path — a design call, invariant-adjacent), then **C9**
+  (acetylcholine encoding mode), whose prompt C7 amended: read fact 17 before
+  C9. The C5 hook now has two users and both are unset everywhere.
 - **A neuromodulator audit sits behind all of this:**
   `.claude/scratch/neuromodulators/investigation.md`, 2026-09-20. Six channels,
   claim by claim, against primary sources, with the code status of each. Read it
   before touching C2–C9 or F19–F21.
-- **Phase A is closed** (A1–A4). Phase B is closed (B1–B5). C1–C6 are closed.
+- **Phase A is closed** (A1–A4). Phase B is closed (B1–B5). C1–C7 are closed.
 
 ## The headline result so far
 
@@ -109,7 +116,10 @@ consolidation on a cadence during the stream) was measured with and without,
 enabled in the shipped values. README §13.12 item 13 has the write-up.
 
 **Neither did C2, C3, C4 or C6.** All four are honest nulls on this number and
-none is adopted (C6's was pre-registered as the expected outcome). C4's is
+none is adopted (C6's was pre-registered as the expected outcome). **C7 is the
+first large *negative*:** acetylcholine setting the LTP/LTD ratio collapses
+VAL-4 to 0.5–7% in every configuration measured (fact 17); not adopted, so the
+headline is unchanged. C4's is
 the most load-bearing of them for planning: it
 closes the *last* structural excuse: growth's capacity is now reachable and
 still does not help, so a future growth idea cannot be justified by "it was
@@ -283,9 +293,11 @@ These are the ones that have actually caused wrong work, not a general list.
     user of it must know). **C6 is its first user** (noradrenaline → window),
     proven in a Rust test and measured on VAL-4, but **no shipped configuration
     sets it** — not `charPrediction.ts`, and not `canonicalBrain.ts`, by recorded
-    decision. It is still true that **nothing reaches a neuron threshold or a
+    decision. **C7 is its second user** (acetylcholine → LTP/LTD ratio, with
+    sign inversion), likewise proven and unset everywhere, by the same kind of
+    recorded decision. It is still true that **nothing reaches a neuron threshold or a
     routing decision**, so "we have the hook, this is a config change" is true for
-    STDP and false for everything else. C7 and F19 are its next users.
+    STDP and false for everything else. F19 is its next user.
 
     Also, and still true: the shipped VAL-4 config *does* use acetylcholine
     (`modulatorChannel: 1`, held at 1.0 by `tonicModulator`), so README §13.12
@@ -328,7 +340,11 @@ These are the ones that have actually caused wrong work, not a general list.
     learning masquerading as modulation — it cost C2 a whole discarded
     battery. Also: `gain = 0` is *not* an exactly-inert control, because the
     level still reaches its target through float arithmetic; the control that
-    is exact is "producer on, nothing reading it".
+    is exact is "producer on, nothing reading it". **C7 found the same thing
+    from the reading side:** at drive gain 0 pairings read the level at 1.0 *or*
+    one tick of decay below, depending on where in a tick they fall, so "held
+    by the coupling at gain 0" is two levels. To hold a channel for an ablation,
+    give it a non-decaying field (`modulatorTauTicks` 1e30) and inject once.
 
 14. **Dopamine now carries a reward prediction error, and the three things C3
     found on the way there are what a later item will trip over.** Fact 14 used
@@ -529,15 +545,51 @@ These are the ones that have actually caused wrong work, not a general list.
     how many the window admitted only because it widened (or cut because it
     narrowed), the scale's extremes and, per mapped channel, the extremes of the
     level pairings read. Opt-in, observational (bit-identical on or off), not
-    snapshot state, identical across partitions and threads.
+    snapshot state, identical across partitions and threads. C7 added
+    `amplitudeInverted`: pairings whose own side's amplitude scale was negative,
+    i.e. whose kernel actually changed sign.
 
     Cost, measured: unset costs nothing; all five slots mapped costs **+2.4% of a
     whole VAL-4 run** (bare kernel 2.3–3.6× slower per event, diluted by the rest
     of an event's work). The three `stdp_*` bench groups in `core_bench.rs` are the
     instrument; the in-situ one holds only ~0.9% STDP time and cannot see the hook.
 
+17. **On VAL-4, acetylcholine is a *schedule*, and a plasticity change in the
+    first third of a run decides the outcome (PLAN.md C7).** Three things a later
+    acetylcholine item (C9 first) will otherwise rediscover:
+    - **Expected uncertainty is "how early in the run", not "how novel is this
+      input".** With C2's coupling the level sits near 1.9 for the first third of
+      every run and falls to ~1.46 by the last, near-identically across ten seeds
+      (last-third 5–95% spread ~0.15). A mechanism that expects per-input novelty
+      from it will get a slow ramp instead.
+    - **Suppressing causal LTP while it is high is ruinous, and it is not a
+      feedback loop.** C7's ratio map collapsed accuracy to 0.5–7% at a floor of
+      0 and at a dose that never inverted, not only with inversion. And replaying
+      the no-map acetylcholine trajectory (open loop, so the ratio returns to the
+      tuned curve in the last third) collapsed it too, 1.25–5.60%. The
+      closed-loop runs' high late acetylcholine is a *consequence* of the
+      damage, not its cause. This is fact 14's horizon trap from the other side:
+      the first ~5,000 characters shape the whole run, and the shipped ratio is
+      tuned for all of it.
+    - **B5's shipped cash-in is on acetylcholine.** `modulatorChannel: 1`, held at
+      1.0, so driving channel 1 also scales every STDP weight update by 1.3–2.0×.
+      Measure a new acetylcholine consumer against the *induction-only*
+      configuration instead (cash-in moved to serotonin held at 1.0 —
+      `scripts/investigate-c7-ach-ratio.ts`'s `gateMoved`, bit-identical to B5).
+      Otherwise the row mixes the mechanism with a learning-rate change. And
+      **C2's recorded "ACh driven" row does not reproduce at HEAD** (19.70% vs
+      19.10% on seed 1, 20.55% vs 21.30% on seed 11), while B5's reference still
+      does. Cause unidentified: a worktree rebuild of C2's commit did not
+      reproduce B5 either, so it was not trusted. Re-measure it; do not read
+      C2's checkpoint.
+
 ## Infrastructure worth reusing before writing anything new
 
+- `scripts/investigate-c7-ach-ratio.ts` — C6's template extended to several arms
+  and pairwise comparisons, with a gate-moved exactness control (G) and a
+  per-character level summary in the worker. `investigate-c7-open-loop.ts`
+  shows how to **replay a recorded modulator trajectory** into a map (open
+  loop) to tell a feedback loop from a direct effect.
 - `scripts/investigate-c6-na-window.ts` — the template for a **pre-registered
   confirmation**: the protocol, gains and threshold are in the header before
   anything runs; phase 1 *measures* a map's `reference` (gain-0 rows, which are
@@ -587,10 +639,16 @@ These are the ones that have actually caused wrong work, not a general list.
   (PLAN.md C6). On that fixture surprise is exactly 0 on every tick, so a map
   would respond only to the seeding relaxation (fact 16) and its standing test
   would assert an artefact. The reasoning is beside `plasticity` in the file.
+- **The acetylcholine → ratio map is not in `canonicalBrain.ts`, on purpose**
+  (PLAN.md C7). On VAL-4 it collapses accuracy (fact 17), and the biologically
+  faithful configuration also needs the cash-in moved off acetylcholine, which
+  would change what every other mechanism there runs under. The reasoning is
+  beside `plasticity` in the file.
 - **Neuromodulators after C5: three channels have a real producer
   (noradrenaline, acetylcholine, dopamine), serotonin has none deliberately
   (F19), and a level can now reach an STDP window, ratio and time constants
-  through the C5 hook (fact 16) — which no shipped configuration uses.** What is
+  through the C5 hook (fact 16) — which no shipped configuration uses (its two
+  users, C6 and C7, are both unset everywhere).** What is
   still missing on the consumer side is a threshold or a routing decision.
   **Nothing any of them drives is adopted in a shipped config** — NA gating and
   ACh driving measured as no effect / unresolved (README §13.12 item 13), and

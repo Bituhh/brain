@@ -211,6 +211,17 @@ This section is the evidence base. Each finding maps to requirements in §3–§
   channel and a separate multiplicative gain channel — is a defensible simplification, not a
   description of the biology. Added 2026-09-20 (PLAN.md C3);
   `.claude/scratch/neuromodulators/investigation.md` §3.3 has the sources claim by claim.
+- **A neuromodulator can change the *rule*, not only gate its output — and acetylcholine acts at
+  induction.** Muscarinic activation suppresses timing-dependent LTP at low tone and turns a
+  pre-before-post pairing into LTD at high tone (Seol et al. 2007; Brzosko et al. 2017: +10 ms,
+  135% → 63% at 1 µM, potentiation merely prevented at 100 nM), and it does so *during* the pairing:
+  applied after the induction protocol it has no effect, and it is dopamine, arriving within minutes,
+  that converts the acetylcholine-driven LTD back into LTP. Not unanimous — Sugisaki et al. (2011)
+  found the opposite direction in rat CA1 — and receptor-, dose- and timing-dependent. This substrate
+  models it as an LTP amplitude that falls with the acetylcholine level and may cross zero, read at
+  event time and stored in eligibility (PLAN.md C7, §12 decision 18). Proven on the synapse; on VAL-4
+  it collapses accuracy, because expected uncertainty is high for the first third of every run and
+  the dopamine rescue is absent (§13.12 item 20). Not adopted. Added 2026-09-22.
 
 ### 2.6 The cortical column is the repeated unit
 
@@ -293,10 +304,10 @@ Priority: **M** = must (v1), **S** = should (v1 if possible), **C** = could (lat
 | ID | Pri | Requirement |
 |---|---|---|
 | LRN-1 | M | **No backpropagation anywhere.** No global error is routed backwards through the graph. Any change to a synapse must be computable from that synapse's own trace, its pre/post neuron's local state, and the ambient neuromodulator level. This is an architectural invariant enforced by the type system — a plasticity rule is handed only a local context object. |
-| LRN-2 | M | **STDP** with configurable asymmetric potentiation/depression windows and time constants. **Status (PLAN.md C5, 2026-09-21): the curve is now *modulable*, not only configurable.** Before C5 the neuromodulator field had exactly two read sites and both multiplied a delta by a level, so nothing could let a modulator reach a timing *window*, an LTP/LTD *ratio* or a time constant. `stdp.rs`'s `StdpModulation` gives each of `StdpParams`' five constants (`a_plus`, `a_minus`, `tau_plus`, `tau_minus`, `window_ticks`) an optional `LevelMap` — `scale = clamp(1 + gain × (level − reference), min, max)` — evaluated at the moment the kernel is (`StdpParams::kernel_modulated`), attached to `ThreeFactorParams` the way C2's `gain_modulator_index` was and carried across the FFI as `PlasticityConfig.stdpModulation`. **Unset is the default and is bit-identical**; nothing in `canonicalBrain.ts` or `charPrediction.ts` sets it — C6 (noradrenaline → window), C7 (acetylcholine → ratio) and F19 (serotonin) are its first users. The mapping is affine about a `reference` rather than a bare multiplier because a curve shape has no meaningful zero; an amplitude scale may cross zero if the caller's `min` does (sign inversion — C6's and C7's call, not defaulted here) and a timing scale may not (validated). §12 decision 16 has the reasoning, the hot-path cost (measured: +2.4% of a VAL-4 run in the worst case, nothing when unset) and the staircase finding; §13.12 item 18 has the data. **Status (PLAN.md C6, 2026-09-21): noradrenaline widens the window — the hook's first user.** A joint tau/window map on the noradrenaline channel, width only (`min` 1.0: a level above `reference` widens, a level below does not narrow), with `reference` the *measured* level a pairing reads at rest. Proven on a contingency switch (`tests/prediction_error_coupling.rs`): a pairing one tick beyond the resting window counts while the world is surprising, never while it is settled, and never with the coupling cut. On VAL-4 a pre-registered ten-seed confirmation returns the predicted null at both gains, because VAL-4 has no change points to be surprised by; nothing is adopted, and neither `charPrediction.ts` nor `canonicalBrain.ts` sets it (the latter by recorded decision: surprise is exactly 0 on its fixture). The triangular window (LTP on both sides) is deferred, not rejected. `stdpModulationStats()` (OBS-2) now reports what the hook actually did over a run. §12 decision 17, §13.12 item 19, §13.13 (i). |
+| LRN-2 | M | **STDP** with configurable asymmetric potentiation/depression windows and time constants. **Status (PLAN.md C5, 2026-09-21): the curve is now *modulable*, not only configurable.** Before C5 the neuromodulator field had exactly two read sites and both multiplied a delta by a level, so nothing could let a modulator reach a timing *window*, an LTP/LTD *ratio* or a time constant. `stdp.rs`'s `StdpModulation` gives each of `StdpParams`' five constants (`a_plus`, `a_minus`, `tau_plus`, `tau_minus`, `window_ticks`) an optional `LevelMap` — `scale = clamp(1 + gain × (level − reference), min, max)` — evaluated at the moment the kernel is (`StdpParams::kernel_modulated`), attached to `ThreeFactorParams` the way C2's `gain_modulator_index` was and carried across the FFI as `PlasticityConfig.stdpModulation`. **Unset is the default and is bit-identical**; nothing in `canonicalBrain.ts` or `charPrediction.ts` sets it — C6 (noradrenaline → window), C7 (acetylcholine → ratio) and F19 (serotonin) are its first users. The mapping is affine about a `reference` rather than a bare multiplier because a curve shape has no meaningful zero; an amplitude scale may cross zero if the caller's `min` does (sign inversion — C6's and C7's call, not defaulted here) and a timing scale may not (validated). §12 decision 16 has the reasoning, the hot-path cost (measured: +2.4% of a VAL-4 run in the worst case, nothing when unset) and the staircase finding; §13.12 item 18 has the data. **Status (PLAN.md C6, 2026-09-21): noradrenaline widens the window — the hook's first user.** A joint tau/window map on the noradrenaline channel, width only (`min` 1.0: a level above `reference` widens, a level below does not narrow), with `reference` the *measured* level a pairing reads at rest. Proven on a contingency switch (`tests/prediction_error_coupling.rs`): a pairing one tick beyond the resting window counts while the world is surprising, never while it is settled, and never with the coupling cut. On VAL-4 a pre-registered ten-seed confirmation returns the predicted null at both gains, because VAL-4 has no change points to be surprised by; nothing is adopted, and neither `charPrediction.ts` nor `canonicalBrain.ts` sets it (the latter by recorded decision: surprise is exactly 0 on its fixture). The triangular window (LTP on both sides) is deferred, not rejected. `stdpModulationStats()` (OBS-2) now reports what the hook actually did over a run. §12 decision 17, §13.12 item 19, §13.13 (i). **Status (PLAN.md C7, 2026-09-22): acetylcholine sets the LTP/LTD ratio — the hook's second user, with a sign inversion.** An `aPlus` map on the acetylcholine channel, negative gain, `max` 1.0 and **`min` −1**: high acetylcholine (C2's *expected* uncertainty) suppresses causal LTP and, past a threshold, turns a causal pairing into LTD (Seol 2007; Brzosko 2017), decided with the user on the primary evidence, including the dissent (§13.13 (i)). Read at induction only — the three-factor cash-in moved off acetylcholine in the measured configuration, because acetylcholine has no effect applied after induction (Brzosko 2017). New counter: `stdpModulationStats().amplitudeInverted`. Proven on the synapse (`tests/prediction_error_coupling.rs`: while naive the same causal pairing lays down depression and the synapse weakens; once learned, the configured LTP; held exactly, it never responds). On VAL-4 a pre-registered ten-seed battery **collapses accuracy to 0.5–7%** in every map configuration, the never-inverting twin and low dose included, and an open-loop diagnostic rules out a feedback loop: suppressing causal LTP during the first third of a run, when expected uncertainty is high because the network knows nothing yet, is a deficit the run never repairs. Nothing adopted; unset in every shipped configuration. §12 decision 18, §13.12 item 20. |
 | LRN-3 | M | **Eligibility traces**: pre/post coincidence writes a decaying trace on the synapse (τ on the order of seconds of simulated time). |
 | LRN-4 | M | **Three-factor rule**: Δw = η · eligibility · modulator. With modulator ≡ 1 this degenerates to plain STDP. **Status (PLAN.md C3, 2026-09-20): the *routing* is now decided on biological grounds rather than by convenience.** `ThreeFactorStdp` writes weight, so it routes on acetylcholine; `PredictiveLearningParams` writes permanence, so it is where dopamine belongs — synaptic tagging and capture (Redondo & Morris 2011) is dopamine gating the conversion of early-LTP into late-LTP, which against §12's weight/permanence split is persistence, not strength. The audit (`.claude/scratch/neuromodulators/investigation.md` §3.3) flagged the inverse wiring as a latent trap; it was harmless only while dopamine had no producer. |
-| LRN-5 | M | **Neuromodulator field**: a small set of named global/regional scalar signals (dopamine, acetylcholine, noradrenaline, serotonin) with their own decay dynamics, broadcast to neurons by region. Carries no per-synapse routing information. **Status (PLAN.md C2, 2026-09-20): two of the four channels now have a real producer, and the field has more than one consumer for the first time.** `neuromodulator::PredictionErrorCoupling` derives *expected* uncertainty (acetylcholine) and *unexpected* uncertainty (noradrenaline) from one two-timescale estimate of the network's own prediction-failure rate — the slow term and the rectified (fast − slow) term, following Yu & Dayan (2005), whose split is why one estimator feeds two channels rather than two estimators feeding one each. The producer is `plasticity/predictive.rs`'s existing per-neuron classification (LRN-8), reduced to a scalar *before* anything reaches the field, so no per-neuron surprise term exists anywhere (invariant 2). Consumers: `ThreeFactorParams::gain_modulator_index` and `PredictiveLearningParams::gain_modulator_index`, a second **multiplicative** channel kept separate from the routing channel — that one names which signal *licenses* a change, this one how strongly anything being encoded right now *is* encoded. **Dopamine acquired its producer in PLAN.md C3 (2026-09-20)**: `neuromodulator::RewardPredictionError` subtracts a running expectation from the raw scalar `reward()` injects, so three of four channels now carry a real signal. Serotonin still has none, deliberately (PLAN.md F19 records why). §13.12 items 13 and 16 have the measurements. **Status (PLAN.md C5, 2026-09-21): a third kind of consumer exists.** Both consumers above multiply a *delta* by a level; `stdp.rs`'s `StdpModulation` lets a level reach the STDP *curve itself* — amplitude ratio, time constants, window (LRN-2's status row, §12 decision 16). It is unset in every shipped configuration, so no channel's consumer list has changed in practice. **Status (PLAN.md C6, 2026-09-21): noradrenaline has its first curve-shaping consumer** — its level widens the STDP window (LRN-2's status row, §12 decision 17). Still unset in every shipped configuration; on VAL-4 the confirmation is a null because the task never surprises the network (§13.12 item 19). |
+| LRN-5 | M | **Neuromodulator field**: a small set of named global/regional scalar signals (dopamine, acetylcholine, noradrenaline, serotonin) with their own decay dynamics, broadcast to neurons by region. Carries no per-synapse routing information. **Status (PLAN.md C2, 2026-09-20): two of the four channels now have a real producer, and the field has more than one consumer for the first time.** `neuromodulator::PredictionErrorCoupling` derives *expected* uncertainty (acetylcholine) and *unexpected* uncertainty (noradrenaline) from one two-timescale estimate of the network's own prediction-failure rate — the slow term and the rectified (fast − slow) term, following Yu & Dayan (2005), whose split is why one estimator feeds two channels rather than two estimators feeding one each. The producer is `plasticity/predictive.rs`'s existing per-neuron classification (LRN-8), reduced to a scalar *before* anything reaches the field, so no per-neuron surprise term exists anywhere (invariant 2). Consumers: `ThreeFactorParams::gain_modulator_index` and `PredictiveLearningParams::gain_modulator_index`, a second **multiplicative** channel kept separate from the routing channel — that one names which signal *licenses* a change, this one how strongly anything being encoded right now *is* encoded. **Dopamine acquired its producer in PLAN.md C3 (2026-09-20)**: `neuromodulator::RewardPredictionError` subtracts a running expectation from the raw scalar `reward()` injects, so three of four channels now carry a real signal. Serotonin still has none, deliberately (PLAN.md F19 records why). §13.12 items 13 and 16 have the measurements. **Status (PLAN.md C5, 2026-09-21): a third kind of consumer exists.** Both consumers above multiply a *delta* by a level; `stdp.rs`'s `StdpModulation` lets a level reach the STDP *curve itself* — amplitude ratio, time constants, window (LRN-2's status row, §12 decision 16). It is unset in every shipped configuration, so no channel's consumer list has changed in practice. **Status (PLAN.md C6, 2026-09-21): noradrenaline has its first curve-shaping consumer** — its level widens the STDP window (LRN-2's status row, §12 decision 17). Still unset in every shipped configuration; on VAL-4 the confirmation is a null because the task never surprises the network (§13.12 item 19). **Status (PLAN.md C7, 2026-09-22): acetylcholine has its first curve-shaping consumer** — its level sets the LTP/LTD ratio, and may invert a causal pairing (LRN-2's status row, §12 decision 18). Two things found on the way: on VAL-4 expected uncertainty is a learning-progress schedule (~1.9 for a third of the run, ~1.46 late), not a fluctuating signal; and C2's recorded "ACh driven" row no longer reproduces at HEAD, cause unidentified (§13.12 item 20). Still unset in every shipped configuration — on VAL-4 it collapses accuracy (§13.12 item 20). |
 | LRN-6 | M | **Homeostatic synaptic scaling**: periodic multiplicative renormalisation of a neuron's incoming weights toward a target total, on a slow timescale. |
 | LRN-7 | M | **Structural plasticity**: prune synapses whose permanence falls below a floor; sprout new candidates from a co-active neuron toward targets in its neighbourhood, subject to a per-neuron synapse budget. |
 | LRN-8 | M | **Predictive learning**: when a neuron fires *unpredicted*, reinforce its active segments' synapses onto recently-active cells; when a segment predicts a firing that does not occur, punish it. This is the primary unsupervised signal — no labels required. |
@@ -2026,6 +2037,79 @@ Language is noted per phase: **[R]** Rust core, **[T]** TypeScript shell.
 
     **What VAL-4 can and cannot show about it** is §13.12 item 19: a pre-registered, paired, ten-seed
     confirmation of the null the 15,000-character re-check predicted.
+
+18. **Acetylcholine sets the LTP/LTD ratio at induction, and high acetylcholine may *invert* a
+    causal pairing into depression — decided 2026-09-22 (PLAN.md C7) with the user, on the primary
+    evidence, the second user of decision 16's hook.** Two calls were put to the user; both were
+    answered "what does the biological brain do?", so both were settled by the papers, which
+    §13.13 (i) records claim by claim with the dissent. The working is in
+    `.claude/scratch/neuromodulators/c7-design.md`.
+
+    **What is built.** An `aPlus` `LevelMap` on the acetylcholine channel, negative gain:
+    `scale = clamp(1 − g × (level − reference), min, 1.0)`. High acetylcholine (high *expected*
+    uncertainty, C2's producer) suppresses causal LTP, and past `reference + 1/g` turns it into LTD.
+    `max: 1.0` — a level below the reference never *enhances* LTP. `aMinus` is not mapped: the
+    anti-causal side is already LTD, and a second gain would be a free parameter no result pins. No
+    new mechanism code was needed — the hook, the FFI option and the observation counters are C5's
+    and C6's. What C7 adds is one counter, `StdpModulationStats::amplitude_inverted` (FFI
+    `amplitudeInverted`): pairings inside the window whose own side's amplitude scale was negative,
+    i.e. whose kernel actually changed sign.
+
+    **Call 1: the ratio may cross zero — `min: −1`.** Seol et al. (2007) and Brzosko et al. (2017)
+    both show muscarinic activation turning a pre-before-post pairing into LTD, and Brzosko's dose
+    series is graded — 100 nM only prevents potentiation, 1 µM inverts it (+35% → −37%, which is why
+    the floor is −1: the inverted side at most as strong as the configured LTP). An affine map that
+    passes through zero and continues below it is exactly that shape. Sugisaki et al. (2011) found
+    the opposite direction in rat CA1, so this is the better-supported reading, not settled biology.
+    **A floor-0 twin is measured alongside**, as a control rather than an alternative: in Brzosko's
+    account dopamine arriving within minutes converts the acetylcholine-driven LTD back into LTP, and
+    here dopamine writes permanence (decision 14 / C3), so that rescue does not exist. The twin says
+    whether inversion *without* its rescue helps or hurts, and would expose the obvious risk — a loop
+    in which high uncertainty turns causal learning into forgetting and so keeps uncertainty high.
+
+    **Call 2: acetylcholine at induction only.** Brzosko et al. (2017): acetylcholine "did not have
+    an effect on plasticity when applied after the induction protocol", nor on baseline strength
+    without pairing; the factor that acts retroactively on a tag is dopamine. So in the brain
+    acetylcholine shapes the rule while a pairing happens and does not multiply the later cash-in —
+    and C5's hook, which reads the level at event time and stores the result in eligibility, is that
+    locus. B5's shipped configuration routes the three-factor rule's *cash-in* on acetylcholine
+    (`modulatorChannel: 1`), harmless while the channel was held at 1.0 and not biology once it varies
+    (on VAL-4, a 33–97% learning-rate change). The configuration C7 measures as primary therefore
+    moves the cash-in to serotonin (channel 3, read by nothing) held at 1.0 by `tonicModulator` — B5's
+    hold, moved to a neutral channel, a "no modulator at cash-in" rather than a claim about serotonin
+    — and acetylcholine reaches only the ratio. That move is bit-identical to B5 (exactness control
+    G, §13.12 item 20). The shipped wiring is kept as the prompt's comparison.
+
+    **`reference` is the level of a network that has learned what it can.** On VAL-4 acetylcholine
+    is a learning-progress schedule, not a fluctuating signal — ~1.9 through the first third, falling
+    to ~1.46 by the last (B5's own network, nothing reading the channel; ~1.33 on the shared wiring,
+    where the driven cash-in speeds learning), the last third's 5–95% spread ~0.15 — and never
+    approaches zero, so the reference is the late-run level (pre-registered rule: the median of the
+    selection seeds' last-third medians, one tick of decay down: **1.4566**), and the tuned curve
+    holds where accuracy is scored. In the mechanism test the network learns its sequence perfectly,
+    so the same rule is zero-uncertainty rest (0.957, a gain-0 map's `minLevel`). The map is
+    therefore, on VAL-4, a depression-heavy start that relaxes toward B5's tuned ratio as the network
+    learns.
+
+    **The ablation, and which read it disables.** VAL-9 holds acetylcholine *exactly* constant (a
+    non-decaying field injected once): at the reference the probe lays down the configured LTP on
+    every exposure and the run is bit-identical, synapse for synapse, to one with the hook unset and
+    acetylcholine varying; held elsewhere, a constant retune. The coupling at drive gain 0 is **not**
+    an exact hold — pairings read it at 1.0 or one tick of decay below depending on where in a tick
+    they fall (HANDOFF fact 13's point, found again). What the ablation disables is the hook's
+    event-time read; the cash-in gate is on held serotonin throughout, and assertions are on
+    eligibility, which the gate never touches.
+
+    **What VAL-4 showed** is §13.12 item 20, and it is a large, clean negative: every configuration
+    with the map collapses VAL-4 to 0.5–7%, far under the 16.56% bar — the floor-0 twin and a
+    never-inverting low dose included, so the damage is the *suppression* of causal LTP early in a
+    run, not the inversion — and an open-loop diagnostic shows it is not a feedback loop. **Nothing
+    is adopted.** The mechanism stays built and proven (the hook, the counter, the Rust test), and
+    unset in every shipped configuration; `canonicalBrain.ts` does not set it (the reasoning is
+    beside `plasticity` there). B5's pinned VAL-4 figure does not move, because nothing it runs
+    changed. What would have to change for the biology to pay here is recorded in item 20: the
+    dopamine rescue Brzosko's account pairs with the inversion, and a producer whose early-run
+    level is not simply "the network has not learned anything yet".
 
 ## 12a. Open questions
 
@@ -5050,6 +5134,103 @@ Three claims, in decreasing order of confidence that they are unprecedented.
     (HANDOFF fact 12): a behavioural positive for noradrenaline needs a corpus with change points in
     it, a new VAL item with its own baselines. Nothing is adopted; no VAL-4 figure moves.
 
+20. **Acetylcholine sets the LTP/LTD ratio, with a sign inversion: proven on the synapse, and
+    ruinous on VAL-4 — 2026-09-22, PLAN.md C7.** The hook's second user (§12 decision 16); the design,
+    and the evidence both design calls were decided on, are §12 decision 18 and §13.13 (i). Scripts:
+    `tests/prediction_error_coupling.rs` (the mechanism), `scripts/investigate-c7-ach-level.ts`
+    (what acetylcholine does on VAL-4, measured before the design), `scripts/investigate-c7-ach-ratio.ts`
+    (+ `.results.md`, the pre-registered battery), `scripts/investigate-c7-open-loop.ts`
+    (+ `.results.md`, a post-hoc diagnostic).
+
+    **The mechanism, on the synapse.** A causal probe pairing inside the resting window rides along
+    C2's A→B learning scenario, in which acetylcholine is high while the network is naive and falls
+    to rest once it has learned. Same lag, same spikes, every exposure:
+    - **uncertain** — the pairing lays down *depression* on exposures 1–6 (scale down to −0.67) and the
+      synapse weakens (0.30004 → 0.29948);
+    - **learned** — back to the configured LTP within 1%, and the synapse strengthens again;
+    - **the floor-0 twin** — suppressed to exactly 0 at the peak, never negative, weight never falls;
+    - **VAL-9, acetylcholine held exactly** — at the reference, the configured LTP on every exposure
+      and a run bit-identical, synapse for synapse, to one with the hook unset and acetylcholine
+      varying; held a quarter above it, a constant half-strength LTP. Sabotaging
+      `kernel_modulated`'s `a_plus` scaling fails all three tests. Asserted on eligibility, which is
+      written at event time and which the cash-in gate (on held serotonin here) never touches.
+
+    One control had to be corrected by running it: the coupling at drive gain 0 is **not** a held
+    level. Pairings read it at 1.0 or one tick of decay below depending on where in a tick they fall,
+    so the first ablation read two levels and "failed" for a reason unrelated to the mechanism. The
+    exact hold is a non-decaying field injected once (HANDOFF fact 13, found again).
+
+    **What acetylcholine is on VAL-4, measured first.** Not a fluctuating signal: a learning-progress
+    schedule. With B5's network and nothing reading the channel it starts at 1.00, sits near 1.9 for
+    the first third, and falls to ~1.46 by the last (per seed 1.43–1.48, the ten seeds nearly
+    indistinguishable). A ratio map on it is, on this task, a depression-heavy start relaxing toward
+    the tuned ratio — which is what was measured.
+
+    **A row the prompt treats as known does not reproduce.** C2's recorded "ACh driven" figures
+    (19.10% on seed 1, 21.30% on seed 11) are 19.70% and 20.55% at HEAD, with B5's own reference
+    reproducing exactly and a gain-0 map equal to no hook. A rebuild of C2's commit in a worktree did
+    not reproduce B5's reference either (22.05%), so that environment was not trusted, and the cause
+    is **unidentified**. The battery re-measured the row fresh (arm V below) rather than reading C2's
+    checkpoint; C2's §13.12 item 13 figures should be read with that caveat.
+
+    **The VAL-4 battery — pre-registered, paired, ten seeds, 74 trials, ~10 minutes on 12 workers.**
+    Everything below was written into the script header before a trial ran: C2's coupling on
+    acetylcholine only (drive gain fixed at 1.0), the three-factor cash-in moved to serotonin held at
+    1.0 (the induction-only configuration, decision 18), the reference rule, the arms, the threshold
+    (≥ 1 point, same sign on both seed sets) and the adoption rule. **All 28 exactness controls
+    pass**: moving the cash-in (G) and driving acetylcholine with only a gain-0 map reading it (M) each
+    reproduce B5 on every seed, and bit for bit (topology, permanence and weight hashes) on seeds 1 and
+    11, as does INV3's map with acetylcholine held exactly at the reference (X). The measured
+    reference is **1.4566**.
+
+    | comparison | seeds 1–5, mean Δ | seeds 11–15, mean Δ | verdict (pre-registered rule) |
+    |---|---|---|---|
+    | 1. INV3 (g 3, floor −1) vs B5 — against the tuned constant | **−19.30** | **−17.36** | effect, downward |
+    | 2. INV3 vs SUP3 (the floor-0 twin) — the inversion itself | −0.77 | −0.30 | no effect |
+    | 3. INV1.5 (g 1.5, never inverts) vs B5 — the low dose | **−16.29** | **−14.66** | effect, downward |
+    | 4. V (acetylcholine varies, shared wiring, no map) vs B5 | −0.72 | +1.40 | no effect (signs disagree) |
+    | 5. SHARED3 (INV3's map, shared wiring) vs V | **−17.98** | **−17.90** | effect, downward |
+
+    Accuracy under every map arm is **0.50–6.95%** per seed, against B5's 17.50–21.45% and the
+    **16.56% "always guess space" bar** — not a small regression but the network ceasing to predict
+    the corpus. The hook was live on 99.3% of ~210 million pairings per run (acetylcholine is never at
+    the reference until late), and INV3 inverted the sign of 11.3–16.4% of all pairings (SHARED3
+    6.7–8.6%); INV1.5's scale never went below 0.21.
+
+    **Reading it.** Comparison 2 says the inversion is not what does the damage: the twin that only
+    suppresses collapses just as far, and so does a dose that never reaches zero. The damage is
+    **suppressing causal LTP while the network is uncertain**, and on VAL-4 "uncertain" means "the
+    first third of every run". In the collapsed runs acetylcholine never came back down (last-third
+    median ~1.77 against ~1.46), which suggested a loop — suppression keeps uncertainty high, which
+    keeps suppression on — and that suggestion was **tested and is wrong**. The post-hoc open-loop
+    diagnostic (labelled as such; no verdict is drawn from it) replays each seed's no-map acetylcholine
+    trajectory into the same INV3 map, so the ratio returns to the tuned curve in the last third
+    regardless of what the mapped network does. It collapses anyway: **1.25–5.60%** on all ten seeds.
+    The network's own prediction meter shows where: it climbs steadily to ~0.70 without the map, and
+    stalls near 0.2–0.35 from ~6,000 characters with it, open or closed loop. So an early imbalance
+    toward depression leaves a deficit the remaining ~10,000 characters never repair, and the high
+    late acetylcholine is a consequence of that damage, not its cause. This is item 18's
+    horizon finding from the other side: early dynamics decide the long run here, and the shipped
+    ratio is tuned for the whole run, including the start.
+
+    **What this does and does not say about the biology.** It does not say Seol and Brzosko are wrong;
+    it says the mechanism, as isolated here, is not viable on its own in this network. Two things the
+    biology pairs with it are absent: (1) **the dopamine rescue** — in Brzosko et al. (2017) dopamine
+    arriving within minutes converts the acetylcholine-driven t-LTD back into t-LTP, which is what
+    turns "depress while exploring" into a credit-assignment scheme rather than forgetting, and here
+    dopamine writes permanence (decision 14 / C3) and VAL-4's reward is stationary (HANDOFF fact
+    14(c)); (2) **a producer whose high state means what the biology means** — muscarinic tone is high
+    during exploration and novelty, whereas expected uncertainty here is high for a third of every
+    run simply because the network starts knowing nothing, so the map fires hardest precisely when
+    potentiation is the only way to learn anything. Either could be its own item; neither is a
+    re-tune of this one, and this record should not be read as licensing a search over g, floor or
+    reference to find a setting that "works".
+
+    **Nothing is adopted; no VAL-4 figure moves.** B5's pinned figure
+    (`char-prediction.slow.test.ts`) is unaffected because nothing it runs changed. The hook stays
+    unset in every shipped configuration, and `canonicalBrain.ts` does not set it (reasoning beside
+    `plasticity` there).
+
 ### 13.13 Mechanisms the evidence base names but §3–§9 does not specify
 
 Added 2026-09-13 after a review of §2 against §3–§9 and against the shipped core. §13.1–§13.10
@@ -5214,6 +5395,34 @@ several are cheap against structures the core already has.
   for both orders out to ~50 ms; and the effect is dose-dependent (low NE broad LTD, high NE narrow
   bidirectional STDP). Acetylcholine's muscarinic effects on the same curve (Seol 2007; Brzosko et
   al. 2019) are the ratio-side counterpart, and are PLAN.md C7's.
+- **Acetylcholine and the sign of STDP — the evidence C7 decided on, including the dissent**
+  (checked against the primary papers 2026-09-22; §12 decision 18).
+  - *For inversion.* **Seol et al. (2007)**, visual cortex: an M1 muscarinic agonist enabled LTD
+    "regardless of the order of pre- and postsynaptic activation" — M1 promotes t-LTD and suppresses
+    t-LTP. **Brzosko, Zannone, Schultz, Clopath & Paulsen (2017, *eLife*)**, mouse CA1: with 1 µM
+    acetylcholine (muscarinic; blocked by atropine) a +10 ms pre-before-post pairing went from t-LTP
+    (135 ± 7%) to t-LTD (63 ± 8%), post-before-pre pairings depressed too, over a narrow window (0
+    and −20 ms, not ±50). At 100 nM acetylcholine only "prevented significant potentiation" — so
+    suppression at low tone, inversion at high. Two further controls from the same paper decide
+    *where* acetylcholine acts: it "did not have an effect on plasticity when applied after the
+    induction protocol", and none on baseline strength without pairing — it shapes induction, and it
+    is **dopamine**, applied within minutes, that converts the acetylcholine-driven t-LTD back into
+    t-LTP. **Brzosko, Mierau & Paulsen (2019, *Neuron*)** review the same picture.
+  - *Against, or narrower.* **Sugisaki, Fukushima, Tsukada & Aihara (2011)**, rat CA1: muscarinic
+    activation shifted plasticity the *other* way — LTP facilitated, t-LTD switched to t-LTP — and
+    excess acetylcholine abolished STDP altogether. **Gu & Yakel (2011, *Neuron*)**: septal
+    cholinergic input gives α7-nicotinic LTP, short-term depression, or muscarinic LTP depending on
+    whether it arrives 100 ms before, 10 ms before, or 10 ms after the Schaffer-collateral input. A
+    2019 preprint on mouse auditory cortex L2/3 recurrent synapses found muscarinic activation
+    *suppressing* t-LTP without inversion, and not through M1 or M3. Brzosko 2017's own caveat: the
+    polarity "can depend on the concentration of agonist used and specific cholinergic receptor
+    subtype activated".
+  - *What it licenses here.* The best-controlled STDP-protocol results — two labs, two areas —
+    support a causal side that is suppressed at low muscarinic tone and inverted at high, which is
+    an affine map through zero that continues below it. That is what C7 built, with a floor-0 twin
+    measured alongside; Sugisaki's opposite result is why this is recorded as the better-supported
+    reading and not as settled biology. No receptor subtypes, no nicotinic path and no timing of the
+    cholinergic input relative to the pairing are modelled — the channel is one broadcast scalar.
 - **Consequence here.** LRN-5's field was, until 2026-09-21, read only as a multiplier on a delta
   — "how much" — and this entry's mechanism is a claim about the curve's *shape*. PLAN.md C5 built
   the hook (§12 decision 16) and **C6 is its first user (§12 decision 17): noradrenaline, driven
@@ -5236,6 +5445,13 @@ several are cheap against structures the core already has.
   needs a corpus with change points in it: a new VAL item with its own baselines, not a longer C6.
   The triangular window (a sign inversion on the anti-causal side) is deferred for the same reason
   and recorded in decision 17.
+- **The ratio side, built and measured (PLAN.md C7, §12 decision 18, §13.12 item 20).** Acetylcholine,
+  driven by C2's expected uncertainty, now sets the causal side's amplitude and may invert it, read at
+  induction only. Proven on the synapse. On VAL-4 it is the opposite of C6's null: a large, clean
+  negative — every map configuration collapses accuracy to 0.5–7%, and the inversion is not the
+  cause (a floor-0 twin collapses as far). The evidence above names the two things this isolation
+  lacks: the dopamine rescue that makes "depress while exploring" a credit-assignment scheme, and a
+  producer whose high state means novelty rather than "the network has not learned anything yet".
 
 ---
 
@@ -5318,3 +5534,12 @@ PLAN.md B4 — silent synapses and structural-plasticity timing (§12, added 202
 - [Long-term in vivo imaging of experience-dependent synaptic plasticity in adult cortex — Trachtenberg et al., Nature 2002](https://www.nature.com/articles/nature01273)
 - [Transient and Persistent Dendritic Spines in the Neocortex In Vivo — Holtmaat et al., Neuron 2005](https://www.cell.com/fulltext/S0896-6273(05)00004-8)
 - [Spine growth precedes synapse formation in the adult neocortex in vivo — Knott, Holtmaat, Wilbrecht, Welker & Svoboda, Nature Neuroscience 2006](https://www.nature.com/articles/nn1747)
+
+PLAN.md C7 — acetylcholine and the LTP/LTD ratio (§12 decision 18, §13.13 (i), added 2026-09-22):
+
+- [Neuromodulators control the polarity of spike-timing-dependent synaptic plasticity — Seol, Ziburkus, Huang et al., Neuron 2007](https://pubmed.ncbi.nlm.nih.gov/17880895/)
+- [Sequential neuromodulation of Hebbian plasticity offers mechanism for effective reward-based navigation — Brzosko, Zannone, Schultz, Clopath & Paulsen, eLife 2017](https://elifesciences.org/articles/27756)
+- [Neuromodulation of Spike-Timing-Dependent Plasticity: Past, Present, and Future — Brzosko, Mierau & Paulsen, Neuron 2019](https://www.sciencedirect.com/science/article/pii/S0896627319304945)
+- [Cholinergic modulation on spike timing-dependent plasticity in hippocampal CA1 network — Sugisaki, Fukushima, Tsukada & Aihara, Neuroscience 2011](https://pubmed.ncbi.nlm.nih.gov/21736924/)
+- [Timing-dependent septal cholinergic induction of dynamic hippocampal synaptic plasticity — Gu & Yakel, Neuron 2011](https://pubmed.ncbi.nlm.nih.gov/21745645/)
+- [Muscarinic modulation of spike-timing dependent plasticity at recurrent layer 2/3 synapses in mouse auditory cortex — bioRxiv 2019](https://www.biorxiv.org/content/10.1101/690446v1)

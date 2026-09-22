@@ -271,6 +271,19 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       // asserting its effect would be asserting the artefact. The mechanism is
       // exercised where surprise exists: `tests/prediction_error_coupling.rs`'s
       // contingency switch.
+      //
+      // PLAN.md C7 (README §12 decision 18): acetylcholine CAN set this rule's
+      // LTP/LTD ratio (an `aPlus` map on channel 1 whose floor lets a causal
+      // pairing invert into depression), and it is deliberately NOT set here
+      // either. On VAL-4 every configuration of it collapsed accuracy to
+      // 0.5-7% -- the never-inverting twin and low dose included, and with the
+      // loop opened -- because expected uncertainty is high for the first third
+      // of every run and suppressing causal LTP then is a deficit the run never
+      // repairs (README §13.12 item 20). It also needs this rule's cash-in off
+      // acetylcholine (`modulatorChannel` above) to be the configuration the
+      // biology describes, which would change what every other mechanism here
+      // runs under. Exercised where it is proven:
+      // `tests/prediction_error_coupling.rs`'s A->B learning scenario.
       modulatorTauTicks: [1000, 1000, 1000, 1000],
     },
     // LRN-6. Target chosen from this column's own wiring: ~p0*WIDTH ≈ 15

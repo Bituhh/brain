@@ -1121,6 +1121,9 @@ pub struct StdpModulationStatsFfi {
     pub window_admitted: f64,
     /// Pairings inside the configured window that a narrowed one cut.
     pub window_excluded: f64,
+    /// Pairings whose own side's amplitude scale was negative, so the kernel's
+    /// sign flipped -- a causal pairing laying down depression (PLAN.md C7).
+    pub amplitude_inverted: f64,
     pub min_scale: f64,
     pub max_scale: f64,
     /// Per channel (`modulatorLevels`' order), the lowest and highest level a
@@ -2564,6 +2567,7 @@ impl NativeSimulation {
             curve_changed: stats.curve_changed as f64,
             window_admitted: stats.window_admitted as f64,
             window_excluded: stats.window_excluded as f64,
+            amplitude_inverted: stats.amplitude_inverted as f64,
             min_scale: f64::from(stats.min_scale),
             max_scale: f64::from(stats.max_scale),
             min_level: stats.min_level.iter().map(|&l| f64::from(l)).collect(),

@@ -1,0 +1,89 @@
+[2026-09-22 06:52:52] === investigate-c7-ach-ratio: 12 workers, 15000 characters, seeds 1, 2, 3, 4, 5, 11, 12, 13, 14, 15 ===
+[2026-09-22 06:53:01] === investigate-c7-ach-ratio: 12 workers, 15000 characters, seeds 1, 2, 3, 4, 5, 11, 12, 13, 14, 15 ===
+[2026-09-22 06:53:01] 32 trials, 0 already in the checkpoint, 32 to run
+[2026-09-22 06:54:01] [heartbeat] 0/32 done, 1.0 min
+[2026-09-22 06:54:33] done G: cash-in moved to held serotonin seed 2: 20.50% in 92 s
+[2026-09-22 06:54:33] done G: cash-in moved to held serotonin seed 5: 19.20% in 93 s
+[2026-09-22 06:54:33] done G: cash-in moved to held serotonin seed 3: 21.10% in 93 s
+[2026-09-22 06:54:33] done G: cash-in moved to held serotonin seed 13: 21.45% in 93 s
+[2026-09-22 06:54:34] done G: cash-in moved to held serotonin seed 4: 21.15% in 93 s
+[2026-09-22 06:54:34] done G: cash-in moved to held serotonin seed 15: 17.50% in 93 s
+[2026-09-22 06:54:34] done F: B5's winner, fresh (hashes for the controls) seed 11: 18.90% in 94 s
+[2026-09-22 06:54:34] done G: cash-in moved to held serotonin seed 11: 18.90% in 94 s
+[2026-09-22 06:54:34] done G: cash-in moved to held serotonin seed 1: 19.85% in 94 s
+[2026-09-22 06:54:34] done G: cash-in moved to held serotonin seed 14: 19.30% in 94 s
+[2026-09-22 06:54:35] done F: B5's winner, fresh (hashes for the controls) seed 1: 19.85% in 94 s
+[2026-09-22 06:54:35] done G: cash-in moved to held serotonin seed 12: 18.10% in 94 s
+[2026-09-22 06:55:01] [heartbeat] 12/32 done, 2.0 min
+[2026-09-22 06:56:01] [heartbeat] 12/32 done, 3.0 min
+[2026-09-22 06:56:13] done V: ACh driven, shared wiring, no map (C2's row) seed 2: 18.40% in 98 s
+[2026-09-22 06:56:15] done V: ACh driven, shared wiring, no map (C2's row) seed 1: 19.70% in 100 s
+[2026-09-22 06:56:15] done M: induction-only, map gain 0 (measures reference) seed 2: 20.50% in 102 s
+[2026-09-22 06:56:16] done M: induction-only, map gain 0 (measures reference) seed 3: 21.10% in 102 s
+[2026-09-22 06:56:16] done M: induction-only, map gain 0 (measures reference) seed 5: 19.20% in 102 s
+[2026-09-22 06:56:16] done M: induction-only, map gain 0 (measures reference) seed 1: 19.85% in 103 s
+[2026-09-22 06:56:17] done M: induction-only, map gain 0 (measures reference) seed 4: 21.15% in 104 s
+[2026-09-22 06:56:17] done M: induction-only, map gain 0 (measures reference) seed 15: 17.50% in 103 s
+[2026-09-22 06:56:18] done M: induction-only, map gain 0 (measures reference) seed 12: 18.10% in 104 s
+[2026-09-22 06:56:19] done M: induction-only, map gain 0 (measures reference) seed 14: 19.30% in 105 s
+[2026-09-22 06:56:21] done M: induction-only, map gain 0 (measures reference) seed 11: 18.90% in 107 s
+[2026-09-22 06:56:24] done M: induction-only, map gain 0 (measures reference) seed 13: 21.45% in 109 s
+[2026-09-22 06:57:01] [heartbeat] 24/32 done, 4.0 min
+[2026-09-22 06:57:39] done V: ACh driven, shared wiring, no map (C2's row) seed 3: 20.80% in 86 s
+[2026-09-22 06:57:40] done V: ACh driven, shared wiring, no map (C2's row) seed 4: 19.95% in 85 s
+[2026-09-22 06:57:41] done V: ACh driven, shared wiring, no map (C2's row) seed 12: 19.70% in 85 s
+[2026-09-22 06:57:42] done V: ACh driven, shared wiring, no map (C2's row) seed 14: 20.35% in 85 s
+[2026-09-22 06:57:42] done V: ACh driven, shared wiring, no map (C2's row) seed 11: 20.55% in 86 s
+[2026-09-22 06:57:42] done V: ACh driven, shared wiring, no map (C2's row) seed 5: 19.35% in 87 s
+[2026-09-22 06:57:42] done V: ACh driven, shared wiring, no map (C2's row) seed 13: 20.80% in 86 s
+[2026-09-22 06:57:43] done V: ACh driven, shared wiring, no map (C2's row) seed 15: 20.85% in 86 s
+[2026-09-22 06:57:43] reference = median of selection seeds' last-third medians (1.45802, 1.46393, 1.44901, 1.45038, 1.47943) x exp(-1/1000) = 1.4565618470117512
+[2026-09-22 06:57:43] 42 trials, 0 already in the checkpoint, 42 to run
+[2026-09-22 06:58:43] [heartbeat] 0/42 done, 1.0 min
+[2026-09-22 06:58:58] done INV3: g 3, floor -1 (inverts) seed 11: 0.80% in 75 s
+[2026-09-22 06:59:00] done INV3: g 3, floor -1 (inverts) seed 12: 3.85% in 77 s
+[2026-09-22 06:59:00] done INV3: g 3, floor -1 (inverts) seed 13: 1.75% in 77 s
+[2026-09-22 06:59:01] done INV3: g 3, floor -1 (inverts) seed 2: 0.50% in 78 s
+[2026-09-22 06:59:02] done INV3: g 3, floor -1 (inverts) seed 5: 1.45% in 79 s
+[2026-09-22 06:59:03] done INV3: g 3, floor -1 (inverts) seed 4: 1.20% in 80 s
+[2026-09-22 06:59:04] done INV3: g 3, floor -1 (inverts) seed 14: 1.35% in 81 s
+[2026-09-22 06:59:06] done INV3: g 3, floor -1 (inverts) seed 3: 0.90% in 83 s
+[2026-09-22 06:59:09] done INV3: g 3, floor -1 (inverts) seed 1: 1.25% in 86 s
+[2026-09-22 06:59:09] done INV3: g 3, floor -1 (inverts) seed 15: 0.70% in 86 s
+[2026-09-22 06:59:22] done X: INV3's map, ACh held exactly at reference seed 1: 19.85% in 99 s
+[2026-09-22 06:59:29] done X: INV3's map, ACh held exactly at reference seed 11: 18.90% in 106 s
+[2026-09-22 06:59:43] [heartbeat] 12/42 done, 2.0 min
+[2026-09-22 07:00:15] done SUP3: g 3, floor 0 (twin: suppresses only) seed 2: 1.50% in 75 s
+[2026-09-22 07:00:16] done SUP3: g 3, floor 0 (twin: suppresses only) seed 1: 1.55% in 78 s
+[2026-09-22 07:00:17] done SUP3: g 3, floor 0 (twin: suppresses only) seed 3: 1.80% in 76 s
+[2026-09-22 07:00:19] done SUP3: g 3, floor 0 (twin: suppresses only) seed 11: 2.35% in 76 s
+[2026-09-22 07:00:19] done SUP3: g 3, floor 0 (twin: suppresses only) seed 5: 1.45% in 78 s
+[2026-09-22 07:00:21] done SUP3: g 3, floor 0 (twin: suppresses only) seed 12: 3.25% in 77 s
+[2026-09-22 07:00:22] done SUP3: g 3, floor 0 (twin: suppresses only) seed 13: 2.90% in 76 s
+[2026-09-22 07:00:23] done SUP3: g 3, floor 0 (twin: suppresses only) seed 4: 2.85% in 82 s
+[2026-09-22 07:00:24] done SUP3: g 3, floor 0 (twin: suppresses only) seed 14: 0.90% in 75 s
+[2026-09-22 07:00:25] done SUP3: g 3, floor 0 (twin: suppresses only) seed 15: 0.55% in 76 s
+[2026-09-22 07:00:43] [heartbeat] 22/42 done, 3.0 min
+[2026-09-22 07:00:43] done INV1.5: g 1.5, floor -1 (low dose) seed 1: 2.10% in 82 s
+[2026-09-22 07:00:47] done INV1.5: g 1.5, floor -1 (low dose) seed 2: 3.85% in 78 s
+[2026-09-22 07:01:36] done INV1.5: g 1.5, floor -1 (low dose) seed 3: 3.75% in 81 s
+[2026-09-22 07:01:38] done INV1.5: g 1.5, floor -1 (low dose) seed 4: 3.90% in 82 s
+[2026-09-22 07:01:41] done INV1.5: g 1.5, floor -1 (low dose) seed 13: 6.50% in 79 s
+[2026-09-22 07:01:41] done INV1.5: g 1.5, floor -1 (low dose) seed 11: 3.95% in 83 s
+[2026-09-22 07:01:42] done INV1.5: g 1.5, floor -1 (low dose) seed 12: 6.95% in 82 s
+[2026-09-22 07:01:42] done INV1.5: g 1.5, floor -1 (low dose) seed 14: 2.25% in 80 s
+[2026-09-22 07:01:43] [heartbeat] 30/42 done, 4.0 min
+[2026-09-22 07:01:43] done SHARED3: INV3's map on the shipped wiring seed 2: 1.30% in 78 s
+[2026-09-22 07:01:43] done INV1.5: g 1.5, floor -1 (low dose) seed 5: 6.75% in 87 s
+[2026-09-22 07:01:44] done INV1.5: g 1.5, floor -1 (low dose) seed 15: 2.30% in 81 s
+[2026-09-22 07:01:44] done SHARED3: INV3's map on the shipped wiring seed 1: 1.50% in 81 s
+[2026-09-22 07:02:00] done SHARED3: INV3's map on the shipped wiring seed 3: 2.25% in 76 s
+[2026-09-22 07:02:02] done SHARED3: INV3's map on the shipped wiring seed 4: 1.50% in 75 s
+[2026-09-22 07:02:38] done SHARED3: INV3's map on the shipped wiring seed 5: 1.75% in 62 s
+[2026-09-22 07:02:39] done SHARED3: INV3's map on the shipped wiring seed 11: 3.90% in 62 s
+[2026-09-22 07:02:43] done SHARED3: INV3's map on the shipped wiring seed 12: 3.55% in 62 s
+[2026-09-22 07:02:43] [heartbeat] 39/42 done, 5.0 min
+[2026-09-22 07:02:43] done SHARED3: INV3's map on the shipped wiring seed 14: 1.70% in 61 s
+[2026-09-22 07:02:43] done SHARED3: INV3's map on the shipped wiring seed 15: 1.25% in 62 s
+[2026-09-22 07:02:43] done SHARED3: INV3's map on the shipped wiring seed 13: 2.35% in 62 s
+[2026-09-22 07:02:43] wrote C:\projects\brain\scripts\investigate-c7-ach-ratio.results.md

@@ -779,3 +779,303 @@ fn ablation_without_the_coupling_the_probe_pairing_never_counts() {
     assert_eq!(unset.surprise[..=SETTLED_EXPOSURES], coupled.surprise[..=SETTLED_EXPOSURES]);
     assert_ne!(bits(&unset), bits(&coupled), "and the coupled run must differ, or the ablation proves nothing");
 }
+
+// ---------------------------------------------------------------------------
+// PLAN.md C7: acetylcholine sets the LTP/LTD ratio.
+// ---------------------------------------------------------------------------
+
+/// The resting window, in ticks, and the probe pairing's causal lag -- inside
+/// it, so at rest the probe is an ordinary potentiating pairing. The probe's
+/// anti-causal lag (to `q`'s spike in the previous exposure) is 6, far outside.
+const RATIO_WINDOW: u32 = 2;
+const RATIO_PROBE_DT: u32 = 1;
+
+/// How acetylcholine reaches the STDP curve in a [`RatioTrial`].
+#[derive(Clone, Copy, Debug)]
+enum Ratio {
+    /// Hook unset: the curve is `StdpParams` as configured, whatever the level.
+    Fixed,
+    /// An `a_plus` map on acetylcholine, affine about `reference`, `max` 1.0
+    /// (a level below `reference` never *enhances* LTP) and `min` = `floor`:
+    /// negative lets a causal pairing invert into depression (C7's sign call,
+    /// README §12 decision 18), 0.0 is the twin that only suppresses.
+    Acetylcholine { reference: f32, map_gain: f32, floor: f32 },
+}
+
+/// C2's A->B learning scenario with a probe pair riding along, for the ratio.
+///
+/// Acetylcholine is *expected* uncertainty: high while the network is naive
+/// and mispredicting, falling to rest once it has learned the sequence
+/// (`acetylcholine_falls_as_the_network_learns_the_sequence`). `p` and `q` are
+/// stimulated at fixed ticks in every exposure, so the probe's spike timing
+/// never changes -- only the acetylcholine level its pairing is evaluated
+/// under does. The probe synapse is `p -> q`, delay 1, so it delivers one tick
+/// after `p` fires and `RATIO_PROBE_DT` ticks before `q` does.
+///
+/// **Acetylcholine reaches the ratio and nothing else.** The rule's cash-in is
+/// routed on serotonin held at exactly 1.0 -- the design C7 adopted from
+/// Brzosko et al. (2017), whose acetylcholine "did not have an effect on
+/// plasticity when applied after the induction protocol": it acts at
+/// induction, which is where the hook reads it (at event time, stored in
+/// eligibility), and not at cash-in.
+struct RatioTrial {
+    sched: Scheduler,
+    neurons: NeuronArena,
+    synapses: SynapseArena,
+    lif: LifParams,
+    a: u32,
+    b: u32,
+    p: u32,
+    q: u32,
+    probe: u32,
+    eligibility_decay: f32,
+}
+
+/// Where a [`RatioTrial`]'s acetylcholine comes from.
+#[derive(Clone, Copy, Debug)]
+enum Acetylcholine {
+    /// C2's coupling, expected uncertainty at drive gain 2.0.
+    Driven,
+    /// The VAL-9 ablation: no drive, a non-decaying field, injected once --
+    /// held *exactly*, every pairing reading the same bits. (The coupling at
+    /// drive gain 0 is not this: HANDOFF fact 13, and pairings read it at 1.0
+    /// or one tick of decay below depending on where in a tick they fall.)
+    Held(f32),
+}
+
+impl RatioTrial {
+    fn new(ratio: Ratio, acetylcholine: Acetylcholine) -> Self {
+        let mut neurons = NeuronArena::new();
+        let mut spec = |threshold: f32| neurons.allocate(NeuronSpec { threshold, polarity: 1, coords: [0.0; 3] }).index;
+        let (a, b, _c) = (spec(0.5), spec(1.0), spec(1.0));
+        let (p, q) = (spec(1.0), spec(1.0));
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        // Weight 0.3 against q's threshold (1.0, 0.5 when predicted): the probe
+        // never makes q fire, and stays clear of both clamps for the whole run.
+        let probe = synapses.insert(p, q, FEEDFORWARD_SEGMENT, 1, 0.9, 0.3).expect("room for the probe synapse");
+
+        let stdp = StdpParams { a_plus: 0.1, a_minus: 0.1, tau_plus: 1.0, tau_minus: 1.0, window_ticks: RATIO_WINDOW };
+        let mut rule = ThreeFactorParams::new(stdp, 50.0, 0.001, SEROTONIN);
+        let eligibility_decay = rule.eligibility_decay_per_tick;
+        if let Ratio::Acetylcholine { reference, map_gain, floor } = ratio {
+            let map = LevelMap::new(ACETYLCHOLINE, reference, map_gain, floor, 1.0);
+            let modulation = StdpModulation::new(Some(map), None, None, None, None).unwrap();
+            rule = rule.with_stdp_modulation(modulation).with_stdp_modulation_observed();
+        }
+        let mut taus = field_taus();
+        taus[SEROTONIN] = 1.0e30; // exp(-1/1e30) is exactly 1.0 in f32: an injected level holds bit-exactly
+        if let Acetylcholine::Held(_) = acetylcholine {
+            taus[ACETYLCHOLINE] = 1.0e30;
+        }
+        let mut sched = Scheduler::new(4, 0.3)
+            .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 }))
+            .with_predictive_learning(predictive_params(None, None), FixedNeighbourhoods::new(3, 3))
+            .with_plasticity(RuleChain::new(vec![Box::new(ThreeFactorStdp::new(rule))]), taus);
+        match acetylcholine {
+            Acetylcholine::Driven => {
+                let coupling = PredictionErrorCoupling::new(TAU_FAST, TAU_SLOW).with_expected(ChannelDrive::new(ACETYLCHOLINE, BASELINE, 2.0, 4.0));
+                sched = sched.with_prediction_error_coupling(coupling);
+            }
+            Acetylcholine::Held(level) => sched.inject_modulator(ACETYLCHOLINE, level),
+        }
+        sched.inject_modulator(SEROTONIN, 1.0);
+        let lif = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(50.0, 0.5);
+        Self { sched, neurons, synapses, lif, a, b, p, q, probe, eligibility_decay }
+    }
+
+    fn step(&mut self) {
+        self.sched.step::<Lif>(&mut self.neurons, &mut self.synapses, &self.lif);
+    }
+
+    /// One A->B exposure (7 ticks) with `p` on tick 0 and `q` on tick 2.
+    /// Returns what the probe's causal pairing laid down at `q`'s spike -- the
+    /// eligibility after that tick minus the eligibility before it, decayed
+    /// the way the rule decays it -- and the acetylcholine level just before
+    /// that tick.
+    fn expose(&mut self) -> (f32, f32) {
+        self.sched.stimulate(&self.neurons, self.a, 5.0);
+        self.sched.stimulate(&self.neurons, self.p, 6.0);
+        self.step();
+        self.sched.stimulate(&self.neurons, self.b, 6.0);
+        self.step();
+        let (before, since) = (self.synapses.eligibility[self.probe as usize], self.synapses.eligibility_updated_at[self.probe as usize]);
+        let level = self.sched.modulator_levels()[ACETYLCHOLINE];
+        self.sched.stimulate(&self.neurons, self.q, 6.0);
+        self.step();
+        let (after, now) = (self.synapses.eligibility[self.probe as usize], self.synapses.eligibility_updated_at[self.probe as usize]);
+        let decayed = if since == u32::MAX { 0.0 } else { before * self.eligibility_decay.powi((now - since) as i32) };
+        for _ in 0..4 {
+            self.step();
+        }
+        (after - decayed, level)
+    }
+
+    fn weight(&self) -> f32 {
+        self.synapses.weight[self.probe as usize]
+    }
+}
+
+/// Exposures in a run: long enough for expected uncertainty to fall to within
+/// ~0.5% of rest (`acetylcholine_falls_as_the_network_learns_the_sequence`).
+const RATIO_EXPOSURES: usize = 60;
+/// The naive phase the inversion assertions look at, and the learned phase
+/// the recovery assertions look at.
+const NAIVE_EXPOSURES: usize = 8;
+const LEARNED_EXPOSURES: usize = 5;
+
+/// The map gain the mechanism test runs at. Chosen, not tuned for a result: at
+/// -2 the scale reaches 0 at half the naive peak's excursion above rest
+/// (~0.83 as read), so the peak inverts to about -0.67 and the learned phase
+/// (~0.005 above rest) keeps 99% of the configured LTP. Both margins are
+/// asserted below.
+const RATIO_MAP_GAIN: f32 = -2.0;
+
+/// One run, recorded per exposure.
+struct RatioRun {
+    /// What the probe's causal pairing laid down, per exposure.
+    laid: Vec<f32>,
+    /// The probe's weight after each exposure.
+    weight: Vec<f32>,
+    stats: Option<StdpModulationStats>,
+}
+
+fn run_ratio_trial(ratio: Ratio, acetylcholine: Acetylcholine) -> RatioRun {
+    let mut trial = RatioTrial::new(ratio, acetylcholine);
+    let mut run = RatioRun { laid: Vec::new(), weight: Vec::new(), stats: None };
+    for _ in 0..RATIO_EXPOSURES {
+        run.laid.push(trial.expose().0);
+        run.weight.push(trial.weight());
+    }
+    run.stats = trial.sched.stdp_modulation_stats();
+    run
+}
+
+/// The acetylcholine level a pairing reads once the network expects to be
+/// right -- measured, not assumed, for the same reason C6's reference is
+/// (HANDOFF fact 16): a gain-0 map reads the level at every pairing without
+/// changing any, and the lowest is zero-uncertainty rest (the drive's baseline
+/// one tick of decay down, 0.957 here). This network learns the sequence
+/// perfectly, so rest is also where its settled phase sits; on VAL-4, where
+/// expected uncertainty never approaches zero, the same rule -- "the level of a
+/// network that has learned what it can" -- is the late-run level instead.
+fn measured_acetylcholine_rest() -> f32 {
+    run_ratio_trial(Ratio::Acetylcholine { reference: BASELINE, map_gain: 0.0, floor: -1.0 }, Acetylcholine::Driven).stats.expect("observed").min_level[ACETYLCHOLINE]
+}
+
+/// The configured curve at the probe's lag: what the probe lays down whenever
+/// the ratio is not being moved.
+fn resting_probe_contribution() -> f32 {
+    StdpParams { a_plus: 0.1, a_minus: 0.1, tau_plus: 1.0, tau_minus: 1.0, window_ticks: RATIO_WINDOW }.kernel(RATIO_PROBE_DT as f32)
+}
+
+/// PLAN.md C7, the mechanism, with the sign call it made (README §12 decision
+/// 18): while the network is uncertain, acetylcholine is high and the *same*
+/// causal pairing -- same lag, same spikes -- lays down depression instead of
+/// potentiation, and the synapse weakens; once the network has learned,
+/// acetylcholine is back at rest and the pairing potentiates again. Seol et al.
+/// (2007) and Brzosko et al. (2017): muscarinic activation converts
+/// pre-before-post LTP into LTD.
+///
+/// Asserted on the synapse (HANDOFF fact 3): what the pairing laid down in
+/// eligibility, and the weight. Eligibility is written at event time, before
+/// any cash-in, so nothing the rule's cash-in gate does can produce this.
+#[test]
+fn acetylcholine_inverts_causal_pairings_while_the_network_is_uncertain() {
+    let rest = measured_acetylcholine_rest();
+    assert!(rest < BASELINE - 0.01, "precondition: rest is read one tick of decay below the drive's baseline: {rest}");
+    let run = run_ratio_trial(Ratio::Acetylcholine { reference: rest, map_gain: RATIO_MAP_GAIN, floor: -1.0 }, Acetylcholine::Driven);
+    let stats = run.stats.expect("observed");
+    let resting = resting_probe_contribution();
+
+    // Precondition: the naive peak is high enough to invert.
+    assert!(
+        1.0 + RATIO_MAP_GAIN * (stats.max_level[ACETYLCHOLINE] - rest) < -0.25,
+        "precondition: the naive peak must drive the scale well below zero, max level read {}",
+        stats.max_level[ACETYLCHOLINE]
+    );
+
+    // (a) Uncertain: the causal pairing lays down depression, and the synapse weakens.
+    let inverted = run.laid[..NAIVE_EXPOSURES].iter().filter(|&&laid| laid < 0.0).count();
+    assert!(inverted >= 3, "while naive, the probe's causal pairing must lay down depression on several exposures: {:?}", &run.laid[..NAIVE_EXPOSURES]);
+    assert!(
+        run.weight[NAIVE_EXPOSURES - 2] < run.weight[1],
+        "...and the synapse must weaken over them: {} -> {}",
+        run.weight[1],
+        run.weight[NAIVE_EXPOSURES - 2]
+    );
+
+    // (b) Learned: acetylcholine back at rest, the same pairing potentiates again.
+    for (i, &laid) in run.laid[RATIO_EXPOSURES - LEARNED_EXPOSURES..].iter().enumerate() {
+        assert!(laid > 0.99 * resting && laid <= resting, "learned exposure {i}: the pairing must be back to the configured LTP ({resting}), got {laid}");
+    }
+    assert!(run.weight[RATIO_EXPOSURES - 1] > run.weight[RATIO_EXPOSURES - LEARNED_EXPOSURES], "...and the synapse strengthens again");
+
+    // Corroboration, not the claim: the hook counted the inversions.
+    assert!(stats.amplitude_inverted > 0);
+    assert!(stats.min_scale < 0.0);
+}
+
+/// The twin the sign call is measured against: a floor of 0 is Brzosko's
+/// low-dose result (acetylcholine "prevented significant potentiation" without
+/// causing depression). The same schedule suppresses the causal pairing to
+/// exactly nothing at the peak and never inverts it, so the synapse never
+/// weakens -- which is what isolates the inversion as the floor's doing.
+#[test]
+fn a_zero_floor_suppresses_causal_potentiation_but_never_inverts_it() {
+    let rest = measured_acetylcholine_rest();
+    let run = run_ratio_trial(Ratio::Acetylcholine { reference: rest, map_gain: RATIO_MAP_GAIN, floor: 0.0 }, Acetylcholine::Driven);
+    assert!(run.laid.iter().all(|&laid| laid >= 0.0), "a floor of 0 must never lay down depression: {:?}", run.laid);
+    assert!(run.laid[..NAIVE_EXPOSURES].contains(&0.0), "...but must suppress it to nothing at the naive peak: {:?}", &run.laid[..NAIVE_EXPOSURES]);
+    assert!(run.weight.windows(2).all(|w| w[1] >= w[0]), "so the probe's weight never falls: {:?}", run.weight);
+    assert_eq!(run.stats.expect("observed").amplitude_inverted, 0);
+}
+
+/// VAL-9: hold acetylcholine constant and the property fails -- the ratio no
+/// longer responds, and the probe lays down the same thing on every exposure,
+/// naive or learned. Held *exactly* (a non-decaying field injected once; see
+/// [`Acetylcholine::Held`]) and at the map's reference, that is the configured
+/// LTP, bit for bit, and the run is identical synapse for synapse to one where
+/// acetylcholine is left *varying* with the hook unset. So what the ablation
+/// removed is not the signal (it varies in the second run) and not the map (it
+/// is set in the first), but the map's view of a varying level.
+///
+/// Held *away* from the reference the ratio still does not respond, but sits
+/// at a constant scale other than 1: a static retune, not the configured curve
+/// (HANDOFF fact 16). Asserted too, so "held" is not mistaken for "inert".
+///
+/// Which read this disables, since the prompt asks: the hook's *event-time*
+/// read, the one that shapes eligibility as it is laid down. The rule's cash-in
+/// gate is routed on serotonin held at 1.0 in every run here, and acetylcholine
+/// has no other reader, so the gate cannot be what differs.
+#[test]
+fn ablation_holding_acetylcholine_constant_the_ratio_never_moves() {
+    let rest = measured_acetylcholine_rest();
+    let map = Ratio::Acetylcholine { reference: rest, map_gain: RATIO_MAP_GAIN, floor: -1.0 };
+    let resting = resting_probe_contribution();
+
+    let held = run_ratio_trial(map, Acetylcholine::Held(rest));
+    let unread = run_ratio_trial(Ratio::Fixed, Acetylcholine::Driven);
+    let coupled = run_ratio_trial(map, Acetylcholine::Driven);
+    for (name, run) in [("acetylcholine held at the reference", &held), ("hook unset, acetylcholine varying", &unread)] {
+        // Within float rounding: `laid` is derived by subtracting the decayed
+        // earlier eligibility, which rounds once there is any. The bit-exact
+        // claims are on the synapse itself, below.
+        for (i, &laid) in run.laid.iter().enumerate() {
+            assert!((laid - resting).abs() < 1e-6, "{name}, exposure {i}: the probe must lay down the configured LTP ({resting}), got {laid}");
+        }
+    }
+    let held_stats = held.stats.expect("observed");
+    assert_eq!(held_stats.min_level[ACETYLCHOLINE].to_bits(), held_stats.max_level[ACETYLCHOLINE].to_bits(), "held: every pairing read the same level");
+    assert_eq!((held_stats.curve_changed, held_stats.amplitude_inverted), (0, 0), "held: the map read the level at every pairing and never moved the curve");
+    let bits = |run: &RatioRun| run.weight.iter().map(|w| w.to_bits()).collect::<Vec<_>>();
+    let laid_bits = |run: &RatioRun| run.laid.iter().map(|l| l.to_bits()).collect::<Vec<_>>();
+    assert_eq!(bits(&held), bits(&unread), "the two ablations must be the same run, synapse for synapse");
+    assert_eq!(laid_bits(&held), laid_bits(&unread), "...eligibility included");
+    assert_ne!(bits(&held), bits(&coupled), "and the coupled run must differ, or the ablation proves nothing");
+
+    // Held a quarter above the reference: scale 0.5, on every exposure.
+    let offset = run_ratio_trial(map, Acetylcholine::Held(rest + 0.25));
+    assert!(offset.laid.iter().all(|laid| (laid - offset.laid[0]).abs() < 1e-6), "held elsewhere: still no response -- every exposure the same: {:?}", offset.laid);
+    assert!((offset.laid[0] - 0.5 * resting).abs() < 1e-6, "...at a constant retune of half the configured LTP, got {}", offset.laid[0]);
+}

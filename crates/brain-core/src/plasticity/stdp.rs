@@ -274,6 +274,12 @@ pub struct StdpModulationStats {
     pub window_admitted: u64,
     /// The converse: inside the configured window, cut by a narrowed one.
     pub window_excluded: u64,
+    /// Pairings inside the (modulated) window whose *own side's* amplitude
+    /// scale was negative -- `a_plus`'s for `dt >= 0`, `a_minus`'s for
+    /// `dt < 0` -- so the kernel's sign was inverted: a causal pairing laying
+    /// down depression, or an anti-causal one potentiation (PLAN.md C7).
+    /// Always 0 unless an amplitude map's `min` is negative.
+    pub amplitude_inverted: u64,
     /// The smallest and largest scale any mapped slot took at an evaluated
     /// event. NaN when `events == 0`.
     pub min_scale: f32,
@@ -294,6 +300,7 @@ impl StdpModulationStats {
         curve_changed: 0,
         window_admitted: 0,
         window_excluded: 0,
+        amplitude_inverted: 0,
         min_scale: f32::NAN,
         max_scale: f32::NAN,
         min_level: [f32::NAN; NUM_MODULATORS],
@@ -316,6 +323,7 @@ impl StdpModulationStats {
             curve_changed: self.curve_changed + other.curve_changed,
             window_admitted: self.window_admitted + other.window_admitted,
             window_excluded: self.window_excluded + other.window_excluded,
+            amplitude_inverted: self.amplitude_inverted + other.amplitude_inverted,
             min_scale: self.min_scale.min(other.min_scale),
             max_scale: self.max_scale.max(other.max_scale),
             min_level,

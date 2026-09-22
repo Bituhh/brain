@@ -151,6 +151,7 @@ struct ModulationCounters {
     curve_changed: AtomicU64,
     window_admitted: AtomicU64,
     window_excluded: AtomicU64,
+    amplitude_inverted: AtomicU64,
     min_scale: AtomicU32,
     max_scale: AtomicU32,
     min_level: [AtomicU32; NUM_MODULATORS],
@@ -171,6 +172,7 @@ impl ModulationCounters {
             curve_changed: AtomicU64::new(0),
             window_admitted: AtomicU64::new(0),
             window_excluded: AtomicU64::new(0),
+            amplitude_inverted: AtomicU64::new(0),
             min_scale: AtomicU32::new(u32::MAX),
             max_scale: AtomicU32::new(0),
             min_level: std::array::from_fn(|_| AtomicU32::new(u32::MAX)),
@@ -205,6 +207,15 @@ impl ModulationCounters {
                 self.window_excluded.fetch_add(1, Ordering::Relaxed);
             }
         }
+        // The same window test `kernel_modulated` makes, then the scale on the
+        // side this pairing lands on: negative there means the sign flipped.
+        let window_scale = modulation.window_ticks().map_or(1.0, |w| w.scale(modulators));
+        if dt.abs() <= stdp.window_ticks as f32 * window_scale {
+            let side = if dt >= 0.0 { modulation.a_plus() } else { modulation.a_minus() };
+            if side.is_some_and(|map| map.scale(modulators) < 0.0) {
+                self.amplitude_inverted.fetch_add(1, Ordering::Relaxed);
+            }
+        }
         for (channel, &mapped) in self.channels.iter().enumerate() {
             if mapped {
                 self.min_level[channel].fetch_min(ordered_bits(modulators[channel]), Ordering::Relaxed);
@@ -220,6 +231,7 @@ impl ModulationCounters {
             curve_changed: self.curve_changed.load(Ordering::Relaxed),
             window_admitted: self.window_admitted.load(Ordering::Relaxed),
             window_excluded: self.window_excluded.load(Ordering::Relaxed),
+            amplitude_inverted: self.amplitude_inverted.load(Ordering::Relaxed),
             min_scale: load(&self.min_scale),
             max_scale: load(&self.max_scale),
             min_level: std::array::from_fn(|c| load(&self.min_level[c])),
@@ -593,6 +605,55 @@ mod tests {
         assert_eq!((stats.min_level[2], stats.max_level[2]), (0.8, 1.5), "the level read at event time, clamp or not");
         assert!(stats.min_level[0].is_nan() && stats.max_level[1].is_nan(), "channels no slot maps are not recorded");
     }
+
+    /// PLAN.md C7's sign call, at the rule: an `a_plus` map whose `min` is
+    /// negative turns a *causal* pairing into depression when the level is
+    /// high enough, a floor of 0 only silences it, and the inversion counter
+    /// counts exactly the pairings whose own side flipped -- not the
+    /// anti-causal side the map does not touch, and not a pairing the window
+    /// excluded.
+    #[test]
+    fn a_negative_a_plus_floor_inverts_causal_pairings_and_is_counted() {
+        // Reference 1.0, gain -2: level 1.5 asks for scale 0.0, level 2.0 for -1.0.
+        let rule_with_floor = |min: f32| {
+            let map = LevelMap::new(ACETYLCHOLINE_FOR_TEST, 1.0, -2.0, min, 1.0);
+            let modulation = StdpModulation::new(Some(map), None, None, None, None).unwrap();
+            ThreeFactorStdp::new(ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0).with_stdp_modulation(modulation).with_stdp_modulation_observed())
+        };
+        let causal = |rule: &ThreeFactorStdp, level: f32| {
+            let mut fx = Fixture::new();
+            fx.last_active = 1000;
+            let mut levels = [1.0; NUM_MODULATORS];
+            levels[ACETYLCHOLINE_FOR_TEST] = level;
+            rule.on_post_spike(fx.syn(), &ctx(never_spiked(), spiked_at(1010), levels, 1010));
+            fx.eligibility
+        };
+        let inverting = rule_with_floor(-1.0);
+        let resting = stdp().kernel(10.0);
+        assert_eq!(causal(&inverting, 1.0), resting, "at the reference the causal side is the configured LTP");
+        assert_eq!(causal(&inverting, 0.5), resting, "below the reference the map's max of 1.0 holds it");
+        assert_eq!(causal(&inverting, 1.5), 0.0, "halfway, causal LTP is suppressed to exactly nothing");
+        assert_eq!(causal(&inverting, 2.0), -resting, "at the top, the same causal pairing lays down depression of equal size");
+        assert_eq!(causal(&inverting, 3.0), -resting, "and the floor of -1 caps it");
+
+        let floored = rule_with_floor(0.0);
+        assert_eq!(causal(&floored, 2.0), 0.0, "a floor of 0 suppresses but never inverts");
+
+        let stats = inverting.stdp_modulation_stats().unwrap();
+        assert_eq!(stats.amplitude_inverted, 2, "only the level-2.0 and level-3.0 causal pairings flipped sign");
+        assert_eq!(floored.stdp_modulation_stats().unwrap().amplitude_inverted, 0);
+
+        // An anti-causal pairing at a high level is untouched and not counted:
+        // the map is on a_plus only, and a_minus is already depression.
+        let mut fx = Fixture::new();
+        let mut levels = [1.0; NUM_MODULATORS];
+        levels[ACETYLCHOLINE_FOR_TEST] = 2.0;
+        inverting.on_delivery(fx.syn(), &ctx(never_spiked(), spiked_at(1000), levels, 1010));
+        assert_eq!(fx.eligibility, stdp().kernel(-10.0));
+        assert_eq!(inverting.stdp_modulation_stats().unwrap().amplitude_inverted, 2);
+    }
+
+    const ACETYLCHOLINE_FOR_TEST: usize = 1;
 
     #[test]
     fn merged_counters_do_not_depend_on_the_order_they_are_merged_in() {
