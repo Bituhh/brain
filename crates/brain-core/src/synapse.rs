@@ -570,6 +570,68 @@ mod tests {
         assert_eq!(arena.source_of(a), 0);
     }
 
+    /// CHARACTERISATION TEST FOR A KNOWN, UNFIXED BUG — docs/findings.md finding 24.
+    ///
+    /// A pruned slot is REUSED by the next `insert` into the same block (`insert` scans
+    /// for the first free slot). `remove` leaves the old entry in `target_index` and
+    /// relies on `is_occupied` to filter it — which is sound only while the slot stays
+    /// free. Once it is reused for a synapse with a DIFFERENT target, the stale entry
+    /// points at an occupied slot again, so `incoming(old_target)` yields a synapse that
+    /// does not target it.
+    ///
+    /// **The assertions below pin what the code does TODAY, which is wrong.** They are
+    /// written this way so the suite stays green while the fix's blast radius (every
+    /// golden raster, every measured figure in findings 7–22) is decided — not because
+    /// this behaviour is intended. Flipping the two marked assertions to the documented
+    /// correct values is the acceptance test for the fix; see
+    /// `.claude/scratch/target-index-fix/prompt.md`.
+    ///
+    /// Invisible in practice until something actually prunes: at VAL-4's 15,000-character
+    /// protocol `prunedTotal` is 0, so no slot is ever reused (finding 23).
+    #[test]
+    fn a_reused_slot_is_still_listed_under_its_previous_target_known_bug() {
+        let mut arena = SynapseArena::new(4);
+        arena.reserve_for_neurons(3);
+
+        let id = arena.insert(0, 1, 0, 1, 0.6, 0.6).unwrap();
+        assert_eq!(arena.incoming(1).collect::<Vec<_>>(), vec![id], "sanity: 0 -> 1 is incoming to 1");
+
+        arena.remove(id);
+        assert_eq!(arena.incoming(1).count(), 0, "sanity: while the slot is free the stale entry is filtered");
+
+        // The next insert into source 0's block reuses that exact slot, now targeting 2.
+        let reused = arena.insert(0, 2, 0, 1, 0.6, 0.6).unwrap();
+        assert_eq!(reused, id, "sanity: the freed slot is reused, which is what makes the stale entry live again");
+        assert_eq!(arena.target_neuron[reused as usize], 2, "the synapse in that slot now targets 2");
+
+        // FIX FLIPS THIS TO 0: neuron 1 must not see a synapse that targets 2.
+        assert_eq!(arena.incoming(1).count(), 1, "KNOWN BUG (finding 24): a stale target_index entry went live when the slot was reused");
+        assert_eq!(arena.incoming(2).collect::<Vec<_>>(), vec![reused], "neuron 2 does see it, correctly");
+    }
+
+    /// The same defect's second face, and the one a read-time `target_neuron == target`
+    /// filter would NOT catch: when the reused slot happens to take the SAME target, the
+    /// id is present in that target's index twice, so every `incoming` consumer
+    /// double-counts it. Recorded here so the fix is not designed against the first case
+    /// alone (finding 24, and the trap named in the fix prompt).
+    #[test]
+    fn a_slot_reused_for_the_same_target_is_listed_twice_known_bug() {
+        let mut arena = SynapseArena::new(4);
+        arena.reserve_for_neurons(3);
+
+        let id = arena.insert(0, 1, 0, 1, 0.6, 0.6).unwrap();
+        arena.remove(id);
+        let reused = arena.insert(0, 1, 0, 1, 0.6, 0.6).unwrap();
+        assert_eq!(reused, id, "sanity: the freed slot is reused for the same target");
+
+        // FIX FLIPS THIS TO 1: one synapse must be listed once.
+        assert_eq!(
+            arena.incoming(1).count(),
+            2,
+            "KNOWN BUG (finding 24): one synapse listed twice, so homeostatic rescaling and reinforce/punish both count it twice"
+        );
+    }
+
     #[test]
     fn block_full_is_reported_not_panicked() {
         let mut arena = SynapseArena::new(2);

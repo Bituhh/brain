@@ -788,8 +788,43 @@ export interface TrialResult {
   readonly consolidationStats?: ConsolidationStats;
 }
 
-/** `runCharPredictionTrial`'s optional progress callback: characters processed so far, out of the total. */
-export type TrialProgress = (charactersDone: number, charactersTotal: number) => void;
+/**
+ * What `runCharPredictionTrial` hands its progress callback alongside the
+ * character counts: the two live sliding-window accuracies, and the
+ * simulation itself for whatever read-only readback the caller wants.
+ *
+ * Added 2026-09-24 for the corpus-horizon investigation (docs/decisions.md
+ * decision 26). The counts alone could not answer "is accuracy still
+ * climbing at the protocol's 15,000 characters", because neither accumulator
+ * is reachable from outside this function and `onCharacter`'s `Simulation`
+ * carries a *different* quantity (LRN-8's dendritic classification rate, not
+ * the decoded task accuracy -- docs/findings.md finding 13's own distinction).
+ * The alternative was re-implementing this loop in a script, which is exactly
+ * what `inspect`'s doc comment exists to warn against.
+ *
+ * Read-only by convention, like `inspect` and `onCharacter`: nothing here is
+ * read back by the loop, so a run with a callback attached is bit-identical
+ * to one without (RUN-3).
+ */
+export interface TrialProgressSample {
+  /** `SlidingWindowAccuracy.accuracy` over the last `config.slidingWindow` characters, as of this character. */
+  readonly networkAccuracy: number;
+  /** The trigram baseline's own sliding-window accuracy over the identical character sequence (Requirement 13.3). */
+  readonly trigramAccuracy: number;
+  /** How many characters have been scored into `networkAccuracy` so far -- below `slidingWindow` the figure is over a partial window and should be read as such. */
+  readonly sampleCount: number;
+  /** The live simulation, for read-only readback (`structuralStats()`, `modulatorLevels()`, `predictionOutcomeTotals()`, ...). */
+  readonly sim: Simulation;
+}
+
+/**
+ * `runCharPredictionTrial`'s optional progress callback: characters processed
+ * so far, out of the total, plus `sample` (above). The first two parameters
+ * are unchanged from before `sample` existed, so a callback that takes only
+ * them -- `scripts/b4-search/trial.worker.ts`'s progress relay is the one
+ * such caller -- keeps working untouched.
+ */
+export type TrialProgress = (charactersDone: number, charactersTotal: number, sample: TrialProgressSample) => void;
 
 /** How often `runCharPredictionTrial` reports progress, in characters. */
 export const PROGRESS_EVERY_CHARACTERS = 250;
@@ -972,7 +1007,12 @@ export function runCharPredictionTrial(
     }
     onCharacter?.(sim);
     if (onProgress !== undefined && charactersDone % PROGRESS_EVERY_CHARACTERS === 0) {
-      onProgress(charactersDone, source.length);
+      onProgress(charactersDone, source.length, {
+        networkAccuracy: networkAcc.accuracy,
+        trigramAccuracy: trigramAcc.accuracy,
+        sampleCount: networkAcc.sampleCount,
+        sim,
+      });
     }
   }
 

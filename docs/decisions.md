@@ -1372,3 +1372,38 @@ undecided, [`findings.md`](findings.md) for measurements behind a decision,
    contrast is asserted on a network that has both pathways
    (`crates/brain-core/tests/transmission_modulation.rs`) rather than claimed from VAL-4's numbers.
    The measurement itself is docs/findings.md finding 22.
+
+26. **`runCharPredictionTrial`'s progress callback carries the live accuracies and the
+    `Simulation`, so a trajectory can be measured without re-implementing the loop — engineering
+    change, 2026-09-24 [2026-09-24 21:12 +0100].** No behavioural effect and no citation required
+    (CLAUDE.md's tiered evidence rule): this widens a read-only observation hook.
+
+    **The problem.** Every VAL-4 figure in this repository is a single number at the end of a run.
+    Asking whether accuracy is still *climbing* at 15,000 characters needs the series, and the
+    series was unreachable from outside `runCharPredictionTrial`: `TrialProgress` received only
+    `(charactersDone, charactersTotal)`, and neither `SlidingWindowAccuracy` accumulator is exposed.
+    `onCharacter(sim)` does hand over the simulation, but what the engine can report there —
+    LRN-8's dendritic classification rate — is a *different quantity* from the decoded task
+    accuracy, which docs/findings.md finding 13 already records and item 17 records having been
+    confused by once.
+
+    **Why not the obvious alternative.** Re-implementing the stream loop inside a script is exactly
+    what `inspect`'s own doc comment exists to warn against ("would otherwise have to re-implement
+    this loop and risk drifting from it"). A measurement harness that has drifted from the thing it
+    measures is worse than no measurement, and this repository has the `inspect`/`onCharacter`
+    precedent for widening the hook instead.
+
+    **What changed.** `TrialProgress` gained a third parameter, `TrialProgressSample`, carrying
+    `networkAccuracy`, `trigramAccuracy`, `sampleCount` and `sim`. Positional and appended, so the
+    one existing caller (`scripts/b4-search/trial.worker.ts`'s progress relay, which takes
+    `(done, total)`) is untouched. Nothing in the loop reads the callback back, so a run with one
+    attached is bit-identical to one without (RUN-3) — asserted rather than assumed by the prefix
+    control in `scripts/investigate-corpus-horizon.ts`, which requires a 200,000-character run's
+    first 15,000 characters to match a 15,000-character run's sample-for-sample.
+
+    **The sampling-cost trap, recorded so the next caller does not step in it.**
+    `modulatorLevels()` and `predictionOutcomeTotals()` are O(1) counters, but `structuralStats()`
+    is a full synapse scan (`brain-napi`'s `structural_stats` walks every occupied block), so
+    calling it at the 250-character progress cadence would put an O(synapses) scan into a loop that
+    is itself being timed. The horizon script samples it every 5,000 characters instead and
+    subtracts sampling time from the wall-clock series it reports.

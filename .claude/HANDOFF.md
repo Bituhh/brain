@@ -14,7 +14,29 @@ finished, and told the *next* item nothing.
 
 ## Where things stand
 
-- **Last completed:** PLAN.md **C9** (acetylcholine's encoding/retrieval pair: recurrent
+- **Last completed (not a PLAN item):** the **corpus-horizon investigation**, 2026-09-24
+  [2026-09-24 22:20 +0100], run at the user's request after a session found that *nothing in
+  PLAN.md owns corpus length*. **Two results, and the second is the important one.**
+  (1) The 15,000-character protocol stops about a third of the way up the learning curve —
+  B5's winner gains +5.21/+3.84/+3.60 points between the 7.5-10k and 12.5-15k bands and peaks
+  at 20.5-21.6% around 20,000-35,000 characters. (2) **Past that it COLLAPSES**, to
+  6.10%/4.40%/7.00% at 200,000 — about ten points *below* the 16.56% bar — via a
+  **sprout/prune churn runaway** (3.31 M sprouts against 3.30 M prunes by character 195,000
+  while the occupied set falls 62%), which also makes the run 8.6-11.6x slower per character.
+  `DEFAULT_CONFIG`, which has no structural plasticity, is flat in cost to within 1% and
+  declines only gently, so the runaway belongs to the sweep, not to length. Also measured:
+  the `rewardSignal: "correctness"` dopamine "burst" is **not phasic** — it accumulates to
+  **499x/499x/502x** the per-character injection, exactly the `1/(1-exp(-2/1000))` the time
+  constants predict (fact 20). All 12 exactness controls pass. **Nothing adopted, no constant
+  changed, and the 15,000-character protocol is deliberately left in place** until a
+  replacement is decided — changing it unilaterally would orphan findings 7-22.
+  docs/findings.md finding 23, docs/appendix/find-23.md, docs/decisions.md decision 26,
+  `scripts/investigate-corpus-horizon.*`. **Read facts 20 and 21 before any
+  structural-plasticity, corpus-length or dopamine work.** Following it up found the cause:
+  the churn is a **correctness bug in `SynapseArena`'s reverse index**, not a mistuned sweep —
+  docs/findings.md finding 24, fact 21. Unfixed, by choice, pending a decision on its blast
+  radius.
+- **Last completed PLAN item:** PLAN.md **C9** (acetylcholine's encoding/retrieval pair: recurrent
   transmission down, recurrent plasticity up), 2026-09-24. **Both halves built and separately
   switchable, and the result is the pair, not either half.** On VAL-4 the pair is a null
   (−0.52 / +0.63 points), the **transmission half ALONE is a large negative** (−12.69 / −11.44,
@@ -121,7 +143,11 @@ saying otherwise is a reporting error.
 
 What *is* new: this is the first configuration to clearly beat the **16.56%
 "always guess space"** mode baseline (docs/findings.md finding 7), which every earlier
-figure in the repo failed to clear. Quote that bar alongside any new VAL-4 number
+figure in the repo failed to clear. **Both of those numbers are 15,000-character
+figures, and as of 2026-09-24 that qualifier is load-bearing**: the same
+configuration run to 200,000 characters collapses to 4.40-7.00%, ten points *under*
+the bar (finding 23, fact 20). "B5's winner clears 16.56%" is true at the protocol's
+horizon and false past it; write the horizon next to the number. Quote that bar alongside any new VAL-4 number
 — a change that improves a delta but drops back under 16.56% has undone the only
 real progress the network has made.
 
@@ -662,6 +688,59 @@ These are the ones that have actually caused wrong work, not a general list.
       different quantity from the decoded task accuracy, and this is the row that shows the two
       coming apart. Anyone reading a modulator trajectory as a proxy for task performance should read
       docs/appendix/find-22.md §4 first.
+20. **Every VAL-4 number in this repository is a 15,000-character number, and at that horizon
+    the run is still climbing AND has not yet collapsed — so the horizon is doing two kinds of
+    hiding at once (finding 23, 2026-09-24).** Four things follow, each of which has already
+    been wrong somewhere:
+    - **Quote the horizon with the number.** B5's winner is 20.36%/19.05% at 15,000 and
+      **4.40-7.00% at 200,000**, below the 16.56% bar it is celebrated for clearing. Both are
+      honest; neither is "the" VAL-4 figure without its length.
+    - **A tuned constant fitted at 15,000 is fitted to a transient.** Accuracy is still rising
+      there (+3.6 to +5.2 points over the preceding band) and peaks around 20,000-35,000.
+      Every value in `tune-b4-values`/`tune-b5-values` was chosen inside that window, D4's
+      re-tune is scheduled to use the same one, and none of them has been shown to survive
+      past it.
+    - **The collapse is a sprout/prune churn, and it is cost as well as accuracy.** 3.31 M
+      sprouts against 3.30 M prunes by 195,000 characters while occupied *falls* 62%;
+      8.6-11.6x slowdown per character. `DEFAULT_CONFIG` (no structural plasticity) is flat to
+      within 1% over the same length, so do not attribute the superlinearity to corpus size.
+      Budget long runs on the sprouting configuration accordingly — a 200,000-character trial
+      is ~50-85 minutes, not the ~15 a linear extrapolation from 15,000 predicts.
+    - **A "phasic" modulator injection in this harness is not phasic.** `modulatorTauTicks` of
+      1000 ticks at `ticksPerInput` = 2 is a 500-*character* decay constant, so a
+      once-per-character injection accumulates to ~500x it — measured at 499x/499x/502x, peak
+      level ~115 against an injection of at most 1.0. Findings 16 and 17's raw-reward rows were
+      measured in that regime; their numbers stand, but "burst" is the wrong word for what
+      produced them. Check the accumulation factor before designing any per-character
+      injection.
+    - **Method note that cost this item its own Q5 verdict:** a statistic taken over a whole
+      run assumes the run stays in one regime. The pre-registered "median dopamine level"
+      returned PHASIC because two thirds of the run was a dead network injecting `reward(0.0)`.
+      Both readings are recorded in docs/appendix/find-23.md.
+21. **`SynapseArena::remove` leaves the slot in `target_index`, and `insert` REUSES that slot
+    — so after any prune-then-resprout, `incoming(old_target)` yields a synapse that targets
+    someone else (finding 24, 2026-09-24). This is a live correctness bug, unfixed.**
+    - **It is invisible at the 15,000-character protocol because nothing prunes there** —
+      `prunedTotal` is 0, not small. Every figure in findings 7-22 was measured on the safe
+      side of it. Do not assume a result is affected; do not assume it is not.
+    - **Two consumers are provably wrong under churn.** `predictive.rs`'s reinforce/punish
+      writes permanence to other neurons' synapses (which is what makes finding 23's runaway
+      self-amplifying), and `homeostatic.rs`'s `rescale_one` multiply-rescales, so incoming
+      sums do not converge — measured at 2.1x target after 200,000 characters. Also read by
+      `scheduler.rs` (three sites), `newborn.rs`, and `disconnect_neuron`.
+    - **Suspected but NOT yet measured:** `snapshot.rs` rebuilds `target_index` from the
+      restored synapses, so a restored brain has a clean index and a continuously-run one does
+      not — which would make snapshot/restore non-bit-identical under churn, and RUN-3/RUN-9a
+      do not treat that as negotiable. Check this before designing the fix.
+    - **A read-time `target_neuron == target` filter does NOT fix it.** When the reused slot
+      takes the SAME target the id is in that index twice and every consumer double-counts it
+      — measured, not reasoned (second test below).
+    - **Two characterisation tests pin it**, asserting today's wrong behaviour so both tiers
+      stay green: `a_reused_slot_is_still_listed_under_its_previous_target_known_bug` and
+      `a_slot_reused_for_the_same_target_is_listed_twice_known_bug`. Flipping their marked
+      assertions is the fix's acceptance test. **Do not `#[ignore]` a known-failing test in
+      this repo** — `npm run test:slow` runs `--ignored`, so that turns the slow tier red.
+    - **The fix prompt is written**: `.claude/scratch/target-index-fix/prompt.md`.
 
 ## Infrastructure worth reusing before writing anything new
 

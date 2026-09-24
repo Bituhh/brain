@@ -1707,3 +1707,149 @@ Full data: [`docs/appendix/find-7.md`](appendix/find-7.md).
     and wrong, and the decoder is no better off. Anyone tempted to read a falling acetylcholine level
     as "the network is learning better" should read this row first — it is the internal classification
     rate, not the task.
+
+23. **The 15,000-character protocol was hiding two things: accuracy is still climbing there, and
+    every configuration collapses past it — measured 2026-09-24 [2026-09-24 22:05 +0100] by
+    `scripts/investigate-corpus-horizon.ts`, 18 trials, 3 conditions × 3 seeds × {200,000, 15,000}
+    characters. All 12 exactness controls pass. Raw data: see
+    [`docs/appendix/find-23.md`](appendix/find-23.md).**
+
+    **Why this was run at all.** Every VAL-4 figure in this repository is one number at 15,000
+    characters. That horizon was never argued for — it was inherited, and then hardened into a house
+    rule by C6's prompt ("MEASURE AT THE PROTOCOL'S HORIZON, 15,000 CHARACTERS, NOT AT A SHORTER
+    ONE") because finding 18 caught a 6,000-character result reversing at 15,000. The lesson was
+    applied downward and never upward. The corpus fixture holds 400,099 characters and the protocol
+    uses 3.75% of them.
+
+    **(a) 15,000 is genuinely too short — but only by about 5,000 characters.** On B5's winner,
+    accuracy over characters 12,500–15,000 beats 7,500–10,000 by **+5.21 / +3.84 / +3.60 points**,
+    every seed clearing the ≥ 1.0-point bar fixed in advance. The curve tops out around
+    20.5–21.6% at 20,000–35,000 characters. So the protocol stops measuring roughly one third of the
+    way up the learning curve, and every tuned constant in this repository was fitted there.
+
+    **(b) The much larger finding: B5's winner collapses, and the 15,000-character protocol
+    structurally cannot see it.** From ~35,000 characters the curve declines, and by 200,000 it
+    reads **6.10% / 4.40% / 7.00%** — about ten points *below* the 16.56% "always guess space" bar
+    that B5 was the first configuration in the project's history to clear. `DEFAULT_CONFIG` declines
+    too, more gently (17.60% → 14.35% mean). The trigram baseline moves the other way, 28.40% →
+    29.20%, so the gap widens from both ends.
+
+    **(c) The cause is a sprout/prune churn runaway, and it is finding 2's named risk arriving.**
+    By 195,000 characters seed 1 has sprouted **3,306,248** synapses and pruned **3,302,743** —
+    tracking to within 0.1% — while the occupied set *falls* 62% from its peak of 94,094 to 35,398.
+    The sweep is cycling, not growing. Cost follows: **8.57× / 8.76× / 11.62×** slower per character
+    between the first and last decile. `DEFAULT_CONFIG`, which configures no structural plasticity,
+    is flat to within 1% over the same 200,000 characters — so the superlinearity belongs to the
+    churn, not to corpus length. Finding 2 predicted exactly this shape ("neurogenesis, homeostatic
+    scaling and pruning are three feedback loops on the same quantity"); nobody had run long enough
+    to meet it.
+
+    **(d) The dopamine "burst" is not a burst — it is a DC level ~500× the injection, and this is
+    measured, not inferred.** `rewardSignal: "correctness"` injects `reward(hit ? 1.0 : 0.0)` once
+    per character into a channel whose `modulatorTauTicks` is 1000 ticks; at `ticksPerInput` = 2
+    that is 500 *characters*, so successive injections accumulate toward
+    `amount / (1 − e^(−2/1000))` ≈ 500× rather than decaying between rewards. Measured over the
+    early third, while reward was still being earned: **499× / 499× / 502×**, peak level ~115
+    against a per-character injection of at most 1.0. **This puts a caveat on finding 16 and on C3's
+    rows** (docs/findings.md items 16 and 17): "raw reward costs 0.87 points" and "−0.52 / −0.54"
+    were both measured with dopamine parked at a slowly-drifting level around 100, not with a phasic
+    burst. Those numbers are not wrong, but what they are numbers *about* is not what their wording
+    implies. With reward on, the collapse also arrives ~5× sooner (805,603 sprouts by character
+    30,000 against 62,920 without), and all three seeds reach exactly 0.00%.
+
+    **(e) An honest-reporting note on this item's own method.** Q5's pre-registered statistic — the
+    median dopamine level over the whole run — returned "PHASIC", which is an artifact: once the
+    network collapses the harness injects `reward(0.0)` every character, the channel decays to
+    nothing, and the median measures the dead tail rather than the mechanism. The failed statistic
+    is recorded in `docs/appendix/find-23.md` beside the post-hoc early-third reading rather than
+    being quietly replaced by it. The lesson for the next pre-registration: a statistic over a whole
+    run assumes the run stays in one regime, and on this task that assumption is now known to be
+    false.
+
+    **(f) Two smaller things, both reported without a verdict.** The "always guess space" bar is
+    itself length-dependent (16.56% at 15,000, 16.25% at 200,000), so it does not transfer between
+    horizons and neither does the trigram baseline. And the dendritic classification rate
+    (`correct / classifiedAsPredicted`) reads **92–94%** at 15,000 while decoded accuracy reads
+    ~20% — the two are decoupled until the collapse drags both down together. Finding 13 already
+    records them as different quantities; this is the first run to sample both over one trajectory,
+    and a 94%-against-20% split is worth its own look.
+
+    **What this does and does not settle.** It does not say VAL-4 is unreachable — it says the
+    protocol has been measuring a transient, and that a stability limit exists which no VAL-4 figure
+    in this repository has ever been in a position to observe. Whether the churn is fixable (the
+    `pruneFloor` / `sproutPermanence` / homeostatic-scaling interaction is the obvious suspect) is
+    untested. Nothing is adopted, no constant is changed, and the 15,000-character protocol is left
+    in place until a replacement is decided — changing it unilaterally would orphan every figure in
+    findings 7–22.
+
+24. **The churn in finding 23 is a *correctness bug*, not a tuning problem: `SynapseArena::remove`
+    leaves the pruned slot in `target_index`, and `insert` reuses that slot — so after any
+    prune-then-resprout, `incoming(old_target)` yields a synapse that targets someone else.
+    Found and reproduced 2026-09-24 [2026-09-24 22:55 +0100].**
+    Reproducers: `synapse.rs`'s `a_reused_slot_is_still_listed_under_its_previous_target_known_bug`
+    and `a_slot_reused_for_the_same_target_is_listed_twice_known_bug`. Both are
+    **characterisation tests**: they assert what the code does today, which is wrong, so the suite
+    stays green while the fix's blast radius is decided. Flipping their two marked assertions is
+    the fix's acceptance test.
+
+    **The mechanism.** `remove` ([`synapse.rs`]) sets `occupied[id] = false` and nothing else. The
+    `target_index` field's own doc comment says that is safe because `incoming` filters dead entries
+    via `is_occupied`, and calls the leftover entry "a real memory leak under heavy structural churn
+    ... accepted for now". **That reasoning holds only while the slot stays free.** `insert` scans
+    the source's block for the first free slot and reuses it, pushing the slot id onto the *new*
+    target's index while the *old* target's index still holds it. The slot is occupied again, so the
+    filter passes, and the stale entry is live. One prune-then-reinsert in the same block produces
+    one; finding 23's run performed **3.55 million prunes**.
+
+    **Why no one hit it before.** It requires a prune. At VAL-4's 15,000-character protocol
+    `prunedTotal` is **0** (finding 23) — not "few", zero — so no slot is ever freed, no slot is ever
+    reused, and no stale entry is ever live. Every figure in findings 7–22 was measured inside that
+    window. The first prunes appear around 20,000–25,000 characters and the runaway at ~100,000.
+
+    **Why it amplifies rather than just adding noise.** `predictive.rs`'s reinforce/punish
+    (Requirement 12.2/12.3) iterates `synapses.incoming(neuron)`, so a punish aimed at one neuron's
+    inputs writes permanence to synapses belonging to other neurons. Those decay to `prune_floor`,
+    get pruned, free more slots, which get reused, which creates more stale entries. The measured
+    shape matches: sprout and prune rates track each other to within 0.1% and rise together from
+    ~50/sweep to ~5,000/sweep, while the occupied set *falls* 62%.
+
+    **A second, independent consumer is also wrong.** `homeostatic.rs`'s `rescale_one` normalises
+    `incoming(target)` to `target_total_weight`, so a synapse present in several stale indices is
+    rescaled several times and no neuron's incoming sum converges. Measured directly at 200,000
+    characters: sum weight **10,276** against a target of 800 × 6.0 = **4,800** (2.1×), where at
+    15,000 characters it is 4,837 — on target, because nothing has been pruned yet. Other
+    `incoming()` consumers are `scheduler.rs` (three sites) and `newborn.rs`; `disconnect_neuron`
+    also removes by `incoming`, so on a growth-configured run it can delete another neuron's
+    synapses.
+
+    **A consequence that is reasoned, not yet measured, and should be checked before the fix is
+    designed:** `snapshot.rs` rebuilds `target_index` from the restored synapses alone, so a
+    restored brain has a *clean* index while a continuously-run one does not. Under churn that makes
+    snapshot/restore non-bit-identical, which RUN-3/RUN-9a treat as a hard requirement, not a
+    trade-off. `snapshot.rs`'s existing "target-index must be reconstructed on restore" assertion
+    tests that restore builds an index, not that it matches the running one's behaviour.
+
+    **What this does and does not change about finding 23.** The collapse, the knee at ~100,000, the
+    cost blow-up and the 499×/499×/502× dopamine accumulation are all still what was measured — the
+    exactness controls pass and the trajectory is real. What changes is the *interpretation*: the
+    collapse is not evidence that structural plasticity is mistuned, and the B4/B5 values are not
+    implicated by it. Until the fix lands, nothing about the churn should be read as a statement
+    about `pruneFloor`, `sproutPermanence` or the sweep's design.
+
+    **A second face of the same defect, measured not assumed.** When the reused slot takes the
+    SAME target, the id is present in that target's index **twice**, and every `incoming` consumer
+    double-counts it — so a read-time `target_neuron == target` filter, the cheap-looking repair,
+    is NOT sufficient on its own. Pinned by the second characterisation test above.
+
+    **What has NOT been done, deliberately.** No fix is applied. The obvious repair (drop the id
+    from `target_index[old_target]` in `remove`, since a read filter alone misses the case above)
+    changes behaviour for any run that prunes, which means **every golden raster and every measured
+    figure in findings 7–22 has to be re-derived or explicitly shown unaffected** — and the
+    15,000-character protocol, where nothing prunes, is exactly the set that should be provably
+    unaffected. That blast radius is a decision, not a detail, so the bug is pinned by
+    characterisation tests rather than a failing one, both test tiers are green, and no constant or
+    behaviour has changed. The fix prompt is `.claude/scratch/target-index-fix/prompt.md`.
+
+    **One process note worth keeping:** the reproducer was first left `#[ignore]`d, which turned the
+    SLOW tier red — `npm run test:slow` runs `--ignored` by design, so "ignore it to keep the build
+    green" is exactly backwards in this repository.
