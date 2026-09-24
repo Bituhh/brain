@@ -14,7 +14,18 @@ finished, and told the *next* item nothing.
 
 ## Where things stand
 
-- **Last completed:** PLAN.md **C8** (a feedforward/recurrent discriminant reaching the
+- **Last completed:** PLAN.md **C9** (acetylcholine's encoding/retrieval pair: recurrent
+  transmission down, recurrent plasticity up), 2026-09-24. **Both halves built and separately
+  switchable, and the result is the pair, not either half.** On VAL-4 the pair is a null
+  (−0.52 / +0.63 points), the **transmission half ALONE is a large negative** (−12.69 / −11.44,
+  every seed at 6.55–9.35% and below the 16.56% bar), the plasticity half alone is a null, and
+  **TP vs T1 is +12.17 / +12.07** — the plasticity half puts back what the transmission half
+  alone destroys, to within half a point. Nothing adopted. New core: `transmission.rs` (a per-`SegmentRole` table of C5
+  `LevelMap`s scaling `deliver`'s `signed_current`); the plasticity half needed **no new mechanism**,
+  being a second `ThreeFactorStdp` on C8's `Recurrent` chain. C8's deferred FFI surface landed here.
+  Read fact 19 before any later acetylcholine, pathway or transmission work.
+  docs/decisions.md decision 25, docs/findings.md finding 22, docs/prior-art.md §2.6 and §13.13 (j).
+- **Before that:** PLAN.md **C8** (a feedforward/recurrent discriminant reaching the
   plasticity path), 2026-09-24. **A design call, decided by the user, and the answer is neither
   option the prompt framed:** the discriminant reaches plasticity as a **routing** decision, not as
   a field. `segment::SegmentRole { Feedforward, Recurrent }` plus one resolver
@@ -25,7 +36,7 @@ finished, and told the *next* item nothing.
   Hasselmo & Schnell 1994 and Gil 1997 for the cholinergic selectivity itself
   (docs/prior-art.md §13.13(j), four new bib keys). docs/decisions.md decision 24,
   `.claude/scratch/neuromodulators/c8-design.md`, `tests/plasticity_locality.rs`.
-- **Before that:** PLAN.md **C7** (acetylcholine sets the LTP/LTD ratio),
+- **Earlier:** PLAN.md **C7** (acetylcholine sets the LTP/LTD ratio),
   2026-09-22. Result: **the mechanism works on the synapse, and on VAL-4 it is
   ruinous — a large, clean, pre-registered negative.** Both design calls went to
   the user, who asked what the brain does; decided on the primary papers (Seol
@@ -93,15 +104,14 @@ finished, and told the *next* item nothing.
   child became a plain number. The twelve external citations that moved were
   updated in the same pass (README, `plasticity/newborn.rs`,
   `check-requirement-coverage.mjs`, `canonicalBrain.ts` and its test).
-- **Next up:** **C9** (acetylcholine encoding mode), now unblocked by C8. Read fact 17 (C7's
-  amendment) and fact 18 (what C8 actually built — its prompt's assumption of a discriminant on the
-  rule interface is wrong) before starting. The C5 hook now has two users and both are unset
-  everywhere.
+- **Next up:** **C10** (small correctness issues from the A1-A3 verification) — nothing blocks it.
+  The C5 hook now has three users (C6, C7, C9's plasticity half) and all three are unset everywhere,
+  as is C9's transmission gate.
 - **A neuromodulator audit sits behind all of this:**
   `.claude/scratch/neuromodulators/investigation.md`, 2026-09-20. Six channels,
   claim by claim, against primary sources, with the code status of each. Read it
   before touching C2–C9 or F19–F21.
-- **Phase A is closed** (A1–A4). Phase B is closed (B1–B5). C1–C8 are closed.
+- **Phase A is closed** (A1–A4). Phase B is closed (B1–B5). C1–C9 are closed.
 
 ## The headline result so far
 
@@ -125,11 +135,14 @@ consolidation on a cadence during the stream) was measured with and without,
 5.5–7.0 points, dropping below the 16.56% bar. Consolidation is therefore not
 enabled in the shipped values. docs/findings.md finding 13 has the write-up.
 
-**Neither did C2, C3, C4 or C6.** All four are honest nulls on this number and
+**Neither did C2, C3, C4, C6 or C9.** All five are honest nulls on this number and
 none is adopted (C6's was pre-registered as the expected outcome). **C7 is the
 first large *negative*:** acetylcholine setting the LTP/LTD ratio collapses
 VAL-4 to 0.5–7% in every configuration measured (fact 17); not adopted, so the
-headline is unchanged. C4's is
+headline is unchanged. **C9 produced the second, and then undid it**:
+suppressing recurrent transmission from the same channel drops every seed to
+6.55-9.35%, and adding the *other* half of the same cholinergic account
+(enhanced recurrent LTP) puts it back at baseline (fact 19). C4's is
 the most load-bearing of them for planning: it
 closes the *last* structural excuse: growth's capacity is now reachable and
 still does not help, so a future growth idea cannot be justified by "it was
@@ -616,6 +629,40 @@ These are the ones that have actually caused wrong work, not a general list.
       `FEEDFORWARD_SEGMENT` here is the *proximal* slot — docs/prior-art.md §13.13(j).
     - **No FFI surface exists yet**, deliberately: it lands with C9.
 
+19. **A neuromodulator can now reach *transmission*, and the first thing that measured is that one
+    half of a two-half mechanism can be ruinous while the pair is harmless (PLAN.md C9).** Four
+    things a later item will otherwise rediscover.
+    - **The gate is invisible in `DendriticVote::Count` mode, which is the core's default.** The
+      scale multiplies `deliver`'s `signed_current`, and a dendritic delivery's contribution to its
+      segment is `DendriticVote::contribution` of that value — which in `Count` mode is `signum()`,
+      discarding magnitude entirely. A recurrent gate on a count-mode network moves every scale it is
+      asked to and changes *nothing*. VAL-4 is safe (B5 ships `voteReferenceWeight: 1`) and the
+      measurement script refuses to run without it, but `canonicalBrain.ts`-style fixtures and any
+      new network are not. `transmissionModulationStats()` is what separates "configured" from "did
+      something"; `tests/transmission_modulation.rs` pins the trap.
+    - **VAL-4 has ZERO feedforward synapses — not few, zero.** Measured: a recurrent-only gate and
+      one that maps both roles see the *same* 122–124 million deliveries per run, to the delivery.
+      Input arrives by `stimulateSdr` and the whole recurrent web sits on dendritic segments. So any
+      mechanism whose content is "feedforward and recurrent are treated differently" cannot be
+      contrasted on VAL-4 at all, only applied there. F10, F11 and F12 all want that contrast; they
+      need a network that has both pathways (`tests/transmission_modulation.rs` builds one).
+    - **Suppressing recurrent transmission alone locks the network out of learning, and it is the
+      same shape as C7's collapse from a different direction.** At a floor scale of ~0.46, correct
+      predictions fall 441k → 27k and unpredicted spikes rise 678k → 941k: segments stop reaching
+      threshold, so the network stops predicting, so expected uncertainty never falls (the level sits
+      at 1.99 all run against the baseline's 1.45 by the last third), so the suppression never lifts.
+      **The half dose is a null**, so this is a threshold somewhere in between rather than a dose
+      response. An open-loop control was *not* run here — what stands in for it is stronger in
+      practice: the same gate at the same gain does not collapse when the plasticity half accompanies
+      it.
+    - **A falling acetylcholine level is not "the network is learning better".** The plasticity half
+      alone more than doubles correct predictions (441k → 928k) and drives expected uncertainty down
+      faster than any other arm, *and* raises false positives sevenfold (32k → 222k), *and* moves
+      VAL-4 accuracy not at all. The level is derived from the LRN-8 classification rate, which is a
+      different quantity from the decoded task accuracy, and this is the row that shows the two
+      coming apart. Anyone reading a modulator trajectory as a proxy for task performance should read
+      docs/appendix/find-22.md §4 first.
+
 ## Infrastructure worth reusing before writing anything new
 
 - `scripts/investigate-c7-ach-ratio.ts` — C6's template extended to several arms
@@ -677,6 +724,13 @@ These are the ones that have actually caused wrong work, not a general list.
   faithful configuration also needs the cash-in moved off acetylcholine, which
   would change what every other mechanism there runs under. The reasoning is
   beside `plasticity` in the file.
+- **C9's encoding/retrieval pair is not in `canonicalBrain.ts`, on purpose**, and for one reason
+  more than C6's and C7's. The shared reason: the biologically faithful configuration needs the
+  three-factor cash-in off acetylcholine, which would change what every other mechanism on that
+  fixture runs under. The extra one: a chain installed for `SegmentRole::Recurrent` alone would have
+  that fixture's standing test assert a pathway difference its topology barely has. The reasoning is
+  beside `plasticity` in the file, and beside the options object as well, because that object is what
+  a reader scans to ask "is every mechanism on?".
 - **Neuromodulators after C5: three channels have a real producer
   (noradrenaline, acetylcholine, dopamine), serotonin has none deliberately
   (F19), and a level can now reach an STDP window, ratio and time constants

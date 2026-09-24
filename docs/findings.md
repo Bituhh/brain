@@ -1619,3 +1619,91 @@ Full data: [`docs/appendix/find-7.md`](appendix/find-7.md).
    the fix's own empirical result (also see item 7's follow-up) is that 13.22% itself does not
    survive the correction either, dropping to 3.23%.
 
+22. **Acetylcholine's encoding/retrieval pair on VAL-4: the transmission half alone is ruinous, the
+    plasticity half alone is a null, and the pair is a null that every seed survives — 2026-09-24,
+    PLAN.md C9.** The design and its evidence are docs/decisions.md decision 25 and
+    docs/prior-art.md §13.13 (j). Code: `crates/brain-core/src/transmission.rs`,
+    `Scheduler::with_plasticity_for_role` (C8's routing, first used here). Tests:
+    `crates/brain-core/tests/transmission_modulation.rs` (the mechanism, the spared pathway, and the
+    VAL-9 ablation), `crates/brain-core/tests/acetylcholine_encoding_mode.rs` (the plasticity half
+    and the pair), `crates/brain-core/tests/partitioning_reference.rs` (RUN-6),
+    `packages/brain/test/boundary.test.ts` (the FFI surface). Script:
+    `scripts/investigate-c9-encoding-mode.ts` (+ `.results.md`, the pre-registered battery).
+
+    **The mechanism, where the task can show it.** On a network built with both pathways, a raised
+    acetylcholine level stops a recurrent synapse completing a coincidence it completes unmodulated
+    while leaving what the feedforward synapse delivers **bit-identical**; at a high enough level the
+    recurrent pathway is silenced outright; at the map's own reference the run is bit-identical to no
+    gate at all. The plasticity half, over the same level range, moves the *opposite* way: causal LTP
+    at recurrent synapses rises while the feedforward synapse — running the unmapped default chain —
+    is untouched. **VAL-9:** with acetylcholine held constant the novel/familiar distinction is
+    exactly gone (identical scales on an A→B / A→C contingency switch), while the gate keeps firing
+    on every recurrent delivery — the distinction is ablated, not the mechanism.
+
+    **What VAL-4 cannot show, measured rather than asserted.** VAL-4 has **zero** feedforward
+    synapses: its input arrives by direct stimulation and its whole recurrent web sits on dendritic
+    segments, so a recurrent-only gate and a gate that maps both roles see the *same* 122–124 million
+    deliveries per run, to the delivery. "Sparing feedforward input" is not a small effect here, it is
+    not an effect at all, and the spared-pathway contrast is asserted in the Rust test above rather
+    than claimed from these numbers. A second limit carries over from item 20: on this corpus
+    expected uncertainty is a slow learning-progress *schedule*, so "encoding mode" here means "early
+    in the run".
+
+    **The VAL-4 battery — pre-registered, paired, ten seeds, 78 trials, ~10 minutes on 12 workers.**
+    Everything was written into the script header before a trial ran: C7's induction-only wiring (the
+    three-factor cash-in moved off acetylcholine to held serotonin, so no row mixes this mechanism
+    with a learning-rate change), C2's coupling at drive gain 1.0, the reference rule, the five arms,
+    the threshold (≥ 1 point, same sign on both seed sets) and the adoption rule. **All 28 exactness
+    controls pass**, including both maps live with acetylcholine held exactly at the reference being
+    bit-identical to its gain-0 twin. The measured reference is **1.45656**, against item 20's
+    **1.4566** by the same rule on the same base.
+
+    Full data: [`docs/appendix/find-22.md`](appendix/find-22.md).
+
+    | arm | seeds 1–5 | seeds 11–15 | vs OFF | verdict |
+    |---|---|---|---|---|
+    | OFF (channel driven, read by nothing) | 20.36% | 19.05% | — | the reference, and an exactness control |
+    | T1 — transmission only, gT 1.0 | 7.67% | 7.61% | **−12.69 / −11.44** | **effect, downward** |
+    | T05 — transmission only, gT 0.5 | 18.96% | 19.20% | −1.40 / +0.15 | no effect |
+    | P1 — plasticity only, gP 1.0 | 18.98% | 19.12% | −1.38 / +0.07 | no effect |
+    | TP — both halves | 19.84% | 19.68% | −0.52 / +0.63 | no effect |
+
+    **Nothing is adopted.** Adoption required the pair to be an effect *upward*; it is a null. B5's
+    pinned figures and `canonicalBrain.ts` are unchanged.
+
+    **The result worth keeping is comparison 4: TP vs T1 is +12.17 / +12.07 points.** The
+    transmission half on its own is the second large negative this channel has produced — every seed
+    lands at 6.55–9.35%, far below the 16.56% "always guess space" bar — and adding the plasticity
+    half restores the network to baseline. The two halves are therefore *not* independent
+    contributions to be summed: one of them is only survivable in the presence of the other, which is
+    the strongest thing this measurement says about Hasselmo's account and is only visible because the
+    halves were built as separate switches (decision 25).
+
+    **Why the transmission half alone collapses, from the instruments rather than from a story.**
+    Requirement 12's outcome totals (OBS-2) say it directly: correct predictions fall from 441,438 to
+    **27,154** and unpredicted spikes rise from 678,119 to 940,847. Suppressing recurrent transmission
+    to ~0.46 of full strength stops dendritic segments reaching threshold, so the network stops
+    predicting almost entirely. Acetylcholine then never comes down — the level sits at 1.99 / 1.99 /
+    1.96 by third of the run, *higher* in the middle third than the first, against OFF's 1.92 / 1.70 /
+    1.45 — which is item 20's lock-in shape again. **An open-loop control was not run**, so "the
+    high late level is a consequence rather than a cause" is not proven here the way C7 proved it;
+    what is proven is the stronger practical point, that the *same gate at the same gain* does not
+    collapse when the plasticity half accompanies it. The half dose (gT 0.5, floor scale ~0.73) is a
+    null, so this is a threshold effect somewhere between the two, not a smooth dose response.
+
+    **The pair's own trajectory is the interesting observation, and it is an observation, not a
+    claim.** TP starts where T1 starts (level 1.98) and ends at **1.40** — *below* the ungated
+    baseline's 1.45 on every seed — and the gate's own counters follow: it scales 99.2% of deliveries
+    in T1 and 57–60% in TP, because a level that has fallen below the map's reference clamps the scale
+    to 1.0. That is an encoding→retrieval transition emerging from the pair rather than being
+    scheduled: enhanced recurrent LTP lets the network learn despite the suppression, which lowers its
+    own expected uncertainty, which lifts the suppression. It is measured closed-loop, so the causal
+    direction is not established.
+
+    **And the dissociation that keeps it honest: a better prediction-failure rate bought no decoding
+    accuracy.** P1 more than doubles correct predictions (441,438 → 927,640) and drives its expected
+    uncertainty down faster than any other arm, and its VAL-4 accuracy is a null. The false-positive
+    count is where that goes: 32,111 → 221,769, a sevenfold rise. The network predicts far more, right
+    and wrong, and the decoder is no better off. Anyone tempted to read a falling acetylcholine level
+    as "the network is learning better" should read this row first — it is the internal classification
+    rate, not the task.

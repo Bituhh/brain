@@ -21,6 +21,8 @@ import {
   type PlasticityConfig,
   type StdpConfig,
   type StdpModulationConfig,
+  type RolePlasticityConfig,
+  type TransmissionModulationConfig,
   type LevelMapConfig,
   type ConsolidationConfig,
   type ConsolidationReportFfi,
@@ -42,6 +44,7 @@ import {
   type MetricsSnapshotFfi,
   type PredictionOutcomeTotalsFfi,
   type StdpModulationStatsFfi,
+  type TransmissionModulationStatsFfi,
   type StructuralStatsFfi,
 } from "@brain/napi";
 import { openSync, writeSync, fsyncSync, closeSync, renameSync, readFileSync } from "node:fs";
@@ -57,6 +60,8 @@ export type {
   PlasticityConfig,
   StdpConfig,
   StdpModulationConfig,
+  RolePlasticityConfig,
+  TransmissionModulationConfig,
   LevelMapConfig,
   ConsolidationConfig,
   HomeostaticScalingConfig,
@@ -97,6 +102,9 @@ export type MetricsSnapshot = MetricsSnapshotFfi;
 export type PredictionOutcomeTotals = PredictionOutcomeTotalsFfi;
 /** What the STDP modulation hook did over a run (PLAN.md C6) -- see `Simulation.stdpModulationStats()`. */
 export type StdpModulationStats = StdpModulationStatsFfi;
+
+/** What the transmission gate did over a run (PLAN.md C9) -- see `Simulation.transmissionModulationStats()`. */
+export type TransmissionModulationStats = TransmissionModulationStatsFfi;
 export type StructuralStats = StructuralStatsFfi;
 
 /** What one consolidation pass did (Requirement 12). */
@@ -215,6 +223,18 @@ export interface SimulationOptions {
    */
   silentSynapses?: SilentSynapsesConfig;
   /**
+   * PLAN.md C9: neuromodulatory gating of synaptic *transmission*, by
+   * pathway (Hasselmo & Schnell 1994 -- see `TransmissionModulationConfig`
+   * for the evidence and Gil et al. 1997's dissent). Omit -- the default --
+   * and `deliver` is bit-identical to before this existed.
+   *
+   * This is the transmission half of the cholinergic encoding/retrieval
+   * account; the plasticity half is `plasticity.recurrent`, and they switch
+   * independently on purpose, because the two mechanisms point in opposite
+   * directions and only measuring them apart says which carries an effect.
+   */
+  transmissionModulation?: TransmissionModulationConfig;
+  /**
    * PLAN.md C2: drives neuromodulator channels from the network's own
    * prediction error (LRN-5, LRN-8, docs/prior-art.md §2.5/docs/prior-art.md §2.7). `undefined` (default)
    * leaves every channel exactly as before C2 -- only ever written by an
@@ -312,6 +332,7 @@ function hashConfig(lif: LifConfig, options: SimulationOptions): bigint {
       // Only present when set, so every config hashed before this option
       // existed still hashes the same and its snapshots still restore.
       ...(options.silentSynapses !== undefined && { silentSynapses: options.silentSynapses }),
+      ...(options.transmissionModulation !== undefined && { transmissionModulation: options.transmissionModulation }),
       ...(options.predictionErrorCoupling !== undefined && { predictionErrorCoupling: options.predictionErrorCoupling }),
       ...(options.rewardPredictionError !== undefined && { rewardPredictionError: options.rewardPredictionError }),
     },
@@ -526,6 +547,7 @@ export class Simulation {
         options.growth ?? null,
         options.newbornMaturation ?? null,
         options.silentSynapses ?? null,
+        options.transmissionModulation ?? null,
         options.predictionErrorCoupling ?? null,
         options.rewardPredictionError ?? null,
         options.threadCount ?? null,
@@ -576,6 +598,7 @@ export class Simulation {
       options.growth ?? null,
       options.newbornMaturation ?? null,
       options.silentSynapses ?? null,
+      options.transmissionModulation ?? null,
       options.predictionErrorCoupling ?? null,
       options.rewardPredictionError ?? null,
     );
@@ -978,6 +1001,27 @@ export class Simulation {
    */
   stdpModulationStats(): StdpModulationStats | null {
     return this.#native.stdpModulationStats();
+  }
+
+  /**
+   * What `transmissionModulation` actually did since construction, merged
+   * over every partition (PLAN.md C9, OBS-2): how many deliveries reached a
+   * gated pathway, how many were scaled by something other than exactly 1,
+   * how many were silenced outright, and the extremes of the scale and of
+   * the level each gated delivery was *read at*.
+   *
+   * `null` unless `transmissionModulation` was configured -- which is a
+   * different statement from a gate that never moved a scale, and telling
+   * those apart is what this exists for. One trap it is specifically built
+   * to catch: on a *dendritic* delivery the scale reaches the segment
+   * through `segments.voteReferenceWeight`; without that field the vote is
+   * a bare `signum()` and a recurrent gate changes nothing at all however
+   * hard it scales, while every counter here still moves.
+   *
+   * Not part of snapshot state: restarts from zero after a `restore`.
+   */
+  transmissionModulationStats(): TransmissionModulationStats | null {
+    return this.#native.transmissionModulationStats();
   }
 
   /**

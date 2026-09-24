@@ -127,6 +127,20 @@ This section is the evidence base. Each finding maps to requirements in §3–§
   as a connectivity pattern, not a structural primitive.
 - → The core must be **modality-agnostic** (invariant 8). A camera, a microphone and a keyboard
   differ only in their encoder; nothing downstream may know which one it is talking to.
+- **Feedforward and recurrent input are not the same input, and a neuromodulator can address them
+  separately.** Within the repeated unit, what arrives from outside it and what arrives from its own
+  lateral web are distinct pathways, distinguishable by where on the dendritic tree they land — the
+  anatomical basis for §13.13(j), and for treating "which compartment" as a legitimate routing
+  input. Acetylcholine uses exactly that distinction: high tone suppresses recurrent transmission and
+  enhances recurrent LTP, so the unit is driven by its input and learns on its lateral connections
+  (encoding); low tone restores recurrent drive (retrieval). Every configuration in this repository
+  before PLAN.md C9 ran both modes at once, always.
+- → **What exists here** (PLAN.md C8 then C9, `docs/decisions.md` decisions 24 and 25):
+  `segment::SegmentRole { Feedforward, Recurrent }` is the one place the distinction is decided;
+  `Scheduler::with_plasticity_for_role` routes plasticity by it and
+  `Scheduler::with_transmission_modulation` gates transmission by it. Both halves are off in every
+  shipped configuration — see §13.13(j) for what VAL-4 measured and `docs/findings.md` finding 22 for
+  why nothing was adopted.
 
 ### 2.7 Prediction is the core operation
 
@@ -686,6 +700,30 @@ design call was put to the user); C9, F10 and F11 all draw on it.
   *neighbouring* distal inputs summate. That is a dependence on other synapses' activity, which README
   invariant 1 forbids. The location-dependence is taken; the cooperativity is not, and this is a
   deliberate divergence from the paper rather than an omission.
+- **Both halves are now built, and this is what acetylcholine does here** (PLAN.md C9,
+  `docs/decisions.md` decision 25, `docs/findings.md` finding 22). **Transmission:**
+  `transmission.rs`'s per-`SegmentRole` table of C5 `LevelMap`s scales what a recurrent delivery
+  carries — its soma current or its dendritic vote — and touches neither `weight` nor `permanence`,
+  so it models presynaptic inhibition of release rather than a weakened synapse. **Plasticity:** a
+  second `ThreeFactorStdp`, carrying an acetylcholine-mapped `StdpModulation` on `a_plus`, installed
+  on the `Recurrent` chain. The two point in opposite directions over the same broadcast level, as
+  Hasselmo's account requires, and they switch **independently** — deliberately, because the
+  single-mechanism rows are the only thing that can say whether the pair behaves as the account
+  describes or whether one half carries the result. A scale may reach zero (complete presynaptic
+  silencing is the strongest effect reported) but never go below it: sign belongs to the neuron
+  (NEU-4), so this is where C9 declines the licence C7's amplitude map was given.
+- **What VAL-4 could not show, and why that is the task's property and not the mechanism's.** On
+  VAL-4 the input arrives by direct stimulation, not through synapses, and the whole recurrent web
+  sits on dendritic segments — so there are essentially no feedforward *synapses* to spare and
+  "sparing feedforward input" is close to vacuous there. Measured: the feedforward share of all
+  synaptic deliveries is reported in `scripts/investigate-c9-encoding-mode.results.md`. The
+  spared-pathway contrast is therefore asserted on a network built with both pathways
+  (`crates/brain-core/tests/transmission_modulation.rs`) rather than claimed from VAL-4's numbers.
+  A second limit, from PLAN.md C7 and HANDOFF fact 17: on this corpus acetylcholine's expected
+  uncertainty is a slow *schedule* ("how early in the run") rather than a per-input novelty signal,
+  so encoding mode here means "early" and retrieval means "late". The encoding/retrieval
+  distinction as a response to *novelty* needs a contingency switch, which
+  `crates/brain-core/tests/transmission_modulation.rs` builds and VAL-4 does not contain.
 - **Where the model diverges from the anatomy, stated plainly.** In CA1 the *spared feedforward*
   (entorhinal) input arrives **distally**, on the apical tuft, while the suppressed recurrent-side
   input arrives more proximally. In this engine `segment::FEEDFORWARD_SEGMENT` is the **proximal,

@@ -283,8 +283,32 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       // biology describes, which would change what every other mechanism here
       // runs under. Exercised where it is proven:
       // `tests/prediction_error_coupling.rs`'s A->B learning scenario.
+      //
+      // PLAN.md C9 (docs/decisions.md decision 25): acetylcholine CAN also
+      // run this rule's recurrent half on a *separate* chain that enhances
+      // causal LTP (`recurrent`, below's counterpart to
+      // `transmissionModulation` in the options object), and it is
+      // deliberately NOT set here either -- for the same reason as C7's
+      // map, and one more. The same reason: it needs this rule's cash-in
+      // off acetylcholine (`modulatorChannel` above) to be the
+      // configuration the biology describes, which would change what every
+      // other mechanism here runs under. The one more: a rule chain
+      // installed for `SegmentRole::Recurrent` alone would make this
+      // fixture's standing test assert a difference between two pathways
+      // that this fixture's own topology barely has -- and the VAL-4
+      // measurement (docs/findings.md finding 22) found the pair to be a
+      // null, so there is nothing measured to adopt. The halves are
+      // exercised where each is proven:
+      // `tests/acetylcholine_encoding_mode.rs` (plasticity) and
+      // `tests/transmission_modulation.rs` (transmission, and the VAL-9
+      // ablation of the novel/familiar distinction).
       modulatorTauTicks: [1000, 1000, 1000, 1000],
     },
+    // PLAN.md C9's transmission half (`transmissionModulation`) is
+    // deliberately absent for the reasons beside `plasticity` above --
+    // stated here too because this object is what a reader scans to ask
+    // "is every mechanism on?", and the answer for this one is "no, by
+    // decision": docs/decisions.md decision 25, docs/findings.md finding 22.
     // LRN-6. Target chosen from this column's own wiring: ~p0*WIDTH ≈ 15
     // incoming synapses per neuron at initialPermanence 0.4 (which also
     // seeds initial weight -- docs/decisions.md's weight/permanence split,

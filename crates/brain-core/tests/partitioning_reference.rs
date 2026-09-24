@@ -36,14 +36,15 @@ use brain_core::plasticity::predictive::{PredictiveLearningParams, SegmentLearni
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
 use brain_core::plasticity::homeostatic::HomeostaticScaling;
-use brain_core::plasticity::stdp::StdpParams;
+use brain_core::plasticity::stdp::{LevelMap, StdpModulation, StdpParams};
 use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
 use brain_core::plasticity::{Modulators, RuleChain, ACETYLCHOLINE, DOPAMINE, NORADRENALINE, NUM_MODULATORS};
 use brain_core::probe::SpikeRaster;
 use brain_core::reach::SproutReach;
 use brain_core::scheduler::Scheduler;
-use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig, FEEDFORWARD_SEGMENT};
+use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig, SegmentRole, FEEDFORWARD_SEGMENT};
+use brain_core::transmission::TransmissionModulation;
 use brain_core::synapse::SynapseArena;
 use std::ops::Range;
 
@@ -298,6 +299,171 @@ fn weighted_vote_partitioning_matches_the_unpartitioned_reference() {
     assert_eq!(plain.spiked_per_tick, two_threads.spiked_per_tick, "real threading must not change weighted-vote results either");
     assert_identical_arenas(&plain.neurons, &two_threads.neurons, "weighted-vote 2-thread vs plain");
     assert_identical_synapses(&plain.synapses, &two_threads.synapses, TOTAL_NEURONS, "weighted-vote 2-thread vs plain");
+}
+
+// --- PLAN.md C9: both halves, across partitions (RUN-6) -------------------
+//
+// The level a gate reads is a BROADCAST scalar and the role it routes on is
+// LOCAL ANATOMY, so every partition must gate identically with no merge step
+// of its own. That is the claim; these are the tests that prove it rather
+// than assume it. Both halves are exercised in one run -- a transmission map
+// on the recurrent role, and a second, acetylcholine-mapped rule chain on
+// the same role -- because a partition boundary is exactly where two
+// independently-configured mechanisms could diverge.
+
+/// `DOPAMINE` is what the shared `plasticity()` chain routes on and what
+/// every tick injects, so C9's maps below read `ACETYLCHOLINE`, which this
+/// file's other tests leave untouched.
+fn c9_transmission() -> TransmissionModulation {
+    TransmissionModulation::new()
+        .with_role(SegmentRole::Recurrent, LevelMap::new(ACETYLCHOLINE, 0.0, -0.4, 0.1, 1.0))
+        .expect("a valid suppressing map")
+}
+
+fn c9_recurrent_chain() -> RuleChain {
+    let stdp = StdpParams { a_plus: 0.02, a_minus: 0.02, tau_plus: 20.0, tau_minus: 20.0, window_ticks: 40 };
+    let modulation = StdpModulation::new(Some(LevelMap::new(ACETYLCHOLINE, 0.0, 0.5, 0.5, 4.0)), None, None, None, None).expect("a valid amplitude map");
+    RuleChain::new(vec![Box::new(ThreeFactorStdp::new(ThreeFactorParams::new(stdp, 500.0, 1.0, DOPAMINE).with_stdp_modulation(modulation)))])
+}
+
+/// This file's standard run with both C9 halves configured, at whatever
+/// partitioning `executor`/`partition_count` ask for. `partition_count == 0`
+/// means the plain single `Scheduler` reference path.
+fn run_c9(seed: u64, partition_count: usize, executor: ExecutorChoice) -> RunOutcome {
+    let segments = segments_weighted(); // count mode would discard the transmission scale entirely
+    let (mut neurons, mut synapses, columns, _a, _b) = build_network(seed, segments);
+    let params = lif_params();
+    let build = |range: Range<u32>| {
+        Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
+            .with_inhibition(FixedNeighbourhoods::with_base(range.start, COLUMN_SIZE.min(range.end - range.start), 2))
+            .with_segments(segments)
+            .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
+            .with_plasticity_for_role(SegmentRole::Recurrent, c9_recurrent_chain())
+            .with_transmission_modulation(c9_transmission())
+    };
+
+    let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
+    let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
+    if partition_count == 0 {
+        let mut sched = build(0..TOTAL_NEURONS);
+        for tick in 0..TICKS {
+            sched.inject_modulator(DOPAMINE, 1.0);
+            sched.inject_modulator(ACETYLCHOLINE, 0.3);
+            let (neuron, current) = stimulate_tick(tick);
+            sched.stimulate(&neurons, neuron, current);
+            let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+            let mut spiked = report.spiked;
+            spiked.sort_unstable();
+            let mut vetoed = report.vetoed;
+            vetoed.sort_unstable();
+            spiked_per_tick.push(spiked);
+            vetoed_per_tick.push(vetoed);
+        }
+        return RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick };
+    }
+
+    let plan = if partition_count == 1 { PartitionPlan::single(TOTAL_NEURONS) } else { PartitionPlan::contiguous(&columns, partition_count) };
+    let schedulers: Vec<Scheduler> = (0..plan.partition_count()).map(|p| build(plan.range_of(p))).collect();
+    let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS);
+    runtime = match executor {
+        ExecutorChoice::Sequential => runtime.with_thread_count(1),
+        ExecutorChoice::Rayon(n) => runtime.with_thread_count(n),
+        ExecutorChoice::Pinned(n) => runtime.with_pinned_thread_count(n),
+    };
+    for tick in 0..TICKS {
+        runtime.inject_modulator(DOPAMINE, 1.0);
+        runtime.inject_modulator(ACETYLCHOLINE, 0.3);
+        let (neuron, current) = stimulate_tick(tick);
+        runtime.stimulate(&neurons, neuron, current);
+        let reports = runtime.step::<Lif>(&mut neurons, &mut synapses, &params);
+        let mut spiked: Vec<u32> = reports.iter().flat_map(|r| r.spiked.iter().copied()).collect();
+        spiked.sort_unstable();
+        let mut vetoed: Vec<u32> = reports.iter().flat_map(|r| r.vetoed.iter().copied()).collect();
+        vetoed.sort_unstable();
+        spiked_per_tick.push(spiked);
+        vetoed_per_tick.push(vetoed);
+    }
+    RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick }
+}
+
+/// RUN-6 for PLAN.md C9: both halves configured, results bit-identical
+/// across one partition, two partitions and two real threads. The first
+/// assertion is what keeps this honest -- it proves the gated run actually
+/// *differs* from the ungated one, so a change that silently stopped the
+/// gate firing would fail here rather than make three identical runs agree.
+///
+/// **What this test can and cannot see, stated rather than glossed.** The
+/// difference it detects is the *plasticity* half's: this file's network
+/// never completes a dendritic coincidence (`stimulate_tick` drives one
+/// neuron every third tick against a threshold of 2), so gating dendritic
+/// transmission here has no route to a spike or a final-state field. The
+/// transmission half's cross-partition claim is carried by the counters
+/// instead -- `the_transmission_gates_counters_are_the_same_at_any_partition_count`
+/// below shows every partition applied the identical scales -- and that a
+/// scale changes behaviour at all is `tests/transmission_modulation.rs`'s.
+/// The two together are the property; neither alone is.
+#[test]
+fn acetylcholine_gating_is_bit_identical_across_partitions_and_threads() {
+    let seed = 7;
+    let ungated = run_plain_scheduler_with_segments(seed, segments_weighted());
+    let plain = run_c9(seed, 0, ExecutorChoice::Sequential);
+    assert_ne!(
+        plain.synapses.weight, ungated.synapses.weight,
+        "precondition: with both C9 halves on, the run must differ from the ungated one -- otherwise this test compares nothing"
+    );
+
+
+    for (count, executor, label) in [
+        (1usize, ExecutorChoice::Sequential, "1 partition"),
+        (2, ExecutorChoice::Sequential, "2 partitions, sequential"),
+        (2, ExecutorChoice::Rayon(2), "2 partitions, 2 rayon threads"),
+    ] {
+        let run = run_c9(seed, count, executor);
+        assert_eq!(plain.spiked_per_tick, run.spiked_per_tick, "{label}: spiked sets must match every tick");
+        assert_eq!(plain.vetoed_per_tick, run.vetoed_per_tick, "{label}: vetoed sets must match every tick");
+        assert_identical_arenas(&plain.neurons, &run.neurons, label);
+        assert_identical_synapses(&plain.synapses, &run.synapses, TOTAL_NEURONS, label);
+    }
+}
+
+/// And the gate's own observational counters agree across partitionings too
+/// -- every partition gates the deliveries it owns, and the merge is
+/// order-independent, so the network-wide totals are a partition-count
+/// invariant rather than an approximation.
+#[test]
+fn the_transmission_gates_counters_are_the_same_at_any_partition_count() {
+    let seed = 7;
+    let segments = segments_weighted();
+    let totals = |partition_count: usize| {
+        let (mut neurons, mut synapses, columns, _a, _b) = build_network(seed, segments);
+        let params = lif_params();
+        let plan = if partition_count == 1 { PartitionPlan::single(TOTAL_NEURONS) } else { PartitionPlan::contiguous(&columns, partition_count) };
+        let schedulers: Vec<Scheduler> = (0..plan.partition_count())
+            .map(|p| {
+                let range = plan.range_of(p);
+                Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)
+                    .with_inhibition(FixedNeighbourhoods::with_base(range.start, COLUMN_SIZE.min(range.end - range.start), 2))
+                    .with_segments(segments)
+                    .with_plasticity(plasticity(), [500.0; NUM_MODULATORS])
+                    .with_transmission_modulation(c9_transmission())
+            })
+            .collect();
+        let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS).with_thread_count(1);
+        for tick in 0..TICKS {
+            runtime.inject_modulator(DOPAMINE, 1.0);
+            runtime.inject_modulator(ACETYLCHOLINE, 0.3);
+            let (neuron, current) = stimulate_tick(tick);
+            runtime.stimulate(&neurons, neuron, current);
+            runtime.step::<Lif>(&mut neurons, &mut synapses, &params);
+        }
+        let stats = runtime.transmission_modulation_stats().expect("a gate is configured");
+        (stats.events, stats.scaled, stats.silenced, stats.min_scale.to_bits(), stats.max_scale.to_bits())
+    };
+
+    let one = totals(1);
+    assert!(one.0 > 0, "precondition: deliveries must actually have gone through the gate");
+    assert!(one.1 > 0, "...and the gate must actually have scaled some of them");
+    assert_eq!(one, totals(2), "the merged counters must not depend on how the network was split");
 }
 
 /// Requirement 8, Acceptance Criterion 1: the same seed/topology/input run

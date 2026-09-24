@@ -26,8 +26,9 @@ use brain_core::plasticity::RuleChain;
 use brain_core::probe::{Probe, ProbeOptions, SpikeRaster};
 use brain_core::reach::SproutReach;
 use brain_core::scheduler::{Scheduler, SilentSynapseParams};
-use brain_core::segment::{BinaryCoincidenceParams, DendriticVote, SegmentConfig, FEEDFORWARD_SEGMENT};
+use brain_core::segment::{BinaryCoincidenceParams, DendriticVote, SegmentConfig, SegmentRole, FEEDFORWARD_SEGMENT};
 use brain_core::synapse::{SynapseArena, NOT_SILENT};
+use brain_core::transmission::{TransmissionModulation, TransmissionModulationError};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -915,6 +916,98 @@ impl StdpModulationConfig {
     }
 }
 
+/// A **second, complete rule instance** for synapses landing on a dendritic
+/// segment -- `SegmentRole::Recurrent` (PLAN.md C8/C9, docs/decisions.md
+/// decision 24). Omit it (the default) and one chain runs everywhere, exactly
+/// as before this existed.
+///
+/// **Why a whole rule and not a patch.** The core expresses a
+/// compartment-dependent rule as *two configured rule instances*, never as one
+/// rule that inspects where it sits -- that is what keeps a `PlasticityRule`'s
+/// inputs as narrow as README invariant 1 requires. Sjostrom & Hausser (2006)
+/// is the evidence for that shape: the same pre/post pairing produces LTP at a
+/// proximal synapse and LTD at a distal one, so what differs by compartment is
+/// the rule, including its sign, not one number a single rule reads.
+///
+/// So every field is given in full. To express "the default rule, but with an
+/// acetylcholine map on the recurrent half" -- PLAN.md C9's plasticity half --
+/// spread the outer `plasticity` object and override `stdpModulation`.
+///
+/// **A role is not a property of `targetSegment` alone**: with no `segments`
+/// configured every synapse drives the soma and is therefore feedforward
+/// whatever value it was stored with, so this object is inert on a network
+/// without dendritic segments.
+#[napi(object)]
+pub struct RolePlasticityConfig {
+    pub stdp: StdpConfig,
+    pub tau_eligibility_ticks: f64,
+    pub learning_rate: f64,
+    pub modulator_channel: u32,
+    pub gain_modulator_channel: Option<u32>,
+    pub stdp_modulation: Option<StdpModulationConfig>,
+    pub observe_stdp_modulation: Option<bool>,
+}
+
+/// Neuromodulatory gating of synaptic *transmission*, by pathway (PLAN.md C9,
+/// `transmission.rs`). Each entry is a `LevelMapConfig` whose scale multiplies
+/// the magnitude a delivery on that pathway carries -- its soma current, or
+/// its dendritic-segment vote. Omit a pathway to leave it **unmodulated**,
+/// which is how Hasselmo's "spares feedforward input" is expressed: the
+/// absence of a gate, not a gate whose scale happens to be 1.
+///
+/// Omit the whole object (the default) and `deliver` is bit-identical to
+/// before this existed -- it does not even read the neuromodulator field on
+/// this account.
+///
+/// `min` must be `>= 0`: a negative scale would invert the *sign* of the
+/// current a synapse transmits, and sign lives on the presynaptic neuron
+/// (NEU-4, README invariant 3), not on a broadcast scalar. `min: 0` is
+/// allowed -- complete presynaptic silencing is the strongest reported
+/// cholinergic effect.
+///
+/// **This is transmission, not learning.** Nothing here touches `weight` or
+/// `permanence`; the plasticity half of the same cholinergic account is
+/// `plasticity.recurrent`, and the two switch independently on purpose.
+///
+/// **One trap worth checking before reading a null.** On a *dendritic*
+/// delivery the scale reaches the segment through `segments.voteReferenceWeight`
+/// (PLAN.md B5). Without that field the vote is a bare `signum()`, which
+/// discards magnitude, and a recurrent gate is invisible however hard it
+/// scales.
+#[napi(object)]
+pub struct TransmissionModulationConfig {
+    /// Gates synapses landing on an ordinary dendritic segment -- a
+    /// population's recurrent web and lateral voting.
+    pub recurrent: Option<LevelMapConfig>,
+    /// Gates synapses that drive the soma directly. Omitted in the
+    /// cholinergic model this exists for; present because Gil, Connors &
+    /// Amitai (1997) found muscarinic suppression of *both* pathways in
+    /// neocortex, and that reading must be configurable too.
+    pub feedforward: Option<LevelMapConfig>,
+}
+
+impl TransmissionModulationConfig {
+    fn resolve(&self) -> Result<TransmissionModulation> {
+        let mut out = TransmissionModulation::new();
+        for (role, map) in [(SegmentRole::Recurrent, &self.recurrent), (SegmentRole::Feedforward, &self.feedforward)] {
+            if let Some(cfg) = map {
+                out = out.with_role(role, cfg.resolve()).map_err(|e| {
+                    let why = match e {
+                        TransmissionModulationError::ChannelOutOfRange => "a channel is not below the number of neuromodulator channels",
+                        TransmissionModulationError::NotFinite => "a reference, gain, min or max is NaN or infinite",
+                        TransmissionModulationError::EmptyRange => "a map's min exceeds its max",
+                        TransmissionModulationError::NegativeScale => {
+                            "a map's min is negative, so the scale could invert the sign of the transmitted current (NEU-4: sign belongs to the neuron)"
+                        }
+                    };
+                    Error::from_reason(format!("transmissionModulation: {why}"))
+                })?;
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// Local plasticity (LRN-1 to LRN-5, Requirement 8): STDP plus eligibility
 /// traces plus the three-factor modulated update. **Phase 5 finding**: no
 /// version of this configuration crossed the FFI before this phase --
@@ -956,6 +1049,11 @@ pub struct PlasticityConfig {
     /// the same `DOPAMINE`/`ACETYLCHOLINE`/`NORADRENALINE`/`SEROTONIN`
     /// order `modulatorLevels` returns -- must have exactly four entries.
     pub modulator_tau_ticks: Vec<f64>,
+    /// PLAN.md C9: a separate rule instance for synapses on a dendritic
+    /// segment (`SegmentRole::Recurrent`). Omit -- the default -- and the
+    /// fields above govern every synapse, bit-identically to before this
+    /// existed. See `RolePlasticityConfig`.
+    pub recurrent: Option<RolePlasticityConfig>,
 }
 
 /// `PlasticityConfig` resolved into brain-core's own parameter types, once,
@@ -964,7 +1062,57 @@ pub struct PlasticityConfig {
 #[derive(Clone, Copy)]
 struct ResolvedPlasticity {
     rule_params: ThreeFactorParams,
+    /// PLAN.md C9: the recurrent chain's own rule, when `recurrent` is set.
+    /// `None` leaves one chain running for every role.
+    recurrent_rule_params: Option<ThreeFactorParams>,
     modulator_tau_ticks: [f32; brain_core::plasticity::NUM_MODULATORS],
+}
+
+/// The per-rule half of `PlasticityConfig`, shared with
+/// `RolePlasticityConfig` so the default chain and a role override cannot
+/// drift apart in what they validate or how they convert -- the FFI-side
+/// duplication HANDOFF fact 14(a) is about.
+#[allow(clippy::too_many_arguments)]
+fn resolve_rule_params(
+    stdp: &StdpConfig,
+    tau_eligibility_ticks: f64,
+    learning_rate: f64,
+    modulator_channel: u32,
+    gain_modulator_channel: Option<u32>,
+    stdp_modulation: Option<&StdpModulationConfig>,
+    observe_stdp_modulation: Option<bool>,
+    what: &str,
+) -> Result<ThreeFactorParams> {
+    let stdp = StdpParams {
+        a_plus: stdp.a_plus as f32,
+        a_minus: stdp.a_minus as f32,
+        tau_plus: stdp.tau_plus as f32,
+        tau_minus: stdp.tau_minus as f32,
+        window_ticks: stdp.window_ticks,
+    };
+    if modulator_channel as usize >= brain_core::plasticity::NUM_MODULATORS {
+        return Err(Error::from_reason(format!(
+            "{what}modulatorChannel must be below {}, got {modulator_channel}",
+            brain_core::plasticity::NUM_MODULATORS
+        )));
+    }
+    let mut rule_params = ThreeFactorParams::new(stdp, tau_eligibility_ticks as f32, learning_rate as f32, modulator_channel as usize);
+    if let Some(gain) = gain_modulator_channel {
+        if gain as usize >= brain_core::plasticity::NUM_MODULATORS {
+            return Err(Error::from_reason(format!(
+                "{what}gainModulatorChannel must be below {}, got {gain}",
+                brain_core::plasticity::NUM_MODULATORS
+            )));
+        }
+        rule_params = rule_params.with_gain_channel(gain as usize);
+    }
+    if let Some(modulation) = stdp_modulation {
+        rule_params = rule_params.with_stdp_modulation(modulation.resolve()?);
+    }
+    if observe_stdp_modulation == Some(true) {
+        rule_params = rule_params.with_stdp_modulation_observed();
+    }
+    Ok(rule_params)
 }
 
 impl PlasticityConfig {
@@ -980,30 +1128,30 @@ impl PlasticityConfig {
         for (dst, &src) in modulator_tau_ticks.iter_mut().zip(self.modulator_tau_ticks.iter()) {
             *dst = src as f32;
         }
-        let stdp = StdpParams {
-            a_plus: self.stdp.a_plus as f32,
-            a_minus: self.stdp.a_minus as f32,
-            tau_plus: self.stdp.tau_plus as f32,
-            tau_minus: self.stdp.tau_minus as f32,
-            window_ticks: self.stdp.window_ticks,
+        let rule_params = resolve_rule_params(
+            &self.stdp,
+            self.tau_eligibility_ticks,
+            self.learning_rate,
+            self.modulator_channel,
+            self.gain_modulator_channel,
+            self.stdp_modulation.as_ref(),
+            self.observe_stdp_modulation,
+            "",
+        )?;
+        let recurrent_rule_params = match &self.recurrent {
+            None => None,
+            Some(r) => Some(resolve_rule_params(
+                &r.stdp,
+                r.tau_eligibility_ticks,
+                r.learning_rate,
+                r.modulator_channel,
+                r.gain_modulator_channel,
+                r.stdp_modulation.as_ref(),
+                r.observe_stdp_modulation,
+                "recurrent.",
+            )?),
         };
-        let mut rule_params = ThreeFactorParams::new(stdp, self.tau_eligibility_ticks as f32, self.learning_rate as f32, self.modulator_channel as usize);
-        if let Some(gain) = self.gain_modulator_channel {
-            if gain as usize >= brain_core::plasticity::NUM_MODULATORS {
-                return Err(napi::Error::from_reason(format!(
-                    "gainModulatorChannel must be below {}, got {gain}",
-                    brain_core::plasticity::NUM_MODULATORS
-                )));
-            }
-            rule_params = rule_params.with_gain_channel(gain as usize);
-        }
-        if let Some(modulation) = &self.stdp_modulation {
-            rule_params = rule_params.with_stdp_modulation(modulation.resolve()?);
-        }
-        if self.observe_stdp_modulation == Some(true) {
-            rule_params = rule_params.with_stdp_modulation_observed();
-        }
-        Ok(ResolvedPlasticity { rule_params, modulator_tau_ticks })
+        Ok(ResolvedPlasticity { rule_params, recurrent_rule_params, modulator_tau_ticks })
     }
 }
 
@@ -1131,6 +1279,33 @@ pub struct StdpModulationStatsFfi {
     /// `reference` should be set to: the field is driven after a tick's
     /// plasticity has run, so a level sampled between ticks is not what any
     /// pairing saw.
+    pub min_level: Vec<f64>,
+    pub max_level: Vec<f64>,
+}
+
+/// What `transmissionModulation` actually did (PLAN.md C9, OBS-2), merged
+/// over every partition. Counts are `f64` for the reason
+/// `PredictionOutcomeTotalsFfi`'s are; the extremes are NaN when nothing was
+/// observed (and, for a level, on a channel no map reads). Not snapshot
+/// state: restarts from zero after a `restore`.
+///
+/// "The gate was configured" and "transmission actually changed" are
+/// different claims, and on a dendritic pathway in `Count` vote mode even a
+/// moved scale changes nothing -- see `TransmissionModulationConfig`.
+#[napi(object)]
+pub struct TransmissionModulationStatsFfi {
+    /// Deliveries on a pathway that had a map. A delivery on an unmapped
+    /// pathway is not counted: it never reached the mechanism.
+    pub events: f64,
+    /// Of those, how many were scaled by something other than exactly 1.
+    pub scaled: f64,
+    /// Of those, how many were scaled to exactly 0 -- silenced outright.
+    pub silenced: f64,
+    pub min_scale: f64,
+    pub max_scale: f64,
+    /// Per channel (`modulatorLevels`' order), the lowest and highest level a
+    /// gated delivery actually read -- what a map's `reference` should be
+    /// measured against, for the reason `StdpModulationStatsFfi` gives.
     pub min_level: Vec<f64>,
     pub max_level: Vec<f64>,
 }
@@ -1295,6 +1470,11 @@ struct SchedulerConfig {
     growth: Option<GrowthConfig>,
     newborn_maturation: Option<NewbornMaturationConfig>,
     silent_synapses: Option<SilentSynapsesConfig>,
+    /// PLAN.md C9, already resolved and validated. Applied per partition by
+    /// `build_scheduler` like any other scheduler-local configuration: the
+    /// gate reads a broadcast level and routes on local anatomy, so every
+    /// partition gates identically without any merge step (RUN-6).
+    transmission_modulation: Option<TransmissionModulation>,
     /// PLAN.md C2. Deliberately **not** applied by `build_scheduler`: in
     /// partitioned mode the coupling must live on the `PartitionRuntime` (it
     /// merges the tally across partitions before driving any field), and
@@ -1343,6 +1523,19 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
     if let Some(resolved) = &config.plasticity {
         let rules = RuleChain::new(vec![Box::new(ThreeFactorStdp::new(resolved.rule_params))]);
         scheduler = scheduler.with_plasticity(rules, resolved.modulator_tau_ticks);
+        // PLAN.md C9: the recurrent chain is a second configured rule
+        // instance, not a rule that inspects where it sits (docs/decisions.md
+        // decision 24). Applied after `with_plasticity` only for readability
+        // -- the override is consulted first at event time either way.
+        if let Some(recurrent) = resolved.recurrent_rule_params {
+            let rules = RuleChain::new(vec![Box::new(ThreeFactorStdp::new(recurrent))]);
+            scheduler = scheduler.with_plasticity_for_role(SegmentRole::Recurrent, rules);
+        }
+    }
+    // PLAN.md C9's transmission half. Independent of `plasticity` above: a
+    // network can gate transmission without learning at all.
+    if let Some(modulation) = &config.transmission_modulation {
+        scheduler = scheduler.with_transmission_modulation(*modulation);
     }
     if let Some(cfg) = &config.homeostatic_scaling {
         scheduler = scheduler.with_homeostatic_scaling(HomeostaticScaling::new(cfg.target_total_weight as f32, cfg.interval_ticks.max(1)));
@@ -1611,6 +1804,7 @@ impl NativeSimulation {
         growth: Option<GrowthConfig>,
         newborn_maturation: Option<NewbornMaturationConfig>,
         silent_synapses: Option<SilentSynapsesConfig>,
+        transmission_modulation: Option<TransmissionModulationConfig>,
         prediction_error_coupling: Option<PredictionErrorCouplingConfig>,
         reward_prediction_error: Option<RewardPredictionErrorConfig>,
         thread_count: Option<u32>,
@@ -1656,6 +1850,9 @@ impl NativeSimulation {
             ));
         }
         let plasticity = plasticity.map(|cfg| cfg.resolve()).transpose()?;
+        // PLAN.md C9: resolved (and so validated) once here, not per
+        // partition -- `build_scheduler` runs once per partition.
+        let transmission_modulation = transmission_modulation.map(|cfg| cfg.resolve()).transpose()?;
         let scheduler_segments = segments.unwrap_or(SegmentsConfig::NONE);
         let scheduler_inhibition = inhibition.as_ref().map(|cfg| (cfg.neighbourhood_size, cfg.k));
         let config = SchedulerConfig {
@@ -1673,6 +1870,7 @@ impl NativeSimulation {
             growth,
             newborn_maturation,
             silent_synapses,
+            transmission_modulation,
             prediction_error_coupling,
             reward_prediction_error,
         };
@@ -2575,6 +2773,27 @@ impl NativeSimulation {
         })
     }
 
+    /// What the transmission gate did since construction, merged over every
+    /// partition (PLAN.md C9) -- see `TransmissionModulationStatsFfi`.
+    /// `null` unless `transmissionModulation` was configured, which is a
+    /// different statement from a gate that never moved a scale.
+    #[napi]
+    pub fn transmission_modulation_stats(&self) -> Option<TransmissionModulationStatsFfi> {
+        let stats = match &self.runtime {
+            Runtime::Single(scheduler) => scheduler.transmission_modulation_stats(),
+            Runtime::Partitioned(state) => state.runtime.as_ref().and_then(|pr| pr.transmission_modulation_stats()),
+        }?;
+        Some(TransmissionModulationStatsFfi {
+            events: stats.events as f64,
+            scaled: stats.scaled as f64,
+            silenced: stats.silenced as f64,
+            min_scale: f64::from(stats.min_scale),
+            max_scale: f64::from(stats.max_scale),
+            min_level: stats.min_level.iter().map(|&l| f64::from(l)).collect(),
+            max_level: stats.max_level.iter().map(|&l| f64::from(l)).collect(),
+        })
+    }
+
     /// Prediction accuracy over the always-on window (OBS-2, Phase 6
     /// Requirement 5.1). As of Phase 7 Requirement 1(d), aggregates
     /// correctly across every partition: **sums each partition's raw
@@ -2718,6 +2937,7 @@ impl NativeSimulation {
         growth: Option<GrowthConfig>,
         newborn_maturation: Option<NewbornMaturationConfig>,
         silent_synapses: Option<SilentSynapsesConfig>,
+        transmission_modulation: Option<TransmissionModulationConfig>,
         prediction_error_coupling: Option<PredictionErrorCouplingConfig>,
         reward_prediction_error: Option<RewardPredictionErrorConfig>,
     ) -> Result<Self> {
@@ -2759,6 +2979,18 @@ impl NativeSimulation {
             let resolved = cfg.resolve()?;
             let rules = RuleChain::new(vec![Box::new(ThreeFactorStdp::new(resolved.rule_params))]);
             scheduler = scheduler.with_plasticity(rules, resolved.modulator_tau_ticks);
+            // PLAN.md C9, and the reason this branch mirrors
+            // `build_scheduler`'s: both are configuration, not snapshot
+            // state, so restoring one means applying the same config
+            // (RUN-9a, the snapshot format is untouched). HANDOFF fact
+            // 14(a) is exactly about the two drifting apart.
+            if let Some(recurrent) = resolved.recurrent_rule_params {
+                let rules = RuleChain::new(vec![Box::new(ThreeFactorStdp::new(recurrent))]);
+                scheduler = scheduler.with_plasticity_for_role(SegmentRole::Recurrent, rules);
+            }
+        }
+        if let Some(cfg) = &transmission_modulation {
+            scheduler = scheduler.with_transmission_modulation(cfg.resolve()?);
         }
         if let Some(cfg) = &homeostatic_scaling {
             scheduler = scheduler.with_homeostatic_scaling(HomeostaticScaling::new(cfg.target_total_weight as f32, cfg.interval_ticks.max(1)));

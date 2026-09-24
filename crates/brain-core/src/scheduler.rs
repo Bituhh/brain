@@ -39,6 +39,7 @@ use crate::plasticity::{LocalContext, Modulators, NeuronLocal, RuleChain, Synaps
 use crate::probe::Probe;
 use crate::segment::{segment_role, BinaryCoincidence, Depolarisation, SegmentConfig, SegmentModel, SegmentRole, SegmentState};
 use crate::synapse::{SynapseArena, SynapseArenaViewMut, NOT_SILENT};
+use crate::transmission::{TransmissionModulation, TransmissionModulationStats};
 
 /// Always-on metrics window (Requirement 5.1, Phase 6): OBS-2 frames the
 /// incremental meters as "cheap enough to leave permanently on", so
@@ -281,6 +282,23 @@ pub struct Scheduler {
     /// case of no override (ENG-9: the plasticity path runs once per
     /// delivery and per post-spike event).
     has_role_plasticity: bool,
+    /// Per-[`SegmentRole`] gating of synaptic *transmission* by a broadcast
+    /// neuromodulator level (PLAN.md C9, `transmission.rs`). `None` -- the
+    /// default -- means `deliver` never even queries the neuromodulator
+    /// field on its account, which is what makes an unconfigured run
+    /// bit-identical to one built before this field existed (HANDOFF fact
+    /// 13: an extra `levels_at` composes an extra decay step).
+    ///
+    /// The *other* half of the cholinergic encoding/retrieval account is
+    /// `role_plasticity` above, and the two are deliberately independent
+    /// switches: the evidence describes two mechanisms pointing in
+    /// opposite directions (suppress recurrent transmission, enhance
+    /// recurrent LTP) and only measuring them apart can say which carries
+    /// an effect.
+    transmission: Option<TransmissionModulation>,
+    /// Accumulated only while `transmission` is configured -- purely
+    /// observational (OBS-2), never snapshot state.
+    transmission_stats: TransmissionModulationStats,
     modulators: NeuromodulatorField,
     incoming_scratch: Vec<u32>,
     /// `None` means every synapse is feedforward regardless of its
@@ -547,6 +565,8 @@ impl Scheduler {
             // role (`TopDown`) needs no edit here.
             role_plasticity: std::array::from_fn(|_| None),
             has_role_plasticity: false,
+            transmission: None,
+            transmission_stats: TransmissionModulationStats::EMPTY,
             modulators: NeuromodulatorField::new([1000.0; crate::plasticity::NUM_MODULATORS]),
             incoming_scratch: Vec::new(),
             segments: None,
@@ -741,6 +761,51 @@ impl Scheduler {
             .chain(self.role_plasticity.iter().flatten())
             .filter_map(crate::plasticity::RuleChain::stdp_modulation_stats)
             .reduce(crate::plasticity::stdp::StdpModulationStats::merge)
+    }
+
+    /// Gates synaptic *transmission* by pathway and a broadcast
+    /// neuromodulator level (PLAN.md C9, `transmission.rs`'s module docs
+    /// for the evidence and its dissent). `modulation` is a table of
+    /// [`crate::plasticity::stdp::LevelMap`]s keyed by [`SegmentRole`]; a
+    /// role it does not map transmits unmodulated, which is how "spares
+    /// feedforward input" is expressed.
+    ///
+    /// The scale multiplies the magnitude a delivery carries -- its soma
+    /// current, or its [`crate::segment::DendriticVote`] contribution --
+    /// and nothing else. It never touches `weight` or `permanence`, so
+    /// **this is not the plasticity half** of the cholinergic account:
+    /// that is a second configured rule instance on the recurrent chain
+    /// ([`Self::with_plasticity_for_role`]), and the two switch
+    /// independently.
+    ///
+    /// Not calling this leaves `deliver` exactly as it was, including
+    /// leaving the neuromodulator field's lazy-decay clock untouched, so
+    /// every existing configuration is bit-identical
+    /// (`crates/brain-core/tests/transmission_modulation.rs`).
+    pub fn with_transmission_modulation(mut self, modulation: TransmissionModulation) -> Self {
+        self.transmission = if modulation.is_empty() { None } else { Some(modulation) };
+        self
+    }
+
+    /// What the transmission gate did since construction, if one is
+    /// configured (PLAN.md C9, OBS-2). `None` means no gate -- which is a
+    /// different statement from a gate that never moved a scale, and
+    /// telling those apart is the whole point of this counter.
+    pub fn transmission_modulation_stats(&self) -> Option<TransmissionModulationStats> {
+        self.transmission.map(|_| self.transmission_stats)
+    }
+
+    /// Zeroes those counters, so a caller can scope a reading to one phase of
+    /// a run -- "what did the gate do over *these* exposures" rather than
+    /// "since construction". The `min`/`max` extremes are not recoverable
+    /// from two cumulative readings the way the counts are, which is the
+    /// whole reason this exists.
+    ///
+    /// Observational only: it touches nothing the simulation reads, changes
+    /// no result, and is not snapshot state. `transmission_modulation_stats`
+    /// still returns `None` if no gate is configured, before or after.
+    pub fn reset_transmission_modulation_stats(&mut self) {
+        self.transmission_stats = TransmissionModulationStats::EMPTY;
     }
 
     pub fn with_silent_synapses(mut self, params: SilentSynapseParams) -> Self {
@@ -1669,7 +1734,24 @@ impl Scheduler {
             // docs/decisions.md's weight/permanence split (2026-09-13): permanence
             // above is only the connectivity gate now -- the transmitted
             // magnitude is weight, docs/prior-art.md §2.5's efficacy quantity.
-            let signed_current = sign * synapses.weight[synapse_id as usize];
+            let mut signed_current = sign * synapses.weight[synapse_id as usize];
+            // PLAN.md C9: cholinergic (or any broadcast) gating of
+            // transmission, by pathway. Guarded on `transmission` being
+            // configured at all so an unconfigured run never queries the
+            // neuromodulator field here -- see the field's doc comment.
+            // `weight` itself is untouched: this is presynaptic release
+            // being suppressed, not the synapse being weakened, and the
+            // plasticity path below therefore sees exactly what it always
+            // saw.
+            if let Some(modulation) = self.transmission {
+                let role = segment_role(target_segment, self.segments.as_ref());
+                if let Some(map) = modulation.map_for(role) {
+                    let modulators = self.modulators.levels_at(self.tick);
+                    let scale = map.scale(&modulators);
+                    self.transmission_stats.record(map.channel, modulators[map.channel], scale);
+                    signed_current *= scale;
+                }
+            }
             // PLAN.md B4, fix 1 (docs/decisions.md decision 12): a silent synapse
             // is unsilenced by the first delivery it makes at or above the
             // unsilence weight -- the model's reading of LTP inserting AMPA

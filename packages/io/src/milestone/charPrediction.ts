@@ -54,6 +54,7 @@ import {
   type StructuralStats,
   type PredictionErrorCouplingConfig,
   type RewardPredictionErrorConfig,
+  type TransmissionModulationConfig,
 } from "@brain/core";
 import { wrapColumnHandles, type ColumnHandle } from "../columns.ts";
 import { encodeChar, SUPPORTED_ALPHABET, type CharEncoderConfig } from "../encoders/text.ts";
@@ -272,6 +273,25 @@ export interface CharPredictionConfig {
    * can ever be unsilenced, so that question cannot be asked at all.
    */
   readonly plasticity?: PlasticityConfig;
+  /**
+   * PLAN.md C9: cholinergic gating of synaptic *transmission*, by pathway
+   * (`SimulationOptions.transmissionModulation`). `undefined` (default)
+   * leaves every delivery unmodulated and every run bit-identical.
+   *
+   * **On this task the "spares feedforward" half is close to vacuous, and
+   * that is a property of VAL-4, not of the mechanism.** Input arrives by
+   * direct stimulation (`ColumnHandle.stimulateSdr`), not through synapses,
+   * and `columnConfig` wires the whole recurrent web onto dendritic
+   * segments -- so there are essentially no feedforward *synapses* here to
+   * spare. Gating `recurrent` gates almost every synapse in the network;
+   * what stays ungated is the encoder's direct drive. Any contrast between
+   * the two pathways has to be measured somewhere that has both
+   * (`crates/brain-core/tests/transmission_modulation.rs` builds one).
+   *
+   * Needs `voteReferenceWeight` to be visible at all: without it the
+   * dendritic vote is a bare `signum()` that discards the scale entirely.
+   */
+  readonly transmissionModulation?: TransmissionModulationConfig;
   /**
    * Holds one neuromodulator channel at a constant level for the whole run,
    * so `plasticity`'s three-factor rule behaves as plain STDP scaled by that
@@ -582,6 +602,8 @@ export function buildNetwork(
    * baseline with no `rewardSignal` is inert.
    */
   rewardPredictionError: RewardPredictionErrorConfig | undefined = DEFAULT_CONFIG.rewardPredictionError,
+  /** PLAN.md C9's transmission half -- see `CharPredictionConfig.transmissionModulation`. */
+  transmissionModulation: TransmissionModulationConfig | undefined = DEFAULT_CONFIG.transmissionModulation,
 ): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 };
   const options: SimulationOptions = {
@@ -676,6 +698,10 @@ export function buildNetwork(
     // without it stays bit-identical (`Scheduler::reward`'s unconfigured path
     // is the pre-C3 injection, unchanged).
     ...(rewardPredictionError !== undefined && { rewardPredictionError }),
+    // PLAN.md C9. Spread only if defined, so every run without it stays
+    // bit-identical -- `Scheduler::deliver` does not even read the
+    // neuromodulator field on this account when it is unset.
+    ...(transmissionModulation !== undefined && { transmissionModulation }),
     ...(homeostaticScaling !== undefined && { homeostaticScaling }),
     predictiveLearning: {
       significanceThreshold: 0.5,
@@ -821,6 +847,7 @@ export function runCharPredictionTrial(
       ...(config.plasticityGainChannel !== undefined && { plasticityGainChannel: config.plasticityGainChannel }),
     },
     config.rewardPredictionError,
+    config.transmissionModulation,
   );
   const collisionMargin = config.collisionMargin ?? DEFAULT_COLLISION_MARGIN;
   const trigram = new TrigramModel();

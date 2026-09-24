@@ -1,0 +1,83 @@
+[2026-09-24 15:00:47] === investigate-c9-encoding-mode: 12 workers, 15000 characters, seeds 1, 2, 3, 4, 5, 11, 12, 13, 14, 15 ===
+[2026-09-24 15:01:17] === investigate-c9-encoding-mode: 12 workers, 15000 characters, seeds 1, 2, 3, 4, 5, 11, 12, 13, 14, 15 ===
+[2026-09-24 15:01:17] 24 trials, 0 already in the checkpoint, 24 to run
+[2026-09-24 15:02:17] [heartbeat] 0/24 done, 1.0 min
+[2026-09-24 15:02:45] done G: cash-in moved to held serotonin seed 5: 19.20% in 89 s
+[2026-09-24 15:02:46] done G: cash-in moved to held serotonin seed 3: 21.10% in 89 s
+[2026-09-24 15:02:46] done G: cash-in moved to held serotonin seed 1: 19.85% in 90 s
+[2026-09-24 15:02:46] done G: cash-in moved to held serotonin seed 4: 21.15% in 90 s
+[2026-09-24 15:02:47] done G: cash-in moved to held serotonin seed 2: 20.50% in 90 s
+[2026-09-24 15:02:47] done G: cash-in moved to held serotonin seed 15: 17.50% in 90 s
+[2026-09-24 15:02:47] done G: cash-in moved to held serotonin seed 13: 21.45% in 90 s
+[2026-09-24 15:02:47] done F: B5's winner, fresh (hashes for the controls) seed 1: 19.85% in 90 s
+[2026-09-24 15:02:47] done G: cash-in moved to held serotonin seed 11: 18.90% in 90 s
+[2026-09-24 15:02:47] done F: B5's winner, fresh (hashes for the controls) seed 11: 18.90% in 90 s
+[2026-09-24 15:02:47] done G: cash-in moved to held serotonin seed 14: 19.30% in 91 s
+[2026-09-24 15:02:47] done G: cash-in moved to held serotonin seed 12: 18.10% in 91 s
+[2026-09-24 15:03:17] [heartbeat] 12/24 done, 2.0 min
+[2026-09-24 15:04:17] [heartbeat] 12/24 done, 3.0 min
+[2026-09-24 15:04:24] done OFF: ACh driven, both maps at gain 0 (measures the reference) seed 1: 19.85% in 99 s
+[2026-09-24 15:04:24] done OFF: ACh driven, both maps at gain 0 (measures the reference) seed 5: 19.20% in 98 s
+[2026-09-24 15:04:25] done OFF: ACh driven, both maps at gain 0 (measures the reference) seed 2: 20.50% in 99 s
+[2026-09-24 15:04:25] done OFF: ACh driven, both maps at gain 0 (measures the reference) seed 3: 21.10% in 99 s
+[2026-09-24 15:04:25] done OFF: ACh driven, both maps at gain 0 (measures the reference) seed 13: 21.45% in 99 s
+[2026-09-24 15:04:25] done OFF: ACh driven, both maps at gain 0 (measures the reference) seed 4: 21.15% in 99 s
+[2026-09-24 15:04:26] done OFF: ACh driven, both maps at gain 0 (measures the reference) seed 15: 17.50% in 99 s
+[2026-09-24 15:04:26] done OFF: ACh driven, both maps at gain 0 (measures the reference) seed 11: 18.90% in 99 s
+[2026-09-24 15:04:26] done OFF: ACh driven, both maps at gain 0 (measures the reference) seed 14: 19.30% in 99 s
+[2026-09-24 15:04:27] done FF: OFF plus a gain-0 map on the feedforward role seed 11: 18.90% in 99 s
+[2026-09-24 15:04:30] done FF: OFF plus a gain-0 map on the feedforward role seed 1: 19.85% in 103 s
+[2026-09-24 15:04:32] done OFF: ACh driven, both maps at gain 0 (measures the reference) seed 12: 18.10% in 106 s
+[2026-09-24 15:04:32] reference = median of selection seeds' last-third medians (1.45802, 1.46393, 1.44901, 1.45038, 1.47943) x exp(-1/1000) = 1.4565618470117512
+[2026-09-24 15:04:32] 44 trials, 0 already in the checkpoint, 44 to run
+[2026-09-24 15:05:32] [heartbeat] 0/44 done, 1.0 min
+[2026-09-24 15:05:42] done T1: transmission only, gT 1.0 seed 12: 7.75% in 69 s
+[2026-09-24 15:05:42] done T1: transmission only, gT 1.0 seed 4: 9.35% in 70 s
+[2026-09-24 15:05:43] done T1: transmission only, gT 1.0 seed 13: 8.35% in 70 s
+[2026-09-24 15:05:43] done T1: transmission only, gT 1.0 seed 5: 6.95% in 70 s
+[2026-09-24 15:05:43] done T1: transmission only, gT 1.0 seed 11: 7.00% in 70 s
+[2026-09-24 15:05:43] done T1: transmission only, gT 1.0 seed 2: 7.45% in 71 s
+[2026-09-24 15:05:43] done T1: transmission only, gT 1.0 seed 3: 8.00% in 71 s
+[2026-09-24 15:05:49] done T1: transmission only, gT 1.0 seed 1: 6.60% in 76 s
+[2026-09-24 15:06:09] done X-twin: gain-0 maps, ACh held at the same level seed 11: 18.90% in 97 s
+[2026-09-24 15:06:10] done X: both maps live, ACh held exactly at the reference seed 11: 18.90% in 97 s
+[2026-09-24 15:06:11] done X: both maps live, ACh held exactly at the reference seed 1: 19.85% in 99 s
+[2026-09-24 15:06:17] done X-twin: gain-0 maps, ACh held at the same level seed 1: 19.85% in 105 s
+[2026-09-24 15:06:32] [heartbeat] 12/44 done, 2.0 min
+[2026-09-24 15:06:53] done T1: transmission only, gT 1.0 seed 14: 8.40% in 72 s
+[2026-09-24 15:06:54] done T1: transmission only, gT 1.0 seed 15: 6.55% in 72 s
+[2026-09-24 15:07:11] done T05: transmission only, gT 0.5 seed 3: 19.15% in 88 s
+[2026-09-24 15:07:11] done T05: transmission only, gT 0.5 seed 2: 19.35% in 88 s
+[2026-09-24 15:07:11] done T05: transmission only, gT 0.5 seed 1: 19.15% in 88 s
+[2026-09-24 15:07:11] done T05: transmission only, gT 0.5 seed 5: 17.50% in 88 s
+[2026-09-24 15:07:12] done T05: transmission only, gT 0.5 seed 4: 19.65% in 89 s
+[2026-09-24 15:07:20] done T05: transmission only, gT 0.5 seed 11: 18.75% in 91 s
+[2026-09-24 15:07:32] [heartbeat] 20/44 done, 3.0 min
+[2026-09-24 15:07:37] done T05: transmission only, gT 0.5 seed 12: 19.30% in 87 s
+[2026-09-24 15:07:39] done T05: transmission only, gT 0.5 seed 14: 19.05% in 88 s
+[2026-09-24 15:07:40] done T05: transmission only, gT 0.5 seed 13: 19.80% in 91 s
+[2026-09-24 15:07:46] done T05: transmission only, gT 0.5 seed 15: 19.10% in 88 s
+[2026-09-24 15:08:32] [heartbeat] 24/44 done, 4.0 min
+[2026-09-24 15:08:48] done P1: plasticity only, gP 1.0 seed 1: 18.45% in 115 s
+[2026-09-24 15:08:53] done P1: plasticity only, gP 1.0 seed 2: 20.80% in 119 s
+[2026-09-24 15:09:07] done P1: plasticity only, gP 1.0 seed 5: 18.40% in 116 s
+[2026-09-24 15:09:08] done P1: plasticity only, gP 1.0 seed 3: 18.45% in 117 s
+[2026-09-24 15:09:11] done P1: plasticity only, gP 1.0 seed 12: 18.00% in 118 s
+[2026-09-24 15:09:12] done P1: plasticity only, gP 1.0 seed 13: 20.25% in 112 s
+[2026-09-24 15:09:17] done P1: plasticity only, gP 1.0 seed 4: 18.80% in 126 s
+[2026-09-24 15:09:19] done P1: plasticity only, gP 1.0 seed 11: 18.65% in 127 s
+[2026-09-24 15:09:22] done TP: both halves, gT 1.0 + gP 1.0 seed 1: 20.05% in 102 s
+[2026-09-24 15:09:31] done P1: plasticity only, gP 1.0 seed 15: 20.85% in 112 s
+[2026-09-24 15:09:32] done TP: both halves, gT 1.0 + gP 1.0 seed 2: 19.85% in 106 s
+[2026-09-24 15:09:32] [heartbeat] 35/44 done, 5.0 min
+[2026-09-24 15:09:45] done P1: plasticity only, gP 1.0 seed 14: 17.85% in 128 s
+[2026-09-24 15:10:21] done TP: both halves, gT 1.0 + gP 1.0 seed 3: 19.40% in 93 s
+[2026-09-24 15:10:25] done TP: both halves, gT 1.0 + gP 1.0 seed 4: 19.70% in 92 s
+[2026-09-24 15:10:32] done TP: both halves, gT 1.0 + gP 1.0 seed 5: 20.20% in 85 s
+[2026-09-24 15:10:32] [heartbeat] 39/44 done, 6.0 min
+[2026-09-24 15:10:33] done TP: both halves, gT 1.0 + gP 1.0 seed 11: 21.00% in 85 s
+[2026-09-24 15:10:36] done TP: both halves, gT 1.0 + gP 1.0 seed 12: 20.45% in 85 s
+[2026-09-24 15:10:39] done TP: both halves, gT 1.0 + gP 1.0 seed 13: 17.80% in 87 s
+[2026-09-24 15:10:42] done TP: both halves, gT 1.0 + gP 1.0 seed 14: 19.45% in 85 s
+[2026-09-24 15:10:43] done TP: both halves, gT 1.0 + gP 1.0 seed 15: 19.70% in 84 s
+[2026-09-24 15:10:43] wrote C:\projects\brain\scripts\investigate-c9-encoding-mode.results.md

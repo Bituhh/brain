@@ -1553,6 +1553,131 @@ test("PlasticityConfig.stdpModulation: a mapped level reaches the kernel through
   assert.equal(weightAfterTraining(unset, 2.0), weightAfterTraining(unset, 0.5), "hook unset: noradrenaline is read by nothing, so its level cannot matter");
 });
 
+// -- PLAN.md C9 (LRN-2, LRN-5): acetylcholine's encoding/retrieval pair, across the FFI. The pathway
+// distinction it routes on is C8's; the top-down pathway (README's feedback-connectivity requirement) is
+// F10/F11's and is deliberately NOT claimed here.
+//
+// C8 built the feedforward/recurrent distinction in the core and deliberately left the FFI surface
+// to its first consumer, which is this item. Both halves cross here: `transmissionModulation` gates
+// what a recurrent delivery *carries*, and `plasticity.recurrent` is a second, separately configured
+// rule instance for the same pathway. They are tested separately because they switch separately.
+
+const ACETYLCHOLINE = 1;
+/** Acetylcholine never decays, so an injected level is held *exactly* -- the only way to sit a map exactly at its reference. */
+const ACH_NEVER_DECAYS = [1000, 1.0e30, 1000, 1000];
+
+/** A network with one feedforward and one dendritic synapse from the same source, so the spared pathway is observable. */
+function c9Options(
+  transmissionModulation?: SimulationOptions["transmissionModulation"],
+  recurrent?: NonNullable<SimulationOptions["plasticity"]>["recurrent"],
+): SimulationOptions {
+  return {
+    maxDelay: 2,
+    connectionThreshold: 0.1,
+    synapseCapPerNeuron: 2,
+    // `voteReferenceWeight` is what makes a dendritic delivery's magnitude reach its segment at all:
+    // without it the vote is a bare signum() and a transmission gate is invisible (PLAN.md B5/C9).
+    segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1, voteReferenceWeight: 0.4 },
+    plasticity: {
+      stdp: { aPlus: 0.02, aMinus: 0.02, tauPlus: 20, tauMinus: 20, windowTicks: 100 },
+      tauEligibilityTicks: 500,
+      learningRate: 0.05,
+      modulatorChannel: 0, // DOPAMINE, held below -- the routing channel, kept apart from the one under test
+      modulatorTauTicks: ACH_NEVER_DECAYS,
+      ...(recurrent !== undefined && { recurrent }),
+    },
+    ...(transmissionModulation !== undefined && { transmissionModulation }),
+  };
+}
+
+const FEEDFORWARD_SEGMENT = 0xffffffff;
+
+/** Fires `source` three times at a held acetylcholine level; returns the two synapses' final weights and each target's membrane. */
+function c9Run(options: SimulationOptions, acetylcholine: number) {
+  const sim = Simulation.create({ tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 }, options);
+  const a = sim.allocateNeuron(0.1, 1);
+  const ff = sim.allocateNeuron(0.1, 1);
+  const rec = sim.allocateNeuron(0.1, 1);
+  sim.connect(a, ff, FEEDFORWARD_SEGMENT, 1, 0.3);
+  sim.connect(a, rec, 0, 1, 0.3);
+  sim.injectModulator(0, 1.0);
+  sim.injectModulator(ACETYLCHOLINE, acetylcholine);
+  for (let round = 0; round < 3; round++) {
+    sim.stimulate(a, 10.0);
+    sim.step();
+    sim.stimulate(ff, 10.0);
+    sim.stimulate(rec, 10.0);
+    sim.step();
+  }
+  const occupied = sim.synapseOccupiedView();
+  const weights = sim.synapseWeightView();
+  const slots = occupied.reduce<number[]>((acc, o, i) => (o === 1 ? [...acc, i] : acc), []);
+  assert.equal(slots.length, 2, "both synapses must exist");
+  return {
+    weights: slots.map((i) => weights[i]!),
+    stats: sim.transmissionModulationStats(),
+  };
+}
+
+const suppressRecurrent = { channel: ACETYLCHOLINE, reference: 1.0, gain: -0.5, min: 0.0, max: 1.0 };
+
+test("SimulationOptions.transmissionModulation: a recurrent gate crosses the addon, and unset changes nothing (PLAN.md C9)", () => {
+  const unset = c9Run(c9Options(), 3.0);
+  assert.equal(unset.stats, null, "no gate configured reads back as null, not as a gate that did nothing");
+
+  const atReference = c9Run(c9Options({ recurrent: suppressRecurrent }), 1.0);
+  assert.deepEqual(atReference.weights, c9Run(c9Options(), 1.0).weights, "at the map's reference the scale is exactly 1.0, so the run is bit-identical to the gate unset");
+  assert.ok(atReference.stats !== null, "a configured gate reads back its counters");
+  assert.equal(atReference.stats.scaled, 0, "and at the reference it scaled nothing");
+
+  const gated = c9Run(c9Options({ recurrent: suppressRecurrent }), 3.0);
+  assert.ok(gated.stats !== null);
+  assert.ok(gated.stats.events > 0, "the recurrent deliveries must actually have reached the gate");
+  assert.equal(gated.stats.events, gated.stats.silenced, "at level 3.0 this map clamps to 0: every gated delivery is silenced outright");
+  assert.equal(gated.stats.minLevel[ACETYLCHOLINE], 3.0, "and the level a delivery read is reported, which is what a map's reference must be measured against");
+});
+
+test("SimulationOptions.transmissionModulation: an unusable map is refused at construction with a clean error, not a panic (ENG-9)", () => {
+  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
+  const refused = (map: NonNullable<SimulationOptions["transmissionModulation"]>, because: RegExp) =>
+    assert.throws(() => Simulation.create(lif, c9Options(map)), because);
+
+  refused({ recurrent: { ...suppressRecurrent, channel: 4 } }, /transmissionModulation: .*channel/);
+  refused({ recurrent: { ...suppressRecurrent, gain: Number.NaN } }, /transmissionModulation: .*NaN or infinite/);
+  refused({ recurrent: { ...suppressRecurrent, min: 5.0, max: 1.0 } }, /transmissionModulation: .*min exceeds its max/);
+  // NEU-4 / README invariant 3: a negative scale would turn an excitatory contact inhibitory.
+  refused({ recurrent: { ...suppressRecurrent, min: -0.5 } }, /transmissionModulation: .*min is negative/);
+  refused({ feedforward: { ...suppressRecurrent, min: -0.5 } }, /transmissionModulation: .*min is negative/);
+  // Zero is allowed: complete presynaptic silencing is the strongest reported cholinergic effect.
+  assert.doesNotThrow(() => Simulation.create(lif, c9Options({ recurrent: { ...suppressRecurrent, min: 0.0 } })));
+});
+
+test("PlasticityConfig.recurrent: a second rule instance for the dendritic pathway crosses the addon (PLAN.md C8/C9)", () => {
+  const base = c9Options().plasticity!;
+  const enhanced = {
+    ...base,
+    stdpModulation: { aPlus: { channel: ACETYLCHOLINE, reference: 1.0, gain: 1.0, min: 1.0, max: 4.0 } },
+  };
+  const { recurrent: _drop, modulatorTauTicks: _tau, ...ruleOnly } = enhanced;
+
+  const unset = c9Run(c9Options(), 2.0);
+  const routed = c9Run(c9Options(undefined, ruleOnly), 2.0);
+
+  assert.equal(routed.weights[0], unset.weights[0], "the feedforward synapse keeps running the default chain, untouched");
+  assert.ok(routed.weights[1]! > unset.weights[1]!, `high acetylcholine must enhance LTP on the recurrent chain only: ${routed.weights[1]} vs ${unset.weights[1]}`);
+
+  const atReference = c9Run(c9Options(undefined, ruleOnly), 1.0);
+  assert.deepEqual(atReference.weights, c9Run(c9Options(), 1.0).weights, "at the map's reference the two chains are the same curve, bit for bit");
+});
+
+test("PlasticityConfig.recurrent: its own fields are validated, with the offending path named (ENG-9)", () => {
+  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
+  const base = c9Options().plasticity!;
+  const { recurrent: _drop, modulatorTauTicks: _tau, ...ruleOnly } = base;
+  assert.throws(() => Simulation.create(lif, c9Options(undefined, { ...ruleOnly, modulatorChannel: 9 })), /recurrent\.modulatorChannel/);
+  assert.throws(() => Simulation.create(lif, c9Options(undefined, { ...ruleOnly, gainModulatorChannel: 9 })), /recurrent\.gainModulatorChannel/);
+});
+
 test("PlasticityConfig.stdpModulation: an unusable map is refused at construction with a clean error, not a panic (ENG-9)", () => {
   const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
   const refused = (stdpModulation: NonNullable<SimulationOptions["plasticity"]>["stdpModulation"], because: RegExp) =>

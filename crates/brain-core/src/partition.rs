@@ -594,6 +594,22 @@ impl PartitionRuntime {
         self.schedulers.iter().filter_map(Scheduler::stdp_modulation_stats).reduce(crate::plasticity::stdp::StdpModulationStats::merge)
     }
 
+    /// Every partition's [`Scheduler::transmission_modulation_stats`],
+    /// merged (PLAN.md C9). Each partition gates its own deliveries against
+    /// its own copy of the field, so this is the only network-wide reading;
+    /// the merge is order-independent (RUN-3/RUN-6).
+    pub fn transmission_modulation_stats(&self) -> Option<crate::transmission::TransmissionModulationStats> {
+        self.schedulers.iter().filter_map(Scheduler::transmission_modulation_stats).reduce(crate::transmission::TransmissionModulationStats::merge)
+    }
+
+    /// [`Scheduler::reset_transmission_modulation_stats`] on every partition,
+    /// so a phase-scoped reading means the same thing at any thread count.
+    pub fn reset_transmission_modulation_stats(&mut self) {
+        for scheduler in &mut self.schedulers {
+            scheduler.reset_transmission_modulation_stats();
+        }
+    }
+
     /// Opts into real parallel execution of stage 1 and stage 3 (RUN-4)
     /// over a dedicated `thread_count`-sized rayon pool. `thread_count <= 1`
     /// returns to the sequential path (RUN-8) -- both must (and, per

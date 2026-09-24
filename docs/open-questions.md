@@ -196,7 +196,19 @@ resolved it belongs in [`decisions.md`](decisions.md) (a design call) or
     fork rather than a missing line of code, and because docs/prior-art.md §2.5 currently asserts all four channel
     roles in one unsourced parenthetical that the audit found to be only partly right.
 
-    - **(a) Acetylcholine's second job, and the interface question under it.** Hasselmo's
+    - **(a) Acetylcholine's second job, and the interface question under it — closed
+      2026-09-24 by PLAN.md C8 (the interface) and C9 (the mechanism); docs/decisions.md
+      decisions 24 and 25, docs/findings.md finding 22.** Neither of the two ways through
+      listed below was taken: the discriminant reaches plasticity as a **routing** decision
+      (`Scheduler::with_plasticity_for_role`), so the interface was not widened *and* no second
+      place where plasticity happens was created. Both halves of the encoding/retrieval account
+      exist and switch separately, and on VAL-4 the pair is a null whose transmission half alone
+      is ruinous. **The second, smaller point below is NOT closed and is now sharper** — see (e).
+      The original text follows, unedited.
+
+      ---
+
+      Hasselmo's
       encoding/retrieval account is two mechanisms in opposite directions: acetylcholine
       presynaptically suppresses transmission at *recurrent/intracortical* synapses while sparing
       *feedforward* input, and simultaneously *enhances* LTP at those same suppressed synapses. High
@@ -279,5 +291,62 @@ resolved it belongs in [`decisions.md`](decisions.md) (a design call) or
       invariant is if the diffusing quantity were an *error* term, or if the kernel became a way to
       deliver per-synapse credit.
 
+    - **(e) Acetylcholine is now doing two jobs at once, and PLAN.md C9 made that concrete rather
+      than resolving it — opened 2026-09-24.** (a)'s closing note anticipated this: Yu & Dayan give
+      acetylcholine *expected uncertainty*, which is what C2 drives the channel with, and Hasselmo
+      gives it the encoding/retrieval switch, which is what C9 built. C9 wired the second to the
+      first — the pathway gate is driven by the uncertainty estimate — and that is a modelling
+      choice, not a finding. Two things make it a real fork rather than a detail.
+
+      First, on VAL-4 expected uncertainty is a slow learning-progress *schedule*, so "encoding
+      mode" there means "early in the run" and not "this input is novel" (docs/findings.md items 20
+      and 22). The mechanism the biology describes is a response to novelty; what was measured is a
+      response to inexperience. Those coincide on a stationary corpus and come apart on anything
+      with change points in it.
+
+      Second, C9 measured the two jobs interfering. The transmission half alone drives the network
+      into a state where it predicts almost nothing, which keeps expected uncertainty high, which
+      keeps the suppression on — the channel's own output feeding its own driver. The pair does not
+      do this, and whether that is because the plasticity half breaks the loop or because it simply
+      restores prediction is **not established**: no open-loop control was run (C7's
+      `investigate-c7-open-loop.ts` is the template if one is wanted).
+
+      The fork: either acetylcholine carries both roles and the coupling between them is accepted
+      and documented as a modelling claim, or the pathway gate is driven by something else — a
+      genuine novelty signal, or a schedule that is not the network's own failure rate — and
+      expected uncertainty keeps the channel to itself. Nothing is built either way, and no measured
+      result here favours one: the pair is a null on the only task it has been run on.
+
 ---
 
+5. **Three mechanisms are now waiting on a task with change points in it, and there is no such task
+    — opened 2026-09-24, after PLAN.md C6, C7 and C9 each hit the same wall.** VAL-4 is a
+    *stationary* stream: English prose's statistics do not shift inside a run. Measured consequences,
+    all three from different items:
+
+    - C2's **surprise** signal (noradrenaline, unexpected uncertainty) is exactly zero on 88–89% of
+      characters, because `max(0, fast − slow)` over one failure rate only fires when the world
+      changes (HANDOFF fact 12). So C6's window-widening map is inert there by construction, and its
+      VAL-4 null was pre-registered as the expected outcome rather than discovered.
+    - C3's **reward prediction error** is inert for the same reason through a different channel: the
+      hit rate is stationary, so the expectation converges on it and `hit − expected` averages to
+      zero (HANDOFF fact 14(c)).
+    - C9's **encoding/retrieval pair** is driven by *expected* uncertainty, which is not zero on
+      VAL-4 — but on this corpus it is a slow learning-progress schedule, so what the pair responds
+      to is "early in the run" rather than "this input is novel" (item 4(c), docs/findings.md finding
+      22).
+
+    Each of those is a property of the task, not of its mechanism, and each is recorded as such in
+    its own finding. What does not exist is the thing that would settle any of them: a validation
+    task whose input distribution genuinely shifts mid-run, with its own baselines. The Rust tests
+    build a two-neuron A→B / A→C contingency switch (`tests/prediction_error_coupling.rs`,
+    `tests/transmission_modulation.rs`) and it is enough to prove a mechanism *fires* correctly; it is
+    far too small to say anything about whether a mechanism *helps*.
+
+    This is an unbuilt item rather than a design fork, and it is recorded here because three separate
+    items have now deferred to it and the fourth would too. What it needs deciding first: whether a
+    switching corpus is a new VAL requirement with its own milestone (the honest option, and
+    expensive — it needs a baseline family of its own, since trigram accuracy on a switching stream
+    is not comparable to trigram accuracy on prose), or a diagnostic harness with no milestone
+    attached (cheap, and it can only ever produce "the mechanism responds", never "the mechanism
+    helps"). Nothing in PLAN.md currently owns it.

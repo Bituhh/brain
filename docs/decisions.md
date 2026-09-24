@@ -1290,3 +1290,85 @@ undecided, [`findings.md`](findings.md) for measurements behind a decision,
    guessed at here. **Engineering-tier change** by CLAUDE.md's routing (no simulated behaviour
    changes), which is why this is a decision entry and the papers above are argument for the design's
    shape rather than backing for a new mechanism.
+
+25. **Acetylcholine's encoding/retrieval pair is built as two independent mechanisms -- a
+   transmission gate in the scheduler and a second configured rule chain -- not as one switch
+   [2026-09-24 16:01 +0100] (PLAN.md C9).**
+
+   Hasselmo's account is *two* mechanisms pointing in opposite directions over the same broadcast
+   level: acetylcholine presynaptically inhibits glutamatergic transmission at recurrent synapses
+   while relatively sparing feedforward input (**Hasselmo & Schnell 1994** [HasselmoSchnell1994],
+   rat CA1: carbachol suppresses Schaffer-collateral transmission in stratum radiatum far more than
+   entorhinal input in stratum lacunosum-moleculare), and *simultaneously* enhances LTP at those
+   same suppressed synapses. High acetylcholine is encoding mode -- feedforward drives the activity,
+   recurrent connections do the learning. Building only one half is building a different model.
+
+   **They are built as two mechanisms with two switches, and that is the decision.** The obvious
+   alternative -- one `encodingMode` option that turns both on together -- would have made the
+   four-way VAL-4 measurement PLAN.md C9 asks for impossible to express, and the single-mechanism
+   rows are the only thing that can say whether the pair behaves as the account describes or whether
+   one half carries whatever effect there is. The cost is a caller who configures one half and
+   believes they have the mechanism; the mitigation is documentation at every entry point, not a
+   coupling.
+
+   **The transmission half is new core (`crates/brain-core/src/transmission.rs`):** a
+   per-[`SegmentRole`] table of C5 `LevelMap`s, applied in `Scheduler::deliver` to the
+   `signed_current` a delivery carries. It touches neither `weight` nor `permanence`, so it is
+   transmission and not learning, and the plasticity path below it sees exactly what it always saw.
+   Deliberately the *same* `LevelMap` arithmetic as C5's STDP hook (`clamp(1 + gain x (level -
+   reference), min, max)`), so HANDOFF fact 16's five traps -- above all "measure `reference` where
+   the mechanism reads the level" -- transfer unchanged rather than being rediscovered.
+
+   **The plasticity half needed no new mechanism at all**, which is the pay-off of decision 24: it
+   is a *configuration*, a second `ThreeFactorStdp` carrying an acetylcholine-mapped
+   `StdpModulation`, installed on the `Recurrent` chain by `Scheduler::with_plasticity_for_role`. No
+   rule inspects where it sits; README invariant 1 and LRN-1's text are untouched.
+
+   **Three constraints decided details.**
+   - *A transmission scale may not be negative* (`TransmissionModulationError::NegativeScale`). A
+     negative scale inverts the sign of the transmitted current, turning an excitatory contact
+     inhibitory, and sign is the presynaptic neuron's property (NEU-4, invariant 3), never a
+     broadcast modulator's. Zero **is** allowed: complete presynaptic silencing is the strongest
+     effect the preparation reports. This is the one place C9 diverges from C7, which deliberately
+     allowed its amplitude map to cross zero -- there, inversion is a documented STDP result; here
+     it would be a Dale violation.
+   - *"Spares feedforward input" is the absence of a map, not a map of 1.0.* A role with no entry
+     transmits at full weight through no arithmetic at all, so a caller who models only the
+     recurrent suppression pays nothing and asserts nothing about the other pathway. This also
+     leaves **Gil, Connors & Amitai (1997)** [Gil1997] expressible: they found muscarinic receptors
+     suppressing thalamocortical *and* intracortical synapses alike in neocortex, with the asymmetry
+     coming from nicotinic and GABA-B receptors instead. A caller who wants that reading maps both
+     roles. The core commits to neither.
+   - *Invariant 2 holds by construction.* The routing input is local anatomy (which compartment,
+     resolved by C8's one `segment_role`) and the modulatory input is a broadcast scalar. No
+     per-synapse or per-neuron signal enters either half, at either end.
+
+   **Off by default, exactly.** With no table configured `deliver` does not even query the
+   neuromodulator field on the gate's account -- deliberately, because an extra `levels_at` on a
+   tick that would not otherwise have had one composes an extra decay step and is not bit-identical
+   (HANDOFF fact 13). Golden rasters and the whole fast tier are unchanged.
+
+   **The FFI surface decision 24 deferred lands here**, designed against this real use:
+   `SimulationOptions.transmissionModulation` (one `LevelMapConfig` per pathway) and
+   `PlasticityConfig.recurrent` (a *complete* second rule, not a patch -- because the core's model
+   is two rule instances, and a patch-shaped option would misrepresent that). Both are validated at
+   construction with the offending path named, and `transmissionModulationStats()` reports what the
+   gate did.
+
+   **One observational counter was added on purpose, and it is not decoration.** On a dendritic
+   delivery the gate's scale reaches the segment through `DendriticVote`; in `Count` mode -- the
+   core's default -- the vote is a bare `signum()` that discards magnitude, so a recurrent gate moves
+   every scale it is asked to and changes *nothing*. `TransmissionModulationStats` is what separates
+   "the gate was configured" from "transmission actually changed" in that case, and
+   `tests/transmission_modulation.rs` pins the trap rather than leaving it to be rediscovered as a
+   null result. `Scheduler::reset_transmission_modulation_stats` exists for the same reason: the
+   `min`/`max` extremes cannot be recovered from two cumulative readings, so scoping a reading to
+   one phase of a run needs a reset.
+
+   **What VAL-4 can and cannot say about this**, recorded here because it is a property of the task
+   and will outlive the measurement: VAL-4 stimulates its column directly and wires its whole
+   recurrent web onto dendritic segments, so it has essentially no feedforward *synapses* to spare.
+   Gating the recurrent role there gates almost every synapse in the network, and the spared-pathway
+   contrast is asserted on a network that has both pathways
+   (`crates/brain-core/tests/transmission_modulation.rs`) rather than claimed from VAL-4's numbers.
+   The measurement itself is docs/findings.md finding 22.

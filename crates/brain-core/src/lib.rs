@@ -90,6 +90,7 @@ pub mod scheduler;
 pub mod segment;
 pub mod snapshot;
 pub mod synapse;
+pub mod transmission;
 
 /// Crate version, exposed so the FFI boundary and example scripts have a
 /// trivial end-to-end path to exercise before any real simulation logic
