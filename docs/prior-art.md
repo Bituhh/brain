@@ -654,5 +654,45 @@ several are cheap against structures the core already has.
   lacks: the dopamine rescue that makes "depress while exploring" a credit-assignment scheme, and a
   producer whose high state means novelty rather than "the network has not learned anything yet".
 
----
+**(j) Where a synapse lands changes what happens there — the plasticity rule itself, and which
+pathways a neuromodulator can address** — LRN-1, LRN-2, NET-6, README invariant 1.
+Added [2026-09-24 13:00 +0100] for PLAN.md C8 (the evidence was checked on 2026-09-22, when the
+design call was put to the user); C9, F10 and F11 all draw on it.
 
+- **The cholinergic selectivity C9 rests on is laminar.** **Hasselmo & Schnell (1994** [HasselmoSchnell1994]**)**,
+  rat CA1 slices plus a computational model: carbachol suppresses Schaffer-collateral transmission in
+  *stratum radiatum* substantially more than entorhinal (perforant-path) input in *stratum
+  lacunosum-moleculare*. The suppression follows which pathway a synapse belongs to, which the
+  preparation identifies by **where on the dendritic tree it lands** — the empirical basis for
+  treating "which compartment" as a legitimate, purely anatomical discriminant.
+- **Dissent, and it is substantive.** **Gil, Connors & Amitai (1997** [Gil1997]**)**, rat neocortex:
+  thalamocortical and intracortical synapses are differentially modulated, but **muscarinic receptors
+  suppressed *both*.** The asymmetry there came from nicotinic receptors (enhancing thalamocortical
+  only) and GABA-B (suppressing intracortical only). So "acetylcholine spares feedforward input" is
+  well supported in hippocampus and **receptor-dependent in neocortex** — a mechanism built on it is
+  modelling the hippocampal case, and should say so.
+- **The plasticity *rule* differs by compartment, not just a parameter.** **Sjöström & Häusser (2006**
+  [SjostromHausser2006]**)**, L5 pyramidal neurons: a pattern of co-activation that induced **LTP at a
+  proximal synapse induced LTD at a distal one** — the sign of plasticity depends on where the synapse
+  sits, via how far the backpropagating action potential spreads. This is the evidence for expressing
+  a compartment distinction as *different rules in different compartments* (docs/decisions.md decision
+  24's option (c)) rather than one rule reading a position field.
+- **Dissent on that shape.** **Froemke, Poo & Dan (2005** [Froemke2005]**)**, L2/3 pyramidal neurons:
+  both the magnitude of LTP and the width of the LTD timing window vary **continuously along** the
+  apical dendrite, the LTD window tracking action-potential-induced NMDA-receptor suppression. Read
+  strictly, that is one mechanism parameterised by distance — which a two-valued role tag cannot
+  express. The limitation is accepted knowingly (decision 24).
+- **Not imported: the cooperative half.** Sjöström & Häusser's distal LTD flips to LTP when
+  *neighbouring* distal inputs summate. That is a dependence on other synapses' activity, which README
+  invariant 1 forbids. The location-dependence is taken; the cooperativity is not, and this is a
+  deliberate divergence from the paper rather than an omission.
+- **Where the model diverges from the anatomy, stated plainly.** In CA1 the *spared feedforward*
+  (entorhinal) input arrives **distally**, on the apical tuft, while the suppressed recurrent-side
+  input arrives more proximally. In this engine `segment::FEEDFORWARD_SEGMENT` is the **proximal,
+  soma-driving** slot and the recurrent web sits on distal segments — the geometry is inverted
+  relative to the preparation the evidence comes from. `segment::SegmentRole` is therefore named for
+  the **pathway** (`Feedforward`/`Recurrent`, F10 adding `TopDown`) and not for geometry, so that no
+  name in the core asserts an anatomy the engine does not have. The apical-vs-basal *physiology*
+  (Larkum's coincidence finding, §13.13(b)) is a separate question, and is F11's.
+
+---

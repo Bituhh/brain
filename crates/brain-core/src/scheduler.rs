@@ -37,7 +37,7 @@ use crate::plasticity::predictive::{PredictingSegmentTracker, PredictiveLearning
 use crate::plasticity::structural::{StructuralPlasticity, StructuralTotals};
 use crate::plasticity::{LocalContext, Modulators, NeuronLocal, RuleChain, SynapseMut};
 use crate::probe::Probe;
-use crate::segment::{BinaryCoincidence, Depolarisation, SegmentConfig, SegmentModel, SegmentState, FEEDFORWARD_SEGMENT};
+use crate::segment::{segment_role, BinaryCoincidence, Depolarisation, SegmentConfig, SegmentModel, SegmentRole, SegmentState};
 use crate::synapse::{SynapseArena, SynapseArenaViewMut, NOT_SILENT};
 
 /// Always-on metrics window (Requirement 5.1, Phase 6): OBS-2 frames the
@@ -256,6 +256,31 @@ pub struct Scheduler {
     /// configuration in its own right (a network can run without ever
     /// learning).
     plasticity: Option<RuleChain>,
+    /// Per-[`SegmentRole`] overrides of `plasticity` above (PLAN.md C8,
+    /// docs/decisions.md decision 24), indexed by `role as usize`. `None`
+    /// at a role -- every entry, unless `with_plasticity_for_role` was
+    /// called -- means that role runs the default chain, so a scheduler
+    /// that never calls it behaves exactly as it did before this field
+    /// existed.
+    ///
+    /// This is how a feedforward/recurrent distinction reaches plasticity
+    /// **without** widening what a rule can see: the scheduler already
+    /// holds both inputs `segment_role` needs and already branches on
+    /// `target_segment` beside every rule call, so the routing decision
+    /// costs a rule no new information (README invariant 1). Sjostrom &
+    /// Hausser (2006) is the evidence for its *shape*: the same pre/post
+    /// pairing produces LTP at a proximal synapse and LTD at a distal one,
+    /// so what differs by compartment is the rule, not a parameter a
+    /// single rule reads. **What is deliberately not imported** is that
+    /// paper's *cooperative* half -- distal LTD flips to LTP when
+    /// neighbouring distal inputs summate, a dependency on other synapses
+    /// that invariant 1 forbids.
+    role_plasticity: [Option<RuleChain>; SegmentRole::COUNT],
+    /// Whether any entry of `role_plasticity` is set, so the per-event
+    /// path skips resolving a role entirely in the overwhelmingly common
+    /// case of no override (ENG-9: the plasticity path runs once per
+    /// delivery and per post-spike event).
+    has_role_plasticity: bool,
     modulators: NeuromodulatorField,
     incoming_scratch: Vec<u32>,
     /// `None` means every synapse is feedforward regardless of its
@@ -518,6 +543,10 @@ impl Scheduler {
             winners_scratch: Vec::new(),
             winner_set: DirtySet::new(),
             plasticity: None,
+            // `from_fn` rather than a literal, so F10 adding a third
+            // role (`TopDown`) needs no edit here.
+            role_plasticity: std::array::from_fn(|_| None),
+            has_role_plasticity: false,
             modulators: NeuromodulatorField::new([1000.0; crate::plasticity::NUM_MODULATORS]),
             incoming_scratch: Vec::new(),
             segments: None,
@@ -603,6 +632,63 @@ impl Scheduler {
         self
     }
 
+    /// Runs `rules` instead of [`Self::with_plasticity`]'s chain for every
+    /// synapse whose [`SegmentRole`] is `role` (PLAN.md C8,
+    /// docs/decisions.md decision 24). Not calling this leaves one chain
+    /// running everywhere -- bit-identical to before this method existed,
+    /// which `crates/brain-core/tests/plasticity_locality.rs`'s
+    /// split-vs-single control pins.
+    ///
+    /// **This is the sanctioned way for a feedforward/recurrent
+    /// distinction to reach plasticity, and the reason it does not touch
+    /// README invariant 1**: the *scheduler* resolves the role (it holds
+    /// both inputs [`segment_role`] needs -- see that function on why a
+    /// stored `target_segment` is not enough on its own) and selects a
+    /// chain; the rule it selects is handed exactly the `LocalContext` and
+    /// `SynapseMut` every rule has always been handed, and cannot tell
+    /// which chain it is in. Role-dependent *behaviour* is therefore
+    /// expressed as two configured rule instances, not as a rule that
+    /// branches on where it sits -- which is what
+    /// `crates/brain-core/tests/plasticity_locality.rs`'s locality pins
+    /// assert, by destructuring both types exhaustively.
+    ///
+    /// Ordering note: this may be called before or after
+    /// `with_plasticity`; the override is consulted first at event time,
+    /// with the default chain as fallback, so neither call overwrites the
+    /// other. A role with an override and no default chain runs only for
+    /// that role (the other roles then have no plasticity at all).
+    pub fn with_plasticity_for_role(mut self, role: SegmentRole, rules: RuleChain) -> Self {
+        self.role_plasticity[role as usize] = Some(rules);
+        self.has_role_plasticity = self.role_plasticity.iter().any(Option::is_some);
+        self
+    }
+
+    /// The chain that governs a synapse landing on `target_segment` --
+    /// this role's override if one is configured, otherwise the default
+    /// chain. `None` means no plasticity runs for it at all.
+    ///
+    /// The `has_role_plasticity` fast path is not merely an optimisation:
+    /// with no override configured this is exactly `self.plasticity`,
+    /// evaluated without touching `target_segment` at all, so no
+    /// existing configuration's behaviour can depend on a role resolving
+    /// one way or the other.
+    /// Whether *any* chain is configured -- the default one or a role
+    /// override. Guards the per-event loops that would otherwise resolve a
+    /// role per synapse only to find nothing configured.
+    #[inline]
+    fn has_any_plasticity(&self) -> bool {
+        self.plasticity.is_some() || self.has_role_plasticity
+    }
+
+    #[inline]
+    fn rules_for_segment(&self, target_segment: u32) -> Option<&RuleChain> {
+        if !self.has_role_plasticity {
+            return self.plasticity.as_ref();
+        }
+        let role = segment_role(target_segment, self.segments.as_ref());
+        self.role_plasticity[role as usize].as_ref().or(self.plasticity.as_ref())
+    }
+
     /// Enables dendritic segments (Requirement 10): a synapse whose
     /// `target_segment` is not [`FEEDFORWARD_SEGMENT`] no longer drives
     /// the soma directly -- it counts toward that segment's per-tick
@@ -647,7 +733,14 @@ impl Scheduler {
     /// What the STDP modulation hook did, if a rule observes it (PLAN.md C6,
     /// `stdp::StdpModulationStats`).
     pub fn stdp_modulation_stats(&self) -> Option<crate::plasticity::stdp::StdpModulationStats> {
-        self.plasticity.as_ref().and_then(crate::plasticity::RuleChain::stdp_modulation_stats)
+        // PLAN.md C8: every chain that can run on this scheduler, merged --
+        // a role override is a second place STDP happens, and an
+        // observation that skipped it would under-report silently.
+        self.plasticity
+            .iter()
+            .chain(self.role_plasticity.iter().flatten())
+            .filter_map(crate::plasticity::RuleChain::stdp_modulation_stats)
+            .reduce(crate::plasticity::stdp::StdpModulationStats::merge)
     }
 
     pub fn with_silent_synapses(mut self, params: SilentSynapseParams) -> Self {
@@ -1371,13 +1464,19 @@ impl Scheduler {
         };
         D::commit_spike(state, params, tick);
 
-        if let Some(rules) = &self.plasticity {
+        if self.has_any_plasticity() {
             self.incoming_scratch.clear();
             self.incoming_scratch.extend(synapse_view.incoming(idx));
             let post_local = neuron_local(&neuron_view, idx);
             let modulators = self.modulators.levels_at(tick);
             for &synapse_id in &self.incoming_scratch {
                 let source_index = synapse_view.source_of(synapse_id);
+                // PLAN.md C8: which chain, by the role of the compartment
+                // this synapse lands on. `rules_for_segment` is exactly
+                // `self.plasticity` when no role override is configured.
+                let Some(rules) = self.rules_for_segment(synapse_view.target_segment[synapse_id as usize]) else {
+                    continue;
+                };
                 let ctx = LocalContext { pre: neuron_local(&neuron_view, source_index), post: post_local, modulators, tick };
                 rules.on_post_spike(synapse_mut(&mut synapse_view, synapse_id), &ctx);
             }
@@ -1458,7 +1557,11 @@ impl Scheduler {
     /// applied in the same globally-canonical order (see that method's doc
     /// comment for why this matters).
     fn apply_local_effect(&mut self, target: u32, target_segment: u32, signed_current: f32) {
-        let is_dendritic = self.segments.is_some() && target_segment != FEEDFORWARD_SEGMENT;
+        // PLAN.md C8: this test *is* the role distinction, so it reads it
+        // from `segment_role` rather than restating it -- one scheme, and
+        // the transmission path (C9's first half, and F10/F11's) and the
+        // plasticity-routing path can never drift apart.
+        let is_dendritic = segment_role(target_segment, self.segments.as_ref()) == SegmentRole::Recurrent;
         if is_dendritic {
             let config = self.segments.as_ref().unwrap();
             let segments_per_neuron = config.segments_per_neuron;
@@ -1590,15 +1693,20 @@ impl Scheduler {
             // took: a dendritic synapse still learns via STDP exactly like
             // a feedforward one, it just doesn't itself carry current to
             // the soma (Requirement 10 does not touch Requirement 8).
-            if let Some(rules) = &self.plasticity {
-                let post = remote_post(target).unwrap_or_else(|| neuron_local(neurons, target));
-                let ctx = LocalContext {
-                    pre: neuron_local(neurons, source_index),
-                    post,
-                    modulators: self.modulators.levels_at(self.tick),
-                    tick: self.tick,
-                };
-                rules.on_delivery(synapse_mut(synapses, synapse_id), &ctx);
+            // PLAN.md C8: `target_segment` is already in hand here, so the
+            // role lookup costs this path nothing beyond the chain choice.
+            if self.has_any_plasticity() {
+                // `levels_at` takes `&mut self` (lazy decay), so it must
+                // run before the chain lookup's shared borrow -- and it
+                // stays *inside* this guard because calling it on a tick
+                // it would not otherwise have been called on composes an
+                // extra decay step and is not bit-identical (fact 13).
+                let modulators = self.modulators.levels_at(self.tick);
+                if let Some(rules) = self.rules_for_segment(target_segment) {
+                    let post = remote_post(target).unwrap_or_else(|| neuron_local(neurons, target));
+                    let ctx = LocalContext { pre: neuron_local(neurons, source_index), post, modulators, tick: self.tick };
+                    rules.on_delivery(synapse_mut(synapses, synapse_id), &ctx);
+                }
             }
             synapses.last_active[synapse_id as usize] = self.tick;
         }
@@ -1655,9 +1763,19 @@ impl Scheduler {
     /// narrow case this deferred-by-one-tick delivery does not cover
     /// exactly (see `partition.rs`'s module docs).
     pub fn apply_remote_post_spikes(&mut self, neurons: &NeuronArenaViewMut, synapses: &mut SynapseArenaViewMut, messages: &[CrossPartitionPostSpike]) {
-        let Some(rules) = &self.plasticity else { return };
+        if !self.has_any_plasticity() {
+            return;
+        }
         for msg in messages {
             let source_index = synapses.source_of(msg.synapse_id);
+            // PLAN.md C8: the synapse's own `target_segment`, read from
+            // the partition that owns it -- which is always this one, per
+            // this method's doc comment above, so the role a cross-
+            // partition post-spike resolves to is the same one its own
+            // partition would have resolved (RUN-6).
+            let Some(rules) = self.rules_for_segment(synapses.target_segment[msg.synapse_id as usize]) else {
+                continue;
+            };
             let ctx = LocalContext {
                 pre: neuron_local(neurons, source_index),
                 post: msg.post,
@@ -2076,7 +2194,7 @@ impl Scheduler {
                 // Credit the causal (pre-before-post) direction across
                 // every incoming synapse now that this neuron has
                 // officially spiked (Requirement 8's on_post_spike).
-                if let Some(rules) = &self.plasticity {
+                if self.has_any_plasticity() {
                     self.incoming_scratch.clear();
                     self.incoming_scratch.extend(synapses.incoming(idx));
                     let post_local = neuron_local(neurons, idx);
@@ -2096,6 +2214,10 @@ impl Scheduler {
                             post_spike_outbox.push(CrossPartitionPostSpike { synapse_id, tick: self.tick, post: post_local, modulators });
                             continue;
                         }
+                        // PLAN.md C8: per-synapse chain choice by role.
+                        let Some(rules) = self.rules_for_segment(synapses.target_segment[synapse_id as usize]) else {
+                            continue;
+                        };
                         let ctx = LocalContext {
                             pre: neuron_local(neurons, source_index),
                             post: post_local,

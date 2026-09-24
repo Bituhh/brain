@@ -62,10 +62,15 @@ const DEFERRED = new Set([
   // is monomorphic over it, but `Lif` is the only implementation this codebase ever builds or
   // tests -- swappability is a structural claim with no second implementation to exercise it.
   'NEU-3',
-  // LRN-1 (no backprop, local-only context): enforced by `LocalContext`/`SynapseMut`'s shape (no
-  // arena handle, no neuron id, no graph reference reachable from either) -- a type-system
-  // property with nothing for a runtime test to violate and then assert against.
-  'LRN-1',
+  // LRN-1 was deferred here until PLAN.md C8 (2026-09-24) on the grounds that it is "a type-system
+  // property with nothing for a runtime test to violate and then assert against". That is no longer
+  // true: `crates/brain-core/tests/plasticity_locality.rs` pins it by destructuring `LocalContext`,
+  // `SynapseMut` and `NeuronLocal` *exhaustively*, so widening any of them stops that file
+  // compiling. A compile-time assertion that lives in a test is still a test, and it fails in
+  // exactly the case the invariant cares about. What it does NOT prove is the requirement's whole
+  // claim -- "no global error is routed backwards through the graph" is an argument about the
+  // design, not something any single test establishes -- so read the citation as "the enforcement
+  // mechanism is pinned", not "LRN-1 is verified".
   // RUN-1a (tick = 0.1ms default): ticks are deliberately unit-agnostic in brain-core (see
   // neuron.rs's LifParams docs) -- dt_ms is a caller-side interpretation with no BrainConfig type
   // to hold a default yet. The exact same finding check-traceability.mjs's own DEFERRED list

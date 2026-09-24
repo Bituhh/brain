@@ -14,7 +14,18 @@ finished, and told the *next* item nothing.
 
 ## Where things stand
 
-- **Last completed:** PLAN.md **C7** (acetylcholine sets the LTP/LTD ratio),
+- **Last completed:** PLAN.md **C8** (a feedforward/recurrent discriminant reaching the
+  plasticity path), 2026-09-24. **A design call, decided by the user, and the answer is neither
+  option the prompt framed:** the discriminant reaches plasticity as a **routing** decision, not as
+  a field. `segment::SegmentRole { Feedforward, Recurrent }` plus one resolver
+  `segment_role(target_segment, segments)`; `Scheduler::with_plasticity_for_role(role, chain)` picks
+  *which `RuleChain` runs*. **No rule gained any input, so README invariant 1 and LRN-1's text are
+  unchanged** — see fact 18. Nothing calls it (C9 is the first consumer) and every configuration is
+  bit-identical. Evidence: Sjöström & Häusser 2006 for the shape, Froemke 2005 as dissent,
+  Hasselmo & Schnell 1994 and Gil 1997 for the cholinergic selectivity itself
+  (docs/prior-art.md §13.13(j), four new bib keys). docs/decisions.md decision 24,
+  `.claude/scratch/neuromodulators/c8-design.md`, `tests/plasticity_locality.rs`.
+- **Before that:** PLAN.md **C7** (acetylcholine sets the LTP/LTD ratio),
   2026-09-22. Result: **the mechanism works on the synapse, and on VAL-4 it is
   ruinous — a large, clean, pre-registered negative.** Both design calls went to
   the user, who asked what the brain does; decided on the primary papers (Seol
@@ -25,7 +36,7 @@ finished, and told the *next* item nothing.
   dose too, and with the loop opened — see fact 17. Not adopted, not in
   `canonicalBrain.ts`. New counter `amplitudeInverted`. docs/decisions.md decision 18,
   docs/findings.md finding 20, docs/prior-art.md §13.13 (i).
-- **Before that:** PLAN.md **C6** (noradrenaline widens the STDP timing
+- **Earlier:** PLAN.md **C6** (noradrenaline widens the STDP timing
   window), 2026-09-21. Result: **the mechanism works where it can be seen, and
   VAL-4 cannot see it.** On a contingency switch
   (`tests/prediction_error_coupling.rs`) a pairing one tick beyond the resting
@@ -82,15 +93,15 @@ finished, and told the *next* item nothing.
   child became a plain number. The twelve external citations that moved were
   updated in the same pass (README, `plasticity/newborn.rs`,
   `check-requirement-coverage.mjs`, `canonicalBrain.ts` and its test).
-- **Next up:** **C8** (a feedforward/recurrent discriminant reaching the
-  plasticity path — a design call, invariant-adjacent), then **C9**
-  (acetylcholine encoding mode), whose prompt C7 amended: read fact 17 before
-  C9. The C5 hook now has two users and both are unset everywhere.
+- **Next up:** **C9** (acetylcholine encoding mode), now unblocked by C8. Read fact 17 (C7's
+  amendment) and fact 18 (what C8 actually built — its prompt's assumption of a discriminant on the
+  rule interface is wrong) before starting. The C5 hook now has two users and both are unset
+  everywhere.
 - **A neuromodulator audit sits behind all of this:**
   `.claude/scratch/neuromodulators/investigation.md`, 2026-09-20. Six channels,
   claim by claim, against primary sources, with the code status of each. Read it
   before touching C2–C9 or F19–F21.
-- **Phase A is closed** (A1–A4). Phase B is closed (B1–B5). C1–C7 are closed.
+- **Phase A is closed** (A1–A4). Phase B is closed (B1–B5). C1–C8 are closed.
 
 ## The headline result so far
 
@@ -576,6 +587,34 @@ These are the ones that have actually caused wrong work, not a general list.
       does. Cause unidentified: a worktree rebuild of C2's commit did not
       reproduce B5 either, so it was not trusted. Re-measure it; do not read
       C2's checkpoint.
+
+18. **A feedforward/recurrent distinction now exists, and it is NOT on the rule interface —
+    PLAN.md C8, docs/decisions.md decision 24.** Any prompt or note written before 2026-09-24 that
+    says "widen `SynapseMut`/`LocalContext`" or "C8 will decide whether a rule may see its segment"
+    is describing an option that was considered and **rejected**. C9's own prompt said it; it has
+    been corrected in place.
+
+    - **What exists.** `segment::SegmentRole { Feedforward, Recurrent }` and ONE resolver,
+      `segment_role(target_segment, segments)`. `Scheduler::with_plasticity_for_role(role, chain)`
+      overrides the default chain for that role, falling back to the default chain for any role
+      without one. `apply_local_effect`'s `is_dendritic` test *calls* the same resolver, so
+      transmission and plasticity routing cannot drift apart.
+    - **What a rule sees: exactly what it always saw.** Role-dependent behaviour is **two configured
+      rule instances**, not a rule that branches on where it sits. If you find yourself wanting
+      `ctx.role`, that is the thing the decision refused; make it a second chain instead.
+      `tests/plasticity_locality.rs` destructures `LocalContext`/`SynapseMut`/`NeuronLocal`
+      exhaustively, so widening any of them **fails to compile** there rather than sliding through.
+    - **The role is NOT a property of `target_segment` alone.** It also depends on whether the
+      scheduler has a `SegmentConfig`: with no segments configured, every synapse drives the soma and
+      is therefore `Feedforward` whatever value it was stored with. Reading
+      `synapses.target_segment[id]` and comparing against `FEEDFORWARD_SEGMENT` yourself is the bug
+      this resolver exists to prevent — and it is also the structural reason a rule could not compute
+      its own role even if handed the raw field.
+    - **F10 extends this enum** (`TopDown` + a per-segment role table defaulting to `Recurrent`, and
+      `SegmentRole::COUNT` bumped); it does not add a second scheme. The tag names the **pathway**,
+      not the geometry, because in CA1 the spared feedforward input lands *distally* while
+      `FEEDFORWARD_SEGMENT` here is the *proximal* slot — docs/prior-art.md §13.13(j).
+    - **No FFI surface exists yet**, deliberately: it lands with C9.
 
 ## Infrastructure worth reusing before writing anything new
 

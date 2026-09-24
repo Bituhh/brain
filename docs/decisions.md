@@ -1218,3 +1218,75 @@ undecided, [`findings.md`](findings.md) for measurements behind a decision,
    shared either way and should be built regardless of how this lands: **the column-building FFI**,
    which Phase 4 deferred explicitly and which neither a text nor an embodied path can proceed
    without.
+
+24. **A feedforward/recurrent discriminant reaches plasticity by *routing*, not by widening the
+   rule interface — decided with the user [2026-09-22 16:55 +0100], landed [2026-09-24 13:00 +0100]
+   (PLAN.md C8).**
+
+   C9 needs acetylcholine to treat feedforward and recurrent synapses differently. LRN-1 hands a
+   `PlasticityRule` only `LocalContext` and `SynapseMut`, neither of which carries the synapse's
+   target segment, and that narrowness *is* how invariant 1 is enforced structurally rather than by
+   discipline (`plasticity/mod.rs`'s module doc). Three ways through were written up in full at
+   `.claude/scratch/neuromodulators/c8-design.md`; the user chose **(c)**.
+
+   **(c) One rule chain per role.** `Scheduler::with_plasticity_for_role(role, chain)` overrides the
+   default chain for synapses of that [`SegmentRole`]. The *scheduler* resolves the role — it holds
+   both inputs `segment::segment_role` needs and already branched on them beside every rule call —
+   and hands the rule it selects exactly the `LocalContext` and `SynapseMut` every rule has always
+   been handed. **No rule learns anything new, so invariant 1 and LRN-1's text are unchanged.**
+   Role-dependent behaviour is expressed as two *configured rule instances*, not as a rule that
+   branches on where it sits.
+
+   **The evidence for that shape, not merely for the distinction.** Sjöström & Häusser (2006,
+   *Neuron* 51:227–238) found the same pre/post pairing produces **LTP at a proximal synapse and LTD
+   at a distal one** in L5 pyramidal neurons — what differs by compartment is the rule, including its
+   sign, not a parameter one rule reads. Froemke, Poo & Dan (2005, *Nature* 434:221–225) is the
+   partial dissent, and it is why option (a) was genuinely live: they found STDP magnitude and the
+   LTD window varying *continuously along* the apical dendrite, which reads as one mechanism
+   parameterised by position rather than two mechanisms. A two-valued role tag cannot express a
+   gradient, and that limit is accepted here knowingly. **Deliberately not imported:** Sjöström &
+   Häusser's switch is *cooperative* — distal LTD flips to LTP when neighbouring distal inputs
+   summate — which is a dependency on *other synapses* that invariant 1 forbids. We take the
+   location-dependence and not the cooperativity.
+
+   **Why not (a), a discriminant on `LocalContext`/`SynapseMut`.** Cheapest, and structurally
+   defensible (a fieldless `Copy` enum is not a handle and cannot index anything). Rejected because
+   it spends something permanent — the interface's narrowness — to save a configuration method, and
+   because the *argument* for it ("local anatomy is fine") is the same argument the next field
+   arrives with. A segment *index* in particular is one step from "which other synapses share my
+   segment", i.e. from a coincidence group. The scheduler had to compute the label either way.
+
+   **Why not (b), a scheduler-invoked module outside the rule chain.** It keeps the letter of LRN-1
+   while producing the perverse outcome: `predictive.rs`'s precedent works by holding whole-arena
+   access, so C9's plasticity half would become new weight-writing in the one place the type system
+   enforces *nothing*, with its own clamp ordering, its own cross-partition twin and a duplicate of
+   `stdp.rs`'s kernel to drift from. No biological source was found for a second, graph-wide
+   plasticity process; the nearest analogue (systems consolidation/replay) still writes locally.
+
+   **Naming: by pathway role, not geometry — also the user's call.** The tag is
+   `segment::SegmentRole { Feedforward, Recurrent }`. Hasselmo & Schnell (1994, *J Neurosci*
+   14:3898–3914) is the evidence C9 rests on, and its selectivity is *laminar*: carbachol suppresses
+   Schaffer-collateral transmission in stratum radiatum far more than entorhinal input in stratum
+   lacunosum-moleculare. **But in CA1 the spared feedforward input lands *distally*, whereas in this
+   engine `FEEDFORWARD_SEGMENT` is the *proximal*, soma-driving slot** — geometry maps onto pathway
+   in the opposite direction here. A `Proximal`/`Distal` tag would therefore assert anatomy this
+   engine does not have. Apical-vs-basal *physiology* (Larkum's coincidence finding) stays F11's
+   question. Dissent recorded: Gil, Connors & Amitai (1997, *Neuron* 19:679–686) found that in
+   neocortex **muscarinic receptors suppressed thalamocortical and intracortical synapses alike**;
+   the asymmetry there came from nicotinic (enhancing thalamocortical only) and GABA-B (suppressing
+   intracortical only). "ACh spares feedforward" is solid in hippocampus and receptor-dependent in
+   cortex — C9's problem, not C8's, which commits to no effect at all.
+
+   **One scheme with F10, not two (C8 task 5).** `segment_role(target_segment, segments)` is the
+   single place the distinction is decided, and `Scheduler::apply_local_effect`'s own `is_dendritic`
+   test now *calls it* rather than restating it, so transmission (C9's first half) and plasticity
+   routing can never drift apart. F10 extends the same enum with `TopDown` plus a per-segment-index
+   role table on `SegmentConfig` defaulting to `Recurrent`; it does not invent a second tag.
+
+   **Scope.** Core only, and nothing consumes the discriminant yet: no shipped configuration calls
+   `with_plasticity_for_role`, and every existing run is bit-identical (the fast tier, the golden
+   rasters and `tests/plasticity_locality.rs`'s own split-vs-single control). The FFI/TypeScript
+   surface lands with C9, its first consumer, so it is designed against a real use rather than
+   guessed at here. **Engineering-tier change** by CLAUDE.md's routing (no simulated behaviour
+   changes), which is why this is a decision entry and the papers above are argument for the design's
+   shape rather than backing for a new mechanism.

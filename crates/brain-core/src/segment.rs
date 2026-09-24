@@ -91,6 +91,75 @@ impl SegmentModel for BinaryCoincidence {
 /// caller opts in, with no retroactive reinterpretation of existing data.
 pub const FEEDFORWARD_SEGMENT: u32 = u32::MAX;
 
+/// Which *pathway* a synapse belongs to, judged by the compartment it
+/// lands on (PLAN.md C8, docs/decisions.md decision 24).
+///
+/// **Named for the pathway, not the geometry, and that choice is load
+/// bearing.** The biology this exists to serve is Hasselmo & Schnell
+/// (1994): cholinergic suppression in CA1 is *laminar* -- carbachol
+/// suppresses Schaffer-collateral transmission in stratum radiatum far
+/// more than entorhinal input in stratum lacunosum-moleculare. The
+/// selectivity follows which pathway a synapse belongs to, which the slice
+/// identifies by where on the dendrite it lands. **In CA1 the spared
+/// feedforward (entorhinal) input lands *distally*, whereas in this engine
+/// `Feedforward` is the *proximal*, soma-driving slot** ([`FEEDFORWARD_SEGMENT`]).
+/// Geometry and pathway therefore map onto each other in the opposite
+/// direction here from the preparation the evidence comes from, so a tag
+/// named `Proximal`/`Distal` would quietly assert anatomy this engine does
+/// not have. Apical-vs-basal *physiology* (Larkum's coincidence finding)
+/// is PLAN.md F11's question and is deliberately not encoded here.
+///
+/// **This is a label, not an effect.** Nothing in this crate reads it to
+/// change a number; it selects *which configured rule chain* the scheduler
+/// runs (`Scheduler::with_plasticity_for_role`), which is why it does not
+/// widen what a `PlasticityRule` can see (README invariant 1).
+///
+/// **F10 extends this enum rather than adding a second scheme**: a
+/// `TopDown` variant plus a per-segment-index role table on
+/// [`SegmentConfig`], defaulting every ordinary segment to `Recurrent` so
+/// existing configurations stay bit-identical. There must be one role
+/// scheme in this crate, not two (PLAN.md C8 task 5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SegmentRole {
+    /// Drives the soma directly: the reserved [`FEEDFORWARD_SEGMENT`], and
+    /// *every* synapse when segments are not configured at all.
+    Feedforward,
+    /// Lands on an ordinary dendritic segment -- lateral/contextual input:
+    /// a population's own recurrent web (`GraphBuilder::connect`) and
+    /// lateral voting (`connect_lateral_voting`).
+    Recurrent,
+}
+
+impl SegmentRole {
+    /// How many variants exist -- the width of the scheduler's per-role
+    /// chain table. Adding a variant (F10's `TopDown`) means bumping this,
+    /// which `segment_role_tests::role_count_matches_the_variants` pins.
+    pub const COUNT: usize = 2;
+}
+
+/// The one place a synapse's [`SegmentRole`] is decided (PLAN.md C8).
+///
+/// Takes the scheduler's segment configuration as well as the synapse's
+/// stored `target_segment`, because **"dendritic" is not a property of
+/// `target_segment` alone**: with no [`SegmentConfig`] every synapse drives
+/// the soma regardless of the value it was stored with, which is exactly
+/// what `Scheduler::apply_local_effect`'s own `is_dendritic` test says.
+/// A `PlasticityRule` holds neither input, which is the structural reason
+/// this function lives here and is called by the scheduler rather than
+/// being handed to a rule.
+///
+/// Pure, total, and free of any float arithmetic: the same synapse
+/// resolves to the same role on every partition and at every thread count
+/// (RUN-3, RUN-6).
+#[inline]
+pub fn segment_role(target_segment: u32, segments: Option<&SegmentConfig>) -> SegmentRole {
+    if segments.is_some() && target_segment != FEEDFORWARD_SEGMENT {
+        SegmentRole::Recurrent
+    } else {
+        SegmentRole::Feedforward
+    }
+}
+
 /// How a dendritic delivery contributes to its segment's coincidence tally
 /// (PLAN.md B5, docs/decisions.md decision 13, reopening decision 11's and
 /// docs/findings.md finding 11a's fixed-1.0-magnitude call).
@@ -196,6 +265,49 @@ mod feedforward_segment_tests {
         // there is no ambiguity between "feedforward" and "the last real
         // segment".
         assert_eq!(FEEDFORWARD_SEGMENT, u32::MAX);
+    }
+}
+
+#[cfg(test)]
+mod segment_role_tests {
+    use super::*;
+
+    fn config() -> SegmentConfig {
+        SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 3 })
+    }
+
+    #[test]
+    fn without_segments_configured_every_synapse_is_feedforward() {
+        // The scheduler's own `is_dendritic` rule (PLAN.md C8): a synapse
+        // stored with `target_segment = 0` drives the soma when no
+        // `SegmentConfig` exists, so its role cannot be read off the
+        // stored value alone.
+        assert_eq!(segment_role(0, None), SegmentRole::Feedforward);
+        assert_eq!(segment_role(7, None), SegmentRole::Feedforward);
+        assert_eq!(segment_role(FEEDFORWARD_SEGMENT, None), SegmentRole::Feedforward);
+    }
+
+    #[test]
+    fn with_segments_configured_the_reserved_sentinel_is_still_feedforward() {
+        assert_eq!(segment_role(FEEDFORWARD_SEGMENT, Some(&config())), SegmentRole::Feedforward);
+    }
+
+    #[test]
+    fn with_segments_configured_an_ordinary_segment_is_recurrent() {
+        assert_eq!(segment_role(0, Some(&config())), SegmentRole::Recurrent);
+        assert_eq!(segment_role(1, Some(&config())), SegmentRole::Recurrent);
+    }
+
+    #[test]
+    fn role_count_matches_the_variants() {
+        // Pins `SegmentRole::COUNT` against the enum it sizes (the
+        // scheduler's per-role chain table). F10 adding `TopDown` must
+        // bump both, and this fails loudly if only one moves.
+        let all = [SegmentRole::Feedforward, SegmentRole::Recurrent];
+        assert_eq!(all.len(), SegmentRole::COUNT);
+        for (i, role) in all.iter().enumerate() {
+            assert_eq!(*role as usize, i, "role discriminants index the chain table directly");
+        }
     }
 }
 

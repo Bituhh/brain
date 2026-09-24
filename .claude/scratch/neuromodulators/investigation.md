@@ -324,7 +324,7 @@ Stated as attachment points, because that is the real cost, not the channels.
 | Modulator → `StdpParams.a_plus` / `a_minus` ratio | ACh, 5-HT | No — `StdpParams` is `Copy` config inside the rule |
 | Modulator → `StdpParams.window_ticks` / `tau_plus` | NA | No — same |
 | Modulator → per-neuron threshold / resting potential | HA | No — NEU-7 writes threshold on a slow sweep, not from a level |
-| Plasticity rule can see feedforward vs. recurrent | ACh | **No, and structurally so** — see below |
+| Plasticity rule can see feedforward vs. recurrent | ACh | **Answered 2026-09-24 (C8), and the answer is "it does not"** — the *scheduler* routes by role instead; see below |
 | Transmission gain by synapse class | ACh | No |
 | Spatially-addressed concentration field | NO | No |
 | Fifth channel | HA | No — `NUM_MODULATORS` is 4 |
@@ -337,15 +337,26 @@ the afferent segment against dendritic/recurrent ones — but the rule interface
 see it, and that deliberateness is what makes invariant 1 structural rather than a matter of
 discipline.
 
-Two ways through, and the choice should be explicit:
+**RESOLVED by PLAN.md C8 on 2026-09-24 (docs/decisions.md decision 24), and by neither of the two
+options below.** They were written up with their real costs
+(`.claude/scratch/neuromodulators/c8-design.md`) and a third was added and chosen by the user:
+**the scheduler routes.** `segment::SegmentRole { Feedforward, Recurrent }` plus one resolver
+`segment_role(target_segment, segments)`; `Scheduler::with_plasticity_for_role(role, chain)` selects
+*which `RuleChain` runs* for a synapse. A rule is handed exactly what it always was, so invariant 1
+and LRN-1's text are unchanged, and role-dependent behaviour is expressed as two configured rule
+instances. The evidence for that shape is Sjöström & Häusser (2006) — the same pairing gives LTP
+proximally and LTD distally, so the *rule* differs by compartment — with Froemke, Poo & Dan (2005)
+recorded as dissent (a continuous gradient a two-valued tag cannot express). docs/prior-art.md
+§13.13(j). **The two options originally listed, kept for the record:**
 - **(a)** Add a feedforward/recurrent discriminant to `SynapseMut` or `LocalContext`. Cheapest, but it
-  widens the interface whose narrowness is the invariant's enforcement mechanism. It is defensible —
-  a boolean "which dendritic compartment am I on" is local anatomy, not routed credit — but it should
-  be argued, not slipped in.
+  widens the interface whose narrowness is the invariant's enforcement mechanism. *Rejected: it spends
+  something permanent to save a configuration method, and the scheduler has to compute the label
+  anyway.*
 - **(b)** A scheduler-invoked module, following `plasticity/predictive.rs`'s existing precedent of
   writing permanence directly without being a `PlasticityRule`. Keeps the interface untouched; costs
-  a second mechanism that does plasticity outside the rule chain.
-
+  a second mechanism that does plasticity outside the rule chain. *Rejected: `predictive.rs` works by
+  holding whole-arena access, so this keeps the letter of LRN-1 while moving new weight-writing to the
+  one place the type system enforces nothing.*
 ---
 
 ## 5. Proposed PLAN restructuring
