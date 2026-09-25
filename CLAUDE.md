@@ -51,6 +51,7 @@ Every new entry added to any file under `docs/`, to `PLAN.md`'s Status table, or
 - **Honest reporting** (Requirement 13.6/8). A negative result recorded precisely is a deliverable. Never soften, re-tune until a number looks better, or quietly drop a measurement that came out badly. Correcting an earlier honest report is held to the same standard.
 - **Ablations for load-bearing mechanisms** (VAL-9): disable it, assert the property fails. Multi-seed for any statistical claim (VAL-6).
 - **Zero AI/ML dependencies** (ENG-5/6). Rust core ≈ `rayon` only; the TS shell ships nothing at runtime.
+- **Installing npm packages**. When installing new npm packages, do not insert them directly into `package.json` manually and do not use `--legacy-peer-deps`. Run `npm install <package>` individually so npm correctly handles versioning and peer dependency resolution.
 
 ## Tests
 
