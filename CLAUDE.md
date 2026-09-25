@@ -66,4 +66,4 @@ Finally, run the linting tools (`npm run format` and `npm run lint -- --fix`) to
 
 ## Document Format
 
-- Don't wrap markdown lines, let the linter handle it.
+- Don't hard-wrap markdown lines; let the IDE handle soft-wrapping.
