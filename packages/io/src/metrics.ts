@@ -9,7 +9,9 @@ export class SlidingWindowAccuracy {
 
   constructor(windowSize: number) {
     if (!Number.isInteger(windowSize) || windowSize <= 0) {
-      throw new RangeError(`windowSize must be a positive integer, got ${windowSize}`);
+      throw new RangeError(
+        `windowSize must be a positive integer, got ${windowSize}`,
+      );
     }
     this.#windowSize = windowSize;
   }

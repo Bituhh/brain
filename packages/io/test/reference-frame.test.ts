@@ -5,14 +5,19 @@
 // `reference-frame.slow.test.ts`, mirroring `loop.test.ts`'s own
 // fast/slow split for `runSensorimotorLoop`.
 
-import { test } from "node:test";
-import assert from "node:assert/strict";
-import { Simulation, type LifConfig, type SimulationOptions, type ColumnConfig } from "@brain/core";
-import { runReferenceFrameLoop } from "../src/harness/reference-frame.ts";
-import { wrapColumnHandles } from "../src/columns.ts";
-import { GridWorld, type Action } from "../src/environments/grid.ts";
-import { makeSdr } from "../src/sdr.ts";
-import type { LocationEncoderConfig } from "../src/location.ts";
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  Simulation,
+  type LifConfig,
+  type SimulationOptions,
+  type ColumnConfig,
+} from '@brain/core';
+import { runReferenceFrameLoop } from '../src/harness/reference-frame.ts';
+import { wrapColumnHandles } from '../src/columns.ts';
+import { GridWorld, type Action } from '../src/environments/grid.ts';
+import { makeSdr } from '../src/sdr.ts';
+import type { LocationEncoderConfig } from '../src/location.ts';
 
 function tinyColumnConfig(neuronCount: number, baseX: number): ColumnConfig {
   return {
@@ -22,7 +27,13 @@ function tinyColumnConfig(neuronCount: number, baseX: number): ColumnConfig {
     baseX,
     baseY: 0,
     baseZ: 0,
-    internalPolicy: { p0: 0.0, lengthScale: 1.0, delayMin: 1, delayMax: 1, initialPermanence: 0.9 },
+    internalPolicy: {
+      p0: 0.0,
+      lengthScale: 1.0,
+      delayMin: 1,
+      delayMax: 1,
+      initialPermanence: 0.9,
+    },
     neighbourhoodSize: neuronCount,
     k: neuronCount,
     // No dendritic segments exercised by this fast-tier orchestration
@@ -34,27 +45,48 @@ function tinyColumnConfig(neuronCount: number, baseX: number): ColumnConfig {
 
 function actionDelta(action: Action): { x: number; y: number } {
   switch (action) {
-    case "up":
+    case 'up':
       return { x: 0, y: -1 };
-    case "down":
+    case 'down':
       return { x: 0, y: 1 };
-    case "left":
+    case 'left':
       return { x: -1, y: 0 };
-    case "right":
+    case 'right':
       return { x: 1, y: 0 };
   }
 }
 
-test("runReferenceFrameLoop closes: both columns get stimulated and position accumulates across steps", () => {
-  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
-  const options: SimulationOptions = { maxDelay: 2, connectionThreshold: 0.5, synapseCapPerNeuron: 1 };
+test('runReferenceFrameLoop closes: both columns get stimulated and position accumulates across steps', () => {
+  const lif: LifConfig = {
+    tauMTicks: 5,
+    vRest: 0,
+    vReset: 0,
+    refractoryTicks: 0,
+  };
+  const options: SimulationOptions = {
+    maxDelay: 2,
+    connectionThreshold: 0.5,
+    synapseCapPerNeuron: 1,
+  };
   const sim = Simulation.create(lif, options);
-  const handles = sim.buildColumns(1n, [tinyColumnConfig(8, 0), tinyColumnConfig(1, 1000)]);
+  const handles = sim.buildColumns(1n, [
+    tinyColumnConfig(8, 0),
+    tinyColumnConfig(1, 1000),
+  ]);
   const [locationColumn, sensoryColumn] = wrapColumnHandles(handles);
 
-  const world = new GridWorld({ width: 5, height: 5, seed: 1, symbols: ["."], startX: 2, startY: 2 });
-  const locationConfig: LocationEncoderConfig = { modules: [{ period: 4, width: 4, activeBits: 1 }] };
-  const actions: Action[] = ["right", "right", "down"];
+  const world = new GridWorld({
+    width: 5,
+    height: 5,
+    seed: 1,
+    symbols: ['.'],
+    startX: 2,
+    startY: 2,
+  });
+  const locationConfig: LocationEncoderConfig = {
+    modules: [{ period: 4, width: 4, activeBits: 1 }],
+  };
+  const actions: Action[] = ['right', 'right', 'down'];
   let i = 0;
 
   const gen = runReferenceFrameLoop(world, {
@@ -73,5 +105,13 @@ test("runReferenceFrameLoop closes: both columns get stimulated and position acc
     positions.push(gen.next().value!.position);
   }
 
-  assert.deepEqual(positions, [{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 1 }], "position must reflect the cumulative displacement of the actions taken so far, one action behind the yielded step (integrated after observing, before acting)");
+  assert.deepEqual(
+    positions,
+    [
+      { x: 1, y: 0 },
+      { x: 2, y: 0 },
+      { x: 2, y: 1 },
+    ],
+    'position must reflect the cumulative displacement of the actions taken so far, one action behind the yielded step (integrated after observing, before acting)',
+  );
 });

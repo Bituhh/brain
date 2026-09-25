@@ -49,21 +49,44 @@
 //
 // Run directly: `node scripts/investigate-b4-fix-parameters.ts`.
 
-import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { Worker } from "node:worker_threads";
-import { cpus } from "node:os";
-import type { PlasticityConfig, StructuralPlasticityConfig, SilentSynapsesConfig } from "@brain/core";
-import { assessMilestone, DEFAULT_CONFIG, type CharPredictionConfig, type TrialResult } from "../packages/io/src/milestone/charPrediction.ts";
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { Worker } from 'node:worker_threads';
+import { cpus } from 'node:os';
+import type {
+  PlasticityConfig,
+  StructuralPlasticityConfig,
+  SilentSynapsesConfig,
+} from '@brain/core';
+import {
+  assessMilestone,
+  DEFAULT_CONFIG,
+  type CharPredictionConfig,
+  type TrialResult,
+} from '../packages/io/src/milestone/charPrediction.ts';
 
-const RESULTS_PATH = fileURLToPath(new URL(process.env.B4_SMOKE === "1" ? "./investigate-b4-fix-parameters.smoke.md" : "./investigate-b4-fix-parameters.results.md", import.meta.url));
-const WORKER_PATH = fileURLToPath(new URL("./investigate-growth-regression.worker.ts", import.meta.url));
+const RESULTS_PATH = fileURLToPath(
+  new URL(
+    process.env.B4_SMOKE === '1'
+      ? './investigate-b4-fix-parameters.smoke.md'
+      : './investigate-b4-fix-parameters.results.md',
+    import.meta.url,
+  ),
+);
+const WORKER_PATH = fileURLToPath(
+  new URL('./investigate-growth-regression.worker.ts', import.meta.url),
+);
 const POOL_SIZE = Math.max(1, Math.min(cpus().length, 6));
 
 // `B4_SMOKE=1` runs every stage end to end on a tiny slice with one seed --
 // a plumbing check before committing hours of machine time, not a result.
-const SMOKE = process.env.B4_SMOKE === "1";
-const corpus = readFileSync(fileURLToPath(new URL("../packages/io/test/fixtures/corpus.txt", import.meta.url)), "utf8").slice(0, SMOKE ? 300 : 15_000);
+const SMOKE = process.env.B4_SMOKE === '1';
+const corpus = readFileSync(
+  fileURLToPath(
+    new URL('../packages/io/test/fixtures/corpus.txt', import.meta.url),
+  ),
+  'utf8',
+).slice(0, SMOKE ? 300 : 15_000);
 const OFFICIAL_SEEDS: readonly bigint[] = SMOKE ? [1n] : [1n, 2n, 3n, 4n, 5n];
 
 // --- the knobs this run varies -------------------------------------------
@@ -95,15 +118,23 @@ function structuralPlasticity(b4: B4): StructuralPlasticityConfig {
     minCrossPartitionDelay: 1,
     neighbourhoodSize: 100,
     k: 10,
-    ...(b4.maxGapTicks !== undefined && { minTemporalGapTicks: 1, maxTemporalGapTicks: b4.maxGapTicks }),
+    ...(b4.maxGapTicks !== undefined && {
+      minTemporalGapTicks: 1,
+      maxTemporalGapTicks: b4.maxGapTicks,
+    }),
     ...(b4.spread === true && { spreadSproutSegments: true, seed: 1n }),
-    ...(b4.eliminationTicks !== undefined && { silentEliminationTicks: b4.eliminationTicks }),
+    ...(b4.eliminationTicks !== undefined && {
+      silentEliminationTicks: b4.eliminationTicks,
+    }),
   };
 }
 
 function silentSynapses(b4: B4): SilentSynapsesConfig | undefined {
   if (b4.unsilenceWeight === undefined) return undefined;
-  return { unsilenceWeight: b4.unsilenceWeight, ...(b4.silentTransmits === true && { silentTransmits: true }) };
+  return {
+    unsilenceWeight: b4.unsilenceWeight,
+    ...(b4.silentTransmits === true && { silentTransmits: true }),
+  };
 }
 
 interface Stdp {
@@ -118,9 +149,17 @@ interface Stdp {
  * constant are the two swept here. `windowTicks` is 5x tau, the kernel's
  * own "negligible beyond this" cutoff convention.
  */
-function stdp(s: Stdp): Pick<CharPredictionConfig, "plasticity" | "tonicModulator"> {
+function stdp(
+  s: Stdp,
+): Pick<CharPredictionConfig, 'plasticity' | 'tonicModulator'> {
   const plasticity: PlasticityConfig = {
-    stdp: { aPlus: 0.01, aMinus: 0.01, tauPlus: s.tauTicks, tauMinus: s.tauTicks, windowTicks: 5 * s.tauTicks },
+    stdp: {
+      aPlus: 0.01,
+      aMinus: 0.01,
+      tauPlus: s.tauTicks,
+      tauMinus: s.tauTicks,
+      windowTicks: 5 * s.tauTicks,
+    },
     tauEligibilityTicks: 500,
     learningRate: s.learningRate,
     modulatorChannel: 1, // ACETYLCHOLINE
@@ -175,19 +214,28 @@ interface Result {
   readonly wallClockMs: number;
 }
 
-function runTrialInWorker(seed: bigint, config: CharPredictionConfig): Promise<{ result: TrialResult; wallClockMs: number }> {
+function runTrialInWorker(
+  seed: bigint,
+  config: CharPredictionConfig,
+): Promise<{ result: TrialResult; wallClockMs: number }> {
   return new Promise((resolve, reject) => {
     const t0 = Date.now();
-    const worker = new Worker(WORKER_PATH, { workerData: { corpus, seed, config } });
-    worker.once("message", (result: TrialResult) => {
+    const worker = new Worker(WORKER_PATH, {
+      workerData: { corpus, seed, config },
+    });
+    worker.once('message', (result: TrialResult) => {
       resolve({ result, wallClockMs: Date.now() - t0 });
       void worker.terminate();
     });
-    worker.once("error", reject);
+    worker.once('error', reject);
   });
 }
 
-async function runPool<T, R>(items: readonly T[], concurrency: number, run: (item: T) => Promise<R>): Promise<R[]> {
+async function runPool<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  run: (item: T) => Promise<R>,
+): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
   async function lane(): Promise<void> {
@@ -197,32 +245,59 @@ async function runPool<T, R>(items: readonly T[], concurrency: number, run: (ite
       results[i] = await run(items[i]!);
     }
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => lane()));
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => lane()),
+  );
   return results;
 }
 
-async function run(title: string, conditions: readonly Condition[]): Promise<Result[]> {
-  appendFileSync(RESULTS_PATH, `\n## ${title}\n\n| condition | mean network accuracy | per seed (1-5) | wall-clock (summed per-seed) |\n|---|---|---|---|\n`);
-  const jobs = conditions.flatMap((_condition, c) => OFFICIAL_SEEDS.map((seed) => ({ c, seed })));
-  console.log(`\n${title}: ${jobs.length} trials across up to ${POOL_SIZE} worker threads...`);
+async function run(
+  title: string,
+  conditions: readonly Condition[],
+): Promise<Result[]> {
+  appendFileSync(
+    RESULTS_PATH,
+    `\n## ${title}\n\n| condition | mean network accuracy | per seed (1-5) | wall-clock (summed per-seed) |\n|---|---|---|---|\n`,
+  );
+  const jobs = conditions.flatMap((_condition, c) =>
+    OFFICIAL_SEEDS.map((seed) => ({ c, seed })),
+  );
+  console.log(
+    `\n${title}: ${jobs.length} trials across up to ${POOL_SIZE} worker threads...`,
+  );
   const t0 = Date.now();
   const outcomes = await runPool(jobs, POOL_SIZE, async (job) => {
-    const { result, wallClockMs } = await runTrialInWorker(job.seed, conditions[job.c]!.config);
-    console.log(`  [${conditions[job.c]!.name}] seed ${job.seed}: ${(result.networkAccuracy * 100).toFixed(2)}% (${(wallClockMs / 1000).toFixed(1)}s)`);
+    const { result, wallClockMs } = await runTrialInWorker(
+      job.seed,
+      conditions[job.c]!.config,
+    );
+    console.log(
+      `  [${conditions[job.c]!.name}] seed ${job.seed}: ${(result.networkAccuracy * 100).toFixed(2)}% (${(wallClockMs / 1000).toFixed(1)}s)`,
+    );
     return { job, result, wallClockMs };
   });
   const results = conditions.map((condition, c) => {
-    const mine = outcomes.filter((o) => o.job.c === c).sort((a, b) => Number(a.job.seed - b.job.seed));
+    const mine = outcomes
+      .filter((o) => o.job.c === c)
+      .sort((a, b) => Number(a.job.seed - b.job.seed));
     const trials = mine.map((o) => o.result);
     const perSeed = trials.map((t) => t.networkAccuracy);
-    const result: Result = { name: condition.name, mean: assessMilestone(trials).meanNetworkAccuracy, perSeed, wallClockMs: mine.reduce((sum, o) => sum + o.wallClockMs, 0) };
+    const result: Result = {
+      name: condition.name,
+      mean: assessMilestone(trials).meanNetworkAccuracy,
+      perSeed,
+      wallClockMs: mine.reduce((sum, o) => sum + o.wallClockMs, 0),
+    };
     appendFileSync(
       RESULTS_PATH,
-      `| ${result.name} | ${pct(result.mean)} | ${result.perSeed.map(pct).join(", ")} | ${(result.wallClockMs / 1000).toFixed(1)}s |\n`,
+      `| ${result.name} | ${pct(result.mean)} | ${result.perSeed.map(pct).join(', ')} | ${(result.wallClockMs / 1000).toFixed(1)}s |\n`,
     );
     return result;
   });
-  appendFileSync(RESULTS_PATH, `\nBatch wall-clock: ${((Date.now() - t0) / 1000).toFixed(1)}s.\n`);
+  appendFileSync(
+    RESULTS_PATH,
+    `\nBatch wall-clock: ${((Date.now() - t0) / 1000).toFixed(1)}s.\n`,
+  );
   return results;
 }
 
@@ -248,22 +323,49 @@ function note(text: string): void {
 
 writeFileSync(
   RESULTS_PATH,
-  "# B4 fix-parameter sweep -- second pass\n\n" +
+  '# B4 fix-parameter sweep -- second pass\n\n' +
     `Generated ${new Date().toISOString()} by scripts/investigate-b4-fix-parameters.ts. See that script's header for the design, stages and selection rule, and docs/decisions.md decision 12 / docs/findings.md finding 10 for what the results mean. 5-seed official protocol (seeds 1-5, 15,000-character slice). Reference points from investigate-structural-plasticity-drag.ts: condition C control 6.40%, sprout disabled 16.51%, condition A (no structural plasticity) 17.37%.\n`,
 );
 
-const s01 = await run("Stages 0-2 (sanity; each fix alone with weights frozen; STDP settings on condition A)", [
-  { name: "S0 sanity: condition C, every fix off", config: conditionC(OFF) },
-  ...UNSILENCE_WEIGHTS.map((w) => ({ name: `S1 fix 1 alone, frozen: unsilenceWeight=${w}`, config: conditionC({ unsilenceWeight: w }) })),
-  ...MAX_GAPS.map((g) => ({ name: `S1 fix 2 alone, frozen: window 1..${g}`, config: conditionC({ maxGapTicks: g }) })),
-  { name: "S1 fix 3 alone, frozen: segment spread on", config: conditionC({ spread: true }) },
-  ...ELIMINATION_TICKS.map((e) => ({
-    name: `S1 fix 4 alone, frozen: eliminate after ${e} ticks silent (silence tracked, not gated)`,
-    config: conditionC({ unsilenceWeight: TRACK_ONLY_UNSILENCE, silentTransmits: true, eliminationTicks: e }),
-  })),
-  { name: "S2 condition A, weights frozen (sanity vs 17.37%)", config: conditionA() },
-  ...STDP_CANDIDATES.map((c) => ({ name: `S2 condition A + STDP: lr=${c.learningRate}, tau=${c.tauTicks}`, config: conditionA(c) })),
-]);
-const s1Fix2 = s01.slice(1 + UNSILENCE_WEIGHTS.length, 1 + UNSILENCE_WEIGHTS.length + MAX_GAPS.length);
+const s01 = await run(
+  'Stages 0-2 (sanity; each fix alone with weights frozen; STDP settings on condition A)',
+  [
+    { name: 'S0 sanity: condition C, every fix off', config: conditionC(OFF) },
+    ...UNSILENCE_WEIGHTS.map((w) => ({
+      name: `S1 fix 1 alone, frozen: unsilenceWeight=${w}`,
+      config: conditionC({ unsilenceWeight: w }),
+    })),
+    ...MAX_GAPS.map((g) => ({
+      name: `S1 fix 2 alone, frozen: window 1..${g}`,
+      config: conditionC({ maxGapTicks: g }),
+    })),
+    {
+      name: 'S1 fix 3 alone, frozen: segment spread on',
+      config: conditionC({ spread: true }),
+    },
+    ...ELIMINATION_TICKS.map((e) => ({
+      name: `S1 fix 4 alone, frozen: eliminate after ${e} ticks silent (silence tracked, not gated)`,
+      config: conditionC({
+        unsilenceWeight: TRACK_ONLY_UNSILENCE,
+        silentTransmits: true,
+        eliminationTicks: e,
+      }),
+    })),
+    {
+      name: 'S2 condition A, weights frozen (sanity vs 17.37%)',
+      config: conditionA(),
+    },
+    ...STDP_CANDIDATES.map((c) => ({
+      name: `S2 condition A + STDP: lr=${c.learningRate}, tau=${c.tauTicks}`,
+      config: conditionA(c),
+    })),
+  ],
+);
+const s1Fix2 = s01.slice(
+  1 + UNSILENCE_WEIGHTS.length,
+  1 + UNSILENCE_WEIGHTS.length + MAX_GAPS.length,
+);
 note(`Frozen-weight best window (fix 2 alone): 1..${best(s1Fix2, MAX_GAPS)}.`);
-note("Stages 3-4 are superseded by scripts/tune-b4-values.ts (see this script's header).");
+note(
+  "Stages 3-4 are superseded by scripts/tune-b4-values.ts (see this script's header).",
+);

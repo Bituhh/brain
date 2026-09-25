@@ -25,8 +25,15 @@
 // supplies its own hooks and gets full type safety, while B4's own callers
 // need not specify anything and see no change at all.
 
-import { ALL_FIXES, conditionLabel as b4ConditionLabel, NO_FIXES, searchCondition, type Condition, type Fixes } from "./conditions.ts";
-import { pointKey, type ParamName, type Point, type Space } from "./space.ts";
+import {
+  ALL_FIXES,
+  conditionLabel as b4ConditionLabel,
+  NO_FIXES,
+  searchCondition,
+  type Condition,
+  type Fixes,
+} from './conditions.ts';
+import { pointKey, type ParamName, type Point, type Space } from './space.ts';
 
 export interface Budget {
   readonly screenConfigs: number;
@@ -69,7 +76,10 @@ export interface EvalRequest<TCondition = Condition> {
 export type Evaluation = ReadonlyMap<bigint, number | undefined>;
 
 /** Runs (or recalls) every request, then returns each condition's per-seed results, keyed by the caller's own `conditionLabel`. */
-export type Evaluate<TCondition = Condition> = (stage: string, requests: readonly EvalRequest<TCondition>[]) => Promise<(condition: TCondition) => Evaluation>;
+export type Evaluate<TCondition = Condition> = (
+  stage: string,
+  requests: readonly EvalRequest<TCondition>[],
+) => Promise<(condition: TCondition) => Evaluation>;
 
 export interface Scored<N extends string = ParamName> {
   readonly point: Point<N>;
@@ -109,20 +119,31 @@ export interface SearchOutcome<N extends string = ParamName, TCombo = Fixes> {
   readonly promoted: readonly Scored<N>[];
   readonly hillChecks: readonly HillCheck<N>[];
   readonly refinement: readonly RefinementStep<N>[];
-  readonly finalists: readonly { readonly selection: Scored<N>; readonly heldOut: Scored<N> | undefined }[];
+  readonly finalists: readonly {
+    readonly selection: Scored<N>;
+    readonly heldOut: Scored<N> | undefined;
+  }[];
   readonly winner:
     | {
         readonly point: Point<N>;
         readonly heldOut: Scored<N>;
         /** The honest estimate of the winner's accuracy. */
         readonly confirm: Scored<N> | undefined;
-        readonly runnerUp: { readonly heldOut: Scored<N>; readonly confirm: Scored<N> | undefined } | undefined;
+        readonly runnerUp:
+          | {
+              readonly heldOut: Scored<N>;
+              readonly confirm: Scored<N> | undefined;
+            }
+          | undefined;
         /** Beat the runner-up on at least `clearWinSeeds` confirmation seeds. */
         readonly clear: boolean;
       }
     | undefined;
   readonly factorial: readonly FactorialRow<N, TCombo>[];
-  readonly references: readonly { readonly name: string; readonly confirm: Scored<N> | undefined }[];
+  readonly references: readonly {
+    readonly name: string;
+    readonly confirm: Scored<N> | undefined;
+  }[];
   /** Points dropped from ranking because a trial failed. */
   readonly failed: readonly string[];
 }
@@ -134,12 +155,15 @@ export function mean(values: readonly number[]): number {
 /** Seeds (paired by seed) on which `a` scored strictly higher than `b`. */
 export function pairedWins(a: readonly number[], b: readonly number[]): number {
   let wins = 0;
-  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i]! > b[i]!) wins++;
+  for (let i = 0; i < Math.min(a.length, b.length); i++)
+    if (a[i]! > b[i]!) wins++;
   return wins;
 }
 
 /** Highest mean first; points whose trial failed are dropped by the caller. Ties keep their existing order, which is deterministic. */
-export function rank<N extends string = ParamName>(scored: readonly Scored<N>[]): Scored<N>[] {
+export function rank<N extends string = ParamName>(
+  scored: readonly Scored<N>[],
+): Scored<N>[] {
   return [...scored].sort((a, b) => b.mean - a.mean);
 }
 
@@ -160,7 +184,11 @@ export const HILL_CHECK_FRACTIONS: readonly number[] = [1 / 3, 2 / 3];
  * shallower than the noise). The first is the safer error, so the comparison
  * is strict with no tolerance.
  */
-export function hasValley(endA: number, endB: number, interior: readonly number[]): boolean {
+export function hasValley(
+  endA: number,
+  endB: number,
+  interior: readonly number[],
+): boolean {
   const floor = Math.min(endA, endB);
   return interior.some((value) => value < floor);
 }
@@ -169,13 +197,19 @@ export function hasValley(endA: number, endB: number, interior: readonly number[
 export function allFixCombinations(): Fixes[] {
   const out: Fixes[] = [];
   for (let mask = 0; mask < 16; mask++) {
-    out.push({ silentGate: (mask & 1) !== 0, timingWindow: (mask & 2) !== 0, spread: (mask & 4) !== 0, elimination: (mask & 8) !== 0 });
+    out.push({
+      silentGate: (mask & 1) !== 0,
+      timingWindow: (mask & 2) !== 0,
+      spread: (mask & 4) !== 0,
+      elimination: (mask & 8) !== 0,
+    });
   }
   return out;
 }
 
 function b4FixCount(f: Fixes): number {
-  return [f.silentGate, f.timingWindow, f.spread, f.elimination].filter(Boolean).length;
+  return [f.silentGate, f.timingWindow, f.spread, f.elimination].filter(Boolean)
+    .length;
 }
 
 /**
@@ -187,13 +221,20 @@ function b4FixCount(f: Fixes): number {
  * no winner was found) and a fallback point (the first screened point) to
  * attach reference conditions to when there is no winner to attach them to.
  */
-export interface SearchHooks<N extends string = ParamName, TCondition = Condition, TCombo = Fixes> {
+export interface SearchHooks<
+  N extends string = ParamName,
+  TCondition = Condition,
+  TCombo = Fixes,
+> {
   readonly toCondition: (point: Point<N>) => TCondition;
   readonly conditionLabel: (condition: TCondition) => string;
   readonly factorialCombos: readonly TCombo[];
   readonly toFactorialCondition: (point: Point<N>, combo: TCombo) => TCondition;
   readonly isFactorialConfirmRow: (combo: TCombo) => boolean;
-  readonly references: (winnerPoint: Point<N> | undefined, fallbackPoint: Point<N>) => readonly { readonly name: string; readonly condition: TCondition }[];
+  readonly references: (
+    winnerPoint: Point<N> | undefined,
+    fallbackPoint: Point<N>,
+  ) => readonly { readonly name: string; readonly condition: TCondition }[];
 }
 
 /** PLAN.md B4's own hooks -- `runSearch`'s default, so every pre-B5 call site is unaffected. */
@@ -202,30 +243,60 @@ export function defaultB4Hooks(): SearchHooks<ParamName, Condition, Fixes> {
     toCondition: searchCondition,
     conditionLabel: b4ConditionLabel,
     factorialCombos: allFixCombinations(),
-    toFactorialCondition: (point, fixes) => ({ kind: "C", point, fixes }),
+    toFactorialCondition: (point, fixes) => ({ kind: 'C', point, fixes }),
     // The rows that answer "what does each fix do": all off, each alone, all on, and all but each.
     isFactorialConfirmRow: (fixes) => [0, 1, 3, 4].includes(b4FixCount(fixes)),
     references: (winnerPoint) => [
-      { name: "condition C, every fix off, weights frozen (pre-B4 control)", condition: { kind: "C-off-frozen" } },
-      { name: "condition C, sprouting disabled, weights frozen", condition: { kind: "sprout-disabled-frozen" } },
-      { name: "condition A, no structural plasticity, weights frozen", condition: { kind: "A-frozen" } },
+      {
+        name: 'condition C, every fix off, weights frozen (pre-B4 control)',
+        condition: { kind: 'C-off-frozen' },
+      },
+      {
+        name: 'condition C, sprouting disabled, weights frozen',
+        condition: { kind: 'sprout-disabled-frozen' },
+      },
+      {
+        name: 'condition A, no structural plasticity, weights frozen',
+        condition: { kind: 'A-frozen' },
+      },
       ...(winnerPoint !== undefined
-        ? [{ name: "the winner's exact config with sprouting disabled (does sprouting beat not sprouting, same STDP?)", condition: { kind: "sprout-disabled-at" as const, point: winnerPoint } }]
+        ? [
+            {
+              name: "the winner's exact config with sprouting disabled (does sprouting beat not sprouting, same STDP?)",
+              condition: {
+                kind: 'sprout-disabled-at' as const,
+                point: winnerPoint,
+              },
+            },
+          ]
         : []),
     ],
   };
 }
 
-export async function runSearch<N extends string = ParamName, TCondition = Condition, TCombo = Fixes>(
+export async function runSearch<
+  N extends string = ParamName,
+  TCondition = Condition,
+  TCombo = Fixes,
+>(
   space: Space<N>,
   budget: Budget,
   evaluate: Evaluate<TCondition>,
   log: (line: string) => void,
-  hooks: SearchHooks<N, TCondition, TCombo> = defaultB4Hooks() as unknown as SearchHooks<N, TCondition, TCombo>,
+  hooks: SearchHooks<
+    N,
+    TCondition,
+    TCombo
+  > = defaultB4Hooks() as unknown as SearchHooks<N, TCondition, TCombo>,
 ): Promise<SearchOutcome<N, TCombo>> {
   const failed = new Set<string>();
 
-  const score = (condition: TCondition, point: Point<N>, seeds: readonly bigint[], results: (c: TCondition) => Evaluation): Scored<N> | undefined => {
+  const score = (
+    condition: TCondition,
+    point: Point<N>,
+    seeds: readonly bigint[],
+    results: (c: TCondition) => Evaluation,
+  ): Scored<N> | undefined => {
     const byseed = results(condition);
     const perSeed: number[] = [];
     for (const seed of seeds) {
@@ -239,33 +310,62 @@ export async function runSearch<N extends string = ParamName, TCondition = Condi
     return { point, perSeed, mean: mean(perSeed) };
   };
 
-  const evaluatePoints = async (stage: string, points: readonly Point<N>[], seeds: readonly bigint[]): Promise<Scored<N>[]> => {
-    const requests = points.flatMap((point) => seeds.map((seed) => ({ condition: hooks.toCondition(point), seed })));
+  const evaluatePoints = async (
+    stage: string,
+    points: readonly Point<N>[],
+    seeds: readonly bigint[],
+  ): Promise<Scored<N>[]> => {
+    const requests = points.flatMap((point) =>
+      seeds.map((seed) => ({ condition: hooks.toCondition(point), seed })),
+    );
     const results = await evaluate(stage, requests);
-    return points.map((point) => score(hooks.toCondition(point), point, seeds, results)).filter((s): s is Scored<N> => s !== undefined);
+    return points
+      .map((point) => score(hooks.toCondition(point), point, seeds, results))
+      .filter((s): s is Scored<N> => s !== undefined);
   };
 
-  const pct = (x: number | undefined) => (x === undefined ? "n/a" : `${(x * 100).toFixed(2)}%`);
+  const pct = (x: number | undefined) =>
+    x === undefined ? 'n/a' : `${(x * 100).toFixed(2)}%`;
 
   // 1. screen
   const sample = space.sample(budget.screenConfigs, budget.sampleSeed);
-  log(`[stage] screen: ${sample.length} configurations x ${budget.screenSeeds.length} seeds`);
-  const screened = rank(await evaluatePoints("screen", sample, budget.screenSeeds));
-  log(`[stage] screen done: best ${screened[0] ? pct(screened[0].mean) : "n/a"}, worst ${screened.at(-1) ? pct(screened.at(-1)!.mean) : "n/a"}`);
+  log(
+    `[stage] screen: ${sample.length} configurations x ${budget.screenSeeds.length} seeds`,
+  );
+  const screened = rank(
+    await evaluatePoints('screen', sample, budget.screenSeeds),
+  );
+  log(
+    `[stage] screen done: best ${screened[0] ? pct(screened[0].mean) : 'n/a'}, worst ${screened.at(-1) ? pct(screened.at(-1)!.mean) : 'n/a'}`,
+  );
 
   // 2. promote
   const toPromote = screened.slice(0, budget.promoteTop).map((s) => s.point);
-  log(`[stage] promote: top ${toPromote.length} to ${budget.fullSeeds.length} seeds`);
-  const promoted = rank(await evaluatePoints("promote", toPromote, budget.fullSeeds));
+  log(
+    `[stage] promote: top ${toPromote.length} to ${budget.fullSeeds.length} seeds`,
+  );
+  const promoted = rank(
+    await evaluatePoints('promote', toPromote, budget.fullSeeds),
+  );
 
   // Every point with a full-seed score, by key -- refinement adds to it.
-  const full = new Map<string, Scored<N>>(promoted.map((s) => [pointKey(s.point), s]));
+  const full = new Map<string, Scored<N>>(
+    promoted.map((s) => [pointKey(s.point), s]),
+  );
 
   // Screen-seed means, which every point on a hill check is compared on
   // (comparing a 5-seed mean against a 2-seed one would mix in seed luck).
-  const onScreenSeeds = async (stage: string, points: readonly Point<N>[]): Promise<Map<string, number>> => {
+  const onScreenSeeds = async (
+    stage: string,
+    points: readonly Point<N>[],
+  ): Promise<Map<string, number>> => {
     const unique = [...new Map(points.map((p) => [pointKey(p), p])).values()];
-    return new Map((await evaluatePoints(stage, unique, budget.screenSeeds)).map((s) => [pointKey(s.point), s.mean]));
+    return new Map(
+      (await evaluatePoints(stage, unique, budget.screenSeeds)).map((s) => [
+        pointKey(s.point),
+        s.mean,
+      ]),
+    );
   };
 
   // 3. refine: climb from distinct hills. Candidates are the promoted points
@@ -279,24 +379,45 @@ export async function runSearch<N extends string = ParamName, TCondition = Condi
   const tops: { climb: number; top: Scored<N> }[] = [];
   const reachedBy = new Map<string, number>(); // point key -> climb number
   let climbs = 0;
-  log(`[stage] refine: up to ${budget.refineStarts} distinct hills from ${promoted.length} promoted points, at most ${budget.maxHillChecks} hill checks`);
+  log(
+    `[stage] refine: up to ${budget.refineStarts} distinct hills from ${promoted.length} promoted points, at most ${budget.maxHillChecks} hill checks`,
+  );
   for (const candidate of promoted) {
     if (tops.length >= budget.refineStarts) break;
     if (reachedBy.has(pointKey(candidate.point))) continue; // on an earlier climb's path: same hill, no check needed
     if (tops.length > 0) {
       if (hillChecks.length >= budget.maxHillChecks) {
-        log(`[stage] refine: hill-check budget spent after ${hillChecks.length} checks -- ${tops.length} distinct hills found`);
+        log(
+          `[stage] refine: hill-check budget spent after ${hillChecks.length} checks -- ${tops.length} distinct hills found`,
+        );
         break;
       }
       const stage = `refine hill check ${hillChecks.length + 1}/${budget.maxHillChecks}`;
-      const lines = tops.map(({ climb, top }) => ({ climb, top, interior: HILL_CHECK_FRACTIONS.map((f) => space.between(candidate.point, top.point, f)).filter((p) => pointKey(p) !== pointKey(candidate.point) && pointKey(p) !== pointKey(top.point)) }));
-      log(`[stage] ${stage}: is ${pct(candidate.mean)} on a different hill from climb ${tops.map((t) => `${t.climb} (top ${pct(t.top.mean)})`).join(", climb ")}?`);
-      const means = await onScreenSeeds(stage, lines.flatMap((l) => [candidate.point, l.top.point, ...l.interior]));
+      const lines = tops.map(({ climb, top }) => ({
+        climb,
+        top,
+        interior: HILL_CHECK_FRACTIONS.map((f) =>
+          space.between(candidate.point, top.point, f),
+        ).filter(
+          (p) =>
+            pointKey(p) !== pointKey(candidate.point) &&
+            pointKey(p) !== pointKey(top.point),
+        ),
+      }));
+      log(
+        `[stage] ${stage}: is ${pct(candidate.mean)} on a different hill from climb ${tops.map((t) => `${t.climb} (top ${pct(t.top.mean)})`).join(', climb ')}?`,
+      );
+      const means = await onScreenSeeds(
+        stage,
+        lines.flatMap((l) => [candidate.point, l.top.point, ...l.interior]),
+      );
       let sameHillAs: number | undefined;
       for (const { climb, top, interior } of lines) {
         const a = means.get(pointKey(candidate.point));
         const b = means.get(pointKey(top.point));
-        const inside = interior.map((p) => means.get(pointKey(p))).filter((m): m is number => m !== undefined);
+        const inside = interior
+          .map((p) => means.get(pointKey(p)))
+          .filter((m): m is number => m !== undefined);
         // Adjacent points (nothing strictly between them) are one hill; so,
         // conservatively, is a check whose ends failed to evaluate.
         if (a === undefined || b === undefined || !hasValley(a, b, inside)) {
@@ -304,12 +425,20 @@ export async function runSearch<N extends string = ParamName, TCondition = Condi
           break;
         }
       }
-      hillChecks.push({ candidate, against: tops.map((t) => t.climb), sameHillAs });
+      hillChecks.push({
+        candidate,
+        against: tops.map((t) => t.climb),
+        sameHillAs,
+      });
       if (sameHillAs !== undefined) {
-        log(`[stage] ${stage}: no valley between it and climb ${sameHillAs}'s top -- same hill, skipped`);
+        log(
+          `[stage] ${stage}: no valley between it and climb ${sameHillAs}'s top -- same hill, skipped`,
+        );
         continue;
       }
-      log(`[stage] ${stage}: a valley separates it from every climb so far -- a new hill`);
+      log(
+        `[stage] ${stage}: a valley separates it from every climb so far -- a new hill`,
+      );
     }
     climbs++;
     const climb = climbs;
@@ -317,14 +446,33 @@ export async function runSearch<N extends string = ParamName, TCondition = Condi
     let merged: number | undefined;
     reachedBy.set(pointKey(current.point), climb);
     for (let round = 1; round <= budget.refineRounds; round++) {
-      const neighbours = space.neighbours(current.point).filter((p) => !full.has(pointKey(p)));
+      const neighbours = space
+        .neighbours(current.point)
+        .filter((p) => !full.has(pointKey(p)));
       const stage = `refine climb ${climb} (hill ${tops.length + 1}/${budget.refineStarts}) round ${round}/${budget.refineRounds}`;
-      log(`[stage] ${stage}: ${neighbours.length} new neighbours of ${pct(current.mean)} screened on ${budget.screenSeeds.length} seeds`);
-      const screenedNeighbours = rank(await evaluatePoints(`${stage} (screen)`, neighbours, budget.screenSeeds));
-      const promotedNeighbours = await evaluatePoints(`${stage} (promote)`, screenedNeighbours.slice(0, budget.neighbourPromote).map((s) => s.point), budget.fullSeeds);
+      log(
+        `[stage] ${stage}: ${neighbours.length} new neighbours of ${pct(current.mean)} screened on ${budget.screenSeeds.length} seeds`,
+      );
+      const screenedNeighbours = rank(
+        await evaluatePoints(
+          `${stage} (screen)`,
+          neighbours,
+          budget.screenSeeds,
+        ),
+      );
+      const promotedNeighbours = await evaluatePoints(
+        `${stage} (promote)`,
+        screenedNeighbours
+          .slice(0, budget.neighbourPromote)
+          .map((s) => s.point),
+        budget.fullSeeds,
+      );
       for (const s of promotedNeighbours) full.set(pointKey(s.point), s);
       // Already-scored neighbours (from promotion or earlier climbs) compete too.
-      const known = space.neighbours(current.point).map((p) => full.get(pointKey(p))).filter((s): s is Scored<N> => s !== undefined);
+      const known = space
+        .neighbours(current.point)
+        .map((p) => full.get(pointKey(p)))
+        .filter((s): s is Scored<N> => s !== undefined);
       // Moves on a higher mean alone. Also requiring wins on 3 or 4 of the 5
       // seeds one by one was simulated (noisy synthetic landscapes, 12 runs
       // each): 3 of 5 changed nothing, 4 of 5 found worse peaks.
@@ -332,13 +480,25 @@ export async function runSearch<N extends string = ParamName, TCondition = Condi
       const moved = best !== undefined && best.mean > current.mean;
       const owner = moved ? reachedBy.get(pointKey(best.point)) : undefined;
       if (moved && owner !== undefined && owner !== climb) merged = owner;
-      refinement.push({ start: climb, round, from: current.point, fromMean: current.mean, to: moved ? best.point : undefined, toMean: best?.mean, ...(merged !== undefined && { mergedInto: merged }) });
+      refinement.push({
+        start: climb,
+        round,
+        from: current.point,
+        fromMean: current.mean,
+        to: moved ? best.point : undefined,
+        toMean: best?.mean,
+        ...(merged !== undefined && { mergedInto: merged }),
+      });
       if (!moved) {
-        log(`[stage] ${stage}: no neighbour beats ${pct(current.mean)} -- this hill's top`);
+        log(
+          `[stage] ${stage}: no neighbour beats ${pct(current.mean)} -- this hill's top`,
+        );
         break;
       }
       if (merged !== undefined) {
-        log(`[stage] ${stage}: stepped onto climb ${merged}'s path -- same hill after all, stopped`);
+        log(
+          `[stage] ${stage}: stepped onto climb ${merged}'s path -- same hill after all, stopped`,
+        );
         break;
       }
       log(`[stage] ${stage}: moved ${pct(current.mean)} -> ${pct(best.mean)}`);
@@ -352,27 +512,65 @@ export async function runSearch<N extends string = ParamName, TCondition = Condi
   // beats every scored point on its hill, since a climb only stops where no
   // neighbour is better and candidates are climbed in rank order. The held-out
   // seeds choose the winner and runner-up among them; nothing else.
-  const finalistSelection = rank(tops.map((t) => t.top)).slice(0, budget.finalists);
-  log(`[stage] held-out: ${finalistSelection.length} finalists on seeds ${budget.heldOutSeeds.join(",")}`);
-  const heldOutScores = await evaluatePoints("held-out finalists", finalistSelection.map((s) => s.point), budget.heldOutSeeds);
-  const heldOutByKey = new Map(heldOutScores.map((s) => [pointKey(s.point), s]));
-  const finalists = finalistSelection.map((selection) => ({ selection, heldOut: heldOutByKey.get(pointKey(selection.point)) }));
+  const finalistSelection = rank(tops.map((t) => t.top)).slice(
+    0,
+    budget.finalists,
+  );
+  log(
+    `[stage] held-out: ${finalistSelection.length} finalists on seeds ${budget.heldOutSeeds.join(',')}`,
+  );
+  const heldOutScores = await evaluatePoints(
+    'held-out finalists',
+    finalistSelection.map((s) => s.point),
+    budget.heldOutSeeds,
+  );
+  const heldOutByKey = new Map(
+    heldOutScores.map((s) => [pointKey(s.point), s]),
+  );
+  const finalists = finalistSelection.map((selection) => ({
+    selection,
+    heldOut: heldOutByKey.get(pointKey(selection.point)),
+  }));
   const [top, second] = rank(heldOutScores);
 
   // 4b. confirm the winner and runner-up on seeds never used to choose.
-  let winner: SearchOutcome<N, TCombo>["winner"];
+  let winner: SearchOutcome<N, TCombo>['winner'];
   if (top === undefined) {
-    log("[stage] held-out: no finalist completed -- nothing to choose");
+    log('[stage] held-out: no finalist completed -- nothing to choose');
   } else {
-    log(`[stage] confirm: winner (held-out ${pct(top.mean)})${second ? ` and runner-up (held-out ${pct(second.mean)})` : ""} on seeds ${budget.confirmSeeds.join(",")}`);
-    const confirmScores = await evaluatePoints("confirm", [top, ...(second ? [second] : [])].map((s) => s.point), budget.confirmSeeds);
-    const confirmOf = (s: Scored<N>) => confirmScores.find((c) => pointKey(c.point) === pointKey(s.point));
+    log(
+      `[stage] confirm: winner (held-out ${pct(top.mean)})${second ? ` and runner-up (held-out ${pct(second.mean)})` : ''} on seeds ${budget.confirmSeeds.join(',')}`,
+    );
+    const confirmScores = await evaluatePoints(
+      'confirm',
+      [top, ...(second ? [second] : [])].map((s) => s.point),
+      budget.confirmSeeds,
+    );
+    const confirmOf = (s: Scored<N>) =>
+      confirmScores.find((c) => pointKey(c.point) === pointKey(s.point));
     const winnerConfirm = confirmOf(top);
     const runnerUpConfirm = second ? confirmOf(second) : undefined;
-    const clear = second === undefined || (winnerConfirm !== undefined && runnerUpConfirm !== undefined && pairedWins(winnerConfirm.perSeed, runnerUpConfirm.perSeed) >= budget.clearWinSeeds);
-    winner = { point: top.point, heldOut: top, confirm: winnerConfirm, runnerUp: second ? { heldOut: second, confirm: runnerUpConfirm } : undefined, clear };
-    const shown = winnerConfirm ? pct(winnerConfirm.mean) : "n/a (trial failed)";
-    log(`[stage] confirm: winner ${shown} on confirmation seeds${runnerUpConfirm ? `, runner-up ${pct(runnerUpConfirm.mean)}` : ""}${clear ? "" : " -- NOT a clear win over the runner-up; reported as a tie"}`);
+    const clear =
+      second === undefined ||
+      (winnerConfirm !== undefined &&
+        runnerUpConfirm !== undefined &&
+        pairedWins(winnerConfirm.perSeed, runnerUpConfirm.perSeed) >=
+          budget.clearWinSeeds);
+    winner = {
+      point: top.point,
+      heldOut: top,
+      confirm: winnerConfirm,
+      runnerUp: second
+        ? { heldOut: second, confirm: runnerUpConfirm }
+        : undefined,
+      clear,
+    };
+    const shown = winnerConfirm
+      ? pct(winnerConfirm.mean)
+      : 'n/a (trial failed)';
+    log(
+      `[stage] confirm: winner ${shown} on confirmation seeds${runnerUpConfirm ? `, runner-up ${pct(runnerUpConfirm.mean)}` : ''}${clear ? '' : ' -- NOT a clear win over the runner-up; reported as a tie'}`,
+    );
   }
 
   // 5. factorial of the caller's own combos at the winner's point (B4: the four fixes)
@@ -380,13 +578,33 @@ export async function runSearch<N extends string = ParamName, TCondition = Condi
   if (winner !== undefined) {
     const at = winner.point;
     const combos = hooks.factorialCombos;
-    const conditions = combos.map((combo) => hooks.toFactorialCondition(at, combo));
-    log(`[stage] factorial: ${combos.length} combinations x ${budget.fullSeeds.length} seeds`);
-    const selectionResults = await evaluate("factorial", conditions.flatMap((condition) => budget.fullSeeds.map((seed) => ({ condition, seed }))));
-    const confirmCombos = combos.filter((combo) => hooks.isFactorialConfirmRow(combo));
-    const confirmConditions = confirmCombos.map((combo) => hooks.toFactorialCondition(at, combo));
-    log(`[stage] factorial confirm: ${confirmConditions.length} rows x ${budget.confirmSeeds.length} seeds`);
-    const confirmResults = await evaluate("factorial confirm", confirmConditions.flatMap((condition) => budget.confirmSeeds.map((seed) => ({ condition, seed }))));
+    const conditions = combos.map((combo) =>
+      hooks.toFactorialCondition(at, combo),
+    );
+    log(
+      `[stage] factorial: ${combos.length} combinations x ${budget.fullSeeds.length} seeds`,
+    );
+    const selectionResults = await evaluate(
+      'factorial',
+      conditions.flatMap((condition) =>
+        budget.fullSeeds.map((seed) => ({ condition, seed })),
+      ),
+    );
+    const confirmCombos = combos.filter((combo) =>
+      hooks.isFactorialConfirmRow(combo),
+    );
+    const confirmConditions = confirmCombos.map((combo) =>
+      hooks.toFactorialCondition(at, combo),
+    );
+    log(
+      `[stage] factorial confirm: ${confirmConditions.length} rows x ${budget.confirmSeeds.length} seeds`,
+    );
+    const confirmResults = await evaluate(
+      'factorial confirm',
+      confirmConditions.flatMap((condition) =>
+        budget.confirmSeeds.map((seed) => ({ condition, seed })),
+      ),
+    );
     for (let i = 0; i < combos.length; i++) {
       const combo = combos[i]!;
       const condition = conditions[i]!;
@@ -394,7 +612,9 @@ export async function runSearch<N extends string = ParamName, TCondition = Condi
       factorial.push({
         fixes: combo,
         selection: score(condition, at, budget.fullSeeds, selectionResults),
-        confirm: isConfirmRow ? score(condition, at, budget.confirmSeeds, confirmResults) : undefined,
+        confirm: isConfirmRow
+          ? score(condition, at, budget.confirmSeeds, confirmResults)
+          : undefined,
       });
     }
   }
@@ -402,11 +622,36 @@ export async function runSearch<N extends string = ParamName, TCondition = Condi
   // 6. references on the confirmation seeds
   const placeholder = winner?.point ?? sample[0]!;
   const referenceConditions = hooks.references(winner?.point, placeholder);
-  log(`[stage] references: ${referenceConditions.length} x ${budget.confirmSeeds.length} confirmation seeds`);
-  const referenceResults = await evaluate("references", referenceConditions.flatMap(({ condition }) => budget.confirmSeeds.map((seed) => ({ condition, seed }))));
-  const references = referenceConditions.map(({ name, condition }) => ({ name, confirm: score(condition, placeholder, budget.confirmSeeds, referenceResults) }));
+  log(
+    `[stage] references: ${referenceConditions.length} x ${budget.confirmSeeds.length} confirmation seeds`,
+  );
+  const referenceResults = await evaluate(
+    'references',
+    referenceConditions.flatMap(({ condition }) =>
+      budget.confirmSeeds.map((seed) => ({ condition, seed })),
+    ),
+  );
+  const references = referenceConditions.map(({ name, condition }) => ({
+    name,
+    confirm: score(
+      condition,
+      placeholder,
+      budget.confirmSeeds,
+      referenceResults,
+    ),
+  }));
 
-  return { screened, promoted, hillChecks, refinement, finalists, winner, factorial, references, failed: [...failed] };
+  return {
+    screened,
+    promoted,
+    hillChecks,
+    refinement,
+    finalists,
+    winner,
+    factorial,
+    references,
+    failed: [...failed],
+  };
 }
 
 export { ALL_FIXES, NO_FIXES };

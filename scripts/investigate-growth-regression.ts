@@ -106,11 +106,16 @@
 // grown-neuron spike tick) every ~1,500 characters, written as its own
 // table per condition.
 
-import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { Worker } from "node:worker_threads";
-import { cpus } from "node:os";
-import type { GrowthConfig, StructuralPlasticityConfig, NewbornMaturationConfig, Simulation } from "@brain/core";
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { Worker } from 'node:worker_threads';
+import { cpus } from 'node:os';
+import type {
+  GrowthConfig,
+  StructuralPlasticityConfig,
+  NewbornMaturationConfig,
+  Simulation,
+} from '@brain/core';
 import {
   assessMilestone,
   buildNetwork,
@@ -118,15 +123,28 @@ import {
   NETWORK_WIDTH,
   type CharPredictionConfig,
   type TrialResult,
-} from "../packages/io/src/milestone/charPrediction.ts";
-import { encodeChar, SUPPORTED_ALPHABET, type CharEncoderConfig } from "../packages/io/src/encoders/text.ts";
-import { rankByOverlapFraction, type Candidate } from "../packages/io/src/decoders/overlap.ts";
-import { streamThrough } from "../packages/io/src/harness/stream.ts";
-import { SlidingWindowAccuracy } from "../packages/io/src/metrics.ts";
+} from '../packages/io/src/milestone/charPrediction.ts';
+import {
+  encodeChar,
+  SUPPORTED_ALPHABET,
+  type CharEncoderConfig,
+} from '../packages/io/src/encoders/text.ts';
+import {
+  rankByOverlapFraction,
+  type Candidate,
+} from '../packages/io/src/decoders/overlap.ts';
+import { streamThrough } from '../packages/io/src/harness/stream.ts';
+import { SlidingWindowAccuracy } from '../packages/io/src/metrics.ts';
 
-const RESULTS_PATH = fileURLToPath(new URL("./investigate-growth-regression.results.md", import.meta.url));
-const SAMPLES_PATH = fileURLToPath(new URL("./investigate-growth-regression.samples.md", import.meta.url));
-const WORKER_PATH = fileURLToPath(new URL("./investigate-growth-regression.worker.ts", import.meta.url));
+const RESULTS_PATH = fileURLToPath(
+  new URL('./investigate-growth-regression.results.md', import.meta.url),
+);
+const SAMPLES_PATH = fileURLToPath(
+  new URL('./investigate-growth-regression.samples.md', import.meta.url),
+);
+const WORKER_PATH = fileURLToPath(
+  new URL('./investigate-growth-regression.worker.ts', import.meta.url),
+);
 
 // Empirically capped, not `cpus().length` (20 logical on this machine):
 // a first attempt at pool size 20 stalled hard -- CPU telemetry showed
@@ -144,26 +162,37 @@ const POOL_SIZE = Math.max(1, Math.min(cpus().length, 6));
 
 writeFileSync(
   RESULTS_PATH,
-  "# NET-10 growth-regression investigation -- results\n\n" +
+  '# NET-10 growth-regression investigation -- results\n\n' +
     `Generated ${new Date().toISOString()} by scripts/investigate-growth-regression.ts (PLAN.md B3 re-run: newborn input wiring + hyperexcitability on top of B1's weight/permanence split, since B2's own re-run found the split alone insufficient).\n\n` +
-    "5-seed official protocol (seeds [1,2,3,4,5], 15,000-character corpus slice, matching every other VAL-4 figure in docs/findings.md).\n\n" +
+    '5-seed official protocol (seeds [1,2,3,4,5], 15,000-character corpus slice, matching every other VAL-4 figure in docs/findings.md).\n\n' +
     `The 30 (condition x seed) trials ran concurrently across a ${POOL_SIZE}-worker-thread pool (one native Simulation per thread, no shared state). Each trial's own duration is still measured individually; "wall-clock" below is the *sum* of a condition's 5 individual trial durations -- a compute-time proxy comparable in spirit to Phase A's original sequential measurement -- not the actual (shorter) parallel batch time, which is logged separately below the table.\n\n` +
-    "| condition | mean network accuracy | range across seeds | mean trigram accuracy | wall-clock (summed per-seed) |\n" +
-    "|---|---|---|---|---|\n",
+    '| condition | mean network accuracy | range across seeds | mean trigram accuracy | wall-clock (summed per-seed) |\n' +
+    '|---|---|---|---|---|\n',
 );
 writeFileSync(
   SAMPLES_PATH,
-  "# NET-10 growth-regression investigation -- per-window instrumentation\n\n" +
+  '# NET-10 growth-regression investigation -- per-window instrumentation\n\n' +
     `Generated ${new Date().toISOString()} by scripts/investigate-growth-regression.ts (PLAN.md B3 re-run). Seed 1 only, sampled every ${1500} characters. Grown-neuron columns (from B2, PLAN.md task step 3): grownLive is liveNeuronCount - width; synapsesOntoGrown/synapsesFromGrown count occupied synapse slots whose target/source neuron index is >= width -- now expected to be non-zero for synapsesFromGrown too, since PLAN.md B3's newbornMaturation wires a grown neuron's *inputs* directly (source < width, target >= width, i.e. synapsesOntoGrown) and, once a newborn can fire, structural plasticity can sprout its *outputs* (source >= width, i.e. synapsesFromGrown) -- B2 found both were exactly zero throughout, at every checkpoint, in every instrumented condition; firstGrownSpikeTick is the exact tick (read from lastSpikeView, not char-resolution) the first grown neuron was observed to have fired, latched once and left blank until then.\n\n`,
 );
 
-function logResult(name: string, meanAccuracy: number, perSeed: readonly number[], meanTrigram: number, wallClockMs: number): void {
+function logResult(
+  name: string,
+  meanAccuracy: number,
+  perSeed: readonly number[],
+  meanTrigram: number,
+  wallClockMs: number,
+): void {
   const range = `${(Math.min(...perSeed) * 100).toFixed(2)}%-${(Math.max(...perSeed) * 100).toFixed(2)}%`;
-  appendFileSync(RESULTS_PATH, `| ${name} | ${(meanAccuracy * 100).toFixed(2)}% | ${range} | ${(meanTrigram * 100).toFixed(2)}% | ${(wallClockMs / 1000).toFixed(1)}s |\n`);
+  appendFileSync(
+    RESULTS_PATH,
+    `| ${name} | ${(meanAccuracy * 100).toFixed(2)}% | ${range} | ${(meanTrigram * 100).toFixed(2)}% | ${(wallClockMs / 1000).toFixed(1)}s |\n`,
+  );
 }
 
-const corpusPath = fileURLToPath(new URL("../packages/io/test/fixtures/corpus.txt", import.meta.url));
-const fullCorpus = readFileSync(corpusPath, "utf8");
+const corpusPath = fileURLToPath(
+  new URL('../packages/io/test/fixtures/corpus.txt', import.meta.url),
+);
+const fullCorpus = readFileSync(corpusPath, 'utf8');
 const SLICE_LENGTH = 15_000;
 const corpus = fullCorpus.slice(0, SLICE_LENGTH);
 
@@ -178,7 +207,9 @@ const CEILING = WIDTH + 400; // README §11 Phase 7 status's own figure
 // far beyond this run's length -- reclamation is a different mechanism
 // from the one under test here, and letting it fire would confound
 // liveNeuronCount() as a clean growth-only signal.
-function structuralPlasticityParams(maxSproutSourceIndex?: number): StructuralPlasticityConfig {
+function structuralPlasticityParams(
+  maxSproutSourceIndex?: number,
+): StructuralPlasticityConfig {
   return {
     pruneFloor: 0.05,
     // docs/decisions.md's weight/permanence split (PLAN.md B1, landed
@@ -290,39 +321,68 @@ interface Condition {
 
 const CONDITIONS: readonly Condition[] = [
   {
-    name: "A: baseline (no growth, no structural plasticity)",
-    description: "The control every other row compares against -- identical to DEFAULT_CONFIG.",
+    name: 'A: baseline (no growth, no structural plasticity)',
+    description:
+      'The control every other row compares against -- identical to DEFAULT_CONFIG.',
     config: DEFAULT_CONFIG,
     instrument: false,
   },
   {
-    name: "B: growth + structural plasticity, original (burst) pace",
-    description: "Reproduces the known regression as a sanity check the harness matches the prior session's (README §11 Phase 7 status: 18.33% -> 4.91%).",
-    config: { ...DEFAULT_CONFIG, growth: growthBurst(), structuralPlasticity: structuralPlasticityParams(), newbornMaturation: newbornMaturationParams() },
+    name: 'B: growth + structural plasticity, original (burst) pace',
+    description:
+      "Reproduces the known regression as a sanity check the harness matches the prior session's (README §11 Phase 7 status: 18.33% -> 4.91%).",
+    config: {
+      ...DEFAULT_CONFIG,
+      growth: growthBurst(),
+      structuralPlasticity: structuralPlasticityParams(),
+      newbornMaturation: newbornMaturationParams(),
+    },
     instrument: true,
   },
   {
-    name: "C: structural plasticity alone, no growth",
-    description: "Isolates whether sprouting/pruning by itself destabilises this network at this scale, independent of growth adding any neurons.",
-    config: { ...DEFAULT_CONFIG, structuralPlasticity: structuralPlasticityParams() },
+    name: 'C: structural plasticity alone, no growth',
+    description:
+      'Isolates whether sprouting/pruning by itself destabilises this network at this scale, independent of growth adding any neurons.',
+    config: {
+      ...DEFAULT_CONFIG,
+      structuralPlasticity: structuralPlasticityParams(),
+    },
     instrument: false,
   },
   {
-    name: "D: growth + structural plasticity, burst pace, sprout-source-restricted",
-    description: "Same as B, but grown neurons (index >= 800) are excluded from ever being a sprout *source* -- directly tests the noise-injection hypothesis.",
-    config: { ...DEFAULT_CONFIG, growth: growthBurst(), structuralPlasticity: structuralPlasticityParams(WIDTH - 1), newbornMaturation: newbornMaturationParams() },
+    name: 'D: growth + structural plasticity, burst pace, sprout-source-restricted',
+    description:
+      'Same as B, but grown neurons (index >= 800) are excluded from ever being a sprout *source* -- directly tests the noise-injection hypothesis.',
+    config: {
+      ...DEFAULT_CONFIG,
+      growth: growthBurst(),
+      structuralPlasticity: structuralPlasticityParams(WIDTH - 1),
+      newbornMaturation: newbornMaturationParams(),
+    },
     instrument: true,
   },
   {
-    name: "E: growth alone at a gentle pace + structural plasticity, unrestricted",
-    description: "Same +400 capacity spread over most of the run instead of the first 10% -- checks whether pacing alone (with the noise-injection variable NOT controlled for) fixes anything.",
-    config: { ...DEFAULT_CONFIG, growth: growthGentle(), structuralPlasticity: structuralPlasticityParams(), newbornMaturation: newbornMaturationParams() },
+    name: 'E: growth alone at a gentle pace + structural plasticity, unrestricted',
+    description:
+      'Same +400 capacity spread over most of the run instead of the first 10% -- checks whether pacing alone (with the noise-injection variable NOT controlled for) fixes anything.',
+    config: {
+      ...DEFAULT_CONFIG,
+      growth: growthGentle(),
+      structuralPlasticity: structuralPlasticityParams(),
+      newbornMaturation: newbornMaturationParams(),
+    },
     instrument: true,
   },
   {
-    name: "F: growth at a gentle pace + structural plasticity, sprout-source-restricted",
-    description: "Combines E's gentle pace with D's sprout-source restriction -- checks whether pacing matters once the noise-injection variable is controlled for.",
-    config: { ...DEFAULT_CONFIG, growth: growthGentle(), structuralPlasticity: structuralPlasticityParams(WIDTH - 1), newbornMaturation: newbornMaturationParams() },
+    name: 'F: growth at a gentle pace + structural plasticity, sprout-source-restricted',
+    description:
+      "Combines E's gentle pace with D's sprout-source restriction -- checks whether pacing matters once the noise-injection variable is controlled for.",
+    config: {
+      ...DEFAULT_CONFIG,
+      growth: growthGentle(),
+      structuralPlasticity: structuralPlasticityParams(WIDTH - 1),
+      newbornMaturation: newbornMaturationParams(),
+    },
     instrument: false,
   },
 ];
@@ -330,15 +390,20 @@ const CONDITIONS: readonly Condition[] = [
 // --- Official 5-seed protocol, every condition, parallelised across a
 // worker-thread pool (PLAN.md B2 task step 1) ---
 
-function runTrialInWorker(seed: bigint, config: CharPredictionConfig): Promise<{ result: TrialResult; wallClockMs: number }> {
+function runTrialInWorker(
+  seed: bigint,
+  config: CharPredictionConfig,
+): Promise<{ result: TrialResult; wallClockMs: number }> {
   return new Promise((resolve, reject) => {
     const t0 = Date.now();
-    const worker = new Worker(WORKER_PATH, { workerData: { corpus, seed, config } });
-    worker.once("message", (result: TrialResult) => {
+    const worker = new Worker(WORKER_PATH, {
+      workerData: { corpus, seed, config },
+    });
+    worker.once('message', (result: TrialResult) => {
       resolve({ result, wallClockMs: Date.now() - t0 });
       void worker.terminate();
     });
-    worker.once("error", reject);
+    worker.once('error', reject);
   });
 }
 
@@ -346,7 +411,11 @@ function runTrialInWorker(seed: bigint, config: CharPredictionConfig): Promise<{
  * Runs `items` through `run` with at most `concurrency` in flight at once.
  * A plain queue rather than pulling in a pool dependency for one script.
  */
-async function runPool<T, R>(items: readonly T[], concurrency: number, run: (item: T) => Promise<R>): Promise<R[]> {
+async function runPool<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  run: (item: T) => Promise<R>,
+): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
   async function worker(): Promise<void> {
@@ -356,7 +425,9 @@ async function runPool<T, R>(items: readonly T[], concurrency: number, run: (ite
       results[i] = await run(items[i]!);
     }
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+  );
   return results;
 }
 
@@ -372,11 +443,18 @@ for (let c = 0; c < CONDITIONS.length; c++) {
   }
 }
 
-console.log(`\nRunning ${jobs.length} trials (${CONDITIONS.length} conditions x ${OFFICIAL_SEEDS.length} seeds) across up to ${POOL_SIZE} worker threads...`);
+console.log(
+  `\nRunning ${jobs.length} trials (${CONDITIONS.length} conditions x ${OFFICIAL_SEEDS.length} seeds) across up to ${POOL_SIZE} worker threads...`,
+);
 const batchT0 = Date.now();
 const jobOutcomes = await runPool(jobs, POOL_SIZE, async (job) => {
-  const { result, wallClockMs } = await runTrialInWorker(job.seed, CONDITIONS[job.conditionIndex]!.config);
-  console.log(`  [${CONDITIONS[job.conditionIndex]!.name}] seed ${job.seed}: accuracy=${(result.networkAccuracy * 100).toFixed(2)}% (${(wallClockMs / 1000).toFixed(1)}s)`);
+  const { result, wallClockMs } = await runTrialInWorker(
+    job.seed,
+    CONDITIONS[job.conditionIndex]!.config,
+  );
+  console.log(
+    `  [${CONDITIONS[job.conditionIndex]!.name}] seed ${job.seed}: accuracy=${(result.networkAccuracy * 100).toFixed(2)}% (${(wallClockMs / 1000).toFixed(1)}s)`,
+  );
   return { job, result, wallClockMs };
 });
 const batchWallClockMs = Date.now() - batchT0;
@@ -388,25 +466,45 @@ for (let c = 0; c < CONDITIONS.length; c++) {
   const summedWallClockMs = outcomes.reduce((sum, o) => sum + o.wallClockMs, 0);
   const assessment = assessMilestone(trials);
   const perSeed = trials.map((t) => t.networkAccuracy);
-  logResult(condition.name, assessment.meanNetworkAccuracy, perSeed, assessment.meanTrigramAccuracy, summedWallClockMs);
+  logResult(
+    condition.name,
+    assessment.meanNetworkAccuracy,
+    perSeed,
+    assessment.meanTrigramAccuracy,
+    summedWallClockMs,
+  );
   console.log(`\n=== ${condition.name} ===`);
   console.log(condition.description);
-  console.log(`  mean network accuracy: ${(assessment.meanNetworkAccuracy * 100).toFixed(2)}% (range ${(Math.min(...perSeed) * 100).toFixed(2)}%-${(Math.max(...perSeed) * 100).toFixed(2)}%)`);
-  console.log(`  mean trigram accuracy: ${(assessment.meanTrigramAccuracy * 100).toFixed(2)}%`);
-  console.log(`  wall-clock (summed per-seed): ${(summedWallClockMs / 1000).toFixed(1)}s`);
+  console.log(
+    `  mean network accuracy: ${(assessment.meanNetworkAccuracy * 100).toFixed(2)}% (range ${(Math.min(...perSeed) * 100).toFixed(2)}%-${(Math.max(...perSeed) * 100).toFixed(2)}%)`,
+  );
+  console.log(
+    `  mean trigram accuracy: ${(assessment.meanTrigramAccuracy * 100).toFixed(2)}%`,
+  );
+  console.log(
+    `  wall-clock (summed per-seed): ${(summedWallClockMs / 1000).toFixed(1)}s`,
+  );
 }
 
-appendFileSync(RESULTS_PATH, `\nActual parallel batch wall-clock for all ${jobs.length} trials: ${(batchWallClockMs / 1000).toFixed(1)}s across ${POOL_SIZE} worker threads.\n`);
-console.log(`\nActual parallel batch wall-clock: ${(batchWallClockMs / 1000).toFixed(1)}s`);
+appendFileSync(
+  RESULTS_PATH,
+  `\nActual parallel batch wall-clock for all ${jobs.length} trials: ${(batchWallClockMs / 1000).toFixed(1)}s across ${POOL_SIZE} worker threads.\n`,
+);
+console.log(
+  `\nActual parallel batch wall-clock: ${(batchWallClockMs / 1000).toFixed(1)}s`,
+);
 
 // --- Instrumented single-seed runs for the most informative conditions ---
 
 function charEncoderConfig(width: number, density: number): CharEncoderConfig {
-  return { width, density, seed: "char-prediction" };
+  return { width, density, seed: 'char-prediction' };
 }
 
 function buildCandidates(config: CharEncoderConfig): Candidate<string>[] {
-  return SUPPORTED_ALPHABET.map((char) => ({ label: char, sdr: encodeChar(config, char) }));
+  return SUPPORTED_ALPHABET.map((char) => ({
+    label: char,
+    sdr: encodeChar(config, char),
+  }));
 }
 
 interface CharNext {
@@ -436,7 +534,10 @@ const SAMPLE_INTERVAL = 1500;
  * sprouting -- this is a direct measurement of "did sprouting actually
  * reach a grown neuron", not a proxy.
  */
-function grownSynapseStats(sim: Simulation, width: number): { synapsesOntoGrown: number; synapsesFromGrown: number } {
+function grownSynapseStats(
+  sim: Simulation,
+  width: number,
+): { synapsesOntoGrown: number; synapsesFromGrown: number } {
   const capPerNeuron = sim.synapseCapPerNeuron();
   const targets = sim.synapseTargetNeuronView();
   const occupied = sim.synapseOccupiedView();
@@ -461,7 +562,10 @@ function grownSynapseStats(sim: Simulation, width: number): { synapsesOntoGrown:
  * character/`ticksPerInput` ticks even though the *recorded* tick value
  * itself is exact.
  */
-function firstGrownSpikeTick(sim: Simulation, width: number): number | undefined {
+function firstGrownSpikeTick(
+  sim: Simulation,
+  width: number,
+): number | undefined {
   const lastSpike = sim.lastSpikeView();
   let earliest: number | undefined;
   for (let i = width; i < lastSpike.length; i++) {
@@ -516,7 +620,7 @@ function runInstrumented(config: CharPredictionConfig, seed: bigint): void {
     charIndex++;
     const hit = step.predicted?.label === step.actual;
     networkAcc.record(hit);
-    if (config.rewardSignal === "correctness") {
+    if (config.rewardSignal === 'correctness') {
       sim.reward(hit ? 1.0 : 0.0);
     }
     if (config.growth !== undefined && step.observed !== undefined) {
@@ -530,15 +634,23 @@ function runInstrumented(config: CharPredictionConfig, seed: bigint): void {
       const tick = firstGrownSpikeTick(sim, config.width);
       if (tick !== undefined) {
         firstGrownSpike = { tick, charIndex };
-        console.log(`    *** first grown-neuron spike observed: tick ${tick}, char ${charIndex} ***`);
+        console.log(
+          `    *** first grown-neuron spike observed: tick ${tick}, char ${charIndex} ***`,
+        );
       }
     }
     if (charIndex % SAMPLE_INTERVAL === 0 || charIndex === corpus.length - 1) {
       const metrics = sim.metricsSnapshot();
       const liveNeuronCount = sim.liveNeuronCount();
       const grownLive = Math.max(0, liveNeuronCount - config.width);
-      const { synapsesOntoGrown, synapsesFromGrown } = grownSynapseStats(sim, config.width);
-      const firstSpikeCell = firstGrownSpike === undefined ? "--" : `tick ${firstGrownSpike.tick} (char ${firstGrownSpike.charIndex})`;
+      const { synapsesOntoGrown, synapsesFromGrown } = grownSynapseStats(
+        sim,
+        config.width,
+      );
+      const firstSpikeCell =
+        firstGrownSpike === undefined
+          ? '--'
+          : `tick ${firstGrownSpike.tick} (char ${firstGrownSpike.charIndex})`;
       rows.push(
         `| ${charIndex} | ${(networkAcc.accuracy * 100).toFixed(2)}% | ${liveNeuronCount} | ${sim.growthEventCount()} | ${metrics.synapseCount} | ${metrics.meanPermanence.toFixed(4)} | ${(metrics.sparsity * 100).toFixed(2)}% | ${grownLive} | ${synapsesOntoGrown} | ${synapsesFromGrown} | ${firstSpikeCell} |`,
       );
@@ -551,19 +663,24 @@ function runInstrumented(config: CharPredictionConfig, seed: bigint): void {
   appendFileSync(
     SAMPLES_PATH,
     `\n## seed ${seed}\n\n` +
-      "| char index | trailing-window accuracy | liveNeuronCount | growthEventCount | synapseCount | meanPermanence | sparsity | grownLive | synapsesOntoGrown | synapsesFromGrown | firstGrownSpike |\n" +
-      "|---|---|---|---|---|---|---|---|---|---|---|\n" +
-      rows.join("\n") +
-      "\n",
+      '| char index | trailing-window accuracy | liveNeuronCount | growthEventCount | synapseCount | meanPermanence | sparsity | grownLive | synapsesOntoGrown | synapsesFromGrown | firstGrownSpike |\n' +
+      '|---|---|---|---|---|---|---|---|---|---|---|\n' +
+      rows.join('\n') +
+      '\n',
   );
 }
 
 for (const condition of CONDITIONS.filter((c) => c.instrument)) {
   console.log(`\n=== Instrumenting: ${condition.name} (seed 1 only) ===`);
-  appendFileSync(SAMPLES_PATH, `\n### ${condition.name}\n\n${condition.description}\n`);
+  appendFileSync(
+    SAMPLES_PATH,
+    `\n### ${condition.name}\n\n${condition.description}\n`,
+  );
   const t0 = Date.now();
   runInstrumented(condition.config, 1n);
-  console.log(`  instrumentation wall-clock: ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  console.log(
+    `  instrumentation wall-clock: ${((Date.now() - t0) / 1000).toFixed(1)}s`,
+  );
 }
 
 console.log(`\nResults written to ${RESULTS_PATH}`);

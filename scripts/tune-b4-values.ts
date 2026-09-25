@@ -93,25 +93,25 @@
 // B4_SMOKE=1 (1,500-character corpus, tiny budget, separate output files, about a minute --
 // a plumbing check, not a result).
 
-import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { cpus } from "node:os";
-import { Checkpoint } from "./b4-search/checkpoint.ts";
-import { trialKey } from "./b4-search/conditions.ts";
-import { makeEvaluate, workerRunner } from "./b4-search/evaluator.ts";
-import { renderReport, chosenValues } from "./b4-search/report.ts";
-import { runSearch, type Budget } from "./b4-search/search.ts";
-import { Space } from "./b4-search/space.ts";
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { cpus } from 'node:os';
+import { Checkpoint } from './b4-search/checkpoint.ts';
+import { trialKey } from './b4-search/conditions.ts';
+import { makeEvaluate, workerRunner } from './b4-search/evaluator.ts';
+import { renderReport, chosenValues } from './b4-search/report.ts';
+import { runSearch, type Budget } from './b4-search/search.ts';
+import { Space } from './b4-search/space.ts';
 
-const SMOKE = process.env.B4_SMOKE === "1";
+const SMOKE = process.env.B4_SMOKE === '1';
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
-const suffix = SMOKE ? ".smoke" : "";
+const suffix = SMOKE ? '.smoke' : '';
 const paths = {
   checkpoint: here(`./tune-b4-values${suffix}.checkpoint.jsonl`),
   log: here(`./tune-b4-values${suffix}.log`),
   results: here(`./tune-b4-values${suffix}.results.md`),
   chosen: here(`./tune-b4-values${suffix}.chosen.json`),
-  worker: here("./b4-search/trial.worker.ts"),
+  worker: here('./b4-search/trial.worker.ts'),
 };
 
 const FULL_BUDGET: Budget = {
@@ -148,12 +148,18 @@ const SMOKE_BUDGET: Budget = {
 
 const budget = SMOKE ? SMOKE_BUDGET : FULL_BUDGET;
 const corpusLength = SMOKE ? 1_500 : 15_000; // smoke: long enough for structural sweeps to sprout, eliminate and unsilence
-const corpus = readFileSync(here("../packages/io/test/fixtures/corpus.txt"), "utf8").slice(0, corpusLength);
-const workers = Math.max(1, Math.min(Number(process.env.B4_WORKERS ?? 6), cpus().length));
+const corpus = readFileSync(
+  here('../packages/io/test/fixtures/corpus.txt'),
+  'utf8',
+).slice(0, corpusLength);
+const workers = Math.max(
+  1,
+  Math.min(Number(process.env.B4_WORKERS ?? 6), cpus().length),
+);
 const timeoutHours = Number(process.env.B4_TIMEOUT_HOURS ?? (SMOKE ? 0.1 : 4));
 
 function log(line: string): void {
-  const stamped = `[${new Date().toISOString().replace("T", " ").slice(0, 19)}] ${line}`;
+  const stamped = `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] ${line}`;
   console.log(stamped);
   appendFileSync(paths.log, `${stamped}\n`);
 }
@@ -162,25 +168,50 @@ function log(line: string): void {
 function estimateTrials(b: Budget): number {
   const extraFull = b.fullSeeds.length - b.screenSeeds.length;
   const neighbours = 18; // 7 numeric parameters x 2 directions + 4 fix toggles
-  const refine = b.refineStarts * b.refineRounds * (neighbours * b.screenSeeds.length + b.neighbourPromote * extraFull);
-  const hillChecks = b.maxHillChecks * (b.refineStarts - 1) * 2 * b.screenSeeds.length; // 2 line points per earlier hill
-  const confirm = 2 * b.confirmSeeds.length + 10 * b.confirmSeeds.length + 4 * b.confirmSeeds.length; // winner and runner-up, factorial rows, references
-  return b.screenConfigs * b.screenSeeds.length + b.promoteTop * extraFull + refine + hillChecks + b.finalists * b.heldOutSeeds.length + 16 * b.fullSeeds.length + confirm;
+  const refine =
+    b.refineStarts *
+    b.refineRounds *
+    (neighbours * b.screenSeeds.length + b.neighbourPromote * extraFull);
+  const hillChecks =
+    b.maxHillChecks * (b.refineStarts - 1) * 2 * b.screenSeeds.length; // 2 line points per earlier hill
+  const confirm =
+    2 * b.confirmSeeds.length +
+    10 * b.confirmSeeds.length +
+    4 * b.confirmSeeds.length; // winner and runner-up, factorial rows, references
+  return (
+    b.screenConfigs * b.screenSeeds.length +
+    b.promoteTop * extraFull +
+    refine +
+    hillChecks +
+    b.finalists * b.heldOutSeeds.length +
+    16 * b.fullSeeds.length +
+    confirm
+  );
 }
 
-process.on("unhandledRejection", (reason) => {
-  log(`[FATAL] unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)} -- re-run the same command to resume`);
+process.on('unhandledRejection', (reason) => {
+  log(
+    `[FATAL] unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)} -- re-run the same command to resume`,
+  );
   process.exit(1);
 });
-process.on("uncaughtException", (error) => {
-  log(`[FATAL] uncaught exception: ${error.stack ?? error.message} -- re-run the same command to resume`);
+process.on('uncaughtException', (error) => {
+  log(
+    `[FATAL] uncaught exception: ${error.stack ?? error.message} -- re-run the same command to resume`,
+  );
   process.exit(1);
 });
 
 const checkpoint = new Checkpoint(paths.checkpoint);
-log(`=== tune-b4-values ${SMOKE ? "(SMOKE) " : ""}starting: ${workers} workers, per-trial timeout ${timeoutHours} h, corpus ${corpusLength} characters ===`);
-log(`checkpoint: ${checkpoint.size} trials already recorded${checkpoint.skippedLines > 0 ? `, ${checkpoint.skippedLines} unreadable line(s) ignored (a cut-off write; those trials will re-run)` : ""}`);
-log(`plan: at most ~${estimateTrials(budget)} trials in total (fewer if regions converge early)`);
+log(
+  `=== tune-b4-values ${SMOKE ? '(SMOKE) ' : ''}starting: ${workers} workers, per-trial timeout ${timeoutHours} h, corpus ${corpusLength} characters ===`,
+);
+log(
+  `checkpoint: ${checkpoint.size} trials already recorded${checkpoint.skippedLines > 0 ? `, ${checkpoint.skippedLines} unreadable line(s) ignored (a cut-off write; those trials will re-run)` : ''}`,
+);
+log(
+  `plan: at most ~${estimateTrials(budget)} trials in total (fewer if regions converge early)`,
+);
 
 const evaluate = makeEvaluate({
   checkpoint,
@@ -197,7 +228,20 @@ const space = new Space();
 const outcome = await runSearch(space, budget, evaluate, log);
 
 const generatedAt = new Date().toISOString();
-const lookup = (condition: Parameters<typeof trialKey>[0], seed: bigint) => checkpoint.get(trialKey(condition, seed, corpusLength));
-writeFileSync(paths.results, renderReport(outcome, budget, lookup, { generatedAt, corpusLength, trialsRun: checkpoint.size }));
-writeFileSync(paths.chosen, `${JSON.stringify(chosenValues(outcome, generatedAt), null, 2)}\n`);
-log(`=== done: results in ${paths.results}, chosen values in ${paths.chosen}${outcome.failed.length > 0 ? `; ${outcome.failed.length} condition(s) had failed trials, see the results file` : ""} ===`);
+const lookup = (condition: Parameters<typeof trialKey>[0], seed: bigint) =>
+  checkpoint.get(trialKey(condition, seed, corpusLength));
+writeFileSync(
+  paths.results,
+  renderReport(outcome, budget, lookup, {
+    generatedAt,
+    corpusLength,
+    trialsRun: checkpoint.size,
+  }),
+);
+writeFileSync(
+  paths.chosen,
+  `${JSON.stringify(chosenValues(outcome, generatedAt), null, 2)}\n`,
+);
+log(
+  `=== done: results in ${paths.results}, chosen values in ${paths.chosen}${outcome.failed.length > 0 ? `; ${outcome.failed.length} condition(s) had failed trials, see the results file` : ''} ===`,
+);

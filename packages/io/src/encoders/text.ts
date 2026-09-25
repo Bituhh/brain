@@ -6,8 +6,8 @@
 // two distinct characters need not (and by construction, mostly do not)
 // overlap more than any other unrelated pair (Requirement 5.4).
 
-import { makeSdr, type Sdr } from "../sdr.ts";
-import { hashToBits } from "../hash.ts";
+import { makeSdr, type Sdr } from '../sdr.ts';
+import { hashToBits } from '../hash.ts';
 
 export interface CharEncoderConfig {
   readonly width: number;
@@ -29,13 +29,24 @@ export interface CharEncoderConfig {
  * via 5.3): the same character and context under the same config always
  * produce the bit-identical `Sdr`.
  */
-export function encodeChar(config: CharEncoderConfig, char: string, precedingContext = ""): Sdr {
+export function encodeChar(
+  config: CharEncoderConfig,
+  char: string,
+  precedingContext = '',
+): Sdr {
   if (char.length !== 1) {
-    throw new RangeError(`encodeChar expects exactly one character, got "${char}" (length ${char.length})`);
+    throw new RangeError(
+      `encodeChar expects exactly one character, got "${char}" (length ${char.length})`,
+    );
   }
   const contextLen = config.contextChars ?? 0;
-  const context = contextLen > 0 ? precedingContext.slice(-contextLen) : "";
-  const bits = hashToBits(config.seed ?? "char", context + char, config.width, config.density);
+  const context = contextLen > 0 ? precedingContext.slice(-contextLen) : '';
+  const bits = hashToBits(
+    config.seed ?? 'char',
+    context + char,
+    config.width,
+    config.density,
+  );
   return makeSdr(config.width, bits);
 }
 
@@ -57,7 +68,12 @@ export function tokenizeWords(text: string): string[] {
 
 /** Encodes a single word/token (Requirement 5.2), via the same hash-based construction `encodeChar` uses. */
 export function encodeWord(config: WordEncoderConfig, word: string): Sdr {
-  const bits = hashToBits(config.seed ?? "word", word, config.width, config.density);
+  const bits = hashToBits(
+    config.seed ?? 'word',
+    word,
+    config.width,
+    config.density,
+  );
   return makeSdr(config.width, bits);
 }
 
@@ -71,6 +87,6 @@ export const SUPPORTED_ALPHABET: ReadonlyArray<string> = (() => {
   for (let code = 0x20; code <= 0x7e; code++) {
     chars.push(String.fromCharCode(code));
   }
-  chars.push("\n", "\t");
+  chars.push('\n', '\t');
   return chars;
 })();

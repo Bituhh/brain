@@ -5,7 +5,7 @@
 // Run directly: `node examples/single-neuron.ts` (Node 24 strips TS types
 // natively -- no build step, no tsx dependency, per ENG-3/ENG-6).
 
-import { Simulation } from "@brain/core";
+import { Simulation } from '@brain/core';
 
 const sim = Simulation.create(
   { tauMTicks: 50, vRest: 0, vReset: 0, refractoryTicks: 10 },
@@ -27,14 +27,18 @@ for (let tick = 0; tick < 2000; tick++) {
 }
 
 console.log(`Spiked ${spikeTicks.length} times over 2000 ticks.`);
-console.log(`First few spike ticks: ${spikeTicks.slice(0, 5).join(", ")}`);
+console.log(`First few spike ticks: ${spikeTicks.slice(0, 5).join(', ')}`);
 
 if (spikeTicks.length < 5) {
-  throw new Error(`Expected repeated firing under supra-threshold current, got ${spikeTicks.length} spikes.`);
+  throw new Error(
+    `Expected repeated firing under supra-threshold current, got ${spikeTicks.length} spikes.`,
+  );
 }
 
 const intervals = spikeTicks.slice(1).map((t, i) => t - spikeTicks[i]!);
 const meanInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
 console.log(`Mean inter-spike interval: ${meanInterval.toFixed(2)} ticks.`);
 
-console.log("OK: a single LIF neuron fires repeatedly under constant supra-threshold current.");
+console.log(
+  'OK: a single LIF neuron fires repeatedly under constant supra-threshold current.',
+);

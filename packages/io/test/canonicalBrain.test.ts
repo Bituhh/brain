@@ -9,9 +9,13 @@
 // point is a fixture later items (A2, B1, C1, C2, D1-D4, ...) tighten as
 // each fix lands, per this constructor's own module doc.
 
-import { test } from "node:test";
-import assert from "node:assert/strict";
-import { Simulation, type ConsolidationConfig, type SimulationOptions } from "@brain/core";
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  Simulation,
+  type ConsolidationConfig,
+  type SimulationOptions,
+} from '@brain/core';
 import {
   BURST_SPROUT_REACH_RADIUS,
   buildCanonicalBrain,
@@ -22,9 +26,9 @@ import {
   WIDTH,
   withIndexBlockSproutReach,
   withSpatialBurstSproutReach,
-} from "../src/canonicalBrain.ts";
-import { wrapColumnHandles } from "../src/columns.ts";
-import { makeSdr } from "../src/sdr.ts";
+} from '../src/canonicalBrain.ts';
+import { wrapColumnHandles } from '../src/columns.ts';
+import { makeSdr } from '../src/sdr.ts';
 
 const SEED = 1n;
 const TICKS = 400;
@@ -85,7 +89,10 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
     // assertion below can be about the mechanism rather than about a counter
     // (docs/findings.md finding 13's own lesson, which this very file learned the
     // hard way with `growth` and `newbornMaturation`).
-    drivenLevels.push([sim.modulatorLevels()[1] ?? 0, sim.modulatorLevels()[2] ?? 0]);
+    drivenLevels.push([
+      sim.modulatorLevels()[1] ?? 0,
+      sim.modulatorLevels()[2] ?? 0,
+    ]);
   }
 
   // PLAN.md C2: the coupling is live, not merely configured. Asserting that
@@ -106,44 +113,81 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
   );
   assert.ok(
     achSeries.every((l) => l >= 0) && naSeries.every((l) => l >= 0),
-    "a driven level must never go negative -- a negative modulator would invert the sign of every gated update",
+    'a driven level must never go negative -- a negative modulator would invert the sign of every gated update',
   );
 
   // OBS-2: always-on metrics are reachable and well-formed.
   const levels = sim.modulatorLevels();
-  assert.equal(levels.length, 4, "modulatorLevels must report all four channels");
-  for (const level of levels) assert.ok(Number.isFinite(level), `modulator level ${level} must be finite`);
+  assert.equal(
+    levels.length,
+    4,
+    'modulatorLevels must report all four channels',
+  );
+  for (const level of levels)
+    assert.ok(
+      Number.isFinite(level),
+      `modulator level ${level} must be finite`,
+    );
 
   const firingRate = sim.firingRate();
-  assert.ok(Number.isFinite(firingRate) && firingRate >= 0, `firingRate ${firingRate} must be a finite, non-negative rate`);
+  assert.ok(
+    Number.isFinite(firingRate) && firingRate >= 0,
+    `firingRate ${firingRate} must be a finite, non-negative rate`,
+  );
 
   const predictionAccuracy = sim.predictionAccuracy();
   assert.ok(
-    Number.isFinite(predictionAccuracy) && predictionAccuracy >= 0 && predictionAccuracy <= 1,
+    Number.isFinite(predictionAccuracy) &&
+      predictionAccuracy >= 0 &&
+      predictionAccuracy <= 1,
     `predictionAccuracy ${predictionAccuracy} must be a finite fraction`,
   );
 
   const metrics = sim.metricsSnapshot();
-  assert.ok(metrics.sparsity >= 0 && metrics.sparsity <= 1, `metricsSnapshot sparsity ${metrics.sparsity} must be a fraction`);
-  assert.ok(metrics.meanPermanence >= 0 && metrics.meanPermanence <= 1, `metricsSnapshot meanPermanence ${metrics.meanPermanence} must stay in [0,1]`);
-  assert.ok(metrics.meanWeight >= 0 && metrics.meanWeight <= 1, `metricsSnapshot meanWeight ${metrics.meanWeight} must stay in [0,1]`);
-  assert.ok(metrics.synapseCount > 0, "metricsSnapshot must report real synapses given this column's dense internal wiring");
+  assert.ok(
+    metrics.sparsity >= 0 && metrics.sparsity <= 1,
+    `metricsSnapshot sparsity ${metrics.sparsity} must be a fraction`,
+  );
+  assert.ok(
+    metrics.meanPermanence >= 0 && metrics.meanPermanence <= 1,
+    `metricsSnapshot meanPermanence ${metrics.meanPermanence} must stay in [0,1]`,
+  );
+  assert.ok(
+    metrics.meanWeight >= 0 && metrics.meanWeight <= 1,
+    `metricsSnapshot meanWeight ${metrics.meanWeight} must stay in [0,1]`,
+  );
+  assert.ok(
+    metrics.synapseCount > 0,
+    "metricsSnapshot must report real synapses given this column's dense internal wiring",
+  );
 
   // OBS-3: the spike raster is reachable and non-trivial after 400 ticks of driven activity.
   const raster = sim.rasterBytes();
-  assert.ok(raster.length > 0, "rasterBytes must export a non-empty raster after a driven run");
+  assert.ok(
+    raster.length > 0,
+    'rasterBytes must export a non-empty raster after a driven run',
+  );
 
   // OBS-1: the probe attached at construction actually recorded something.
   const probe = sim.readProbe(column.range.start);
-  assert.ok(probe !== undefined, "the probe attached in buildCanonicalBrain must still be attached and readable");
+  assert.ok(
+    probe !== undefined,
+    'the probe attached in buildCanonicalBrain must still be attached and readable',
+  );
 
   // Sparsity stays near target -- generously bounded, not tightly, since
   // this constructor is not tuned (see its own doc comment): today's true
   // property is "stays roughly sparse under k-WTA plus intrinsic
   // homeostasis", not "converges exactly to TARGET_SPARSITY".
   const meanSpikeFraction = spikeCountSum / TICKS / sim.liveNeuronCount();
-  assert.ok(meanSpikeFraction > 0, "the network must actually spike over this run");
-  assert.ok(meanSpikeFraction < 0.5, `mean spike fraction ${meanSpikeFraction} must stay well below saturation`);
+  assert.ok(
+    meanSpikeFraction > 0,
+    'the network must actually spike over this run',
+  );
+  assert.ok(
+    meanSpikeFraction < 0.5,
+    `mean spike fraction ${meanSpikeFraction} must stay well below saturation`,
+  );
 
   // SYN-3/SYN-4: permanence and weight both stay in [0,1] for every
   // occupied synapse slot -- independently exercised (docs/decisions.md's
@@ -154,9 +198,15 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
   for (let i = 0; i < occupied.length; i++) {
     if (occupied[i]) {
       const p = permanence[i]!;
-      assert.ok(p >= 0 && p <= 1, `occupied synapse slot ${i} permanence ${p} must stay in [0,1]`);
+      assert.ok(
+        p >= 0 && p <= 1,
+        `occupied synapse slot ${i} permanence ${p} must stay in [0,1]`,
+      );
       const w = weight[i]!;
-      assert.ok(w >= 0 && w <= 1, `occupied synapse slot ${i} weight ${w} must stay in [0,1]`);
+      assert.ok(
+        w >= 0 && w <= 1,
+        `occupied synapse slot ${i} weight ${w} must stay in [0,1]`,
+      );
     }
   }
 
@@ -164,18 +214,33 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
   // an explicit call, per its own contract (never a side effect of
   // step()), not wired into the loop above (that is PLAN.md's C1 item).
   const report = sim.runConsolidation(SEED, consolidationConfig());
-  assert.ok(Number.isFinite(report.replayedSpikes) && report.replayedSpikes >= 0, "runConsolidation must report a non-negative replayedSpikes count");
-  assert.ok(Number.isFinite(report.pruned) && report.pruned >= 0, "runConsolidation must report a non-negative pruned count");
+  assert.ok(
+    Number.isFinite(report.replayedSpikes) && report.replayedSpikes >= 0,
+    'runConsolidation must report a non-negative replayedSpikes count',
+  );
+  assert.ok(
+    Number.isFinite(report.pruned) && report.pruned >= 0,
+    'runConsolidation must report a non-negative pruned count',
+  );
 
   // NET-10: growth is not just configured but genuinely fires over this
   // run (confirmed empirically, not assumed -- see canonicalBrain.test.ts's
   // own tuning of the synthetic collision signal's hit rate above the
   // configured collisionThreshold), and population size never drops below
   // this constructor's width and never exceeds its configured ceiling.
-  assert.ok(sim.growthEventCount() > 0, "growth must actually trigger at least once over this run, not merely be configured");
+  assert.ok(
+    sim.growthEventCount() > 0,
+    'growth must actually trigger at least once over this run, not merely be configured',
+  );
   const liveCount = sim.liveNeuronCount();
-  assert.ok(liveCount > WIDTH, `liveNeuronCount ${liveCount} must have grown past the constructed width ${WIDTH}`);
-  assert.ok(liveCount <= WIDTH + 50, `liveNeuronCount ${liveCount} must never exceed growth's configured ceiling`);
+  assert.ok(
+    liveCount > WIDTH,
+    `liveNeuronCount ${liveCount} must have grown past the constructed width ${WIDTH}`,
+  );
+  assert.ok(
+    liveCount <= WIDTH + 50,
+    `liveNeuronCount ${liveCount} must never exceed growth's configured ceiling`,
+  );
 
   // PLAN.md B3 (NET-11): growth's neurons must actually *integrate*, not
   // just exist. Until 2026-09-19 this constructor configured `growth`
@@ -185,7 +250,10 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
   // mechanism instead: a newborn is wired from recently-active neurons,
   // fires, and survives its maturation window (an unintegrated newborn is
   // reclaimed, which `liveCount > WIDTH` above would then catch).
-  assert.ok(newbornSpikeCount > 0, "grown neurons must actually fire -- otherwise growth is allocating inert capacity (docs/findings.md finding 10's deadlock)");
+  assert.ok(
+    newbornSpikeCount > 0,
+    "grown neurons must actually fire -- otherwise growth is allocating inert capacity (docs/findings.md finding 10's deadlock)",
+  );
   const capPerNeuron = sim.synapseCapPerNeuron();
   const targets = sim.synapseTargetNeuronView();
   let ontoNewborn = 0;
@@ -201,8 +269,14 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
       if (target < WIDTH) fromNewbornOntoOriginal++;
     }
   }
-  assert.ok(ontoNewborn > 0, "newbornMaturation must wire inputs onto each grown neuron");
-  assert.ok(fromNewborn > 0, "a firing newborn must be able to sprout outputs of its own");
+  assert.ok(
+    ontoNewborn > 0,
+    'newbornMaturation must wire inputs onto each grown neuron',
+  );
+  assert.ok(
+    fromNewborn > 0,
+    'a firing newborn must be able to sprout outputs of its own',
+  );
 
   // **This assertion has been its own inverse twice, and the history is the
   // point.** It began as a tripwire asserting ZERO newborn->original
@@ -223,9 +297,9 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
   // asserts this same count is ZERO under `withIndexBlockSproutReach`.
   assert.ok(
     fromNewbornOntoOriginal > 0,
-    "grown neurons must send at least one synapse back to the original population -- the property docs/findings.md finding 10 " +
+    'grown neurons must send at least one synapse back to the original population -- the property docs/findings.md finding 10 ' +
       `measured as exactly zero under the index-block reach (got ${fromNewbornOntoOriginal}). A zero here means the default ` +
-      "sproutReachRadius has stopped reaching, not that the limitation is acceptable again",
+      'sproutReachRadius has stopped reaching, not that the limitation is acceptable again',
   );
 });
 
@@ -243,8 +317,12 @@ test("the canonical brain runs with every mechanism live for many ticks and stay
  * and counting it would reproduce exactly the counter-instead-of-mechanism
  * mistake docs/findings.md finding 13 records.
  */
-test("spatial sprout reach lets grown neurons reach the original population, and the index-block scheme it replaced cannot (PLAN.md C4)", () => {
-  function grownOntoOriginal(options: SimulationOptions): { count: number; live: number; grownSpiked: boolean } {
+test('spatial sprout reach lets grown neurons reach the original population, and the index-block scheme it replaced cannot (PLAN.md C4)', () => {
+  function grownOntoOriginal(options: SimulationOptions): {
+    count: number;
+    live: number;
+    grownSpiked: boolean;
+  } {
     const sim = Simulation.create(canonicalLifConfig, options);
     const [handle] = sim.buildColumns(SEED, [canonicalColumnConfig()]);
     const [column] = wrapColumnHandles([handle!]);
@@ -273,29 +351,39 @@ test("spatial sprout reach lets grown neurons reach the original population, and
   // is the control. `withSpatialBurstSproutReach` is added to the default arm
   // because docs/findings.md finding 10 measured *both* sprout paths as blocked, and the
   // burst path is still on index blocks by default -- see its own doc comment.
-  const blocks = grownOntoOriginal(withIndexBlockSproutReach(canonicalSimulationOptions(SEED)));
-  const spatial = grownOntoOriginal(withSpatialBurstSproutReach(canonicalSimulationOptions(SEED)));
+  const blocks = grownOntoOriginal(
+    withIndexBlockSproutReach(canonicalSimulationOptions(SEED)),
+  );
+  const spatial = grownOntoOriginal(
+    withSpatialBurstSproutReach(canonicalSimulationOptions(SEED)),
+  );
 
   // Guard first: both arms must actually grow and fire, or the comparison
   // below measures nothing. This is the failure mode where a "fix" looks
   // like it worked because the control arm never got off the ground.
   for (const [label, arm] of [
-    ["index blocks", blocks],
-    ["spatial", spatial],
+    ['index blocks', blocks],
+    ['spatial', spatial],
   ] as const) {
-    assert.ok(arm.live > WIDTH, `${label}: growth must have fired, got liveNeuronCount ${arm.live}`);
-    assert.ok(arm.grownSpiked, `${label}: a grown neuron must have fired, or nothing can sprout from one in either reach`);
+    assert.ok(
+      arm.live > WIDTH,
+      `${label}: growth must have fired, got liveNeuronCount ${arm.live}`,
+    );
+    assert.ok(
+      arm.grownSpiked,
+      `${label}: a grown neuron must have fired, or nothing can sprout from one in either reach`,
+    );
   }
 
   assert.equal(
     blocks.count,
     0,
-    "VAL-9 ablation: under the index-block reach a grown neuron must send ZERO synapses to the original population -- " +
+    'VAL-9 ablation: under the index-block reach a grown neuron must send ZERO synapses to the original population -- ' +
       `docs/findings.md finding 10's measured finding, reproduced here as the control (got ${blocks.count})`,
   );
   assert.ok(
     spatial.count > 0,
-    "with spatial reach on both sprout paths, grown neurons must send synapses to original-population neurons -- " +
+    'with spatial reach on both sprout paths, grown neurons must send synapses to original-population neurons -- ' +
       `the property PLAN.md C4 exists to deliver (got ${spatial.count})`,
   );
 });
@@ -329,12 +417,19 @@ test("spatial sprout reach lets grown neurons reach the original population, and
  * opposite effect, and the recovery at radius 75 (which reaches all 150
  * again) is the proof: it returns to the index-block numbers exactly.
  */
-test("a spatial sweep reach that narrows the candidate set stops this fixture predicting at all, over the whole run and not merely at its end (PLAN.md C4)", () => {
-  function run(sproutReachRadius: number | undefined): { classifiedAsPredicted: number; unpredicted: number; peakPredictive: number } {
+test('a spatial sweep reach that narrows the candidate set stops this fixture predicting at all, over the whole run and not merely at its end (PLAN.md C4)', () => {
+  function run(sproutReachRadius: number | undefined): {
+    classifiedAsPredicted: number;
+    unpredicted: number;
+    peakPredictive: number;
+  } {
     const base = canonicalSimulationOptions(SEED);
     const sim = Simulation.create(canonicalLifConfig, {
       ...base,
-      structuralPlasticity: { ...base.structuralPlasticity!, ...(sproutReachRadius !== undefined && { sproutReachRadius }) },
+      structuralPlasticity: {
+        ...base.structuralPlasticity!,
+        ...(sproutReachRadius !== undefined && { sproutReachRadius }),
+      },
     });
     const [handle] = sim.buildColumns(SEED, [canonicalColumnConfig()]);
     const [column] = wrapColumnHandles([handle!]);
@@ -346,10 +441,15 @@ test("a spatial sweep reach that narrows the candidate set stops this fixture pr
       column!.stimulateSdr(sim, PATTERNS[i % PATTERNS.length]!, 10.0);
       sim.step();
       const predictive = sim.predictiveView();
-      for (let n = 0; n < predictive.length; n++) if (predictive[n]! > peakPredictive) peakPredictive = predictive[n]!;
+      for (let n = 0; n < predictive.length; n++)
+        if (predictive[n]! > peakPredictive) peakPredictive = predictive[n]!;
     }
     const totals = sim.predictionOutcomeTotals();
-    return { classifiedAsPredicted: totals.classifiedAsPredicted, unpredicted: totals.unpredicted, peakPredictive };
+    return {
+      classifiedAsPredicted: totals.classifiedAsPredicted,
+      unpredicted: totals.unpredicted,
+      peakPredictive,
+    };
   }
 
   const blocks = run(undefined); // index blocks -- the pre-C4 grouping
@@ -360,8 +460,14 @@ test("a spatial sweep reach that narrows the candidate set stops this fixture pr
   const narrowed = run(40);
   const widened = run(WIDTH); // reaches the whole population, like the index block it replaces
 
-  assert.ok(blocks.classifiedAsPredicted > 0, `the index-block default must classify something as predicted, or this comparison has no baseline (got ${blocks.classifiedAsPredicted})`);
-  assert.ok(blocks.peakPredictive > 0, "and must actually depolarise a segment at some point in the run");
+  assert.ok(
+    blocks.classifiedAsPredicted > 0,
+    `the index-block default must classify something as predicted, or this comparison has no baseline (got ${blocks.classifiedAsPredicted})`,
+  );
+  assert.ok(
+    blocks.peakPredictive > 0,
+    'and must actually depolarise a segment at some point in the run',
+  );
 
   assert.equal(
     narrowed.classifiedAsPredicted,
@@ -373,14 +479,17 @@ test("a spatial sweep reach that narrows the candidate set stops this fixture pr
     narrowed.peakPredictive,
     0,
     `and the peak predictive value over EVERY tick must be exactly 0, not merely at the run's end (got ${narrowed.peakPredictive}) -- ` +
-      "reading one instant is the measurement mistake this test exists to have corrected",
+      'reading one instant is the measurement mistake this test exists to have corrected',
   );
-  assert.ok(narrowed.unpredicted > 0, "the network must still be spiking, or 'stopped predicting' would just mean 'stopped'");
+  assert.ok(
+    narrowed.unpredicted > 0,
+    "the network must still be spiking, or 'stopped predicting' would just mean 'stopped'",
+  );
 
   assert.ok(
     widened.classifiedAsPredicted > 0,
     `a radius reaching the whole population must recover prediction (got ${widened.classifiedAsPredicted}) -- ` +
-      "this is what shows the cause is the candidate set NARROWING, not the spatial scheme itself",
+      'this is what shows the cause is the candidate set NARROWING, not the spatial scheme itself',
   );
 });
 
@@ -397,7 +506,7 @@ test("a spatial sweep reach that narrows the candidate set stops this fixture pr
  * this test pins the asymmetry so a later reader does not "tidy" it into
  * one rule.
  */
-test("a spatial burst-sprout reach is refused in partitioned mode, and a spatial sweep reach is not (PLAN.md C4)", () => {
+test('a spatial burst-sprout reach is refused in partitioned mode, and a spatial sweep reach is not (PLAN.md C4)', () => {
   const base = canonicalSimulationOptions(SEED);
   // Growth and newborn maturation are themselves single-partition only, so
   // they have to come off for this to reach the reach check at all rather
@@ -405,7 +514,11 @@ test("a spatial burst-sprout reach is refused in partitioned mode, and a spatial
   // to `undefined`: under `exactOptionalPropertyTypes` an optional field may be
   // absent but not `undefined`, and `SimulationOptions` does not widen any of
   // its fields to allow it.
-  const { growth: _growth, newbornMaturation: _newbornMaturation, ...withoutGrowth } = base;
+  const {
+    growth: _growth,
+    newbornMaturation: _newbornMaturation,
+    ...withoutGrowth
+  } = base;
 
   assert.throws(
     () =>
@@ -413,7 +526,10 @@ test("a spatial burst-sprout reach is refused in partitioned mode, and a spatial
         ...withoutGrowth,
         threadCount: 2,
         totalNeurons: WIDTH,
-        predictiveLearning: { ...base.predictiveLearning!, sproutReachRadius: BURST_SPROUT_REACH_RADIUS },
+        predictiveLearning: {
+          ...base.predictiveLearning!,
+          sproutReachRadius: BURST_SPROUT_REACH_RADIUS,
+        },
       }),
     /sproutReachRadius is not supported together with threadCount/,
     "a spatial burst reach above one partition must be refused, not silently clipped to each partition's range",
@@ -424,15 +540,21 @@ test("a spatial burst-sprout reach is refused in partitioned mode, and a spatial
     ...withoutGrowth,
     threadCount: 2,
     totalNeurons: WIDTH,
-    structuralPlasticity:{ ...base.structuralPlasticity!, sproutReachRadius: SPROUT_REACH_RADIUS },
+    structuralPlasticity: {
+      ...base.structuralPlasticity!,
+      sproutReachRadius: SPROUT_REACH_RADIUS,
+    },
   });
-  assert.ok(withSweepReach !== undefined, "a spatial *sweep* reach must be accepted in partitioned mode -- it runs once globally");
+  assert.ok(
+    withSweepReach !== undefined,
+    'a spatial *sweep* reach must be accepted in partitioned mode -- it runs once globally',
+  );
 });
 
 test("the canonical brain's snapshot round-trips mid-run (RUN-9/RUN-9a)", async () => {
-  const { mkdtempSync, rmSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
 
   const { sim, column } = buildCanonicalBrain(SEED);
   for (let i = 0; i < 50; i++) {
@@ -440,14 +562,26 @@ test("the canonical brain's snapshot round-trips mid-run (RUN-9/RUN-9a)", async 
     sim.step();
   }
 
-  const dir = mkdtempSync(join(tmpdir(), "brain-canonical-snapshot-test-"));
+  const dir = mkdtempSync(join(tmpdir(), 'brain-canonical-snapshot-test-'));
   try {
-    const path = join(dir, "snapshot.bin");
+    const path = join(dir, 'snapshot.bin');
     sim.snapshot(path);
 
-    const restored = Simulation.restore(path, canonicalLifConfig, canonicalSimulationOptions(SEED));
-    assert.equal(restored.currentTick(), sim.currentTick(), "a snapshot taken mid-run must restore at the exact same tick");
-    assert.equal(restored.liveNeuronCount(), sim.liveNeuronCount(), "a snapshot taken mid-run must restore the same live neuron count");
+    const restored = Simulation.restore(
+      path,
+      canonicalLifConfig,
+      canonicalSimulationOptions(SEED),
+    );
+    assert.equal(
+      restored.currentTick(),
+      sim.currentTick(),
+      'a snapshot taken mid-run must restore at the exact same tick',
+    );
+    assert.equal(
+      restored.liveNeuronCount(),
+      sim.liveNeuronCount(),
+      'a snapshot taken mid-run must restore the same live neuron count',
+    );
 
     // A restored simulation must be able to keep stepping without error --
     // RUN-9b's "restore then expand" needs a scheduler that is not merely
@@ -476,9 +610,9 @@ test("the canonical brain's snapshot restores and continues bit-identically off 
   const OFF_BOUNDARY_SNAPSHOT_TICKS = [137, 263];
   const TOTAL_TICKS = 400;
 
-  const { mkdtempSync, rmSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
 
   function sortedSpikes(spiked: number[]): number[] {
     return [...spiked].sort((a, b) => a - b);
@@ -499,10 +633,20 @@ test("the canonical brain's snapshot restores and continues bit-identically off 
   const uninterrupted = runUninterrupted();
 
   for (const snapshotTick of OFF_BOUNDARY_SNAPSHOT_TICKS) {
-    assert.notEqual(snapshotTick % 50, 0, `${snapshotTick} must not be a multiple of the 50-tick sweep interval, or this test would not exercise the off-boundary case`);
-    assert.notEqual(snapshotTick % 100, 0, `${snapshotTick} must not be a multiple of the 100-tick sweep interval, or this test would not exercise the off-boundary case`);
+    assert.notEqual(
+      snapshotTick % 50,
+      0,
+      `${snapshotTick} must not be a multiple of the 50-tick sweep interval, or this test would not exercise the off-boundary case`,
+    );
+    assert.notEqual(
+      snapshotTick % 100,
+      0,
+      `${snapshotTick} must not be a multiple of the 100-tick sweep interval, or this test would not exercise the off-boundary case`,
+    );
 
-    const dir = mkdtempSync(join(tmpdir(), "brain-canonical-off-boundary-snapshot-test-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), 'brain-canonical-off-boundary-snapshot-test-'),
+    );
     try {
       const { sim, column } = buildCanonicalBrain(SEED);
       const path = join(dir, `snapshot-${snapshotTick}.bin`);
@@ -510,11 +654,19 @@ test("the canonical brain's snapshot restores and continues bit-identically off 
         column.stimulateSdr(sim, PATTERNS[i % PATTERNS.length]!, 10.0);
         const spiked = sim.step();
         sim.recordGrowthActivation(i % 3 === 0);
-        assert.deepEqual(sortedSpikes(spiked), uninterrupted[i], `sanity: the live run must match the uninterrupted trace before any restore happens, tick ${i}`);
+        assert.deepEqual(
+          sortedSpikes(spiked),
+          uninterrupted[i],
+          `sanity: the live run must match the uninterrupted trace before any restore happens, tick ${i}`,
+        );
       }
       sim.snapshot(path);
 
-      const restored = Simulation.restore(path, canonicalLifConfig, canonicalSimulationOptions(SEED));
+      const restored = Simulation.restore(
+        path,
+        canonicalLifConfig,
+        canonicalSimulationOptions(SEED),
+      );
       for (let i = snapshotTick + 1; i < TOTAL_TICKS; i++) {
         column.stimulateSdr(restored, PATTERNS[i % PATTERNS.length]!, 10.0);
         const spiked = restored.step();
@@ -531,7 +683,7 @@ test("the canonical brain's snapshot restores and continues bit-identically off 
   }
 });
 
-test("the canonical brain is deterministic across repeated runs of the same seed (RUN-3)", () => {
+test('the canonical brain is deterministic across repeated runs of the same seed (RUN-3)', () => {
   function run(): { spikeCounts: number[]; liveCount: number } {
     const { sim, column } = buildCanonicalBrain(SEED);
     const spikeCounts: number[] = [];
@@ -545,7 +697,11 @@ test("the canonical brain is deterministic across repeated runs of the same seed
 
   const a = run();
   const b = run();
-  assert.deepEqual(b, a, "two runs built from the identical seed must produce bit-identical per-tick spike counts and final live neuron count");
+  assert.deepEqual(
+    b,
+    a,
+    'two runs built from the identical seed must produce bit-identical per-tick spike counts and final live neuron count',
+  );
 });
 
 /**
@@ -581,7 +737,7 @@ test("the canonical brain is deterministic across repeated runs of the same seed
  * changed" is therefore not evidence of anything. Each assertion below names
  * the one channel it is about and varies only that.
  */
-test("both modulated learning rules are live, and dopamine carries a prediction error rather than a reward (PLAN.md C3)", () => {
+test('both modulated learning rules are live, and dopamine carries a prediction error rather than a reward (PLAN.md C3)', () => {
   const DOPAMINE = 0;
   const ACETYLCHOLINE = 1;
 
@@ -612,7 +768,8 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
       dopamineLevels,
       acetylcholineLevels,
       expectedReward: sim.expectedReward(),
-      classifiedAsPredicted: sim.predictionOutcomeTotals().classifiedAsPredicted,
+      classifiedAsPredicted:
+        sim.predictionOutcomeTotals().classifiedAsPredicted,
     };
   }
 
@@ -621,7 +778,7 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
   const unrewarded = run({});
   assert.ok(
     unrewarded.dopamineLevels.every((l) => l > 0),
-    "dopamine must never sit at exactly 0 now that a baseline is configured -- a level of 0 multiplies every gated update away, " +
+    'dopamine must never sit at exactly 0 now that a baseline is configured -- a level of 0 multiplies every gated update away, ' +
       `which is suppressed learning wearing modulation's clothes. Minimum seen: ${Math.min(...unrewarded.dopamineLevels)}`,
   );
 
@@ -652,10 +809,14 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
   const lastUnrewarded = unrewarded.dopamineLevels[TICKS - 1]!;
   assert.ok(
     lastUnrewarded < unrewarded.dopamineLevels[0]! && lastUnrewarded > 0.5,
-    "and must then DECAY from it, because this is a phasic channel with no reward re-establishing the level -- " +
+    'and must then DECAY from it, because this is a phasic channel with no reward re-establishing the level -- ' +
       `got ${lastUnrewarded} after ${TICKS} ticks at tau 1000 (expected ~exp(-0.4) = 0.67)`,
   );
-  assert.equal(unrewarded.expectedReward, 0, "and no reward means the expectation has nothing to have learned from");
+  assert.equal(
+    unrewarded.expectedReward,
+    0,
+    'and no reward means the expectation has nothing to have learned from',
+  );
 
   // 3. THE C3 PROPERTY: a predictable reward produces no burst; a surprising
   //    one does. The two runs deliver the same TOTAL reward on the same ticks
@@ -664,7 +825,8 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
   const alwaysRewarded = run({ reward: () => 1.0 });
   const rarelyRewarded = run({ reward: (t) => (t === TICKS - 1 ? 1.0 : 0.0) });
 
-  const finalDopamine = (r: { dopamineLevels: number[] }): number => r.dopamineLevels[TICKS - 1] ?? 0;
+  const finalDopamine = (r: { dopamineLevels: number[] }): number =>
+    r.dopamineLevels[TICKS - 1] ?? 0;
   assert.ok(
     Math.abs(finalDopamine(alwaysRewarded) - 1.0) < 0.05,
     `after ${TICKS} identical rewards the expectation has caught up, so the last one must produce no burst -- ` +
@@ -672,7 +834,7 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
   );
   assert.ok(
     finalDopamine(rarelyRewarded) > finalDopamine(alwaysRewarded) + 0.5,
-    "the SAME reward of 1.0, delivered where it was not expected, must produce a real burst -- " +
+    'the SAME reward of 1.0, delivered where it was not expected, must produce a real burst -- ' +
       `surprising=${finalDopamine(rarelyRewarded)} vs predictable=${finalDopamine(alwaysRewarded)}. If these are equal, ` +
       "dopamine is carrying a raw reward again and docs/prior-art.md §2.5's claim is aspirational once more",
   );
@@ -703,15 +865,15 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
   //     Asserted rather than commented so the next person to close it gets
   //     the diagnosis instead of the puzzle. See docs/findings.md finding 17.
   for (const [label, arm] of [
-    ["unrewarded", unrewarded],
-    ["always rewarded", alwaysRewarded],
-    ["rarely rewarded", rarelyRewarded],
+    ['unrewarded', unrewarded],
+    ['always rewarded', alwaysRewarded],
+    ['rarely rewarded', rarelyRewarded],
   ] as const) {
     assert.ok(
       arm.classifiedAsPredicted > 0,
       `${label}: this scenario must classify at least one outcome as "was predicted", or Requirement 12.2/12.3 never runs and ` +
-        "assertions 4 and 5 below are vacuous rather than passing. A zero here means the fixture stopped predicting -- " +
-        "fix the cause, do not adjust this test (docs/findings.md finding 17 records the time that was nearly done)",
+        'assertions 4 and 5 below are vacuous rather than passing. A zero here means the fixture stopped predicting -- ' +
+        'fix the cause, do not adjust this test (docs/findings.md finding 17 records the time that was nearly done)',
     );
   }
 
@@ -725,31 +887,40 @@ test("both modulated learning rules are live, and dopamine carries a prediction 
     alwaysRewarded.permanence,
     unrewarded.permanence,
     "rewarding must change mean permanence -- if these are equal, LRN-8's 12.2/12.3 path is disconnected from dopamine rather " +
-      "than merely undriven, which is exactly the distinction docs/findings.md finding 13 keeps rediscovering here",
+      'than merely undriven, which is exactly the distinction docs/findings.md finding 13 keeps rediscovering here',
   );
   assert.notEqual(
     rarelyRewarded.permanence,
     alwaysRewarded.permanence,
-    "and two reward streams differing only in predictability must diverge -- otherwise the prediction error is computed and discarded",
+    'and two reward streams differing only in predictability must diverge -- otherwise the prediction error is computed and discarded',
   );
 
   // 5. The three-factor rule is live too, on its own channel. Asserted via
   //    acetylcholine actually moving under C2's coupling rather than via
   //    weight moving, because weight moves regardless (LRN-6 renormalises it)
   //    and would pass for a network whose STDP rule was dead.
-  const achSpread = Math.max(...unrewarded.acetylcholineLevels) - Math.min(...unrewarded.acetylcholineLevels);
+  const achSpread =
+    Math.max(...unrewarded.acetylcholineLevels) -
+    Math.min(...unrewarded.acetylcholineLevels);
   assert.ok(
     achSpread > 1e-6,
     `the three-factor rule now routes on acetylcholine, so that channel must be genuinely varying -- spread ${achSpread}`,
   );
   assert.ok(
     unrewarded.acetylcholineLevels.every((l) => l > 0),
-    "and must never be exactly 0, which would put the three-factor rule back where dopamine was before C3",
+    'and must never be exactly 0, which would put the three-factor rule back where dopamine was before C3',
   );
 
   // 6. The trap, kept from the previous version verbatim in intent: state
   //    moves regardless, so none of the above could have been asserted as
   //    "something changed".
-  assert.notEqual(unrewarded.weight, 0.4, "weight moves even unrewarded -- LRN-6 homeostatic scaling renormalises it, no modulator involved");
-  assert.ok(unrewarded.permanence > 0, "permanence moves even unrewarded -- the burst-sprout path is deliberately not modulator-gated");
+  assert.notEqual(
+    unrewarded.weight,
+    0.4,
+    'weight moves even unrewarded -- LRN-6 homeostatic scaling renormalises it, no modulator involved',
+  );
+  assert.ok(
+    unrewarded.permanence > 0,
+    'permanence moves even unrewarded -- the burst-sprout path is deliberately not modulator-gated',
+  );
 });

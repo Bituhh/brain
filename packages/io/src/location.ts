@@ -6,8 +6,8 @@
 // Acceptance Criterion 5, matching how IO-5's sensorimotor loop was built
 // in Phase 5.
 
-import { makeSdr, type Sdr } from "./sdr.ts";
-import { encodeCyclicComponent } from "./encoders/datetime.ts";
+import { makeSdr, type Sdr } from './sdr.ts';
+import { encodeCyclicComponent } from './encoders/datetime.ts';
 
 /** Cumulative displacement, in the same units `GridModule.period` is expressed in. */
 export interface Position {
@@ -72,10 +72,14 @@ export interface LocationEncoderConfig {
 
 function validateModule(module: GridModule): void {
   if (!(module.period > 0)) {
-    throw new RangeError(`GridModule.period must be positive, got ${module.period}`);
+    throw new RangeError(
+      `GridModule.period must be positive, got ${module.period}`,
+    );
   }
   if (!(module.activeBits > 0) || module.activeBits > module.width) {
-    throw new RangeError(`GridModule.activeBits (${module.activeBits}) must be in (0, width (${module.width})]`);
+    throw new RangeError(
+      `GridModule.activeBits (${module.activeBits}) must be in (0, width (${module.width})]`,
+    );
   }
 }
 
@@ -89,7 +93,10 @@ function validateModule(module: GridModule): void {
  * Deterministic (Requirement 2.3): the same `position` under the same
  * `config` always produces the bit-identical `Sdr`.
  */
-export function encodeLocation(config: LocationEncoderConfig, position: Position): Sdr {
+export function encodeLocation(
+  config: LocationEncoderConfig,
+  position: Position,
+): Sdr {
   for (const module of config.modules) {
     validateModule(module);
   }
@@ -97,11 +104,21 @@ export function encodeLocation(config: LocationEncoderConfig, position: Position
   const bits: number[] = [];
   let offset = 0;
   for (const module of config.modules) {
-    for (const bit of encodeCyclicComponent(module.period, module.width, module.activeBits, position.x)) {
+    for (const bit of encodeCyclicComponent(
+      module.period,
+      module.width,
+      module.activeBits,
+      position.x,
+    )) {
       bits.push(offset + bit);
     }
     offset += module.width;
-    for (const bit of encodeCyclicComponent(module.period, module.width, module.activeBits, position.y)) {
+    for (const bit of encodeCyclicComponent(
+      module.period,
+      module.width,
+      module.activeBits,
+      position.y,
+    )) {
       bits.push(offset + bit);
     }
     offset += module.width;

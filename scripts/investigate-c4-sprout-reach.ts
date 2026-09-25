@@ -52,33 +52,59 @@
 // grown -> original synapses on the real network.
 // Environment: C4_WORKERS (default 6), C4_TIMEOUT_HOURS (default 4).
 
-import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { cpus } from "node:os";
-import type { GrowthConfig, NewbornMaturationConfig, Simulation, StructuralStats } from "@brain/core";
-import { Checkpoint } from "./b4-search/checkpoint.ts";
-import { workerRunner } from "./b4-search/evaluator.ts";
-import { runJobs, type Job } from "./b4-search/pool.ts";
-import type { Point } from "./b4-search/space.ts";
-import { canonicalJson, conditionLabel, PROTOCOL_VERSION, searchCondition, toConfig } from "./b5-search/conditions.ts";
-import type { B5ParamName } from "./b5-search/space.ts";
-import { buildNetwork, NETWORK_WIDTH, type CharPredictionConfig } from "../packages/io/src/milestone/charPrediction.ts";
-import { encodeChar, SUPPORTED_ALPHABET, type CharEncoderConfig } from "../packages/io/src/encoders/text.ts";
-import { rankByOverlapFraction, type Candidate } from "../packages/io/src/decoders/overlap.ts";
-import { streamThrough } from "../packages/io/src/harness/stream.ts";
-import { SlidingWindowAccuracy } from "../packages/io/src/metrics.ts";
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { cpus } from 'node:os';
+import type {
+  GrowthConfig,
+  NewbornMaturationConfig,
+  Simulation,
+  StructuralStats,
+} from '@brain/core';
+import { Checkpoint } from './b4-search/checkpoint.ts';
+import { workerRunner } from './b4-search/evaluator.ts';
+import { runJobs, type Job } from './b4-search/pool.ts';
+import type { Point } from './b4-search/space.ts';
+import {
+  canonicalJson,
+  conditionLabel,
+  PROTOCOL_VERSION,
+  searchCondition,
+  toConfig,
+} from './b5-search/conditions.ts';
+import type { B5ParamName } from './b5-search/space.ts';
+import {
+  buildNetwork,
+  NETWORK_WIDTH,
+  type CharPredictionConfig,
+} from '../packages/io/src/milestone/charPrediction.ts';
+import {
+  encodeChar,
+  SUPPORTED_ALPHABET,
+  type CharEncoderConfig,
+} from '../packages/io/src/encoders/text.ts';
+import {
+  rankByOverlapFraction,
+  type Candidate,
+} from '../packages/io/src/decoders/overlap.ts';
+import { streamThrough } from '../packages/io/src/harness/stream.ts';
+import { SlidingWindowAccuracy } from '../packages/io/src/metrics.ts';
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 const paths = {
-  chosen: here("./tune-b5-values.chosen.json"),
-  searchCheckpoint: here("./tune-b5-values.checkpoint.jsonl"),
-  growthCheckpoint: here("./investigate-b5-growth.checkpoint.jsonl"),
-  checkpoint: here("./investigate-c4-sprout-reach.checkpoint.jsonl"),
-  log: here("./investigate-c4-sprout-reach.log"),
-  results: here(process.env.C4_SEEDS === undefined ? "./investigate-c4-sprout-reach.results.md" : "./investigate-c4-sprout-reach.selection-seeds.results.md"),
-  samples: here("./investigate-c4-sprout-reach.samples.md"),
-  worker: here("./b4-search/trial.worker.ts"),
-  corpus: here("../packages/io/test/fixtures/corpus.txt"),
+  chosen: here('./tune-b5-values.chosen.json'),
+  searchCheckpoint: here('./tune-b5-values.checkpoint.jsonl'),
+  growthCheckpoint: here('./investigate-b5-growth.checkpoint.jsonl'),
+  checkpoint: here('./investigate-c4-sprout-reach.checkpoint.jsonl'),
+  log: here('./investigate-c4-sprout-reach.log'),
+  results: here(
+    process.env.C4_SEEDS === undefined
+      ? './investigate-c4-sprout-reach.results.md'
+      : './investigate-c4-sprout-reach.selection-seeds.results.md',
+  ),
+  samples: here('./investigate-c4-sprout-reach.samples.md'),
+  worker: here('./b4-search/trial.worker.ts'),
+  corpus: here('../packages/io/test/fixtures/corpus.txt'),
 };
 
 const CORPUS_LENGTH = 15_000;
@@ -99,12 +125,17 @@ const CORPUS_LENGTH = 15_000;
  * does not survive it is noise.
  */
 const SEEDS: readonly bigint[] =
-  process.env.C4_SEEDS === undefined ? ([11n, 12n, 13n, 14n, 15n] as const) : process.env.C4_SEEDS.split(",").map((s) => BigInt(s.trim()));
+  process.env.C4_SEEDS === undefined
+    ? ([11n, 12n, 13n, 14n, 15n] as const)
+    : process.env.C4_SEEDS.split(',').map((s) => BigInt(s.trim()));
 /** docs/findings.md finding 7's mode baseline. Quoted in the report because a change that improves a delta but drops under this has undone the only real progress the network has made (`.claude/HANDOFF.md`'s headline). */
 const ALWAYS_GUESS_SPACE = 0.1656;
 
-const corpus = readFileSync(paths.corpus, "utf8").slice(0, CORPUS_LENGTH);
-const workers = Math.max(1, Math.min(Number(process.env.C4_WORKERS ?? 6), cpus().length));
+const corpus = readFileSync(paths.corpus, 'utf8').slice(0, CORPUS_LENGTH);
+const workers = Math.max(
+  1,
+  Math.min(Number(process.env.C4_WORKERS ?? 6), cpus().length),
+);
 const timeoutHours = Number(process.env.C4_TIMEOUT_HOURS ?? 4);
 
 // --- Growth values, identical to scripts/investigate-b5-growth.ts ---
@@ -161,7 +192,9 @@ function newbornMaturationParams(): NewbornMaturationConfig {
 
 // --- Conditions ---
 
-const chosen = JSON.parse(readFileSync(paths.chosen, "utf8")) as { readonly winner: Point<B5ParamName> };
+const chosen = JSON.parse(readFileSync(paths.chosen, 'utf8')) as {
+  readonly winner: Point<B5ParamName>;
+};
 const winner = chosen.winner;
 const winnerConfig = toConfig(searchCondition(winner));
 
@@ -177,12 +210,24 @@ const winnerConfig = toConfig(searchCondition(winner));
  * (`crates/brain-core/tests/sprout_reach.rs`,
  * `tests/partitioning_reference.rs`, `canonicalBrain.test.ts`).
  */
-function withReach(config: CharPredictionConfig, radius: number | undefined): CharPredictionConfig {
+function withReach(
+  config: CharPredictionConfig,
+  radius: number | undefined,
+): CharPredictionConfig {
   if (radius === undefined) return config;
-  return { ...config, structuralPlasticity: { ...config.structuralPlasticity!, sproutReachRadius: radius } };
+  return {
+    ...config,
+    structuralPlasticity: {
+      ...config.structuralPlasticity!,
+      sproutReachRadius: radius,
+    },
+  };
 }
 
-function withGrowth(config: CharPredictionConfig, growth: GrowthConfig): CharPredictionConfig {
+function withGrowth(
+  config: CharPredictionConfig,
+  growth: GrowthConfig,
+): CharPredictionConfig {
   return { ...config, growth, newbornMaturation: newbornMaturationParams() };
 }
 
@@ -196,18 +241,39 @@ interface Row {
 const RADII = [25, 50, 100] as const;
 
 const ROWS: readonly Row[] = [
-  { name: "C: no growth, index-block reach (B5 winner)", config: winnerConfig, reference: true },
-  { name: "B: C + growth, burst pace, index-block reach", config: withGrowth(winnerConfig, growthBurst()), reference: true },
-  { name: "E: C + growth, gentle pace, index-block reach", config: withGrowth(winnerConfig, growthGentle()), reference: true },
+  {
+    name: 'C: no growth, index-block reach (B5 winner)',
+    config: winnerConfig,
+    reference: true,
+  },
+  {
+    name: 'B: C + growth, burst pace, index-block reach',
+    config: withGrowth(winnerConfig, growthBurst()),
+    reference: true,
+  },
+  {
+    name: 'E: C + growth, gentle pace, index-block reach',
+    config: withGrowth(winnerConfig, growthGentle()),
+    reference: true,
+  },
   // The control rows: reach changed, growth absent. Isolates the
   // overlapping-vs-disjoint candidate-set change from growth itself.
-  ...RADII.map((r) => ({ name: `NG-${r}: no growth, spatial reach r=${r}`, config: withReach(winnerConfig, r) })),
+  ...RADII.map((r) => ({
+    name: `NG-${r}: no growth, spatial reach r=${r}`,
+    config: withReach(winnerConfig, r),
+  })),
   // Growth at the burst pace (the only pace that helped at all in B5's
   // battery) across the same radii.
-  ...RADII.map((r) => ({ name: `SB-${r}: C + growth, burst pace, spatial reach r=${r}`, config: withReach(withGrowth(winnerConfig, growthBurst()), r) })),
+  ...RADII.map((r) => ({
+    name: `SB-${r}: C + growth, burst pace, spatial reach r=${r}`,
+    config: withReach(withGrowth(winnerConfig, growthBurst()), r),
+  })),
   // One gentle-pace row at the matched-scale radius, so the pace axis B5
   // found to matter is not silently dropped.
-  { name: "SE-50: C + growth, gentle pace, spatial reach r=50", config: withReach(withGrowth(winnerConfig, growthGentle()), 50) },
+  {
+    name: 'SE-50: C + growth, gentle pace, spatial reach r=50',
+    config: withReach(withGrowth(winnerConfig, growthGentle()), 50),
+  },
 ];
 
 /** Same shape as `scripts/b5-search/conditions.ts`'s `trialKey`, so the reference rows hit the earlier scripts' own checkpoints. */
@@ -218,13 +284,15 @@ function keyOf(config: CharPredictionConfig, seed: bigint): string {
 // --- Logging ---
 
 function log(line: string): void {
-  const stamped = `[${new Date().toISOString().replace("T", " ").slice(0, 19)}] ${line}`;
+  const stamped = `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] ${line}`;
   console.log(stamped);
   appendFileSync(paths.log, `${stamped}\n`);
 }
 
-process.on("unhandledRejection", (reason) => {
-  log(`[FATAL] unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)} -- re-run the same command to resume`);
+process.on('unhandledRejection', (reason) => {
+  log(
+    `[FATAL] unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)} -- re-run the same command to resume`,
+  );
   process.exit(1);
 });
 
@@ -245,14 +313,20 @@ const SAMPLE_INTERVAL = 1500;
 
 /** Same two helpers `investigate-growth-regression.ts` defines for its own instrumented pass -- `charPrediction.ts` keeps its versions private. */
 function charEncoderConfig(width: number, density: number): CharEncoderConfig {
-  return { width, density, seed: "char-prediction" };
+  return { width, density, seed: 'char-prediction' };
 }
 
 function buildCandidates(config: CharEncoderConfig): Candidate<string>[] {
-  return SUPPORTED_ALPHABET.map((char) => ({ label: char, sdr: encodeChar(config, char) }));
+  return SUPPORTED_ALPHABET.map((char) => ({
+    label: char,
+    sdr: encodeChar(config, char),
+  }));
 }
 
-function grownSynapseStats(sim: Simulation, width: number): { ontoGrown: number; fromGrown: number; fromGrownOntoOriginal: number } {
+function grownSynapseStats(
+  sim: Simulation,
+  width: number,
+): { ontoGrown: number; fromGrown: number; fromGrownOntoOriginal: number } {
   const capPerNeuron = sim.synapseCapPerNeuron();
   const targets = sim.synapseTargetNeuronView();
   const occupied = sim.synapseOccupiedView();
@@ -279,7 +353,8 @@ interface CharNext {
 
 function charNextPairs(text: string): CharNext[] {
   const pairs: CharNext[] = [];
-  for (let i = 0; i < text.length - 1; i++) pairs.push({ char: text[i]!, next: text[i + 1]! });
+  for (let i = 0; i < text.length - 1; i++)
+    pairs.push({ char: text[i]!, next: text[i + 1]! });
   return pairs;
 }
 
@@ -289,7 +364,11 @@ function charNextPairs(text: string): CharNext[] {
  * capability the shipped harness needs (the same call
  * `investigate-growth-regression.ts` made and recorded).
  */
-function runInstrumented(label: string, config: CharPredictionConfig, seed: bigint): void {
+function runInstrumented(
+  label: string,
+  config: CharPredictionConfig,
+  seed: bigint,
+): void {
   const encoderConfig = charEncoderConfig(config.width, config.density);
   const candidates = buildCandidates(encoderConfig);
   const { sim, column } = buildNetwork(
@@ -312,9 +391,16 @@ function runInstrumented(label: string, config: CharPredictionConfig, seed: bigi
   const collisionMargin = config.collisionMargin ?? 0.1;
   const networkAcc = new SlidingWindowAccuracy(config.slidingWindow);
   const tonic = config.tonicModulator;
-  const tonicTau = tonic !== undefined ? config.plasticity?.modulatorTauTicks[tonic.channel] : undefined;
-  const tonicTopUp = tonic !== undefined && tonicTau !== undefined ? tonic.level * (1 - Math.exp(-config.ticksPerInput / tonicTau)) : 0;
-  if (tonic !== undefined && tonicTau !== undefined) sim.injectModulator(tonic.channel, tonic.level);
+  const tonicTau =
+    tonic !== undefined
+      ? config.plasticity?.modulatorTauTicks[tonic.channel]
+      : undefined;
+  const tonicTopUp =
+    tonic !== undefined && tonicTau !== undefined
+      ? tonic.level * (1 - Math.exp(-config.ticksPerInput / tonicTau))
+      : 0;
+  if (tonic !== undefined && tonicTau !== undefined)
+    sim.injectModulator(tonic.channel, tonic.level);
 
   let charIndex = 0;
   const rows: string[] = [];
@@ -331,16 +417,22 @@ function runInstrumented(label: string, config: CharPredictionConfig, seed: bigi
   })) {
     charIndex++;
     networkAcc.record(step.predicted?.label === step.actual);
-    if (tonic !== undefined && tonicTopUp > 0) sim.injectModulator(tonic.channel, tonicTopUp);
+    if (tonic !== undefined && tonicTopUp > 0)
+      sim.injectModulator(tonic.channel, tonicTopUp);
     if (config.growth !== undefined && step.observed !== undefined) {
       const ranked = rankByOverlapFraction(step.observed, candidates);
       const top = ranked[0]?.fraction ?? 0;
       const runnerUp = ranked[1]?.fraction ?? 0;
-      sim.recordGrowthActivation(top >= 0.05 && top - runnerUp < collisionMargin);
+      sim.recordGrowthActivation(
+        top >= 0.05 && top - runnerUp < collisionMargin,
+      );
     }
     if (charIndex % SAMPLE_INTERVAL === 0) {
       const live = sim.liveNeuronCount();
-      const { ontoGrown, fromGrown, fromGrownOntoOriginal } = grownSynapseStats(sim, config.width);
+      const { ontoGrown, fromGrown, fromGrownOntoOriginal } = grownSynapseStats(
+        sim,
+        config.width,
+      );
       rows.push(
         `| ${charIndex} | ${(networkAcc.accuracy * 100).toFixed(2)}% | ${live} | ${Math.max(0, live - config.width)} | ${sim.growthEventCount()} | ${ontoGrown} | ${fromGrown} | **${fromGrownOntoOriginal}** |`,
       );
@@ -353,16 +445,16 @@ function runInstrumented(label: string, config: CharPredictionConfig, seed: bigi
   appendFileSync(
     paths.samples,
     `\n## ${label} (seed ${seed})\n\n` +
-      "| char index | trailing-window accuracy | liveNeuronCount | grownLive | growthEvents | synapsesOntoGrown | synapsesFromGrown | **grown -> ORIGINAL** |\n" +
-      "|---|---|---|---|---|---|---|---|\n" +
-      rows.join("\n") +
-      "\n",
+      '| char index | trailing-window accuracy | liveNeuronCount | grownLive | growthEvents | synapsesOntoGrown | synapsesFromGrown | **grown -> ORIGINAL** |\n' +
+      '|---|---|---|---|---|---|---|---|\n' +
+      rows.join('\n') +
+      '\n',
   );
 }
 
 // --- Run ---
 
-if (process.env.C4_INSTRUMENT === "1") {
+if (process.env.C4_INSTRUMENT === '1') {
   const seed = 11n;
   writeFileSync(
     paths.samples,
@@ -370,8 +462,16 @@ if (process.env.C4_INSTRUMENT === "1") {
       "The column that matters is the last one: **grown -> ORIGINAL** synapses, i.e. occupied slots whose source index is at or past `width` and whose target index is below it. docs/findings.md finding 10's own instrumented run measured that quantity as exactly **0** across the whole 15,000-character run, with 33,104 synapses going the other way -- grown capacity that could listen to the original population and never speak to it. `synapsesFromGrown` is *not* the same quantity and was already non-zero before C4 (PLAN.md B3 made a newborn a legitimate sprout source; it just had only fellow newborns to sprout to).\n",
   );
   log(`=== instrumented pass, seed ${seed} ===`);
-  runInstrumented("B: growth burst pace, index-block reach (the docs/findings.md finding 10 control)", withGrowth(winnerConfig, growthBurst()), seed);
-  runInstrumented("SB-50: growth burst pace, spatial reach r=50", withReach(withGrowth(winnerConfig, growthBurst()), 50), seed);
+  runInstrumented(
+    'B: growth burst pace, index-block reach (the docs/findings.md finding 10 control)',
+    withGrowth(winnerConfig, growthBurst()),
+    seed,
+  );
+  runInstrumented(
+    'SB-50: growth burst pace, spatial reach r=50',
+    withReach(withGrowth(winnerConfig, growthBurst()), 50),
+    seed,
+  );
   log(`=== instrumented pass done: ${paths.samples} ===`);
 } else {
   const searchCheckpoint = new Checkpoint(paths.searchCheckpoint);
@@ -386,7 +486,9 @@ if (process.env.C4_INSTRUMENT === "1") {
           ? searchCheckpoint.get(key)
           : undefined;
 
-  log(`=== investigate-c4-sprout-reach starting: ${workers} workers, corpus ${CORPUS_LENGTH} characters, seeds ${SEEDS.join(", ")} ===`);
+  log(
+    `=== investigate-c4-sprout-reach starting: ${workers} workers, corpus ${CORPUS_LENGTH} characters, seeds ${SEEDS.join(', ')} ===`,
+  );
   log(`winner: ${conditionLabel(searchCondition(winner))}`);
 
   const jobs: Job[] = [];
@@ -395,17 +497,26 @@ if (process.env.C4_INSTRUMENT === "1") {
       const key = keyOf(row.config, seed);
       if (recordOf(key) === undefined) {
         if (row.reference === true) {
-          log(`[WARN] reference row "${row.name}" seed ${seed} is not in any prior checkpoint and will be re-run`);
+          log(
+            `[WARN] reference row "${row.name}" seed ${seed} is not in any prior checkpoint and will be re-run`,
+          );
         }
         // Up to the colon: the row's short id (`NG-100`, `SB-25`, ...). A
         // fixed `slice(0, 5)` printed "NG-10" for the r=100 rows, which is
         // another row's name -- cosmetic in the log, but the log is what a
         // later reader trusts.
-        jobs.push({ key, label: row.name.slice(0, row.name.indexOf(":")), seed, payload: row.config });
+        jobs.push({
+          key,
+          label: row.name.slice(0, row.name.indexOf(':')),
+          seed,
+          payload: row.config,
+        });
       }
     }
   }
-  log(`${ROWS.length * SEEDS.length} trials, ${ROWS.length * SEEDS.length - jobs.length} already measured, ${jobs.length} to run`);
+  log(
+    `${ROWS.length * SEEDS.length} trials, ${ROWS.length * SEEDS.length - jobs.length} already measured, ${jobs.length} to run`,
+  );
 
   const failed = (
     await runJobs(jobs, {
@@ -415,15 +526,19 @@ if (process.env.C4_INSTRUMENT === "1") {
       heartbeatMs: 60_000,
       timeoutMs: timeoutHours * 3_600_000,
       retries: 1,
-      stageName: "C4 sprout-reach battery",
+      stageName: 'C4 sprout-reach battery',
       onResult: (result) =>
         checkpoint.append({
           key: result.job.key,
           label: result.job.label,
           seed: String(result.job.seed),
           ok: result.ok,
-          ...(result.output !== undefined && { accuracy: result.output.accuracy }),
-          ...(result.output?.structuralStats !== undefined && { structuralStats: result.output.structuralStats }),
+          ...(result.output !== undefined && {
+            accuracy: result.output.accuracy,
+          }),
+          ...(result.output?.structuralStats !== undefined && {
+            structuralStats: result.output.structuralStats,
+          }),
           ...(result.error !== undefined && { error: result.error }),
           seconds: result.seconds,
           finishedAt: new Date().toISOString(),
@@ -434,55 +549,74 @@ if (process.env.C4_INSTRUMENT === "1") {
   // --- Report ---
 
   const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
-  const mean = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const mean = (xs: readonly number[]) =>
+    xs.reduce((a, b) => a + b, 0) / xs.length;
 
   const lines = [
-    "# PLAN.md C4 -- spatial sprout reach on VAL-4",
-    "",
-    `Generated ${new Date().toISOString()} by scripts/investigate-c4-sprout-reach.ts. Corpus slice ${CORPUS_LENGTH} characters; confirmation seeds ${SEEDS.join(", ")}, never used by the B5 value search to choose.`,
-    "",
+    '# PLAN.md C4 -- spatial sprout reach on VAL-4',
+    '',
+    `Generated ${new Date().toISOString()} by scripts/investigate-c4-sprout-reach.ts. Corpus slice ${CORPUS_LENGTH} characters; confirmation seeds ${SEEDS.join(', ')}, never used by the B5 value search to choose.`,
+    '',
     `Winner these rows build on (tune-b5-values.chosen.json): ${conditionLabel(searchCondition(winner))}.`,
-    "",
+    '',
     `**The bar to read every number against** is docs/findings.md finding 7's mode baseline, "always guess space": **${pct(ALWAYS_GUESS_SPACE)}**. A change that improves a delta but drops back under it has undone the only real progress this network has made. Trigram on this corpus is 29.07%; the VAL-4 milestone is not met either way.`,
-    "",
-    "Rows C, B and E are read from `investigate-b5-growth.checkpoint.jsonl` rather than re-run -- same key scheme, same seeds, same corpus slice.",
-    "",
+    '',
+    'Rows C, B and E are read from `investigate-b5-growth.checkpoint.jsonl` rather than re-run -- same key scheme, same seeds, same corpus slice.',
+    '',
     "`NG-*` rows carry the **overlapping-vs-disjoint control**: a radius gives every neuron its own candidate set where a block is shared, so candidate-pair counts change with no growth at all. Without these rows, movement in an `SB-*`/`SE-*` row would be unattributable between growth's capacity and the reach change itself.",
-    "",
-    "| condition | mean | per seed | vs C | sprouted / unsilenced / eliminated / silent now (mean) | mean s/trial |",
-    "|---|---|---|---|---|---|",
+    '',
+    '| condition | mean | per seed | vs C | sprouted / unsilenced / eliminated / silent now (mean) | mean s/trial |',
+    '|---|---|---|---|---|---|',
   ];
 
   const referenceMean = (() => {
     const records = SEEDS.map((seed) => recordOf(keyOf(winnerConfig, seed)));
-    return records.every((r) => r?.accuracy !== undefined) ? mean(records.map((r) => r!.accuracy!)) : undefined;
+    return records.every((r) => r?.accuracy !== undefined)
+      ? mean(records.map((r) => r!.accuracy!))
+      : undefined;
   })();
 
   for (const row of ROWS) {
     const records = SEEDS.map((seed) => recordOf(keyOf(row.config, seed)));
     if (records.some((r) => r?.accuracy === undefined)) {
-      lines.push(`| ${row.name} | failed | ${records.map((r) => (r?.accuracy === undefined ? "failed" : pct(r.accuracy))).join(", ")} | | | |`);
+      lines.push(
+        `| ${row.name} | failed | ${records.map((r) => (r?.accuracy === undefined ? 'failed' : pct(r.accuracy))).join(', ')} | | | |`,
+      );
       continue;
     }
     const accuracies = records.map((r) => r!.accuracy!);
     const rowMean = mean(accuracies);
-    const stats = records.map((r) => r!.structuralStats).filter((s): s is StructuralStats => s !== undefined);
+    const stats = records
+      .map((r) => r!.structuralStats)
+      .filter((s): s is StructuralStats => s !== undefined);
     const statsCell =
       stats.length === 0
-        ? "--"
-        : [mean(stats.map((s) => s.sproutedTotal)), mean(stats.map((s) => s.unsilencedTotal)), mean(stats.map((s) => s.eliminatedTotal)), mean(stats.map((s) => s.silentNow))]
+        ? '--'
+        : [
+            mean(stats.map((s) => s.sproutedTotal)),
+            mean(stats.map((s) => s.unsilencedTotal)),
+            mean(stats.map((s) => s.eliminatedTotal)),
+            mean(stats.map((s) => s.silentNow)),
+          ]
             .map((x) => Math.round(x))
-            .join(" / ");
-    const delta = referenceMean === undefined ? "--" : `${rowMean >= referenceMean ? "+" : ""}${((rowMean - referenceMean) * 100).toFixed(2)}`;
-    lines.push(`| ${row.name} | ${pct(rowMean)} | ${accuracies.map(pct).join(", ")} | ${delta} | ${statsCell} | ${Math.round(mean(records.map((r) => r!.seconds)))} |`);
+            .join(' / ');
+    const delta =
+      referenceMean === undefined
+        ? '--'
+        : `${rowMean >= referenceMean ? '+' : ''}${((rowMean - referenceMean) * 100).toFixed(2)}`;
+    lines.push(
+      `| ${row.name} | ${pct(rowMean)} | ${accuracies.map(pct).join(', ')} | ${delta} | ${statsCell} | ${Math.round(mean(records.map((r) => r!.seconds)))} |`,
+    );
   }
 
   lines.push(
-    "",
+    '',
     "Per-seed identity is worth checking by eye as well as by mean: docs/findings.md finding 10's finding was that growth rows reproduced condition C's accuracy *identically on every seed*, which is a much stronger statement than their means agreeing.",
-    "",
-    "The direct topology measurement (grown -> original synapse counts on the real network) is in `investigate-c4-sprout-reach.samples.md`, produced by re-running this script with `C4_INSTRUMENT=1`.",
+    '',
+    'The direct topology measurement (grown -> original synapse counts on the real network) is in `investigate-c4-sprout-reach.samples.md`, produced by re-running this script with `C4_INSTRUMENT=1`.',
   );
-  writeFileSync(paths.results, `${lines.join("\n")}\n`);
-  log(`=== done: results in ${paths.results}${failed.length > 0 ? `; ${failed.length} trial(s) failed, re-run to retry them` : ""} ===`);
+  writeFileSync(paths.results, `${lines.join('\n')}\n`);
+  log(
+    `=== done: results in ${paths.results}${failed.length > 0 ? `; ${failed.length} trial(s) failed, re-run to retry them` : ''} ===`,
+  );
 }

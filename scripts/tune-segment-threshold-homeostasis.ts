@@ -31,26 +31,47 @@
 // from an official-protocol confirmation -- both belong in the same
 // honest record, at their own stated sample size.
 
-import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { runCharPredictionTrials, assessMilestone, DEFAULT_CONFIG, type CharPredictionConfig } from "../packages/io/src/milestone/charPrediction.ts";
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import {
+  runCharPredictionTrials,
+  assessMilestone,
+  DEFAULT_CONFIG,
+  type CharPredictionConfig,
+} from '../packages/io/src/milestone/charPrediction.ts';
 
-const logPath = fileURLToPath(new URL("./tune-segment-threshold-homeostasis.results.md", import.meta.url));
+const logPath = fileURLToPath(
+  new URL('./tune-segment-threshold-homeostasis.results.md', import.meta.url),
+);
 writeFileSync(
   logPath,
-  "# Segment-threshold-homeostasis targetRate search log\n\n" +
+  '# Segment-threshold-homeostasis targetRate search log\n\n' +
     `Generated ${new Date().toISOString()} by scripts/tune-segment-threshold-homeostasis.ts.\n\n` +
-    "| targetRate | seeds | mean network accuracy | range across seeds | note |\n" +
-    "|---|---|---|---|---|\n",
+    '| targetRate | seeds | mean network accuracy | range across seeds | note |\n' +
+    '|---|---|---|---|---|\n',
 );
 
-function logTrial(targetRate: number, seedCount: number, meanAccuracy: number, perSeed: readonly number[], note: string): void {
-  const range = perSeed.length > 0 ? `${(Math.min(...perSeed) * 100).toFixed(2)}%–${(Math.max(...perSeed) * 100).toFixed(2)}%` : "—";
-  appendFileSync(logPath, `| ${targetRate.toFixed(4)} | ${seedCount} | ${(meanAccuracy * 100).toFixed(2)}% | ${range} | ${note} |\n`);
+function logTrial(
+  targetRate: number,
+  seedCount: number,
+  meanAccuracy: number,
+  perSeed: readonly number[],
+  note: string,
+): void {
+  const range =
+    perSeed.length > 0
+      ? `${(Math.min(...perSeed) * 100).toFixed(2)}%–${(Math.max(...perSeed) * 100).toFixed(2)}%`
+      : '—';
+  appendFileSync(
+    logPath,
+    `| ${targetRate.toFixed(4)} | ${seedCount} | ${(meanAccuracy * 100).toFixed(2)}% | ${range} | ${note} |\n`,
+  );
 }
 
-const corpusPath = fileURLToPath(new URL("../packages/io/test/fixtures/corpus.txt", import.meta.url));
-const fullCorpus = readFileSync(corpusPath, "utf8");
+const corpusPath = fileURLToPath(
+  new URL('../packages/io/test/fixtures/corpus.txt', import.meta.url),
+);
+const fullCorpus = readFileSync(corpusPath, 'utf8');
 const SLICE_LENGTH = 15_000;
 const corpus = fullCorpus.slice(0, SLICE_LENGTH);
 
@@ -65,7 +86,9 @@ const CONFIRM_SEEDS = [1n, 2n, 3n, 4n, 5n];
 // every manual trial in docs/findings.md finding 7's table already made).
 const BASE_HOMEOSTASIS = DEFAULT_CONFIG.segmentThresholdHomeostasis;
 if (BASE_HOMEOSTASIS === undefined) {
-  throw new Error("DEFAULT_CONFIG.segmentThresholdHomeostasis must be set for this search to have a smoothing/adjustmentRate/minThreshold/intervalTicks baseline to sweep targetRate against.");
+  throw new Error(
+    'DEFAULT_CONFIG.segmentThresholdHomeostasis must be set for this search to have a smoothing/adjustmentRate/minThreshold/intervalTicks baseline to sweep targetRate against.',
+  );
 }
 
 // `SegmentThresholdHomeostasis::new` (brain-core) asserts targetRate in
@@ -86,7 +109,10 @@ const MIN_STEP = 0.0025;
 const MAX_TRIALS = 80;
 
 function configFor(targetRate: number): CharPredictionConfig {
-  return { ...DEFAULT_CONFIG, segmentThresholdHomeostasis: { ...BASE_HOMEOSTASIS!, targetRate } };
+  return {
+    ...DEFAULT_CONFIG,
+    segmentThresholdHomeostasis: { ...BASE_HOMEOSTASIS!, targetRate },
+  };
 }
 
 interface Evaluation {
@@ -102,7 +128,11 @@ let trialCount = 0;
  * only the search loop's `evaluate` below needs caching (the same
  * candidate can be re-proposed once the step shrinks); the confirmation
  * run at the end always wants a fresh, explicitly-logged measurement. */
-function measure(targetRate: number, seeds: readonly bigint[], note: string): number {
+function measure(
+  targetRate: number,
+  seeds: readonly bigint[],
+  note: string,
+): number {
   const trials = runCharPredictionTrials(corpus, seeds, configFor(targetRate));
   const assessment = assessMilestone(trials);
   logTrial(
@@ -123,14 +153,20 @@ function evaluate(targetRate: number): Evaluation {
   }
   trialCount++;
   const t0 = Date.now();
-  const score = measure(rounded, SEARCH_SEEDS, "search");
+  const score = measure(rounded, SEARCH_SEEDS, 'search');
   scoreCache.set(rounded, score);
-  console.log(`  trial ${trialCount}: targetRate=${rounded.toFixed(4)} -> mean network accuracy=${(score * 100).toFixed(2)}% (${Date.now() - t0}ms, ${SEARCH_SEEDS.length} seeds)`);
+  console.log(
+    `  trial ${trialCount}: targetRate=${rounded.toFixed(4)} -> mean network accuracy=${(score * 100).toFixed(2)}% (${Date.now() - t0}ms, ${SEARCH_SEEDS.length} seeds)`,
+  );
   return { targetRate: rounded, score };
 }
 
-console.log(`Searching targetRate in (${LOWER_BOUND}, ${UPPER_BOUND}) starting at ${DEFAULT_CONFIG.segmentThresholdHomeostasis?.targetRate}, initial step ${INITIAL_STEP}, min step ${MIN_STEP}.`);
-console.log(`Holding smoothing=${BASE_HOMEOSTASIS.smoothing} adjustmentRate=${BASE_HOMEOSTASIS.adjustmentRate} minThreshold=${BASE_HOMEOSTASIS.minThreshold} intervalTicks=${BASE_HOMEOSTASIS.intervalTicks} fixed.\n`);
+console.log(
+  `Searching targetRate in (${LOWER_BOUND}, ${UPPER_BOUND}) starting at ${DEFAULT_CONFIG.segmentThresholdHomeostasis?.targetRate}, initial step ${INITIAL_STEP}, min step ${MIN_STEP}.`,
+);
+console.log(
+  `Holding smoothing=${BASE_HOMEOSTASIS.smoothing} adjustmentRate=${BASE_HOMEOSTASIS.adjustmentRate} minThreshold=${BASE_HOMEOSTASIS.minThreshold} intervalTicks=${BASE_HOMEOSTASIS.intervalTicks} fixed.\n`,
+);
 
 const searchStart = Date.now();
 let best = evaluate(DEFAULT_CONFIG.segmentThresholdHomeostasis!.targetRate);
@@ -144,9 +180,13 @@ while (step >= MIN_STEP && trialCount < MAX_TRIALS) {
   if (up !== best.targetRate) candidates.push(evaluate(up));
   if (down !== best.targetRate) candidates.push(evaluate(down));
 
-  const better = candidates.filter((c) => c.score > best.score).sort((a, b) => b.score - a.score)[0];
+  const better = candidates
+    .filter((c) => c.score > best.score)
+    .sort((a, b) => b.score - a.score)[0];
   if (better !== undefined) {
-    console.log(`  -> improved: ${best.targetRate.toFixed(4)} (${(best.score * 100).toFixed(2)}%) -> ${better.targetRate.toFixed(4)} (${(better.score * 100).toFixed(2)}%), keeping step ${step}`);
+    console.log(
+      `  -> improved: ${best.targetRate.toFixed(4)} (${(best.score * 100).toFixed(2)}%) -> ${better.targetRate.toFixed(4)} (${(better.score * 100).toFixed(2)}%), keeping step ${step}`,
+    );
     best = better;
     // Deliberately not halving step here: keep climbing at the same
     // resolution while it's still finding improvement, matching a
@@ -154,29 +194,57 @@ while (step >= MIN_STEP && trialCount < MAX_TRIALS) {
     // only once stuck") rather than shrinking on every single trial.
   } else {
     step /= 2;
-    console.log(`  -> no improvement at step ${(step * 2).toFixed(4)}, halving to ${step.toFixed(4)}`);
+    console.log(
+      `  -> no improvement at step ${(step * 2).toFixed(4)}, halving to ${step.toFixed(4)}`,
+    );
   }
 }
 
 if (trialCount >= MAX_TRIALS) {
-  console.log(`\nStopped at MAX_TRIALS=${MAX_TRIALS} (safety valve) rather than true convergence -- treat the result below as a good candidate, not a certified optimum.`);
+  console.log(
+    `\nStopped at MAX_TRIALS=${MAX_TRIALS} (safety valve) rather than true convergence -- treat the result below as a good candidate, not a certified optimum.`,
+  );
 }
 
-console.log(`\nSearch finished after ${trialCount} trials (${SEARCH_SEEDS.length} seeds each), ${Date.now() - searchStart}ms.`);
-console.log(`Best targetRate found: ${best.targetRate.toFixed(4)} (search-time mean network accuracy over ${SEARCH_SEEDS.length} seeds: ${(best.score * 100).toFixed(2)}%)`);
+console.log(
+  `\nSearch finished after ${trialCount} trials (${SEARCH_SEEDS.length} seeds each), ${Date.now() - searchStart}ms.`,
+);
+console.log(
+  `Best targetRate found: ${best.targetRate.toFixed(4)} (search-time mean network accuracy over ${SEARCH_SEEDS.length} seeds: ${(best.score * 100).toFixed(2)}%)`,
+);
 
-console.log(`\nConfirming with the official ${CONFIRM_SEEDS.length}-seed protocol (matching every other figure in docs/findings.md finding 7's table)...`);
-const confirmTrials = runCharPredictionTrials(corpus, CONFIRM_SEEDS, configFor(best.targetRate));
+console.log(
+  `\nConfirming with the official ${CONFIRM_SEEDS.length}-seed protocol (matching every other figure in docs/findings.md finding 7's table)...`,
+);
+const confirmTrials = runCharPredictionTrials(
+  corpus,
+  CONFIRM_SEEDS,
+  configFor(best.targetRate),
+);
 const confirmed = assessMilestone(confirmTrials);
 const perSeed = confirmTrials.map((t) => t.networkAccuracy);
-logTrial(best.targetRate, CONFIRM_SEEDS.length, confirmed.meanNetworkAccuracy, perSeed, "**confirmed (official protocol)**");
+logTrial(
+  best.targetRate,
+  CONFIRM_SEEDS.length,
+  confirmed.meanNetworkAccuracy,
+  perSeed,
+  '**confirmed (official protocol)**',
+);
 for (const trial of confirmTrials) {
-  console.log(`  seed=${trial.seed} network=${trial.networkAccuracy.toFixed(4)} trigram=${trial.trigramAccuracy.toFixed(4)} samples=${trial.sampleCount}`);
+  console.log(
+    `  seed=${trial.seed} network=${trial.networkAccuracy.toFixed(4)} trigram=${trial.trigramAccuracy.toFixed(4)} samples=${trial.sampleCount}`,
+  );
 }
 console.log(`\nFinal recommendation: targetRate=${best.targetRate.toFixed(4)}`);
-console.log(`  mean network accuracy: ${(confirmed.meanNetworkAccuracy * 100).toFixed(2)}%`);
-console.log(`  range across seeds: ${(Math.min(...perSeed) * 100).toFixed(2)}%-${(Math.max(...perSeed) * 100).toFixed(2)}%`);
-console.log(`  mean trigram accuracy: ${(confirmed.meanTrigramAccuracy * 100).toFixed(2)}%`);
+console.log(
+  `  mean network accuracy: ${(confirmed.meanNetworkAccuracy * 100).toFixed(2)}%`,
+);
+console.log(
+  `  range across seeds: ${(Math.min(...perSeed) * 100).toFixed(2)}%-${(Math.max(...perSeed) * 100).toFixed(2)}%`,
+);
+console.log(
+  `  mean trigram accuracy: ${(confirmed.meanTrigramAccuracy * 100).toFixed(2)}%`,
+);
 console.log(`  milestone met (network > trigram): ${confirmed.milestoneMet}`);
 console.log(
   `\nApply to packages/io/src/milestone/charPrediction.ts's DEFAULT_CONFIG.segmentThresholdHomeostasis:\n` +

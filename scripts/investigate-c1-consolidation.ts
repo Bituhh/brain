@@ -50,34 +50,49 @@
 // investigate-c1-consolidation.log and .results.md.
 // Environment: C1_WORKERS (default 8), C1_TIMEOUT_HOURS (default 4).
 
-import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { cpus } from "node:os";
-import { Checkpoint } from "./b4-search/checkpoint.ts";
-import { workerRunner } from "./b4-search/evaluator.ts";
-import { runJobs, type Job } from "./b4-search/pool.ts";
-import type { Point } from "./b4-search/space.ts";
-import { canonicalJson, conditionLabel, PROTOCOL_VERSION, searchCondition, toConfig } from "./b5-search/conditions.ts";
-import type { B5ParamName } from "./b5-search/space.ts";
-import type { CharPredictionConfig, ConsolidationCadence } from "../packages/io/src/milestone/charPrediction.ts";
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { cpus } from 'node:os';
+import { Checkpoint } from './b4-search/checkpoint.ts';
+import { workerRunner } from './b4-search/evaluator.ts';
+import { runJobs, type Job } from './b4-search/pool.ts';
+import type { Point } from './b4-search/space.ts';
+import {
+  canonicalJson,
+  conditionLabel,
+  PROTOCOL_VERSION,
+  searchCondition,
+  toConfig,
+} from './b5-search/conditions.ts';
+import type { B5ParamName } from './b5-search/space.ts';
+import type {
+  CharPredictionConfig,
+  ConsolidationCadence,
+} from '../packages/io/src/milestone/charPrediction.ts';
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 const paths = {
-  chosen: here("./tune-b5-values.chosen.json"),
-  valueSearchCheckpoint: here("./tune-b5-values.checkpoint.jsonl"),
-  growthCheckpoint: here("./investigate-b5-growth.checkpoint.jsonl"),
-  checkpoint: here("./investigate-c1-consolidation.checkpoint.jsonl"),
-  log: here("./investigate-c1-consolidation.log"),
-  results: here("./investigate-c1-consolidation.results.md"),
-  worker: here("./b4-search/trial.worker.ts"),
+  chosen: here('./tune-b5-values.chosen.json'),
+  valueSearchCheckpoint: here('./tune-b5-values.checkpoint.jsonl'),
+  growthCheckpoint: here('./investigate-b5-growth.checkpoint.jsonl'),
+  checkpoint: here('./investigate-c1-consolidation.checkpoint.jsonl'),
+  log: here('./investigate-c1-consolidation.log'),
+  results: here('./investigate-c1-consolidation.results.md'),
+  worker: here('./b4-search/trial.worker.ts'),
 };
 
 const CORPUS_LENGTH = 15_000;
 const SELECTION_SEEDS = [1n, 2n, 3n, 4n, 5n] as const;
 const CONFIRMATION_SEEDS = [11n, 12n, 13n, 14n, 15n] as const;
 const SEEDS = [...SELECTION_SEEDS, ...CONFIRMATION_SEEDS];
-const corpus = readFileSync(here("../packages/io/test/fixtures/corpus.txt"), "utf8").slice(0, CORPUS_LENGTH);
-const workers = Math.max(1, Math.min(Number(process.env.C1_WORKERS ?? 8), cpus().length));
+const corpus = readFileSync(
+  here('../packages/io/test/fixtures/corpus.txt'),
+  'utf8',
+).slice(0, CORPUS_LENGTH);
+const workers = Math.max(
+  1,
+  Math.min(Number(process.env.C1_WORKERS ?? 8), cpus().length),
+);
 const timeoutHours = Number(process.env.C1_TIMEOUT_HOURS ?? 4);
 
 /** The late-run measured rate (see this file's header) -- deliberately the worst case, not the mean, so a window sized from it always covers a whole interval. */
@@ -88,20 +103,33 @@ const ONLINE_TARGET_TOTAL_WEIGHT = 6.0;
 const ONLINE_PRUNE_FLOOR = 0.05;
 const REFERENCE_CADENCE_CHARACTERS = 750;
 
-function sleep(options: { everyCharacters?: number; replayWindow?: number; downscaleTargetTotalWeight?: number; pruneFloor?: number }): ConsolidationCadence {
-  const everyCharacters = options.everyCharacters ?? REFERENCE_CADENCE_CHARACTERS;
+function sleep(options: {
+  everyCharacters?: number;
+  replayWindow?: number;
+  downscaleTargetTotalWeight?: number;
+  pruneFloor?: number;
+}): ConsolidationCadence {
+  const everyCharacters =
+    options.everyCharacters ?? REFERENCE_CADENCE_CHARACTERS;
   return {
     everyCharacters,
-    replayWindow: options.replayWindow ?? everyCharacters * EVENTS_PER_CHARACTER,
-    downscaleTargetTotalWeight: options.downscaleTargetTotalWeight ?? ONLINE_TARGET_TOTAL_WEIGHT / 2,
+    replayWindow:
+      options.replayWindow ?? everyCharacters * EVENTS_PER_CHARACTER,
+    downscaleTargetTotalWeight:
+      options.downscaleTargetTotalWeight ?? ONLINE_TARGET_TOTAL_WEIGHT / 2,
     pruneFloor: options.pruneFloor ?? ONLINE_PRUNE_FLOOR,
     eventsPerCharacter: EVENTS_PER_CHARACTER,
   };
 }
 
-const chosen = JSON.parse(readFileSync(paths.chosen, "utf8")) as { readonly winner: Point<B5ParamName> };
+const chosen = JSON.parse(readFileSync(paths.chosen, 'utf8')) as {
+  readonly winner: Point<B5ParamName>;
+};
 const winnerConfig = toConfig(searchCondition(chosen.winner));
-const withSleep = (cadence: ConsolidationCadence): CharPredictionConfig => ({ ...winnerConfig, consolidation: cadence });
+const withSleep = (cadence: ConsolidationCadence): CharPredictionConfig => ({
+  ...winnerConfig,
+  consolidation: cadence,
+});
 
 interface Row {
   readonly name: string;
@@ -126,21 +154,54 @@ const noOnlineScaling: CharPredictionConfig = (() => {
 })();
 
 const NO_SLEEP = "no sleep (B5's winner, the reference)";
-const NO_SLEEP_NO_SCALING = "no sleep, online homeostatic scaling off";
+const NO_SLEEP_NO_SCALING = 'no sleep, online homeostatic scaling off';
 
 const ROWS: readonly Row[] = [
   { name: NO_SLEEP, config: winnerConfig },
-  { name: `full sleep / ${REFERENCE_CADENCE_CHARACTERS} chars`, config: withSleep(sleep({})) },
-  { name: `no replay (window 100 events) / ${REFERENCE_CADENCE_CHARACTERS} chars`, config: withSleep(sleep({ replayWindow: 100 })) },
-  { name: `partial replay (250 chars of history) / ${REFERENCE_CADENCE_CHARACTERS} chars`, config: withSleep(sleep({ replayWindow: 250 * EVENTS_PER_CHARACTER })) },
-  { name: `downscale at the online target (6.0) / ${REFERENCE_CADENCE_CHARACTERS} chars`, config: withSleep(sleep({ downscaleTargetTotalWeight: ONLINE_TARGET_TOTAL_WEIGHT })) },
-  { name: `downscale to 1.0 (six times stricter) / ${REFERENCE_CADENCE_CHARACTERS} chars`, config: withSleep(sleep({ downscaleTargetTotalWeight: 1.0 })) },
-  { name: `aggressive prune (floor 0.20) / ${REFERENCE_CADENCE_CHARACTERS} chars`, config: withSleep(sleep({ pruneFloor: 0.2 })) },
-  { name: `prune floor 0.34 (below every sprout's own permanence) / ${REFERENCE_CADENCE_CHARACTERS} chars`, config: withSleep(sleep({ pruneFloor: 0.34 })) },
-  { name: "full sleep / 1500 chars", config: withSleep(sleep({ everyCharacters: 1500 })) },
-  { name: "full sleep / 250 chars", config: withSleep(sleep({ everyCharacters: 250 })) },
+  {
+    name: `full sleep / ${REFERENCE_CADENCE_CHARACTERS} chars`,
+    config: withSleep(sleep({})),
+  },
+  {
+    name: `no replay (window 100 events) / ${REFERENCE_CADENCE_CHARACTERS} chars`,
+    config: withSleep(sleep({ replayWindow: 100 })),
+  },
+  {
+    name: `partial replay (250 chars of history) / ${REFERENCE_CADENCE_CHARACTERS} chars`,
+    config: withSleep(sleep({ replayWindow: 250 * EVENTS_PER_CHARACTER })),
+  },
+  {
+    name: `downscale at the online target (6.0) / ${REFERENCE_CADENCE_CHARACTERS} chars`,
+    config: withSleep(
+      sleep({ downscaleTargetTotalWeight: ONLINE_TARGET_TOTAL_WEIGHT }),
+    ),
+  },
+  {
+    name: `downscale to 1.0 (six times stricter) / ${REFERENCE_CADENCE_CHARACTERS} chars`,
+    config: withSleep(sleep({ downscaleTargetTotalWeight: 1.0 })),
+  },
+  {
+    name: `aggressive prune (floor 0.20) / ${REFERENCE_CADENCE_CHARACTERS} chars`,
+    config: withSleep(sleep({ pruneFloor: 0.2 })),
+  },
+  {
+    name: `prune floor 0.34 (below every sprout's own permanence) / ${REFERENCE_CADENCE_CHARACTERS} chars`,
+    config: withSleep(sleep({ pruneFloor: 0.34 })),
+  },
+  {
+    name: 'full sleep / 1500 chars',
+    config: withSleep(sleep({ everyCharacters: 1500 })),
+  },
+  {
+    name: 'full sleep / 250 chars',
+    config: withSleep(sleep({ everyCharacters: 250 })),
+  },
   { name: NO_SLEEP_NO_SCALING, config: noOnlineScaling },
-  { name: `full sleep / ${REFERENCE_CADENCE_CHARACTERS} chars, online homeostatic scaling off`, config: { ...noOnlineScaling, consolidation: sleep({}) }, reference: NO_SLEEP_NO_SCALING },
+  {
+    name: `full sleep / ${REFERENCE_CADENCE_CHARACTERS} chars, online homeostatic scaling off`,
+    config: { ...noOnlineScaling, consolidation: sleep({}) },
+    reference: NO_SLEEP_NO_SCALING,
+  },
 ];
 
 /** Same shape as `scripts/b5-search/conditions.ts`'s `trialKey`, so the no-sleep row hits the two prior runs' checkpoints. */
@@ -149,31 +210,44 @@ function keyOf(config: CharPredictionConfig, seed: bigint): string {
 }
 
 function log(line: string): void {
-  const stamped = `[${new Date().toISOString().replace("T", " ").slice(0, 19)}] ${line}`;
+  const stamped = `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] ${line}`;
   console.log(stamped);
   appendFileSync(paths.log, `${stamped}\n`);
 }
 
-process.on("unhandledRejection", (reason) => {
-  log(`[FATAL] unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)} -- re-run the same command to resume`);
+process.on('unhandledRejection', (reason) => {
+  log(
+    `[FATAL] unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)} -- re-run the same command to resume`,
+  );
   process.exit(1);
 });
 
-const priorCheckpoints = [new Checkpoint(paths.valueSearchCheckpoint), new Checkpoint(paths.growthCheckpoint)];
+const priorCheckpoints = [
+  new Checkpoint(paths.valueSearchCheckpoint),
+  new Checkpoint(paths.growthCheckpoint),
+];
 const checkpoint = new Checkpoint(paths.checkpoint);
-const recordOf = (key: string) => (checkpoint.hasSucceeded(key) ? checkpoint.get(key) : priorCheckpoints.find((c) => c.hasSucceeded(key))?.get(key));
+const recordOf = (key: string) =>
+  checkpoint.hasSucceeded(key)
+    ? checkpoint.get(key)
+    : priorCheckpoints.find((c) => c.hasSucceeded(key))?.get(key);
 
-log(`=== investigate-c1-consolidation starting: ${workers} workers, corpus ${CORPUS_LENGTH} characters, seeds ${SEEDS.join(", ")} ===`);
+log(
+  `=== investigate-c1-consolidation starting: ${workers} workers, corpus ${CORPUS_LENGTH} characters, seeds ${SEEDS.join(', ')} ===`,
+);
 log(`winner: ${conditionLabel(searchCondition(chosen.winner))}`);
 
 const jobs: Job[] = [];
 for (const row of ROWS) {
   for (const seed of SEEDS) {
     const key = keyOf(row.config, seed);
-    if (recordOf(key) === undefined) jobs.push({ key, label: row.name, seed, payload: row.config });
+    if (recordOf(key) === undefined)
+      jobs.push({ key, label: row.name, seed, payload: row.config });
   }
 }
-log(`${ROWS.length * SEEDS.length} trials, ${ROWS.length * SEEDS.length - jobs.length} already measured, ${jobs.length} to run`);
+log(
+  `${ROWS.length * SEEDS.length} trials, ${ROWS.length * SEEDS.length - jobs.length} already measured, ${jobs.length} to run`,
+);
 
 const failed = (
   await runJobs(jobs, {
@@ -183,16 +257,22 @@ const failed = (
     heartbeatMs: 60_000,
     timeoutMs: timeoutHours * 3_600_000,
     retries: 1,
-    stageName: "consolidation battery",
+    stageName: 'consolidation battery',
     onResult: (result) =>
       checkpoint.append({
         key: result.job.key,
         label: result.job.label,
         seed: String(result.job.seed),
         ok: result.ok,
-        ...(result.output !== undefined && { accuracy: result.output.accuracy }),
-        ...(result.output?.structuralStats !== undefined && { structuralStats: result.output.structuralStats }),
-        ...(result.output?.consolidationStats !== undefined && { consolidationStats: result.output.consolidationStats }),
+        ...(result.output !== undefined && {
+          accuracy: result.output.accuracy,
+        }),
+        ...(result.output?.structuralStats !== undefined && {
+          structuralStats: result.output.structuralStats,
+        }),
+        ...(result.output?.consolidationStats !== undefined && {
+          consolidationStats: result.output.consolidationStats,
+        }),
         ...(result.error !== undefined && { error: result.error }),
         seconds: result.seconds,
         finishedAt: new Date().toISOString(),
@@ -203,46 +283,72 @@ const failed = (
 // --- Report ---
 
 const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
-const mean = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+const mean = (xs: readonly number[]) =>
+  xs.reduce((a, b) => a + b, 0) / xs.length;
 
 const meanFor = (config: CharPredictionConfig, seeds: readonly bigint[]) => {
   const records = seeds.map((seed) => recordOf(keyOf(config, seed)));
-  return records.every((r) => r?.accuracy !== undefined) ? mean(records.map((r) => r!.accuracy!)) : NaN;
+  return records.every((r) => r?.accuracy !== undefined)
+    ? mean(records.map((r) => r!.accuracy!))
+    : NaN;
 };
 
 function table(title: string, seeds: readonly bigint[]): string[] {
-  const lines = [`### ${title}`, "", "| condition | mean | delta vs its reference | per seed | sleeps / chars replayed / pruned (mean) | mean s/trial |", "|---|---|---|---|---|---|"];
+  const lines = [
+    `### ${title}`,
+    '',
+    '| condition | mean | delta vs its reference | per seed | sleeps / chars replayed / pruned (mean) | mean s/trial |',
+    '|---|---|---|---|---|---|',
+  ];
   for (const row of ROWS) {
-    const referenceRow = ROWS.find((r) => r.name === (row.reference ?? NO_SLEEP))!;
+    const referenceRow = ROWS.find(
+      (r) => r.name === (row.reference ?? NO_SLEEP),
+    )!;
     const reference = meanFor(referenceRow.config, seeds);
     const records = seeds.map((seed) => recordOf(keyOf(row.config, seed)));
     if (records.some((r) => r?.accuracy === undefined)) {
-      lines.push(`| ${row.name} | failed | | ${records.map((r) => (r?.accuracy === undefined ? "failed" : pct(r.accuracy))).join(", ")} | | |`);
+      lines.push(
+        `| ${row.name} | failed | | ${records.map((r) => (r?.accuracy === undefined ? 'failed' : pct(r.accuracy))).join(', ')} | | |`,
+      );
       continue;
     }
     const accuracies = records.map((r) => r!.accuracy!);
     const m = mean(accuracies);
-    const stats = records.map((r) => r!.consolidationStats).filter((s) => s !== undefined);
+    const stats = records
+      .map((r) => r!.consolidationStats)
+      .filter((s) => s !== undefined);
     const statsCell =
-      stats.length === 0 ? "--" : `${Math.round(mean(stats.map((s) => s.passes)))} / ${Math.round(mean(stats.map((s) => s.charactersReplayed)))} / ${Math.round(mean(stats.map((s) => s.pruned)))}`;
-    const delta = row === referenceRow ? "--" : `${m - reference >= 0 ? "+" : ""}${((m - reference) * 100).toFixed(2)} pts`;
-    lines.push(`| ${row.name} | ${pct(m)} | ${delta} | ${accuracies.map(pct).join(", ")} | ${statsCell} | ${Math.round(mean(records.map((r) => r!.seconds)))} |`);
+      stats.length === 0
+        ? '--'
+        : `${Math.round(mean(stats.map((s) => s.passes)))} / ${Math.round(mean(stats.map((s) => s.charactersReplayed)))} / ${Math.round(mean(stats.map((s) => s.pruned)))}`;
+    const delta =
+      row === referenceRow
+        ? '--'
+        : `${m - reference >= 0 ? '+' : ''}${((m - reference) * 100).toFixed(2)} pts`;
+    lines.push(
+      `| ${row.name} | ${pct(m)} | ${delta} | ${accuracies.map(pct).join(', ')} | ${statsCell} | ${Math.round(mean(records.map((r) => r!.seconds)))} |`,
+    );
   }
-  lines.push("");
+  lines.push('');
   return lines;
 }
 
 const lines = [
-  "# C1 consolidation battery -- results",
-  "",
+  '# C1 consolidation battery -- results',
+  '',
   `Generated ${new Date().toISOString()} by scripts/investigate-c1-consolidation.ts (PLAN.md C1). Corpus slice ${CORPUS_LENGTH} characters.`,
-  "",
+  '',
   `Base configuration (never varied): ${conditionLabel(searchCondition(chosen.winner))}.`,
-  "",
+  '',
   `Replay windows are sized at ${EVENTS_PER_CHARACTER} spike events per character (the measured late-run rate), so each sleep replays at least the whole interval it follows. "always guess space" on this slice is 16.56% (docs/findings.md finding 7) -- a row below that bar has undone B5's only real gain, whatever its delta says.`,
-  "",
-  ...table(`Confirmation seeds ${CONFIRMATION_SEEDS.join(", ")}`, CONFIRMATION_SEEDS),
-  ...table(`Selection seeds ${SELECTION_SEEDS.join(", ")}`, SELECTION_SEEDS),
+  '',
+  ...table(
+    `Confirmation seeds ${CONFIRMATION_SEEDS.join(', ')}`,
+    CONFIRMATION_SEEDS,
+  ),
+  ...table(`Selection seeds ${SELECTION_SEEDS.join(', ')}`, SELECTION_SEEDS),
 ];
-writeFileSync(paths.results, `${lines.join("\n")}\n`);
-log(`=== done: results in ${paths.results}${failed.length > 0 ? `; ${failed.length} trial(s) failed, re-run to retry them` : ""} ===`);
+writeFileSync(paths.results, `${lines.join('\n')}\n`);
+log(
+  `=== done: results in ${paths.results}${failed.length > 0 ? `; ${failed.length} trial(s) failed, re-run to retry them` : ''} ===`,
+);

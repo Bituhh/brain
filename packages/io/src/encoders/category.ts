@@ -4,8 +4,8 @@
 // carry no inherent similarity structure unless the caller supplies one
 // (which this encoder does not attempt to model).
 
-import { makeSdr, type Sdr } from "../sdr.ts";
-import { hashToBits } from "../hash.ts";
+import { makeSdr, type Sdr } from '../sdr.ts';
+import { hashToBits } from '../hash.ts';
 
 export interface CategoryEncoderConfig<L extends string = string> {
   readonly categories: ReadonlyArray<L>;
@@ -22,10 +22,20 @@ export class UnknownCategoryError extends Error {}
  * `config.categories`; anything else raises `UnknownCategoryError`
  * (Requirement 3.5) rather than silently producing an arbitrary SDR.
  */
-export function encodeCategory<L extends string>(config: CategoryEncoderConfig<L>, label: L): Sdr {
+export function encodeCategory<L extends string>(
+  config: CategoryEncoderConfig<L>,
+  label: L,
+): Sdr {
   if (!config.categories.includes(label)) {
-    throw new UnknownCategoryError(`"${label}" is not one of this encoder's configured categories`);
+    throw new UnknownCategoryError(
+      `"${label}" is not one of this encoder's configured categories`,
+    );
   }
-  const bits = hashToBits(config.seed ?? "category", label, config.width, config.density);
+  const bits = hashToBits(
+    config.seed ?? 'category',
+    label,
+    config.width,
+    config.density,
+  );
   return makeSdr(config.width, bits);
 }

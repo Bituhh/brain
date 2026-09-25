@@ -9,10 +9,14 @@
 // Driveable from plain TypeScript using only @brain/io and @brain/core, no
 // new runtime dependency (Requirement 9.5, ENG-6): everything below is
 // pure orchestration over this workspace's own modules and Node built-ins.
-import type { Simulation } from "@brain/core";
-import type { Sdr } from "../sdr.ts";
-import { decode, type Candidate, type DecodeResult } from "../decoders/overlap.ts";
-import type { ColumnHandle } from "../columns.ts";
+import type { Simulation } from '@brain/core';
+import type { Sdr } from '../sdr.ts';
+import {
+  decode,
+  type Candidate,
+  type DecodeResult,
+} from '../decoders/overlap.ts';
+import type { ColumnHandle } from '../columns.ts';
 
 export interface StreamStep<T, L> {
   readonly input: T;
@@ -63,8 +67,18 @@ export interface StreamThroughOptions<T, L> {
  * introduces no new plasticity code path and no mode switch of any kind
  * (Requirement 9.2).
  */
-export function* streamThrough<T, L>(options: StreamThroughOptions<T, L>): Generator<StreamStep<T, L>> {
-  const { source, encode, columns, sim, candidates, actualLabelOf, ticksPerInput } = options;
+export function* streamThrough<T, L>(
+  options: StreamThroughOptions<T, L>,
+): Generator<StreamStep<T, L>> {
+  const {
+    source,
+    encode,
+    columns,
+    sim,
+    candidates,
+    actualLabelOf,
+    ticksPerInput,
+  } = options;
   const current = options.stimulateCurrent ?? 10.0;
   const minConfidence = options.minConfidence ?? 0.3;
   const [primary] = columns;
@@ -79,7 +93,9 @@ export function* streamThrough<T, L>(options: StreamThroughOptions<T, L>): Gener
       spiked = sim.step();
     }
     const observed = primary ? primary.observedSdr(spiked) : undefined;
-    const predicted = observed ? decode(observed, candidates, minConfidence) : undefined;
+    const predicted = observed
+      ? decode(observed, candidates, minConfidence)
+      : undefined;
     yield { input, predicted, actual: actualLabelOf(input), observed };
   }
 }

@@ -1,13 +1,13 @@
 # Data: finding 7
 
-Raw data tables for [`findings.md`](../findings.md)
-finding 7 — The readout comparison above was itself measured on a stale network and its 0% figure does.
+Raw data tables for [`findings.md`](../findings.md) finding 7 — The readout
+comparison above was itself measured on a stale network and its 0% figure does.
 
 ---
 
 | targetRate                                                                 | smoothing | adjustmentRate | minThreshold | intervalTicks | seeds | mean network accuracy | range across seeds |
-| ----------------------------------------------------------------------------| -----------| ----------------| --------------| ---------------| -------| -----------------------| --------------------|
-| *(mechanism disabled — item 7's fixed-`coincidenceThreshold: 3` baseline)* | —         | —              | —            | —             | 5     | 3.23%                 | 2.30–4.50%         |
+| -------------------------------------------------------------------------- | --------- | -------------- | ------------ | ------------- | ----- | --------------------- | ------------------ |
+| _(mechanism disabled — item 7's fixed-`coincidenceThreshold: 3` baseline)_ | —         | —              | —            | —             | 5     | 3.23%                 | 2.30–4.50%         |
 | 0.1                                                                        | 0.9       | 0.1            | 1.0          | 200           | 5     | 1.33%                 | 0.60–1.85%         |
 | 0.05                                                                       | 0.9       | 0.1            | 1.0          | 200           | 5     | 0.17%                 | 0.05–0.25%         |
 | 0.3                                                                        | 0.9       | 0.1            | 1.0          | 200           | 5     | 1.81%                 | 1.05–2.30%         |

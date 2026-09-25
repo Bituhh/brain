@@ -4,10 +4,13 @@
 // One native Simulation per thread is safe (no shared global state; see
 // investigate-growth-regression.worker.ts).
 
-import { parentPort, workerData } from "node:worker_threads";
-import type { Simulation } from "@brain/core";
-import { runCharPredictionTrial, type CharPredictionConfig } from "../packages/io/src/milestone/charPrediction.ts";
-import { observe, type Observation } from "./c5-observe.ts";
+import { parentPort, workerData } from 'node:worker_threads';
+import type { Simulation } from '@brain/core';
+import {
+  runCharPredictionTrial,
+  type CharPredictionConfig,
+} from '../packages/io/src/milestone/charPrediction.ts';
+import { observe, type Observation } from './c5-observe.ts';
 
 interface TrialData {
   readonly corpus: string;
@@ -22,7 +25,17 @@ export interface TrialObservation extends Observation {
 
 const { corpus, seed, config } = workerData as TrialData;
 let observed: Observation | undefined;
-const result = runCharPredictionTrial(corpus, seed, config, undefined, (sim: Simulation) => {
-  observed = observe(sim, config.structuralPlasticity !== undefined);
-});
-parentPort!.postMessage({ ...observed!, accuracy: result.networkAccuracy, sampleCount: result.sampleCount } satisfies TrialObservation);
+const result = runCharPredictionTrial(
+  corpus,
+  seed,
+  config,
+  undefined,
+  (sim: Simulation) => {
+    observed = observe(sim, config.structuralPlasticity !== undefined);
+  },
+);
+parentPort!.postMessage({
+  ...observed!,
+  accuracy: result.networkAccuracy,
+  sampleCount: result.sampleCount,
+} satisfies TrialObservation);

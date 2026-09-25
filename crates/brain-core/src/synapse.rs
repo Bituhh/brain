@@ -87,14 +87,30 @@ pub struct SynapseArena {
     occupied: Vec<bool>,
     cap_per_neuron: u32,
     /// `target_neuron -> synapse ids targeting it`, appended to on every
-    /// `insert` and never pruned on `remove` -- a removed synapse's id
-    /// becomes a dead entry that `incoming` filters out via `is_occupied`,
-    /// the same tolerate-stale-entries convention `occupied_in_block`
-    /// already uses for source-major iteration. This is a real memory
-    /// leak under heavy structural churn (Requirement 11's future
-    /// pruning/sprouting), accepted for now and worth revisiting only if
-    /// it is ever measured to matter -- this project's established
-    /// "measure before optimising" pattern (see neuron.rs, graph.rs).
+    /// `insert` and **dropped again on `remove`**, so that at every point
+    /// between calls it holds exactly the occupied synapses targeting each
+    /// neuron, each listed once -- the same set `incoming` promises and the
+    /// same set the source-major columns would yield if scanned.
+    ///
+    /// It did not always. Until docs/decisions.md decision 27 `remove` left
+    /// the id here and relied on `incoming`'s `is_occupied` filter to hide
+    /// it, on the reasoning that a dead entry is harmless. **That reasoning
+    /// holds only while the slot stays free.** `insert` scans a source's
+    /// block for the first FREE slot and reuses it, so the stale entry comes
+    /// back to life pointing at a synapse that now targets someone else --
+    /// or, when the reuse takes the same target, leaves the id listed twice
+    /// for every consumer to double-count. Both faces are pinned by
+    /// characterisation tests below; docs/findings.md finding 25 has the
+    /// measurement, including that it broke snapshot/restore bit-identity
+    /// (RUN-3, RUN-9a) because `snapshot.rs` rebuilds this from the occupied
+    /// synapses alone and therefore always had a clean index.
+    ///
+    /// The removal is an order-preserving `retain`, not a `swap_remove` or a
+    /// `HashSet`: `incoming`'s iteration order reaches float accumulation in
+    /// `HomeostaticScaling::rescale_one`, where addition is not associative,
+    /// so the order is semantically load-bearing and determinism (RUN-3) is
+    /// not a trade-off. It costs O(incoming) per removal -- see decision 27
+    /// for the measurement that made that acceptable.
     target_index: Vec<Vec<u32>>,
 }
 
@@ -225,9 +241,24 @@ impl SynapseArena {
     }
 
     /// Removes a synapse, freeing its slot for reuse by a later `insert`
-    /// into the same block (Requirement 11.1's pruning).
+    /// into the same block (Requirement 11.1's pruning), and drops its id
+    /// from its target's reverse index so the freed slot's later reuse
+    /// cannot resurrect a stale entry (see the `target_index` field doc
+    /// comment, and docs/decisions.md decision 27).
+    ///
+    /// Idempotent: removing an already-free slot is a no-op, which matters
+    /// because [`Self::disconnect_neuron`] visits a self-synapse in both its
+    /// outgoing and its incoming pass.
     pub fn remove(&mut self, synapse_id: u32) {
-        self.occupied[synapse_id as usize] = false;
+        let i = synapse_id as usize;
+        if !self.occupied[i] {
+            return;
+        }
+        self.occupied[i] = false;
+        let target = self.target_neuron[i] as usize;
+        if let Some(entries) = self.target_index.get_mut(target) {
+            entries.retain(|&id| id != synapse_id);
+        }
     }
 
     /// Restores a synapse into an *exact* slot id, for `snapshot.rs`'s

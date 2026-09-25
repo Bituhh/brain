@@ -10,14 +10,23 @@
 //
 // RUNNING IT. `node --experimental-strip-types scripts/investigate-c2-signal-shape.ts`.
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { buildNetwork, DEFAULT_CONFIG } from "../packages/io/src/milestone/charPrediction.ts";
-import { encodeChar, type CharEncoderConfig } from "../packages/io/src/encoders/text.ts";
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import {
+  buildNetwork,
+  DEFAULT_CONFIG,
+} from '../packages/io/src/milestone/charPrediction.ts';
+import {
+  encodeChar,
+  type CharEncoderConfig,
+} from '../packages/io/src/encoders/text.ts';
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 const CHARACTERS = Number(process.env.C2_CHARS ?? 4000);
-const corpus = readFileSync(here("../packages/io/test/fixtures/corpus.txt"), "utf8").slice(0, CHARACTERS);
+const corpus = readFileSync(
+  here('../packages/io/test/fixtures/corpus.txt'),
+  'utf8',
+).slice(0, CHARACTERS);
 
 const TAU_FAST_TICKS = 100;
 const TAU_SLOW_TICKS = 2_000;
@@ -50,7 +59,11 @@ const { sim, column } = buildNetwork(
 
 // Same encoder configuration `charPrediction.ts` builds internally; this
 // script only needs to present characters, not to decode predictions.
-const encoderConfig: CharEncoderConfig = { width: DEFAULT_CONFIG.width, density: DEFAULT_CONFIG.density, seed: "char-prediction" };
+const encoderConfig: CharEncoderConfig = {
+  width: DEFAULT_CONFIG.width,
+  density: DEFAULT_CONFIG.density,
+  seed: 'char-prediction',
+};
 
 const surprise: number[] = [];
 const expected: number[] = [];
@@ -66,7 +79,9 @@ for (let i = 0; i < corpus.length; i++) {
 
 const quantile = (xs: number[], q: number): number => {
   const sorted = [...xs].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] ?? NaN;
+  return (
+    sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] ?? NaN
+  );
 };
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 const describe = (name: string, xs: number[]) => {
@@ -79,6 +94,8 @@ const describe = (name: string, xs: number[]) => {
   );
 };
 
-console.log(`\nPLAN.md C2 signal shape, seed 7, ${corpus.length} characters, tauFast=${TAU_FAST_TICKS} tauSlow=${TAU_SLOW_TICKS}\n`);
-describe("surprise (noradrenaline, unexpected uncertainty)", surprise);
-describe("expected (acetylcholine, expected uncertainty) ", expected);
+console.log(
+  `\nPLAN.md C2 signal shape, seed 7, ${corpus.length} characters, tauFast=${TAU_FAST_TICKS} tauSlow=${TAU_SLOW_TICKS}\n`,
+);
+describe('surprise (noradrenaline, unexpected uncertainty)', surprise);
+describe('expected (acetylcholine, expected uncertainty) ', expected);

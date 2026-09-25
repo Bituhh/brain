@@ -3,7 +3,7 @@
 // -- no trained weight, no gradient step, no backpropagated error of any
 // kind (invariant 1/2, IO-3's "not a trained output layer").
 
-import { overlap, overlapFraction, type Sdr } from "../sdr.ts";
+import { overlap, overlapFraction, type Sdr } from '../sdr.ts';
 
 export interface Candidate<L> {
   readonly label: L;
@@ -35,7 +35,11 @@ export interface DecodeResult<L> {
  * Purely a function of `observed` and `candidates` (Requirement 7.4): no
  * weight, no gradient, no error signal of any kind is read or written.
  */
-export function decode<L>(observed: Sdr, candidates: ReadonlyArray<Candidate<L>>, minConfidence: number): DecodeResult<L> | undefined {
+export function decode<L>(
+  observed: Sdr,
+  candidates: ReadonlyArray<Candidate<L>>,
+  minConfidence: number,
+): DecodeResult<L> | undefined {
   let bestIndex = -1;
   let bestFraction = -1;
   let bestOverlap = 0;
@@ -51,7 +55,11 @@ export function decode<L>(observed: Sdr, candidates: ReadonlyArray<Candidate<L>>
   if (bestIndex === -1 || bestFraction < minConfidence) {
     return undefined;
   }
-  return { label: candidates[bestIndex]!.label, overlap: bestOverlap, confident: true };
+  return {
+    label: candidates[bestIndex]!.label,
+    overlap: bestOverlap,
+    confident: true,
+  };
 }
 
 /**
@@ -65,6 +73,14 @@ export function decode<L>(observed: Sdr, candidates: ReadonlyArray<Candidate<L>>
  * `observed` and `candidates`, same as `decode` (Requirement 7.4): no
  * weight, no gradient, no error signal of any kind is read or written.
  */
-export function rankByOverlapFraction<L>(observed: Sdr, candidates: ReadonlyArray<Candidate<L>>): Array<{ label: L; fraction: number }> {
-  return candidates.map((candidate) => ({ label: candidate.label, fraction: overlapFraction(observed, candidate.sdr) })).sort((a, b) => b.fraction - a.fraction);
+export function rankByOverlapFraction<L>(
+  observed: Sdr,
+  candidates: ReadonlyArray<Candidate<L>>,
+): Array<{ label: L; fraction: number }> {
+  return candidates
+    .map((candidate) => ({
+      label: candidate.label,
+      fraction: overlapFraction(observed, candidate.sdr),
+    }))
+    .sort((a, b) => b.fraction - a.fraction);
 }

@@ -5,7 +5,7 @@
 // location signal, no grid cells, no reference frame (that is NET-9,
 // Phase 5.5's job, and IO-5 landing here is what unblocks it).
 
-export type Action = "up" | "down" | "left" | "right";
+export type Action = 'up' | 'down' | 'left' | 'right';
 
 export interface Observation {
   readonly cell: string;
@@ -24,7 +24,11 @@ export interface GridWorldConfig {
    * (same seed, same symbols) differing only here, reachable only by
    * actually moving the cursor there.
    */
-  readonly distinguishingCell?: { readonly x: number; readonly y: number; readonly symbol: string };
+  readonly distinguishingCell?: {
+    readonly x: number;
+    readonly y: number;
+    readonly symbol: string;
+  };
   /**
    * Places the *same* symbol at a second specific cell (Phase 5.5
    * Requirement 6's reference-frame disambiguation task: the same local
@@ -36,7 +40,11 @@ export interface GridWorldConfig {
    * keeping them separate means neither's existing behaviour or tests are
    * touched by the other's addition.
    */
-  readonly repeatedCell?: { readonly x: number; readonly y: number; readonly symbol: string };
+  readonly repeatedCell?: {
+    readonly x: number;
+    readonly y: number;
+    readonly symbol: string;
+  };
   readonly startX?: number;
   readonly startY?: number;
 }
@@ -69,7 +77,7 @@ export class GridWorld {
 
   constructor(config: GridWorldConfig) {
     if (config.symbols.length === 0) {
-      throw new RangeError("GridWorldConfig.symbols must be non-empty");
+      throw new RangeError('GridWorldConfig.symbols must be non-empty');
     }
     this.#width = config.width;
     this.#height = config.height;
@@ -85,14 +93,18 @@ export class GridWorld {
     if (config.distinguishingCell) {
       const { x, y, symbol } = config.distinguishingCell;
       if (x < 0 || x >= config.width || y < 0 || y >= config.height) {
-        throw new RangeError(`distinguishingCell (${x}, ${y}) is outside the ${config.width}x${config.height} grid`);
+        throw new RangeError(
+          `distinguishingCell (${x}, ${y}) is outside the ${config.width}x${config.height} grid`,
+        );
       }
       this.#grid[y]![x] = symbol;
     }
     if (config.repeatedCell) {
       const { x, y, symbol } = config.repeatedCell;
       if (x < 0 || x >= config.width || y < 0 || y >= config.height) {
-        throw new RangeError(`repeatedCell (${x}, ${y}) is outside the ${config.width}x${config.height} grid`);
+        throw new RangeError(
+          `repeatedCell (${x}, ${y}) is outside the ${config.width}x${config.height} grid`,
+        );
       }
       this.#grid[y]![x] = symbol;
     }
@@ -106,23 +118,26 @@ export class GridWorld {
 
   /** The cell under the cursor plus the agent's own last action -- nothing else is observable (Requirement 16.1). */
   observe(): Observation {
-    return { cell: this.#grid[this.#cursorY]![this.#cursorX]!, lastAction: this.#lastAction };
+    return {
+      cell: this.#grid[this.#cursorY]![this.#cursorX]!,
+      lastAction: this.#lastAction,
+    };
   }
 
   /** Moves the cursor one cell (clamped to the grid's edges), changing what the *next* `observe()` call returns (Requirement 16.3). */
   act(action: Action): void {
     this.#lastAction = action;
     switch (action) {
-      case "up":
+      case 'up':
         this.#cursorY = Math.max(0, this.#cursorY - 1);
         break;
-      case "down":
+      case 'down':
         this.#cursorY = Math.min(this.#height - 1, this.#cursorY + 1);
         break;
-      case "left":
+      case 'left':
         this.#cursorX = Math.max(0, this.#cursorX - 1);
         break;
-      case "right":
+      case 'right':
         this.#cursorX = Math.min(this.#width - 1, this.#cursorX + 1);
         break;
     }

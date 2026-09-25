@@ -20,34 +20,60 @@
 // never merged into one pass/fail -- each is its own test file, its own
 // assertions, reported separately here and in README §11.
 
-import { test } from "node:test";
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { runCharPredictionTrials, assessMilestone, DEFAULT_CONFIG, type TrialResult } from "../src/milestone/charPrediction.ts";
-import type { StructuralPlasticityConfig } from "@brain/core";
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import {
+  runCharPredictionTrials,
+  assessMilestone,
+  DEFAULT_CONFIG,
+  type TrialResult,
+} from '../src/milestone/charPrediction.ts';
+import type { StructuralPlasticityConfig } from '@brain/core';
 
-const corpusPath = fileURLToPath(new URL("./fixtures/corpus.txt", import.meta.url));
-const fullCorpus = readFileSync(corpusPath, "utf8");
+const corpusPath = fileURLToPath(
+  new URL('./fixtures/corpus.txt', import.meta.url),
+);
+const fullCorpus = readFileSync(corpusPath, 'utf8');
 
 const SLICE_LENGTH = 15_000;
 const SEEDS = [1n, 2n, 3n];
 
-test("the VAL-4 harness produces well-formed, comparable results across seeds (Requirement 13.1-13.3, 13.5)", () => {
+test('the VAL-4 harness produces well-formed, comparable results across seeds (Requirement 13.1-13.3, 13.5)', () => {
   const corpus = fullCorpus.slice(0, SLICE_LENGTH);
-  const trials = runCharPredictionTrials(corpus, SEEDS, { ...DEFAULT_CONFIG, slidingWindow: 1500 });
+  const trials = runCharPredictionTrials(corpus, SEEDS, {
+    ...DEFAULT_CONFIG,
+    slidingWindow: 1500,
+  });
 
   assert.equal(trials.length, SEEDS.length);
   for (const trial of trials) {
-    assert.ok(Number.isFinite(trial.networkAccuracy) && trial.networkAccuracy >= 0 && trial.networkAccuracy <= 1, `network accuracy out of range: ${trial.networkAccuracy}`);
-    assert.ok(Number.isFinite(trial.trigramAccuracy) && trial.trigramAccuracy >= 0 && trial.trigramAccuracy <= 1, `trigram accuracy out of range: ${trial.trigramAccuracy}`);
-    assert.ok(trial.sampleCount > 0, "a corpus slice this size must yield at least one scored sample");
+    assert.ok(
+      Number.isFinite(trial.networkAccuracy) &&
+        trial.networkAccuracy >= 0 &&
+        trial.networkAccuracy <= 1,
+      `network accuracy out of range: ${trial.networkAccuracy}`,
+    );
+    assert.ok(
+      Number.isFinite(trial.trigramAccuracy) &&
+        trial.trigramAccuracy >= 0 &&
+        trial.trigramAccuracy <= 1,
+      `trigram accuracy out of range: ${trial.trigramAccuracy}`,
+    );
+    assert.ok(
+      trial.sampleCount > 0,
+      'a corpus slice this size must yield at least one scored sample',
+    );
     // Sanity floor on the baseline itself (Requirement 13.3): a trigram
     // model trained online on real English prose should clear plain
     // chance (1/97) by a wide margin on a slice this size -- this is a
     // regression check on the harness's own plumbing (context tracking,
     // sliding-window scoring), independent of the network's own result.
-    assert.ok(trial.trigramAccuracy > 0.15, `trigram baseline implausibly low, harness likely broken: ${trial.trigramAccuracy}`);
+    assert.ok(
+      trial.trigramAccuracy > 0.15,
+      `trigram baseline implausibly low, harness likely broken: ${trial.trigramAccuracy}`,
+    );
   }
 
   const assessment = assessMilestone(trials);
@@ -58,7 +84,7 @@ test("the VAL-4 harness produces well-formed, comparable results across seeds (R
   );
 });
 
-test("assessMilestone aggregates by mean across seeds and applies the tolerance band, not a single favorable run (Requirement 13.5)", () => {
+test('assessMilestone aggregates by mean across seeds and applies the tolerance band, not a single favorable run (Requirement 13.5)', () => {
   const trials: TrialResult[] = [
     { seed: 1n, networkAccuracy: 0.5, trigramAccuracy: 0.3, sampleCount: 100 },
     { seed: 2n, networkAccuracy: 0.1, trigramAccuracy: 0.3, sampleCount: 100 },
@@ -73,9 +99,19 @@ test("assessMilestone aggregates by mean across seeds and applies the tolerance 
 });
 
 test("assessMilestone's tolerance band requires a margin, not just any positive difference", () => {
-  const trials: TrialResult[] = [{ seed: 1n, networkAccuracy: 0.31, trigramAccuracy: 0.3, sampleCount: 100 }];
-  assert.equal(assessMilestone(trials, 0).milestoneMet, true, "with a zero tolerance band, any positive margin counts");
-  assert.equal(assessMilestone(trials, 0.05).milestoneMet, false, "a 0.05 tolerance band must not be cleared by a 0.01 margin");
+  const trials: TrialResult[] = [
+    { seed: 1n, networkAccuracy: 0.31, trigramAccuracy: 0.3, sampleCount: 100 },
+  ];
+  assert.equal(
+    assessMilestone(trials, 0).milestoneMet,
+    true,
+    'with a zero tolerance band, any positive margin counts',
+  );
+  assert.equal(
+    assessMilestone(trials, 0.05).milestoneMet,
+    false,
+    'a 0.05 tolerance band must not be cleared by a 0.01 margin',
+  );
 });
 
 // PLAN.md B4 (docs/decisions.md decision 12): locks in the value search's result
@@ -116,7 +152,13 @@ test("condition C with B4's searched values reproduces the value search's own re
     // fix 1: silent until a delivery at weight >= 0.65
     silentSynapses: { unsilenceWeight: 0.65 },
     plasticity: {
-      stdp: { aPlus: 0.01, aMinus: 0.01, tauPlus: 8, tauMinus: 8, windowTicks: 40 },
+      stdp: {
+        aPlus: 0.01,
+        aMinus: 0.01,
+        tauPlus: 8,
+        tauMinus: 8,
+        windowTicks: 40,
+      },
       tauEligibilityTicks: 500,
       learningRate: 0.005,
       modulatorChannel: 1, // ACETYLCHOLINE, held by tonicModulator
@@ -139,8 +181,9 @@ test("condition C with B4's searched values reproduces the value search's own re
       "a change to structural plasticity, silent synapses or STDP altered what B4's chosen configuration does",
   );
   assert.ok(
-    assessment.meanNetworkAccuracy - PRE_B4_CONTROL > Math.abs(SPROUT_DISABLED_CEILING - assessment.meanNetworkAccuracy),
-    "condition C must sit closer to the sprout-disabled ceiling than to the pre-B4 control",
+    assessment.meanNetworkAccuracy - PRE_B4_CONTROL >
+      Math.abs(SPROUT_DISABLED_CEILING - assessment.meanNetworkAccuracy),
+    'condition C must sit closer to the sprout-disabled ceiling than to the pre-B4 control',
   );
 });
 
@@ -179,7 +222,13 @@ test("condition C with B5's searched values reproduces the value search's own re
     // weighted votes already keep a weak sprout quiet
     silentSynapses: { unsilenceWeight: 0.3, silentTransmits: true },
     plasticity: {
-      stdp: { aPlus: 0.01, aMinus: 0.02, tauPlus: 4, tauMinus: 4, windowTicks: 20 },
+      stdp: {
+        aPlus: 0.01,
+        aMinus: 0.02,
+        tauPlus: 4,
+        tauMinus: 4,
+        windowTicks: 20,
+      },
       tauEligibilityTicks: 50,
       learningRate: 0.02,
       modulatorChannel: 1, // ACETYLCHOLINE, held by tonicModulator
@@ -188,7 +237,7 @@ test("condition C with B5's searched values reproduces the value search's own re
     tonicModulator: { channel: 1, level: 1.0 },
     coincidenceThreshold: 3,
     voteReferenceWeight: 1.0,
-    predictiveLearningTarget: "permanence",
+    predictiveLearningTarget: 'permanence',
     homeostaticScaling: { targetTotalWeight: 6.0, intervalTicks: 200 },
   });
   const assessment = assessMilestone(trials);

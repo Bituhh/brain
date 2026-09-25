@@ -24,17 +24,17 @@
  * union keeps exact-key access exact for whichever item's own `N` is in play.
  */
 export const B4_PARAM_NAMES = [
-  "learningRate",
-  "stdpTauTicks",
-  "depressionRatio",
-  "eligibilityTauTicks",
-  "unsilenceWeight",
-  "maxGapTicks",
-  "eliminationTicks",
-  "silentGate",
-  "timingWindow",
-  "spreadSegments",
-  "silentElimination",
+  'learningRate',
+  'stdpTauTicks',
+  'depressionRatio',
+  'eligibilityTauTicks',
+  'unsilenceWeight',
+  'maxGapTicks',
+  'eliminationTicks',
+  'silentGate',
+  'timingWindow',
+  'spreadSegments',
+  'silentElimination',
 ] as const;
 
 export type ParamName = (typeof B4_PARAM_NAMES)[number];
@@ -57,7 +57,13 @@ export function tidy(x: number): number {
 
 const times = (factor: number, bound: number) => (edge: number) => {
   const next = tidy(edge * factor);
-  return factor > 1 ? (next <= bound ? next : undefined) : next >= bound ? next : undefined;
+  return factor > 1
+    ? next <= bound
+      ? next
+      : undefined
+    : next >= bound
+      ? next
+      : undefined;
 };
 
 /**
@@ -82,17 +88,32 @@ const times = (factor: number, bound: number) => (edge: number) => {
  *   points share results instead of re-running.
  */
 export const B4_PARAM_SPECS: readonly ParamSpec[] = [
-  { name: "learningRate", initial: [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2], extendUp: times(2, 16), extendDown: times(0.5, 0.0005) },
-  { name: "stdpTauTicks", initial: [1, 2, 4, 8, 16, 32], extendUp: times(2, 256), extendDown: times(0.5, 0.5) },
   {
-    name: "depressionRatio",
+    name: 'learningRate',
+    initial: [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2],
+    extendUp: times(2, 16),
+    extendDown: times(0.5, 0.0005),
+  },
+  {
+    name: 'stdpTauTicks',
+    initial: [1, 2, 4, 8, 16, 32],
+    extendUp: times(2, 256),
+    extendDown: times(0.5, 0.5),
+  },
+  {
+    name: 'depressionRatio',
     initial: [0.5, 0.75, 1, 1.25, 1.5, 2],
     extendUp: (max) => (max + 0.5 <= 4 ? tidy(max + 0.5) : undefined),
     extendDown: (min) => (min - 0.125 >= 0.25 ? tidy(min - 0.125) : undefined),
   },
-  { name: "eligibilityTauTicks", initial: [50, 100, 200, 500, 1000, 2000, 5000], extendUp: times(2, 100_000), extendDown: times(0.5, 10) },
   {
-    name: "unsilenceWeight",
+    name: 'eligibilityTauTicks',
+    initial: [50, 100, 200, 500, 1000, 2000, 5000],
+    extendUp: times(2, 100_000),
+    extendDown: times(0.5, 10),
+  },
+  {
+    name: 'unsilenceWeight',
     initial: [0.06, 0.08, 0.1, 0.15, 0.2, 0.3, 0.45, 0.65],
     extendUp: (max) => (max + 0.15 <= 1 ? tidy(max + 0.15) : undefined),
     extendDown: (min) => {
@@ -100,12 +121,21 @@ export const B4_PARAM_SPECS: readonly ParamSpec[] = [
       return next > 0.051 && next < min ? next : undefined;
     },
   },
-  { name: "maxGapTicks", initial: [1, 2, 4, 8, 16, 32], extendUp: (max) => (max * 2 <= 200 ? max * 2 : undefined) },
-  { name: "eliminationTicks", initial: [200, 500, 1000, 2000, 5000, 10_000, 20_000], extendUp: times(2, 60_000), extendDown: (min) => (min / 2 >= 50 ? Math.round(min / 2) : undefined) },
-  { name: "silentGate", initial: [0, 1] },
-  { name: "timingWindow", initial: [0, 1] },
-  { name: "spreadSegments", initial: [0, 1] },
-  { name: "silentElimination", initial: [0, 1] },
+  {
+    name: 'maxGapTicks',
+    initial: [1, 2, 4, 8, 16, 32],
+    extendUp: (max) => (max * 2 <= 200 ? max * 2 : undefined),
+  },
+  {
+    name: 'eliminationTicks',
+    initial: [200, 500, 1000, 2000, 5000, 10_000, 20_000],
+    extendUp: times(2, 60_000),
+    extendDown: (min) => (min / 2 >= 50 ? Math.round(min / 2) : undefined),
+  },
+  { name: 'silentGate', initial: [0, 1] },
+  { name: 'timingWindow', initial: [0, 1] },
+  { name: 'spreadSegments', initial: [0, 1] },
+  { name: 'silentElimination', initial: [0, 1] },
 ];
 
 /** A deterministic PRNG (mulberry32): the same seed gives the same sample, so a resumed run re-derives identical choices. */
@@ -128,8 +158,13 @@ export function prng(seed: number): () => number {
  * needs no external parameter-name list, which is what makes this function
  * work unchanged for any `Space`, not only one built from `B4_PARAM_SPECS`.
  */
-export function pointKey<N extends string = ParamName>(point: Point<N>): string {
-  return (Object.keys(point) as N[]).sort().map((name) => `${name}=${point[name]}`).join(",");
+export function pointKey<N extends string = ParamName>(
+  point: Point<N>,
+): string {
+  return (Object.keys(point) as N[])
+    .sort()
+    .map((name) => `${name}=${point[name]}`)
+    .join(',');
 }
 
 export class Space<N extends string = ParamName> {
@@ -137,13 +172,17 @@ export class Space<N extends string = ParamName> {
   readonly #specs: ReadonlyMap<N, ParamSpec<N>>;
   readonly #levels = new Map<N, number[]>();
 
-  constructor(specs: readonly ParamSpec<N>[] = B4_PARAM_SPECS as unknown as readonly ParamSpec<N>[]) {
-    if (specs.length === 0) throw new Error("a Space needs at least one parameter");
+  constructor(
+    specs: readonly ParamSpec<N>[] = B4_PARAM_SPECS as unknown as readonly ParamSpec<N>[],
+  ) {
+    if (specs.length === 0)
+      throw new Error('a Space needs at least one parameter');
     this.#paramNames = specs.map((spec) => spec.name);
     this.#specs = new Map(specs.map((spec) => [spec.name, spec]));
     for (const spec of specs) {
       const sorted = [...spec.initial].sort((a, b) => a - b);
-      if (sorted.length < 2) throw new Error(`${spec.name} needs at least two levels`);
+      if (sorted.length < 2)
+        throw new Error(`${spec.name} needs at least two levels`);
       this.#levels.set(spec.name, sorted);
     }
   }
@@ -159,8 +198,13 @@ export class Space<N extends string = ParamName> {
 
   indexOf(name: N, value: number): number {
     const levels = this.levelsOf(name);
-    const index = levels.findIndex((level) => Math.abs(level - value) <= 1e-9 * Math.max(1, Math.abs(level)));
-    if (index < 0) throw new Error(`${name}=${value} is not a level of this space (${levels.join(", ")})`);
+    const index = levels.findIndex(
+      (level) => Math.abs(level - value) <= 1e-9 * Math.max(1, Math.abs(level)),
+    );
+    if (index < 0)
+      throw new Error(
+        `${name}=${value} is not a level of this space (${levels.join(', ')})`,
+      );
     return index;
   }
 
@@ -204,11 +248,13 @@ export class Space<N extends string = ParamName> {
    * nearest level. Used by hill checks to sample the line between two points.
    */
   between(a: Point<N>, b: Point<N>, fraction: number): Point<N> {
-    return Object.fromEntries(this.#paramNames.map((name) => {
-      const i = this.indexOf(name, a[name]);
-      const j = this.indexOf(name, b[name]);
-      return [name, this.levelsOf(name)[Math.round(i + (j - i) * fraction)]!];
-    })) as Point<N>;
+    return Object.fromEntries(
+      this.#paramNames.map((name) => {
+        const i = this.indexOf(name, a[name]);
+        const j = this.indexOf(name, b[name]);
+        return [name, this.levelsOf(name)[Math.round(i + (j - i) * fraction)]!];
+      }),
+    ) as Point<N>;
   }
 
   /**
@@ -222,7 +268,16 @@ export class Space<N extends string = ParamName> {
     const columns = new Map<N, number[]>();
     for (const name of this.#paramNames) {
       const levels = this.levelsOf(name);
-      const strata = Array.from({ length: n }, (_, s) => levels[Math.min(levels.length - 1, Math.floor(((s + random()) / n) * levels.length))]!);
+      const strata = Array.from(
+        { length: n },
+        (_, s) =>
+          levels[
+            Math.min(
+              levels.length - 1,
+              Math.floor(((s + random()) / n) * levels.length),
+            )
+          ]!,
+      );
       for (let i = strata.length - 1; i > 0; i--) {
         const j = Math.floor(random() * (i + 1));
         [strata[i], strata[j]] = [strata[j]!, strata[i]!];
@@ -232,7 +287,9 @@ export class Space<N extends string = ParamName> {
     const seen = new Set<string>();
     const points: Point<N>[] = [];
     for (let row = 0; row < n; row++) {
-      const point = Object.fromEntries(this.#paramNames.map((name) => [name, columns.get(name)![row]!])) as Point<N>;
+      const point = Object.fromEntries(
+        this.#paramNames.map((name) => [name, columns.get(name)![row]!]),
+      ) as Point<N>;
       const key = pointKey(point);
       if (!seen.has(key)) {
         seen.add(key);
@@ -243,10 +300,12 @@ export class Space<N extends string = ParamName> {
     // uniform draws so the caller always gets `n` distinct points.
     let guard = 0;
     while (points.length < n && guard++ < n * 100) {
-      const point = Object.fromEntries(this.#paramNames.map((name) => {
-        const levels = this.levelsOf(name);
-        return [name, levels[Math.floor(random() * levels.length)]!];
-      })) as Point<N>;
+      const point = Object.fromEntries(
+        this.#paramNames.map((name) => {
+          const levels = this.levelsOf(name);
+          return [name, levels[Math.floor(random() * levels.length)]!];
+        }),
+      ) as Point<N>;
       const key = pointKey(point);
       if (!seen.has(key)) {
         seen.add(key);

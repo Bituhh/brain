@@ -7,8 +7,12 @@
 // is a self-contained Rust struct with no shared global state (checked:
 // no `static`/`thread_local` in crates/brain-napi/src/lib.rs), so one
 // native instance per worker thread is safe.
-import { parentPort, workerData } from "node:worker_threads";
-import { runCharPredictionTrial, type CharPredictionConfig, type TrialResult } from "../packages/io/src/milestone/charPrediction.ts";
+import { parentPort, workerData } from 'node:worker_threads';
+import {
+  runCharPredictionTrial,
+  type CharPredictionConfig,
+  type TrialResult,
+} from '../packages/io/src/milestone/charPrediction.ts';
 
 interface JobData {
   readonly corpus: string;

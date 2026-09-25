@@ -88,8 +88,14 @@
 // generic "every mechanism, live" fixture rather than a second milestone
 // harness.
 
-import { Simulation, type LifConfig, type SimulationOptions, type ColumnConfig, type ProbeOptions } from "@brain/core";
-import { wrapColumnHandles, type ColumnHandle } from "./columns.ts";
+import {
+  Simulation,
+  type LifConfig,
+  type SimulationOptions,
+  type ColumnConfig,
+  type ProbeOptions,
+} from '@brain/core';
+import { wrapColumnHandles, type ColumnHandle } from './columns.ts';
 
 /** docs/prior-art.md §2.1: "at any moment only ~1-2% of neurons are active." The generic default this constructor targets -- not tuned for any particular task. */
 export const TARGET_SPARSITY = 0.02;
@@ -201,12 +207,22 @@ export function canonicalColumnConfig(): ColumnConfig {
     baseX: 0,
     baseY: 0,
     baseZ: 0,
-    internalPolicy: { p0: 0.1, lengthScale: 100_000, delayMin: 1, delayMax: 3, initialPermanence: 0.4 },
+    internalPolicy: {
+      p0: 0.1,
+      lengthScale: 100_000,
+      delayMin: 1,
+      delayMax: 3,
+      initialPermanence: 0.4,
+    },
     neighbourhoodSize: WIDTH,
     k: K,
     // Must match `canonicalSimulationOptions`'s own `segments` exactly --
     // `buildColumns` refuses a mismatch.
-    segments: { segmentsPerNeuron: 2, coincidenceThreshold: 3, voteReferenceWeight: B5_VALUES.voteReferenceWeight },
+    segments: {
+      segmentsPerNeuron: 2,
+      coincidenceThreshold: 3,
+      voteReferenceWeight: B5_VALUES.voteReferenceWeight,
+    },
   };
 }
 
@@ -220,14 +236,27 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
     inhibition: { neighbourhoodSize: WIDTH, k: K },
     // NEU-5/6, with PLAN.md B5's weighted votes (docs/decisions.md decision 13).
     // Value: see `B5_VALUES` above.
-    segments: { segmentsPerNeuron: 2, coincidenceThreshold: 3, voteReferenceWeight: B5_VALUES.voteReferenceWeight },
+    segments: {
+      segmentsPerNeuron: 2,
+      coincidenceThreshold: 3,
+      voteReferenceWeight: B5_VALUES.voteReferenceWeight,
+    },
     // PLAN.md B4 fix 1 (docs/decisions.md decision 12), switched off by B5: silence
     // is tracked but a silent sprout still transmits, at its own weight.
     // Values: see `B5_VALUES` above.
-    silentSynapses: { unsilenceWeight: B5_VALUES.unsilenceWeight, silentTransmits: B5_VALUES.silentTransmits },
+    silentSynapses: {
+      unsilenceWeight: B5_VALUES.unsilenceWeight,
+      silentTransmits: B5_VALUES.silentTransmits,
+    },
     // LRN-2/3/4
     plasticity: {
-      stdp: { aPlus: 0.01, aMinus: 0.01, tauPlus: 20, tauMinus: 20, windowTicks: 100 },
+      stdp: {
+        aPlus: 0.01,
+        aMinus: 0.01,
+        tauPlus: 20,
+        tauMinus: 20,
+        windowTicks: 100,
+      },
       tauEligibilityTicks: 500,
       learningRate: 0.2,
       // **Acetylcholine, not dopamine, and PLAN.md C3 moved it here.** This
@@ -319,13 +348,25 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
     // `segmentThresholdHomeostasis` below, no prior tuning pass exists for
     // this mechanism to inherit a converged value from (it had no FFI
     // surface until this constructor's own review added one).
-    intrinsicHomeostasis: { targetRate: TARGET_SPARSITY, smoothing: 0.9, adjustmentRate: 0.05, minThreshold: 0.1, intervalTicks: 50 },
+    intrinsicHomeostasis: {
+      targetRate: TARGET_SPARSITY,
+      smoothing: 0.9,
+      adjustmentRate: 0.05,
+      minThreshold: 0.1,
+      intervalTicks: 50,
+    },
     // Per-segment threshold homeostasis. Also a live default, not a copy of
     // docs/findings.md finding 7's VAL-4-tuned `targetRate: 0.99` -- that value
     // was converged against charPrediction's specific candidate-decode
     // task and copying it here would misleadingly imply this generic
     // network inherited that tuning, which it has not.
-    segmentThresholdHomeostasis: { targetRate: 0.2, smoothing: 0.9, adjustmentRate: 0.1, minThreshold: 1.0, intervalTicks: 100 },
+    segmentThresholdHomeostasis: {
+      targetRate: 0.2,
+      smoothing: 0.9,
+      adjustmentRate: 0.1,
+      minThreshold: 1.0,
+      intervalTicks: 100,
+    },
     // LRN-7. Bounded by `synapseCapPerNeuron` above regardless of how
     // often this fires, so it cannot runaway the way `charPrediction.ts`'s
     // module doc warns predictive-learning's own burst-sprout path can at
@@ -487,8 +528,18 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
     predictionErrorCoupling: {
       tauFastTicks: 50,
       tauSlowTicks: 500,
-      unexpected: { channel: 2 /* NORADRENALINE */, baseline: 1.0, gain: 1.0, maxLevel: 4.0 },
-      expected: { channel: 1 /* ACETYLCHOLINE */, baseline: 1.0, gain: 1.0, maxLevel: 4.0 },
+      unexpected: {
+        channel: 2 /* NORADRENALINE */,
+        baseline: 1.0,
+        gain: 1.0,
+        maxLevel: 4.0,
+      },
+      expected: {
+        channel: 1 /* ACETYLCHOLINE */,
+        baseline: 1.0,
+        gain: 1.0,
+        maxLevel: 4.0,
+      },
     },
     // PLAN.md C3 (LRN-4, LRN-11, docs/prior-art.md §2.5): the channel that had no
     // producer at all before it, and whose absence left BOTH modulated rules
@@ -512,7 +563,15 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
     // amplifies" -- which is what this module wires, via
     // `predictiveLearning.gainModulatorIndex` -- is a defensible
     // simplification, not a description of the biology.
-    rewardPredictionError: { tauEvents: 50, drive: { channel: 0 /* DOPAMINE */, baseline: 1.0, gain: 1.0, maxLevel: 4.0 } },
+    rewardPredictionError: {
+      tauEvents: 50,
+      drive: {
+        channel: 0 /* DOPAMINE */,
+        baseline: 1.0,
+        gain: 1.0,
+        maxLevel: 4.0,
+      },
+    },
   };
 }
 
@@ -529,7 +588,12 @@ export const canonicalLifConfig: LifConfig = {
 };
 
 /** OBS-1: a representative probe, attached as part of construction rather than left to the caller -- the one mechanism in this constructor's remit that is a post-construction call rather than a `SimulationOptions` field. */
-const PROBE_OPTIONS: ProbeOptions = { capacity: 2000, recordMembrane: true, recordSegments: true, weightSynapses: [] };
+const PROBE_OPTIONS: ProbeOptions = {
+  capacity: 2000,
+  recordMembrane: true,
+  recordSegments: true,
+  weightSynapses: [],
+};
 
 /**
  * Builds one column with every mechanism `@brain/core` implements and has
@@ -537,8 +601,14 @@ const PROBE_OPTIONS: ProbeOptions = { capacity: 2000, recordMembrane: true, reco
  * doc comment for the two deliberate departures from `charPrediction.ts`
  * and for what is deliberately left to the caller.
  */
-export function buildCanonicalBrain(seed: bigint): { sim: Simulation; column: ColumnHandle } {
-  const sim = Simulation.create(canonicalLifConfig, canonicalSimulationOptions(seed));
+export function buildCanonicalBrain(seed: bigint): {
+  sim: Simulation;
+  column: ColumnHandle;
+} {
+  const sim = Simulation.create(
+    canonicalLifConfig,
+    canonicalSimulationOptions(seed),
+  );
   const [handle] = sim.buildColumns(seed, [canonicalColumnConfig()]);
   const [column] = wrapColumnHandles([handle!]);
   sim.attachProbe(column!.range.start, PROBE_OPTIONS);
@@ -567,9 +637,13 @@ export function buildCanonicalBrain(seed: bigint): { sim: Simulation; column: Co
  * other wiring may find it does not, and this is how they get the old
  * behaviour back while diagnosing.
  */
-export function withIndexBlockSproutReach(options: SimulationOptions): SimulationOptions {
-  const { sproutReachRadius: _sweep, ...structuralPlasticity } = options.structuralPlasticity!;
-  const { sproutReachRadius: _burst, ...predictiveLearning } = options.predictiveLearning!;
+export function withIndexBlockSproutReach(
+  options: SimulationOptions,
+): SimulationOptions {
+  const { sproutReachRadius: _sweep, ...structuralPlasticity } =
+    options.structuralPlasticity!;
+  const { sproutReachRadius: _burst, ...predictiveLearning } =
+    options.predictiveLearning!;
   return { ...options, structuralPlasticity, predictiveLearning };
 }
 
@@ -590,6 +664,14 @@ export function withIndexBlockSproutReach(options: SimulationOptions): Simulatio
  * nothing has measured at all, which is a weaker basis than the sweep's
  * "measured as a wash".
  */
-export function withSpatialBurstSproutReach(options: SimulationOptions): SimulationOptions {
-  return { ...options, predictiveLearning: { ...options.predictiveLearning!, sproutReachRadius: BURST_SPROUT_REACH_RADIUS } };
+export function withSpatialBurstSproutReach(
+  options: SimulationOptions,
+): SimulationOptions {
+  return {
+    ...options,
+    predictiveLearning: {
+      ...options.predictiveLearning!,
+      sproutReachRadius: BURST_SPROUT_REACH_RADIUS,
+    },
+  };
 }

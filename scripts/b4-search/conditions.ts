@@ -1,16 +1,19 @@
 // Turns a search condition into the exact `CharPredictionConfig` a trial
 // runs, and gives every (config, seed) pair a stable checkpoint key.
 
-import type { PlasticityConfig, StructuralPlasticityConfig } from "@brain/core";
-import { DEFAULT_CONFIG, type CharPredictionConfig } from "../../packages/io/src/milestone/charPrediction.ts";
-import type { Point } from "./space.ts";
+import type { PlasticityConfig, StructuralPlasticityConfig } from '@brain/core';
+import {
+  DEFAULT_CONFIG,
+  type CharPredictionConfig,
+} from '../../packages/io/src/milestone/charPrediction.ts';
+import type { Point } from './space.ts';
 
 /**
  * Bump when the meaning of a condition changes (a code change that alters
  * what a trial measures), so a resumed run never reuses results measured
  * under different semantics.
  */
-export const PROTOCOL_VERSION = "b4-tune-v1";
+export const PROTOCOL_VERSION = 'b4-tune-v1';
 
 /** Which of PLAN.md B4's four fixes are on. */
 export interface Fixes {
@@ -24,28 +27,43 @@ export interface Fixes {
   readonly elimination: boolean;
 }
 
-export const ALL_FIXES: Fixes = { silentGate: true, timingWindow: true, spread: true, elimination: true };
-export const NO_FIXES: Fixes = { silentGate: false, timingWindow: false, spread: false, elimination: false };
+export const ALL_FIXES: Fixes = {
+  silentGate: true,
+  timingWindow: true,
+  spread: true,
+  elimination: true,
+};
+export const NO_FIXES: Fixes = {
+  silentGate: false,
+  timingWindow: false,
+  spread: false,
+  elimination: false,
+};
 
 export type Condition =
   /** Condition C (structural plasticity, no growth) with STDP on at `point`'s values. */
-  | { readonly kind: "C"; readonly point: Point; readonly fixes: Fixes }
+  | { readonly kind: 'C'; readonly point: Point; readonly fixes: Fixes }
   /** Reference: condition C, every fix off, weights frozen (the 6.40% control). */
-  | { readonly kind: "C-off-frozen" }
+  | { readonly kind: 'C-off-frozen' }
   /** Reference: condition C with sprouting disabled, weights frozen (the 16.51% ceiling). */
-  | { readonly kind: "sprout-disabled-frozen" }
+  | { readonly kind: 'sprout-disabled-frozen' }
   /** Reference: condition A, no structural plasticity, weights frozen (17.37%). */
-  | { readonly kind: "A-frozen" }
+  | { readonly kind: 'A-frozen' }
   /** Reference: `point`'s exact search config (STDP and fixes included) with sprouting disabled. */
-  | { readonly kind: "sprout-disabled-at"; readonly point: Point };
+  | { readonly kind: 'sprout-disabled-at'; readonly point: Point };
 
 /** The condition the search itself evaluates at `point`: each fix on or off as the point says. */
 export function searchCondition(point: Point): Condition {
-  return { kind: "C", point, fixes: fixesOf(point) };
+  return { kind: 'C', point, fixes: fixesOf(point) };
 }
 
 export function fixesOf(point: Point): Fixes {
-  return { silentGate: point.silentGate === 1, timingWindow: point.timingWindow === 1, spread: point.spreadSegments === 1, elimination: point.silentElimination === 1 };
+  return {
+    silentGate: point.silentGate === 1,
+    timingWindow: point.timingWindow === 1,
+    spread: point.spreadSegments === 1,
+    elimination: point.silentElimination === 1,
+  };
 }
 
 /** The STDP amplitude held fixed; learning rate carries the overall scale (see the runner's header). */
@@ -90,32 +108,52 @@ export function stdpConfig(point: Point): PlasticityConfig {
 
 export function toConfig(condition: Condition): CharPredictionConfig {
   switch (condition.kind) {
-    case "C-off-frozen":
+    case 'C-off-frozen':
       return { ...DEFAULT_CONFIG, structuralPlasticity: baseStructural() };
-    case "sprout-disabled-frozen":
+    case 'sprout-disabled-frozen':
       // A streak no 15,000-character run can reach, so sprout never fires
       // (investigate-structural-plasticity-drag.ts's own E2).
-      return { ...DEFAULT_CONFIG, structuralPlasticity: { ...baseStructural(), minActivityStreak: SPROUT_NEVER_STREAK } };
-    case "A-frozen":
+      return {
+        ...DEFAULT_CONFIG,
+        structuralPlasticity: {
+          ...baseStructural(),
+          minActivityStreak: SPROUT_NEVER_STREAK,
+        },
+      };
+    case 'A-frozen':
       return { ...DEFAULT_CONFIG };
-    case "sprout-disabled-at": {
+    case 'sprout-disabled-at': {
       const config = toConfig(searchCondition(condition.point));
-      return { ...config, structuralPlasticity: { ...config.structuralPlasticity!, minActivityStreak: SPROUT_NEVER_STREAK } };
+      return {
+        ...config,
+        structuralPlasticity: {
+          ...config.structuralPlasticity!,
+          minActivityStreak: SPROUT_NEVER_STREAK,
+        },
+      };
     }
-    case "C": {
+    case 'C': {
       const { point, fixes } = condition;
       const structuralPlasticity: StructuralPlasticityConfig = {
         ...baseStructural(),
-        ...(fixes.timingWindow && { minTemporalGapTicks: 1, maxTemporalGapTicks: Math.round(point.maxGapTicks) }),
+        ...(fixes.timingWindow && {
+          minTemporalGapTicks: 1,
+          maxTemporalGapTicks: Math.round(point.maxGapTicks),
+        }),
         ...(fixes.spread && { spreadSproutSegments: true, seed: 1n }),
-        ...(fixes.elimination && { silentEliminationTicks: Math.round(point.eliminationTicks) }),
+        ...(fixes.elimination && {
+          silentEliminationTicks: Math.round(point.eliminationTicks),
+        }),
       };
       return {
         ...DEFAULT_CONFIG,
         structuralPlasticity,
         // Silence is always tracked, so fix 4 means the same thing with or
         // without fix 1; fix 1 off only lets silent synapses transmit.
-        silentSynapses: { unsilenceWeight: point.unsilenceWeight, ...(!fixes.silentGate && { silentTransmits: true }) },
+        silentSynapses: {
+          unsilenceWeight: point.unsilenceWeight,
+          ...(!fixes.silentGate && { silentTransmits: true }),
+        },
         plasticity: stdpConfig(point),
         tonicModulator: { channel: TONIC_CHANNEL, level: TONIC_LEVEL },
       };
@@ -126,9 +164,13 @@ export function toConfig(condition: Condition): CharPredictionConfig {
 /** JSON with object keys sorted and bigints as strings, so equal configs always serialise identically. */
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(value, (_key, v: unknown) => {
-    if (typeof v === "bigint") return `${v}n`;
-    if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-      return Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+    if (typeof v === 'bigint') return `${v}n`;
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      return Object.fromEntries(
+        Object.entries(v as Record<string, unknown>).sort(([a], [b]) =>
+          a < b ? -1 : a > b ? 1 : 0,
+        ),
+      );
     }
     return v;
   });
@@ -139,7 +181,11 @@ export function canonicalJson(value: unknown): string {
  * how the search described it, so two descriptions of the same config share
  * one result.
  */
-export function trialKey(condition: Condition, seed: bigint, corpusLength: number): string {
+export function trialKey(
+  condition: Condition,
+  seed: bigint,
+  corpusLength: number,
+): string {
   return `${configKey(condition, corpusLength)}|seed=${seed}`;
 }
 
@@ -149,10 +195,11 @@ export function configKey(condition: Condition, corpusLength: number): string {
 }
 
 export function conditionLabel(condition: Condition): string {
-  if (condition.kind === "sprout-disabled-at") return `sprout-disabled-at ${conditionLabel(searchCondition(condition.point))}`;
-  if (condition.kind !== "C") return condition.kind;
+  if (condition.kind === 'sprout-disabled-at')
+    return `sprout-disabled-at ${conditionLabel(searchCondition(condition.point))}`;
+  if (condition.kind !== 'C') return condition.kind;
   const p = condition.point;
   const f = condition.fixes;
-  const flags = `${f.silentGate ? "1" : "-"}${f.timingWindow ? "2" : "-"}${f.spread ? "3" : "-"}${f.elimination ? "4" : "-"}`;
+  const flags = `${f.silentGate ? '1' : '-'}${f.timingWindow ? '2' : '-'}${f.spread ? '3' : '-'}${f.elimination ? '4' : '-'}`;
   return `C[fixes ${flags}] lr=${p.learningRate} tau=${p.stdpTauTicks} dep=${p.depressionRatio} elig=${p.eligibilityTauTicks} unsil=${p.unsilenceWeight} gap=${p.maxGapTicks} elim=${p.eliminationTicks}`;
 }

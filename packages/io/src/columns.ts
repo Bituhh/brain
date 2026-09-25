@@ -5,8 +5,11 @@
 // global neuron indices, and reading them back, is orchestration-speed
 // mapping logic, not a core capability.
 
-import type { Simulation, ColumnHandle as BrainColumnHandle } from "@brain/core";
-import { makeSdr, type Sdr } from "./sdr.ts";
+import type {
+  Simulation,
+  ColumnHandle as BrainColumnHandle,
+} from '@brain/core';
+import { makeSdr, type Sdr } from './sdr.ts';
 
 export class ColumnHandle {
   readonly id: number;
@@ -28,7 +31,9 @@ export class ColumnHandle {
    */
   stimulateSdr(sim: Simulation, sdr: Sdr, current: number): void {
     if (sdr.width > this.width) {
-      throw new RangeError(`Sdr width (${sdr.width}) exceeds column ${this.id}'s width (${this.width})`);
+      throw new RangeError(
+        `Sdr width (${sdr.width}) exceeds column ${this.id}'s width (${this.width})`,
+      );
     }
     for (const bit of sdr.activeBits) {
       sim.stimulate(this.range.start + bit, current);
@@ -63,6 +68,8 @@ export class ColumnHandle {
 }
 
 /** Wraps every handle `Simulation.buildColumns` returned with the conveniences above, in the same order. */
-export function wrapColumnHandles(handles: ReadonlyArray<BrainColumnHandle>): ColumnHandle[] {
+export function wrapColumnHandles(
+  handles: ReadonlyArray<BrainColumnHandle>,
+): ColumnHandle[] {
   return handles.map((handle) => new ColumnHandle(handle));
 }

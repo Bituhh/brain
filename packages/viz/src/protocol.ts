@@ -23,7 +23,7 @@
 // bandwidth reason to narrow those.
 
 export interface TopologyNeuronsMessage {
-  readonly type: "topologyNeurons";
+  readonly type: 'topologyNeurons';
   readonly epoch: number;
   readonly coords: Float32Array;
   readonly polarity: Int8Array;
@@ -31,7 +31,7 @@ export interface TopologyNeuronsMessage {
 }
 
 export interface TopologySynapsesMessage {
-  readonly type: "topologySynapses";
+  readonly type: 'topologySynapses';
   readonly epoch: number;
   readonly capPerNeuron: number;
   /** SYN-3: a synapse is functionally connected only at or above this value (design.md's Requirement 2.2 decision -- filtering happens client-side, so the client needs this). */
@@ -52,7 +52,7 @@ export interface TickStateMessage {
 }
 
 export interface TickMessage {
-  readonly type: "tick";
+  readonly type: 'tick';
   readonly tick: number;
   readonly firingRate: number;
   readonly predictionAccuracy: number;
@@ -62,7 +62,7 @@ export interface TickMessage {
 }
 
 export interface MetricsSnapshotMessage {
-  readonly type: "metricsSnapshot";
+  readonly type: 'metricsSnapshot';
   readonly sparsity: number;
   readonly meanPermanence: number;
   /** docs/decisions.md's weight/permanence split (2026-09-13): reported alongside `meanPermanence` since the two now carry independent meanings. */
@@ -79,7 +79,7 @@ export interface SegmentSampleWire {
 }
 
 export interface ProbeDataMessage {
-  readonly type: "probeData";
+  readonly type: 'probeData';
   readonly neuron: number;
   readonly spikeTimes: Uint32Array;
   readonly membraneTrace: Float32Array | undefined;
@@ -87,12 +87,12 @@ export interface ProbeDataMessage {
 }
 
 export interface RasterExportMessage {
-  readonly type: "rasterExport";
+  readonly type: 'rasterExport';
   readonly bytes: Uint8Array;
 }
 
 export interface ErrorMessage {
-  readonly type: "error";
+  readonly type: 'error';
   readonly message: string;
 }
 
@@ -106,21 +106,36 @@ export type ServerMessage =
   | ErrorMessage;
 
 export type ClientMessage =
-  | { readonly type: "pause" | "resume" | "stepOnce" | "requestRaster" | "requestMetricsSnapshot" }
-  | { readonly type: "stimulate"; readonly index: number; readonly current: number }
-  | { readonly type: "reward"; readonly amount: number }
-  | { readonly type: "injectModulator"; readonly channel: number; readonly amount: number }
   | {
-      readonly type: "attachProbe";
+      readonly type:
+        | 'pause'
+        | 'resume'
+        | 'stepOnce'
+        | 'requestRaster'
+        | 'requestMetricsSnapshot';
+    }
+  | {
+      readonly type: 'stimulate';
+      readonly index: number;
+      readonly current: number;
+    }
+  | { readonly type: 'reward'; readonly amount: number }
+  | {
+      readonly type: 'injectModulator';
+      readonly channel: number;
+      readonly amount: number;
+    }
+  | {
+      readonly type: 'attachProbe';
       readonly neuron: number;
       readonly recordMembrane: boolean;
       readonly recordSegments: boolean;
       readonly capacity: number;
       readonly weightSynapseIds: readonly number[];
     }
-  | { readonly type: "detachProbe"; readonly neuron: number }
-  | { readonly type: "setStateStride"; readonly stride: number }
-  | { readonly type: "setMetricsCadence"; readonly intervalTicks: number };
+  | { readonly type: 'detachProbe'; readonly neuron: number }
+  | { readonly type: 'setStateStride'; readonly stride: number }
+  | { readonly type: 'setMetricsCadence'; readonly intervalTicks: number };
 
 // -- Type tags --
 
@@ -189,8 +204,14 @@ class Writer {
   }
 
   /** A typed array's underlying bytes, copied verbatim (already little-endian on every platform this project targets). */
-  typedArray(value: { readonly buffer: ArrayBufferLike; readonly byteOffset: number; readonly byteLength: number }): this {
-    return this.bytes(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+  typedArray(value: {
+    readonly buffer: ArrayBufferLike;
+    readonly byteOffset: number;
+    readonly byteLength: number;
+  }): this {
+    return this.bytes(
+      new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
+    );
   }
 
   utf8(value: string): this {
@@ -276,7 +297,8 @@ class Reader {
 
   i8Array(count: number): Int8Array {
     const out = new Int8Array(count);
-    for (let i = 0; i < count; i++) out[i] = this.#view.getInt8(this.#offset + i);
+    for (let i = 0; i < count; i++)
+      out[i] = this.#view.getInt8(this.#offset + i);
     this.#offset += count;
     return out;
   }
@@ -302,32 +324,59 @@ class Reader {
 export function encode(message: ServerMessage | ClientMessage): Uint8Array {
   const w = new Writer();
   switch (message.type) {
-    case "topologyNeurons":
-      w.u8(TAG.topologyNeurons).u32(message.epoch).u32(message.coords.length / 3);
-      w.typedArray(message.coords).typedArray(message.polarity).typedArray(message.threshold);
+    case 'topologyNeurons':
+      w.u8(TAG.topologyNeurons)
+        .u32(message.epoch)
+        .u32(message.coords.length / 3);
+      w.typedArray(message.coords)
+        .typedArray(message.polarity)
+        .typedArray(message.threshold);
       break;
-    case "topologySynapses":
-      w.u8(TAG.topologySynapses).u32(message.epoch).u32(message.capPerNeuron).f32(message.connectionThreshold).u32(message.targetNeuron.length);
-      w.typedArray(message.targetNeuron).typedArray(message.targetSegment).typedArray(message.permanence).typedArray(message.weight);
+    case 'topologySynapses':
+      w.u8(TAG.topologySynapses)
+        .u32(message.epoch)
+        .u32(message.capPerNeuron)
+        .f32(message.connectionThreshold)
+        .u32(message.targetNeuron.length);
+      w.typedArray(message.targetNeuron)
+        .typedArray(message.targetSegment)
+        .typedArray(message.permanence)
+        .typedArray(message.weight);
       w.typedArray(message.delay).typedArray(message.occupied);
       break;
-    case "tick":
-      w.u8(TAG.tick).u32(message.tick).f64(message.firingRate).f64(message.predictionAccuracy).u32(message.spiked.length);
+    case 'tick':
+      w.u8(TAG.tick)
+        .u32(message.tick)
+        .f64(message.firingRate)
+        .f64(message.predictionAccuracy)
+        .u32(message.spiked.length);
       w.typedArray(message.spiked);
       if (message.state) {
         w.u8(1).u32(message.state.membrane.length);
-        w.typedArray(message.state.membrane).typedArray(message.state.predictive).typedArray(message.state.refractory);
+        w.typedArray(message.state.membrane)
+          .typedArray(message.state.predictive)
+          .typedArray(message.state.refractory);
       } else {
         w.u8(0);
       }
       break;
-    case "metricsSnapshot":
-      w.u8(TAG.metricsSnapshot).f64(message.sparsity).f64(message.meanPermanence).f64(message.meanWeight).f64(message.excitatoryFraction).u32(message.synapseCount);
+    case 'metricsSnapshot':
+      w.u8(TAG.metricsSnapshot)
+        .f64(message.sparsity)
+        .f64(message.meanPermanence)
+        .f64(message.meanWeight)
+        .f64(message.excitatoryFraction)
+        .u32(message.synapseCount);
       break;
-    case "probeData":
-      w.u8(TAG.probeData).u32(message.neuron).u32(message.spikeTimes.length).typedArray(message.spikeTimes);
+    case 'probeData':
+      w.u8(TAG.probeData)
+        .u32(message.neuron)
+        .u32(message.spikeTimes.length)
+        .typedArray(message.spikeTimes);
       if (message.membraneTrace) {
-        w.u8(1).u32(message.membraneTrace.length).typedArray(message.membraneTrace);
+        w.u8(1)
+          .u32(message.membraneTrace.length)
+          .typedArray(message.membraneTrace);
       } else {
         w.u8(0);
       }
@@ -340,37 +389,37 @@ export function encode(message: ServerMessage | ClientMessage): Uint8Array {
         w.u8(0);
       }
       break;
-    case "rasterExport":
+    case 'rasterExport':
       w.u8(TAG.rasterExport).bytes(message.bytes);
       break;
-    case "error":
+    case 'error':
       w.u8(TAG.error).utf8(message.message);
       break;
-    case "pause":
+    case 'pause':
       w.u8(TAG.pause);
       break;
-    case "resume":
+    case 'resume':
       w.u8(TAG.resume);
       break;
-    case "stepOnce":
+    case 'stepOnce':
       w.u8(TAG.stepOnce);
       break;
-    case "requestRaster":
+    case 'requestRaster':
       w.u8(TAG.requestRaster);
       break;
-    case "requestMetricsSnapshot":
+    case 'requestMetricsSnapshot':
       w.u8(TAG.requestMetricsSnapshot);
       break;
-    case "stimulate":
+    case 'stimulate':
       w.u8(TAG.stimulate).u32(message.index).f64(message.current);
       break;
-    case "reward":
+    case 'reward':
       w.u8(TAG.reward).f64(message.amount);
       break;
-    case "injectModulator":
+    case 'injectModulator':
       w.u8(TAG.injectModulator).u32(message.channel).f64(message.amount);
       break;
-    case "attachProbe":
+    case 'attachProbe':
       w.u8(TAG.attachProbe)
         .u32(message.neuron)
         .u8(message.recordMembrane ? 1 : 0)
@@ -379,13 +428,13 @@ export function encode(message: ServerMessage | ClientMessage): Uint8Array {
         .u32(message.weightSynapseIds.length);
       for (const id of message.weightSynapseIds) w.u32(id);
       break;
-    case "detachProbe":
+    case 'detachProbe':
       w.u8(TAG.detachProbe).u32(message.neuron);
       break;
-    case "setStateStride":
+    case 'setStateStride':
       w.u8(TAG.setStateStride).u32(message.stride);
       break;
-    case "setMetricsCadence":
+    case 'setMetricsCadence':
       w.u8(TAG.setMetricsCadence).u32(message.intervalTicks);
       break;
   }
@@ -398,7 +447,7 @@ export class ProtocolError extends Error {}
 
 export function decode(bytes: Uint8Array): ServerMessage | ClientMessage {
   if (bytes.length < 1) {
-    throw new ProtocolError("empty message: no type tag");
+    throw new ProtocolError('empty message: no type tag');
   }
   const r = new Reader(bytes);
   const tag = r.u8();
@@ -409,7 +458,7 @@ export function decode(bytes: Uint8Array): ServerMessage | ClientMessage {
       const coords = r.f32Array(count * 3);
       const polarity = r.i8Array(count);
       const threshold = r.f32Array(count);
-      return { type: "topologyNeurons", epoch, coords, polarity, threshold };
+      return { type: 'topologyNeurons', epoch, coords, polarity, threshold };
     }
     case TAG.topologySynapses: {
       const epoch = r.u32();
@@ -422,7 +471,18 @@ export function decode(bytes: Uint8Array): ServerMessage | ClientMessage {
       const weight = r.f32Array(count);
       const delay = r.u16Array(count);
       const occupied = r.bytes(count);
-      return { type: "topologySynapses", epoch, capPerNeuron, connectionThreshold, targetNeuron, targetSegment, permanence, weight, delay, occupied };
+      return {
+        type: 'topologySynapses',
+        epoch,
+        capPerNeuron,
+        connectionThreshold,
+        targetNeuron,
+        targetSegment,
+        permanence,
+        weight,
+        delay,
+        occupied,
+      };
     }
     case TAG.tick: {
       const tick = r.u32();
@@ -439,7 +499,14 @@ export function decode(bytes: Uint8Array): ServerMessage | ClientMessage {
         const refractory = r.u32Array(neuronCount);
         state = { membrane, predictive, refractory };
       }
-      return { type: "tick", tick, firingRate, predictionAccuracy, spiked, state };
+      return {
+        type: 'tick',
+        tick,
+        firingRate,
+        predictionAccuracy,
+        spiked,
+        state,
+      };
     }
     case TAG.metricsSnapshot: {
       const sparsity = r.f64();
@@ -447,7 +514,14 @@ export function decode(bytes: Uint8Array): ServerMessage | ClientMessage {
       const meanWeight = r.f64();
       const excitatoryFraction = r.f64();
       const synapseCount = r.u32();
-      return { type: "metricsSnapshot", sparsity, meanPermanence, meanWeight, excitatoryFraction, synapseCount };
+      return {
+        type: 'metricsSnapshot',
+        sparsity,
+        meanPermanence,
+        meanWeight,
+        excitatoryFraction,
+        synapseCount,
+      };
     }
     case TAG.probeData: {
       const neuron = r.u32();
@@ -472,35 +546,41 @@ export function decode(bytes: Uint8Array): ServerMessage | ClientMessage {
           segmentSamples.push({ tick: stick, segment, active, depolarisation });
         }
       }
-      return { type: "probeData", neuron, spikeTimes, membraneTrace, segmentSamples };
+      return {
+        type: 'probeData',
+        neuron,
+        spikeTimes,
+        membraneTrace,
+        segmentSamples,
+      };
     }
     case TAG.rasterExport: {
       const remaining = r.remainingBytes();
-      return { type: "rasterExport", bytes: r.bytes(remaining) };
+      return { type: 'rasterExport', bytes: r.bytes(remaining) };
     }
     case TAG.error:
-      return { type: "error", message: r.utf8() };
+      return { type: 'error', message: r.utf8() };
     case TAG.pause:
-      return { type: "pause" };
+      return { type: 'pause' };
     case TAG.resume:
-      return { type: "resume" };
+      return { type: 'resume' };
     case TAG.stepOnce:
-      return { type: "stepOnce" };
+      return { type: 'stepOnce' };
     case TAG.requestRaster:
-      return { type: "requestRaster" };
+      return { type: 'requestRaster' };
     case TAG.requestMetricsSnapshot:
-      return { type: "requestMetricsSnapshot" };
+      return { type: 'requestMetricsSnapshot' };
     case TAG.stimulate: {
       const index = r.u32();
       const current = r.f64();
-      return { type: "stimulate", index, current };
+      return { type: 'stimulate', index, current };
     }
     case TAG.reward:
-      return { type: "reward", amount: r.f64() };
+      return { type: 'reward', amount: r.f64() };
     case TAG.injectModulator: {
       const channel = r.u32();
       const amount = r.f64();
-      return { type: "injectModulator", channel, amount };
+      return { type: 'injectModulator', channel, amount };
     }
     case TAG.attachProbe: {
       const neuron = r.u32();
@@ -510,15 +590,24 @@ export function decode(bytes: Uint8Array): ServerMessage | ClientMessage {
       const weightCount = r.u32();
       const weightSynapseIds: number[] = [];
       for (let i = 0; i < weightCount; i++) weightSynapseIds.push(r.u32());
-      return { type: "attachProbe", neuron, recordMembrane, recordSegments, capacity, weightSynapseIds };
+      return {
+        type: 'attachProbe',
+        neuron,
+        recordMembrane,
+        recordSegments,
+        capacity,
+        weightSynapseIds,
+      };
     }
     case TAG.detachProbe:
-      return { type: "detachProbe", neuron: r.u32() };
+      return { type: 'detachProbe', neuron: r.u32() };
     case TAG.setStateStride:
-      return { type: "setStateStride", stride: r.u32() };
+      return { type: 'setStateStride', stride: r.u32() };
     case TAG.setMetricsCadence:
-      return { type: "setMetricsCadence", intervalTicks: r.u32() };
+      return { type: 'setMetricsCadence', intervalTicks: r.u32() };
     default:
-      throw new ProtocolError(`unknown message type tag: 0x${tag.toString(16)}`);
+      throw new ProtocolError(
+        `unknown message type tag: 0x${tag.toString(16)}`,
+      );
   }
 }

@@ -4,13 +4,15 @@
 // Run directly: `node examples/hello-brain.ts` (Node 24 strips TS types
 // natively — no build step, no tsx dependency, per ENG-3/ENG-6).
 
-import { coreEngineVersion } from "@brain/core";
+import { coreEngineVersion } from '@brain/core';
 
 const version = coreEngineVersion();
 console.log(`brain-core version (round-tripped through napi): ${version}`);
 
 if (!version) {
-  throw new Error("Pipeline check failed: empty version string.");
+  throw new Error('Pipeline check failed: empty version string.');
 }
 
-console.log("OK: Rust core -> napi addon -> Node -> TypeScript pipeline verified.");
+console.log(
+  'OK: Rust core -> napi addon -> Node -> TypeScript pipeline verified.',
+);

@@ -13,34 +13,55 @@
 // One seed per process:  node --experimental-strip-types scripts/investigate-c7-ach-level.ts <seed>
 // Prints one JSON line.
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import type { Simulation, StdpModulationStats } from "@brain/core";
-import { runCharPredictionTrial, type CharPredictionConfig } from "../packages/io/src/milestone/charPrediction.ts";
-import { searchCondition, toConfig } from "./b5-search/conditions.ts";
-import type { B5ParamName } from "./b5-search/space.ts";
-import type { Point } from "./b4-search/space.ts";
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import type { Simulation, StdpModulationStats } from '@brain/core';
+import {
+  runCharPredictionTrial,
+  type CharPredictionConfig,
+} from '../packages/io/src/milestone/charPrediction.ts';
+import { searchCondition, toConfig } from './b5-search/conditions.ts';
+import type { B5ParamName } from './b5-search/space.ts';
+import type { Point } from './b4-search/space.ts';
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 const ACETYLCHOLINE = 1;
 const CORPUS_LENGTH = Number(process.env.C7_CHARS ?? 15_000);
-const seed = BigInt(process.argv[2] ?? "1");
-const corpus = readFileSync(here("../packages/io/test/fixtures/corpus.txt"), "utf8").slice(0, CORPUS_LENGTH);
+const seed = BigInt(process.argv[2] ?? '1');
+const corpus = readFileSync(
+  here('../packages/io/test/fixtures/corpus.txt'),
+  'utf8',
+).slice(0, CORPUS_LENGTH);
 
-const chosen = JSON.parse(readFileSync(here("./tune-b5-values.chosen.json"), "utf8")) as { readonly winner: Point<B5ParamName> };
+const chosen = JSON.parse(
+  readFileSync(here('./tune-b5-values.chosen.json'), 'utf8'),
+) as { readonly winner: Point<B5ParamName> };
 const winner = toConfig(searchCondition(chosen.winner));
 const { tonicModulator: _dropped, ...rest } = winner;
 const config: CharPredictionConfig = {
   ...rest,
   plasticity: {
     ...winner.plasticity!,
-    stdpModulation: { aPlus: { channel: ACETYLCHOLINE, reference: 1.0, gain: 0, min: -1, max: 2 } },
+    stdpModulation: {
+      aPlus: {
+        channel: ACETYLCHOLINE,
+        reference: 1.0,
+        gain: 0,
+        min: -1,
+        max: 2,
+      },
+    },
     observeStdpModulation: true,
   },
   predictionErrorCoupling: {
     tauFastTicks: 100,
     tauSlowTicks: 2000,
-    expected: { channel: ACETYLCHOLINE, baseline: 1.0, gain: 1.0, maxLevel: 4.0 },
+    expected: {
+      channel: ACETYLCHOLINE,
+      baseline: 1.0,
+      gain: 1.0,
+      maxLevel: 4.0,
+    },
   },
 };
 

@@ -3,11 +3,20 @@
 // avoidable" extended to the whole client). Loaded by `public/index.html`
 // via `<script type="module">`.
 
-import { encode, decode, type ServerMessage, type ClientMessage } from "../protocol.ts";
-import { GraphView, type SynapseTopology } from "./graph-view.ts";
-import { Scrubber } from "./scrubber.ts";
-import { SegmentPanel, type SegmentMember, type SegmentActivitySample } from "./segment-panel.ts";
-import { wireControls } from "./controls.ts";
+import {
+  encode,
+  decode,
+  type ServerMessage,
+  type ClientMessage,
+} from '../protocol.ts';
+import { GraphView, type SynapseTopology } from './graph-view.ts';
+import { Scrubber } from './scrubber.ts';
+import {
+  SegmentPanel,
+  type SegmentMember,
+  type SegmentActivitySample,
+} from './segment-panel.ts';
+import { wireControls } from './controls.ts';
 
 function required<T extends Element>(id: string): T {
   const el = document.getElementById(id);
@@ -15,16 +24,16 @@ function required<T extends Element>(id: string): T {
   return el as unknown as T;
 }
 
-const canvas = required<HTMLCanvasElement>("graph");
-const statusEl = required<HTMLElement>("status");
-const controlsRoot = required<HTMLElement>("controls");
-const segmentPanelRoot = required<HTMLElement>("segment-panel");
-const scrubInput = required<HTMLInputElement>("scrub");
-const followButton = required<HTMLButtonElement>("follow");
-const metricsEl = required<HTMLElement>("metrics");
+const canvas = required<HTMLCanvasElement>('graph');
+const statusEl = required<HTMLElement>('status');
+const controlsRoot = required<HTMLElement>('controls');
+const segmentPanelRoot = required<HTMLElement>('segment-panel');
+const scrubInput = required<HTMLInputElement>('scrub');
+const followButton = required<HTMLButtonElement>('follow');
+const metricsEl = required<HTMLElement>('metrics');
 
-const ctx = canvas.getContext("2d");
-if (!ctx) throw new Error("2D canvas context unavailable");
+const ctx = canvas.getContext('2d');
+if (!ctx) throw new Error('2D canvas context unavailable');
 
 const graphView = new GraphView();
 const scrubber = new Scrubber();
@@ -34,10 +43,17 @@ let selectedNeuron: number | undefined;
 
 const segmentPanel = new SegmentPanel(segmentPanelRoot, {
   onOpen(neuron) {
-    send({ type: "attachProbe", neuron, recordMembrane: false, recordSegments: true, capacity: 50, weightSynapseIds: [] });
+    send({
+      type: 'attachProbe',
+      neuron,
+      recordMembrane: false,
+      recordSegments: true,
+      capacity: 50,
+      weightSynapseIds: [],
+    });
   },
   onClose(neuron) {
-    send({ type: "detachProbe", neuron });
+    send({ type: 'detachProbe', neuron });
   },
 });
 
@@ -52,7 +68,12 @@ function membersOfNeuron(neuron: number): Map<number, SegmentMember[]> {
     const segment = synapses.targetSegment[id]!;
     if (segment === FEEDFORWARD_SEGMENT) continue;
     const source = Math.floor(id / synapses.capPerNeuron);
-    const member: SegmentMember = { synapseId: id, source, permanence: synapses.permanence[id]!, weight: synapses.weight[id]! };
+    const member: SegmentMember = {
+      synapseId: id,
+      source,
+      permanence: synapses.permanence[id]!,
+      weight: synapses.weight[id]!,
+    };
     const list = bySegment.get(segment);
     if (list) list.push(member);
     else bySegment.set(segment, [member]);
@@ -63,26 +84,27 @@ function membersOfNeuron(neuron: number): Map<number, SegmentMember[]> {
 // -- WebSocket wiring --
 
 const socket = new WebSocket(`ws://${location.host}/`);
-socket.binaryType = "arraybuffer";
+socket.binaryType = 'arraybuffer';
 
 function send(msg: ClientMessage): void {
   // `new Uint8Array(bytes)` re-wraps over a plain `ArrayBuffer` -- `encode`
   // already returns one, but its declared type is the wider
   // `Uint8Array<ArrayBufferLike>`, which `WebSocket.send`'s `BufferSource`
   // does not accept directly.
-  if (socket.readyState === WebSocket.OPEN) socket.send(new Uint8Array(encode(msg)));
+  if (socket.readyState === WebSocket.OPEN)
+    socket.send(new Uint8Array(encode(msg)));
 }
 
-socket.addEventListener("open", () => {
-  statusEl.textContent = "connected";
+socket.addEventListener('open', () => {
+  statusEl.textContent = 'connected';
 });
-socket.addEventListener("close", () => {
-  statusEl.textContent = "disconnected";
+socket.addEventListener('close', () => {
+  statusEl.textContent = 'disconnected';
 });
-socket.addEventListener("error", () => {
-  statusEl.textContent = "connection error";
+socket.addEventListener('error', () => {
+  statusEl.textContent = 'connection error';
 });
-socket.addEventListener("message", (event) => {
+socket.addEventListener('message', (event) => {
   const bytes = new Uint8Array(event.data as ArrayBuffer);
   let msg: ServerMessage;
   try {
@@ -95,19 +117,19 @@ socket.addEventListener("message", (event) => {
 
 function handleServerMessage(msg: ServerMessage): void {
   switch (msg.type) {
-    case "topologyNeurons":
+    case 'topologyNeurons':
       graphView.setNeurons(msg);
       break;
-    case "topologySynapses":
+    case 'topologySynapses':
       latestSynapses = msg;
       graphView.setSynapses(msg);
       break;
-    case "tick":
+    case 'tick':
       if (following) {
         graphView.setTickState(msg.tick, msg.spiked, msg.state);
       }
       break;
-    case "metricsSnapshot":
+    case 'metricsSnapshot':
       metricsEl.textContent =
         `sparsity ${msg.sparsity.toFixed(4)}  ` +
         `mean permanence ${msg.meanPermanence.toFixed(3)}  ` +
@@ -115,16 +137,22 @@ function handleServerMessage(msg: ServerMessage): void {
         `excitatory fraction ${msg.excitatoryFraction.toFixed(3)}  ` +
         `synapses ${msg.synapseCount}`;
       break;
-    case "probeData":
-      if (selectedNeuron !== undefined && segmentPanel.isOpenFor(selectedNeuron)) {
-        segmentPanel.updateActivity(msg.neuron, msg.segmentSamples as SegmentActivitySample[] | undefined);
+    case 'probeData':
+      if (
+        selectedNeuron !== undefined &&
+        segmentPanel.isOpenFor(selectedNeuron)
+      ) {
+        segmentPanel.updateActivity(
+          msg.neuron,
+          msg.segmentSamples as SegmentActivitySample[] | undefined,
+        );
       }
       break;
-    case "rasterExport":
+    case 'rasterExport':
       scrubber.load(msg.bytes);
       configureScrubRange();
       break;
-    case "error":
+    case 'error':
       statusEl.textContent = `error: ${msg.message}`;
       break;
   }
@@ -141,45 +169,45 @@ function configureScrubRange(): void {
 
 wireControls(controlsRoot, {
   onPause() {
-    send({ type: "pause" });
+    send({ type: 'pause' });
   },
   onResume() {
-    send({ type: "resume" });
+    send({ type: 'resume' });
   },
   onStepOnce() {
-    send({ type: "stepOnce" });
+    send({ type: 'stepOnce' });
   },
   onStimulate(index, current) {
-    send({ type: "stimulate", index, current });
+    send({ type: 'stimulate', index, current });
   },
   onReward(amount) {
-    send({ type: "reward", amount });
+    send({ type: 'reward', amount });
   },
   onSetStateStride(stride) {
-    send({ type: "setStateStride", stride });
+    send({ type: 'setStateStride', stride });
   },
   onRequestRaster() {
-    send({ type: "requestRaster" });
+    send({ type: 'requestRaster' });
   },
   onRequestMetricsSnapshot() {
-    send({ type: "requestMetricsSnapshot" });
+    send({ type: 'requestMetricsSnapshot' });
   },
   onToggleShowPotentialSynapses(show) {
     graphView.setShowPotentialSynapses(show);
   },
 });
 
-followButton.addEventListener("click", () => {
+followButton.addEventListener('click', () => {
   following = true;
   followButton.disabled = true;
 });
 
-scrubInput.addEventListener("input", () => {
+scrubInput.addEventListener('input', () => {
   following = false;
   followButton.disabled = false;
   const tick = Number(scrubInput.value);
   if (!scrubber.isInRange(tick)) {
-    statusEl.textContent = "no recorded activity in this range";
+    statusEl.textContent = 'no recorded activity in this range';
     graphView.setTickState(tick, [], undefined);
     return;
   }
@@ -210,29 +238,32 @@ let dragging = false;
 let lastX = 0;
 let lastY = 0;
 
-canvas.addEventListener("mousedown", (event) => {
+canvas.addEventListener('mousedown', (event) => {
   dragging = true;
   lastX = event.clientX;
   lastY = event.clientY;
 });
-window.addEventListener("mouseup", () => {
+window.addEventListener('mouseup', () => {
   dragging = false;
 });
-canvas.addEventListener("mousemove", (event) => {
+canvas.addEventListener('mousemove', (event) => {
   if (!dragging) return;
   graphView.pan(event.clientX - lastX, event.clientY - lastY);
   lastX = event.clientX;
   lastY = event.clientY;
 });
-canvas.addEventListener("wheel", (event) => {
+canvas.addEventListener('wheel', (event) => {
   event.preventDefault();
   const rect = canvas.getBoundingClientRect();
   const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
   graphView.zoomAt(event.clientX - rect.left, event.clientY - rect.top, factor);
 });
-canvas.addEventListener("click", (event) => {
+canvas.addEventListener('click', (event) => {
   const rect = canvas.getBoundingClientRect();
-  const hit = graphView.hitTest(event.clientX - rect.left, event.clientY - rect.top);
+  const hit = graphView.hitTest(
+    event.clientX - rect.left,
+    event.clientY - rect.top,
+  );
   if (hit === undefined) return;
   selectedNeuron = hit;
   segmentPanel.open(hit, membersOfNeuron(hit));

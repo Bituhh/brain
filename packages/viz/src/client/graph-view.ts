@@ -1,7 +1,7 @@
 // The spatially-embedded graph view (VIZ-1, Phase 6 Requirements 9-10):
 // plain Canvas 2D, no charting/graph-layout library (Requirement 9.4).
 
-import { SpikeFlash } from "./spike-flash.ts";
+import { SpikeFlash } from './spike-flash.ts';
 
 export interface NeuronTopology {
   readonly coords: Float32Array; // flat [x0,y0,z0,x1,y1,z1,...]
@@ -27,14 +27,14 @@ export interface TickState {
   readonly refractory: Uint32Array;
 }
 
-export type NeuronState = "resting" | "predicted" | "firing" | "refractory";
+export type NeuronState = 'resting' | 'predicted' | 'firing' | 'refractory';
 
 /** Precedence when more than one condition holds (design.md Requirement 9.2 decision): firing > refractory > predicted > resting. */
 const STATE_COLOR: Readonly<Record<NeuronState, string>> = {
-  firing: "#f59e0b",
-  refractory: "#7c3aed",
-  predicted: "#3b82f6",
-  resting: "#6b7280",
+  firing: '#f59e0b',
+  refractory: '#7c3aed',
+  predicted: '#3b82f6',
+  resting: '#6b7280',
 };
 
 /** `predictive` above this counts as "predicted" for colouring purposes. */
@@ -71,7 +71,11 @@ export class GraphView {
     this.#showPotentialSynapses = show;
   }
 
-  setTickState(tick: number, spiked: Iterable<number>, state: TickState | undefined): void {
+  setTickState(
+    tick: number,
+    spiked: Iterable<number>,
+    state: TickState | undefined,
+  ): void {
     this.#currentTick = tick;
     this.#spikedThisTick = new Set(spiked);
     this.#flash.recordSpikes(this.#spikedThisTick);
@@ -83,12 +87,12 @@ export class GraphView {
   }
 
   classify(i: number): NeuronState {
-    if (this.#spikedThisTick.has(i)) return "firing";
+    if (this.#spikedThisTick.has(i)) return 'firing';
     const refractoryUntil = this.#tickState?.refractory[i] ?? 0;
-    if (refractoryUntil > this.#currentTick) return "refractory";
+    if (refractoryUntil > this.#currentTick) return 'refractory';
     const predictive = this.#tickState?.predictive[i] ?? 0;
-    if (predictive > PREDICTED_THRESHOLD) return "predicted";
-    return "resting";
+    if (predictive > PREDICTED_THRESHOLD) return 'predicted';
+    return 'resting';
   }
 
   #worldOf(i: number): { x: number; y: number; z: number } {
@@ -98,7 +102,11 @@ export class GraphView {
 
   #project(i: number): { x: number; y: number; depth: number } {
     const w = this.#worldOf(i);
-    return { x: w.x * this.#scale + this.#offsetX, y: w.y * this.#scale + this.#offsetY, depth: w.z };
+    return {
+      x: w.x * this.#scale + this.#offsetX,
+      y: w.y * this.#scale + this.#offsetY,
+      depth: w.z,
+    };
   }
 
   pan(dxScreen: number, dyScreen: number): void {
@@ -132,7 +140,12 @@ export class GraphView {
     return best;
   }
 
-  render(ctx: CanvasRenderingContext2D, width: number, height: number, selected: number | undefined): void {
+  render(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    selected: number | undefined,
+  ): void {
     ctx.clearRect(0, 0, width, height);
     if (!this.#neurons) return;
     this.#renderEdges(ctx);
@@ -142,7 +155,14 @@ export class GraphView {
   #renderEdges(ctx: CanvasRenderingContext2D): void {
     const synapses = this.#synapses;
     if (!synapses) return;
-    const { capPerNeuron, connectionThreshold, targetNeuron, occupied, permanence, weight } = synapses;
+    const {
+      capPerNeuron,
+      connectionThreshold,
+      targetNeuron,
+      occupied,
+      permanence,
+      weight,
+    } = synapses;
     for (let id = 0; id < targetNeuron.length; id++) {
       if (!occupied[id]) continue;
       const perm = permanence[id]!;
@@ -166,7 +186,7 @@ export class GraphView {
       } else {
         // SYN-3: sub-threshold synapses are *potential*, not connected --
         // visually distinguished (Requirement 9.3), not drawn identically.
-        ctx.strokeStyle = "rgba(148,163,184,0.08)";
+        ctx.strokeStyle = 'rgba(148,163,184,0.08)';
         ctx.lineWidth = 0.5;
         ctx.setLineDash([2, 3]);
       }
@@ -175,7 +195,10 @@ export class GraphView {
     }
   }
 
-  #renderNeurons(ctx: CanvasRenderingContext2D, selected: number | undefined): void {
+  #renderNeurons(
+    ctx: CanvasRenderingContext2D,
+    selected: number | undefined,
+  ): void {
     const n = this.#neurons!.polarity.length;
     const now = performance.now();
     for (let i = 0; i < n; i++) {
@@ -183,7 +206,9 @@ export class GraphView {
       const state = this.classify(i);
       const flash = this.#flash.intensity(i, now);
       const depthScale = 1 + p.depth * 0.02; // a subtle depth cue from z, per design.md's Requirement 9.1 decision
-      const radius = (NEURON_RADIUS_PX + flash * 3) * Math.max(0.6, Math.min(1.6, depthScale));
+      const radius =
+        (NEURON_RADIUS_PX + flash * 3) *
+        Math.max(0.6, Math.min(1.6, depthScale));
 
       ctx.beginPath();
       ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
@@ -195,7 +220,7 @@ export class GraphView {
       if (i === selected) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, radius + 3, 0, Math.PI * 2);
-        ctx.strokeStyle = "#ffffff";
+        ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }

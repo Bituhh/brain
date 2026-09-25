@@ -55,14 +55,22 @@ import {
   type PredictionErrorCouplingConfig,
   type RewardPredictionErrorConfig,
   type TransmissionModulationConfig,
-} from "@brain/core";
-import { wrapColumnHandles, type ColumnHandle } from "../columns.ts";
-import { encodeChar, SUPPORTED_ALPHABET, type CharEncoderConfig } from "../encoders/text.ts";
-import { decode, rankByOverlapFraction, type Candidate } from "../decoders/overlap.ts";
-import { streamThrough } from "../harness/stream.ts";
-import { SlidingWindowAccuracy } from "../metrics.ts";
-import { TrigramModel } from "../baseline/trigram.ts";
-import type { Sdr } from "../sdr.ts";
+} from '@brain/core';
+import { wrapColumnHandles, type ColumnHandle } from '../columns.ts';
+import {
+  encodeChar,
+  SUPPORTED_ALPHABET,
+  type CharEncoderConfig,
+} from '../encoders/text.ts';
+import {
+  decode,
+  rankByOverlapFraction,
+  type Candidate,
+} from '../decoders/overlap.ts';
+import { streamThrough } from '../harness/stream.ts';
+import { SlidingWindowAccuracy } from '../metrics.ts';
+import { TrigramModel } from '../baseline/trigram.ts';
+import type { Sdr } from '../sdr.ts';
 
 export const NETWORK_WIDTH = 800;
 export const NETWORK_DENSITY = 0.08;
@@ -114,7 +122,7 @@ export interface CharPredictionConfig {
    * a real design fork, not resolved by this spec, and the single-channel
    * version is what mirrors `ThreeFactorParams`'s own precedent.
    */
-  readonly rewardSignal?: "correctness";
+  readonly rewardSignal?: 'correctness';
   /**
    * PLAN.md C3: makes the reward above a reward *prediction error* instead of
    * a raw one (LRN-4, LRN-11, docs/prior-art.md §2.5 "dopamine = reward prediction
@@ -301,7 +309,10 @@ export interface CharPredictionConfig {
    * Needs `plasticity` (the level decays with its `modulatorTauTicks`); has
    * no effect without it.
    */
-  readonly tonicModulator?: { readonly channel: number; readonly level: number };
+  readonly tonicModulator?: {
+    readonly channel: number;
+    readonly level: number;
+  };
   /**
    * Further channels held at a constant level, alongside `tonicModulator`
    * (PLAN.md C5). Added because a measurement that sweeps one channel's level
@@ -311,7 +322,10 @@ export interface CharPredictionConfig {
    * holds only one. Same semantics per entry, and the same requirement that
    * `plasticity` be configured. `undefined` (default) changes nothing.
    */
-  readonly extraTonicModulators?: readonly { readonly channel: number; readonly level: number }[];
+  readonly extraTonicModulators?: readonly {
+    readonly channel: number;
+    readonly level: number;
+  }[];
   /**
    * PLAN.md C2: drives noradrenaline (unexpected uncertainty) and
    * acetylcholine (expected uncertainty) from the network's own
@@ -361,7 +375,7 @@ export interface CharPredictionConfig {
    * permanence-only finding -- see `PredictiveLearningConfig.learningTarget`'s
    * own doc comment.
    */
-  readonly predictiveLearningTarget?: "permanence" | "weight" | "both";
+  readonly predictiveLearningTarget?: 'permanence' | 'weight' | 'both';
   /**
    * `SimulationOptions.homeostaticScaling` (LRN-6) -- never wired into this
    * harness before PLAN.md B5 (docs/decisions.md decision 13, requirements.md
@@ -456,7 +470,12 @@ export interface ConsolidationCadence {
  * consolidation pass cannot silently delete neurons the online sweep has
  * decided to keep.
  */
-const CONSOLIDATION_FIXED = { sproutPermanence: 0.35, sproutWeight: 0.05, minActivityStreak: 1, unusedTicksBeforeReclaim: 10_000_000 } as const;
+const CONSOLIDATION_FIXED = {
+  sproutPermanence: 0.35,
+  sproutWeight: 0.05,
+  minActivityStreak: 1,
+  unusedTicksBeforeReclaim: 10_000_000,
+} as const;
 
 /**
  * The seed for the `sleepIndex`-th consolidation pass of a trial run at
@@ -509,15 +528,24 @@ export const DEFAULT_CONFIG: CharPredictionConfig = {
   // the original pre-item-6-fix figure of 13.22%. smoothing/adjustmentRate/
   // minThreshold/intervalTicks were held fixed across every trial in that
   // table -- only targetRate was swept.
-  segmentThresholdHomeostasis: { targetRate: 0.99, smoothing: 0.9, adjustmentRate: 0.1, minThreshold: 1.0, intervalTicks: 200 },
+  segmentThresholdHomeostasis: {
+    targetRate: 0.99,
+    smoothing: 0.9,
+    adjustmentRate: 0.1,
+    minThreshold: 1.0,
+    intervalTicks: 200,
+  },
 };
 
 function charEncoderConfig(width: number, density: number): CharEncoderConfig {
-  return { width, density, seed: "char-prediction" };
+  return { width, density, seed: 'char-prediction' };
 }
 
 function buildCandidates(config: CharEncoderConfig): Candidate<string>[] {
-  return SUPPORTED_ALPHABET.map((char) => ({ label: char, sdr: encodeChar(config, char) }));
+  return SUPPORTED_ALPHABET.map((char) => ({
+    label: char,
+    sdr: encodeChar(config, char),
+  }));
 }
 
 const DEFAULT_SEGMENTS_PER_NEURON = 2;
@@ -527,7 +555,8 @@ export function columnConfig(
   width: number,
   segmentsPerNeuron: number = DEFAULT_SEGMENTS_PER_NEURON,
   voteReferenceWeight: number | undefined = DEFAULT_CONFIG.voteReferenceWeight,
-  coincidenceThreshold: number = DEFAULT_CONFIG.coincidenceThreshold ?? DEFAULT_COINCIDENCE_THRESHOLD,
+  coincidenceThreshold: number = DEFAULT_CONFIG.coincidenceThreshold ??
+    DEFAULT_COINCIDENCE_THRESHOLD,
 ): ColumnConfig {
   return {
     neuronCount: width,
@@ -551,7 +580,13 @@ export function columnConfig(
     // first place -- a genuine bootstrapping deadlock, not just slow
     // learning (measured: 0 tick-2 spikes after 18,000 characters at
     // initialPermanence=0.05).
-    internalPolicy: { p0: 0.05, lengthScale: 100_000, delayMin: 1, delayMax: 1, initialPermanence: 0.4 },
+    internalPolicy: {
+      p0: 0.05,
+      lengthScale: 100_000,
+      delayMin: 1,
+      delayMax: 1,
+      initialPermanence: 0.4,
+    },
     neighbourhoodSize: width,
     k: Math.max(1, Math.round(width * NETWORK_DENSITY)),
     // PLAN.md B5: spread only if defined, `exactOptionalPropertyTypes`'s
@@ -559,7 +594,11 @@ export function columnConfig(
     // `buildNetwork`'s scheduler-wide `segments` (below) agree exactly on
     // "count mode", the same mismatch `NativeSimulation.buildColumns`
     // refuses to build silently through.
-    segments: { segmentsPerNeuron, coincidenceThreshold, ...(voteReferenceWeight !== undefined && { voteReferenceWeight }) },
+    segments: {
+      segmentsPerNeuron,
+      coincidenceThreshold,
+      ...(voteReferenceWeight !== undefined && { voteReferenceWeight }),
+    },
   };
 }
 
@@ -573,26 +612,42 @@ export function columnConfig(
 export function buildNetwork(
   seed: bigint,
   width: number,
-  segmentThresholdHomeostasis: SegmentThresholdHomeostasisConfig | undefined = DEFAULT_CONFIG.segmentThresholdHomeostasis,
-  rewardSignal: CharPredictionConfig["rewardSignal"] = DEFAULT_CONFIG.rewardSignal,
-  inhibitionHomeostasis: InhibitionHomeostasisConfig | undefined = DEFAULT_CONFIG.inhibitionHomeostasis,
+  segmentThresholdHomeostasis:
+    | SegmentThresholdHomeostasisConfig
+    | undefined = DEFAULT_CONFIG.segmentThresholdHomeostasis,
+  rewardSignal: CharPredictionConfig['rewardSignal'] = DEFAULT_CONFIG.rewardSignal,
+  inhibitionHomeostasis:
+    | InhibitionHomeostasisConfig
+    | undefined = DEFAULT_CONFIG.inhibitionHomeostasis,
   growth: GrowthConfig | undefined = DEFAULT_CONFIG.growth,
-  structuralPlasticity: StructuralPlasticityConfig | undefined = DEFAULT_CONFIG.structuralPlasticity,
-  segmentsPerNeuron: number = DEFAULT_CONFIG.segmentsPerNeuron ?? DEFAULT_SEGMENTS_PER_NEURON,
-  newbornMaturation: NewbornMaturationConfig | undefined = DEFAULT_CONFIG.newbornMaturation,
-  silentSynapses: SilentSynapsesConfig | undefined = DEFAULT_CONFIG.silentSynapses,
+  structuralPlasticity:
+    | StructuralPlasticityConfig
+    | undefined = DEFAULT_CONFIG.structuralPlasticity,
+  segmentsPerNeuron: number = DEFAULT_CONFIG.segmentsPerNeuron ??
+    DEFAULT_SEGMENTS_PER_NEURON,
+  newbornMaturation:
+    NewbornMaturationConfig | undefined = DEFAULT_CONFIG.newbornMaturation,
+  silentSynapses:
+    SilentSynapsesConfig | undefined = DEFAULT_CONFIG.silentSynapses,
   plasticity: PlasticityConfig | undefined = DEFAULT_CONFIG.plasticity,
   voteReferenceWeight: number | undefined = DEFAULT_CONFIG.voteReferenceWeight,
-  predictiveLearningTarget: CharPredictionConfig["predictiveLearningTarget"] = DEFAULT_CONFIG.predictiveLearningTarget,
-  homeostaticScaling: HomeostaticScalingConfig | undefined = DEFAULT_CONFIG.homeostaticScaling,
-  coincidenceThreshold: number = DEFAULT_CONFIG.coincidenceThreshold ?? DEFAULT_COINCIDENCE_THRESHOLD,
+  predictiveLearningTarget: CharPredictionConfig['predictiveLearningTarget'] = DEFAULT_CONFIG.predictiveLearningTarget,
+  homeostaticScaling:
+    HomeostaticScalingConfig | undefined = DEFAULT_CONFIG.homeostaticScaling,
+  coincidenceThreshold: number = DEFAULT_CONFIG.coincidenceThreshold ??
+    DEFAULT_COINCIDENCE_THRESHOLD,
   /**
    * PLAN.md C2, grouped into one slot because the three move together: a
    * coupling with no consumer changes nothing, and a gain channel with no
    * coupling multiplies by whatever constant that channel happens to hold.
    */
   c2:
-    | Pick<CharPredictionConfig, "predictionErrorCoupling" | "predictiveLearningGainChannel" | "plasticityGainChannel">
+    | Pick<
+        CharPredictionConfig,
+        | 'predictionErrorCoupling'
+        | 'predictiveLearningGainChannel'
+        | 'plasticityGainChannel'
+      >
     | undefined = undefined,
   /**
    * PLAN.md C3's reward baseline. Separate from `rewardSignal` above, which
@@ -601,11 +656,22 @@ export function buildNetwork(
    * path C3 replaced (kept, because it is the VAL-9 ablation control), and a
    * baseline with no `rewardSignal` is inert.
    */
-  rewardPredictionError: RewardPredictionErrorConfig | undefined = DEFAULT_CONFIG.rewardPredictionError,
+  rewardPredictionError:
+    | RewardPredictionErrorConfig
+    | undefined = DEFAULT_CONFIG.rewardPredictionError,
   /** PLAN.md C9's transmission half -- see `CharPredictionConfig.transmissionModulation`. */
-  transmissionModulation: TransmissionModulationConfig | undefined = DEFAULT_CONFIG.transmissionModulation,
+  transmissionModulation:
+    | TransmissionModulationConfig
+    | undefined = DEFAULT_CONFIG.transmissionModulation,
 ): { sim: Simulation; column: ColumnHandle } {
-  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 };
+  const lif: LifConfig = {
+    tauMTicks: 5,
+    vRest: 0,
+    vReset: 0,
+    refractoryTicks: 0,
+    tauPredictiveTicks: 50,
+    predictiveThresholdReduction: 0.6,
+  };
   const options: SimulationOptions = {
     maxDelay: 1,
     connectionThreshold: 0.3,
@@ -633,7 +699,11 @@ export function buildNetwork(
     // otherwise. NOTE: not combined with `inhibitionHomeostasis` below --
     // `InhibitionConfig`'s own doc comment records that combination as an
     // unfixed gap (a homeostasis sweep would silently drop this target).
-    inhibition: { neighbourhoodSize: width, k: Math.max(1, Math.round(width * NETWORK_DENSITY)), densityTarget: NETWORK_DENSITY },
+    inhibition: {
+      neighbourhoodSize: width,
+      k: Math.max(1, Math.round(width * NETWORK_DENSITY)),
+      densityTarget: NETWORK_DENSITY,
+    },
     // inhibition-homeostasis spec, Requirement 1: self-tunes the k above
     // toward a target population activity rate instead of it staying
     // fixed at `round(width * density)` for the network's whole lifetime
@@ -655,7 +725,11 @@ export function buildNetwork(
     // PLAN.md B5: must agree with `columnConfig`'s own `segments` exactly
     // (`NativeSimulation.buildColumns`'s mismatch refusal), so both read
     // the same `voteReferenceWeight` parameter, spread only if defined.
-    segments: { segmentsPerNeuron, coincidenceThreshold, ...(voteReferenceWeight !== undefined && { voteReferenceWeight }) },
+    segments: {
+      segmentsPerNeuron,
+      coincidenceThreshold,
+      ...(voteReferenceWeight !== undefined && { voteReferenceWeight }),
+    },
     // dendritic-threshold-homeostasis spec (docs/findings.md findings 6/7):
     // fixing the segment-0 collapse bug and letting both real segments
     // receive distinct wiring made accuracy *worse*, 13.22% -> 3.23%, and
@@ -673,7 +747,9 @@ export function buildNetwork(
     // distinguishes "field omitted" from "field present with value
     // `undefined`", and `SimulationOptions.segmentThresholdHomeostasis`'s
     // `undefined` case (mechanism disabled) must omit the field entirely.
-    ...(segmentThresholdHomeostasis !== undefined && { segmentThresholdHomeostasis }),
+    ...(segmentThresholdHomeostasis !== undefined && {
+      segmentThresholdHomeostasis,
+    }),
     // NET-10 / LRN-7: see `CharPredictionConfig.growth`'s doc comment for
     // why these two are spread together rather than independently --
     // growth without structural plasticity would allocate neurons no
@@ -690,9 +766,14 @@ export function buildNetwork(
     // PLAN.md C2: `gainModulatorChannel` is the three-factor rule's own
     // second, multiplicative channel -- see `plasticityGainChannel`.
     ...(plasticity !== undefined && {
-      plasticity: c2?.plasticityGainChannel !== undefined ? { ...plasticity, gainModulatorChannel: c2.plasticityGainChannel } : plasticity,
+      plasticity:
+        c2?.plasticityGainChannel !== undefined
+          ? { ...plasticity, gainModulatorChannel: c2.plasticityGainChannel }
+          : plasticity,
     }),
-    ...(c2?.predictionErrorCoupling !== undefined && { predictionErrorCoupling: c2.predictionErrorCoupling }),
+    ...(c2?.predictionErrorCoupling !== undefined && {
+      predictionErrorCoupling: c2.predictionErrorCoupling,
+    }),
     // PLAN.md C3: turns `rewardSignal`'s raw hit indicator into a prediction
     // error before it reaches dopamine. Spread only if defined, so every run
     // without it stays bit-identical (`Scheduler::reward`'s unconfigured path
@@ -743,15 +824,26 @@ export function buildNetwork(
       ...(rewardSignal !== undefined && { modulatorIndex: 0 /* DOPAMINE */ }),
       // PLAN.md C2: the *second*, multiplicative channel, separate from
       // `modulatorIndex` above -- that one routes, this one scales.
-      ...(c2?.predictiveLearningGainChannel !== undefined && { gainModulatorIndex: c2.predictiveLearningGainChannel }),
+      ...(c2?.predictiveLearningGainChannel !== undefined && {
+        gainModulatorIndex: c2.predictiveLearningGainChannel,
+      }),
       // PLAN.md B5: spread only if defined, `exactOptionalPropertyTypes`'s
       // convention -- `undefined` leaves `SegmentLearningTarget::Permanence`,
       // today's behaviour.
-      ...(predictiveLearningTarget !== undefined && { learningTarget: predictiveLearningTarget }),
+      ...(predictiveLearningTarget !== undefined && {
+        learningTarget: predictiveLearningTarget,
+      }),
     },
   };
   const sim = Simulation.create(lif, options);
-  const [handle] = sim.buildColumns(seed, [columnConfig(width, segmentsPerNeuron, voteReferenceWeight, coincidenceThreshold)]);
+  const [handle] = sim.buildColumns(seed, [
+    columnConfig(
+      width,
+      segmentsPerNeuron,
+      voteReferenceWeight,
+      coincidenceThreshold,
+    ),
+  ]);
   const [column] = wrapColumnHandles([handle!]);
   return { sim, column: column! };
 }
@@ -824,7 +916,11 @@ export interface TrialProgressSample {
  * them -- `scripts/b4-search/trial.worker.ts`'s progress relay is the one
  * such caller -- keeps working untouched.
  */
-export type TrialProgress = (charactersDone: number, charactersTotal: number, sample: TrialProgressSample) => void;
+export type TrialProgress = (
+  charactersDone: number,
+  charactersTotal: number,
+  sample: TrialProgressSample,
+) => void;
 
 /** How often `runCharPredictionTrial` reports progress, in characters. */
 export const PROGRESS_EVERY_CHARACTERS = 250;
@@ -877,9 +973,15 @@ export function runCharPredictionTrial(
     config.homeostaticScaling,
     config.coincidenceThreshold,
     {
-      ...(config.predictionErrorCoupling !== undefined && { predictionErrorCoupling: config.predictionErrorCoupling }),
-      ...(config.predictiveLearningGainChannel !== undefined && { predictiveLearningGainChannel: config.predictiveLearningGainChannel }),
-      ...(config.plasticityGainChannel !== undefined && { plasticityGainChannel: config.plasticityGainChannel }),
+      ...(config.predictionErrorCoupling !== undefined && {
+        predictionErrorCoupling: config.predictionErrorCoupling,
+      }),
+      ...(config.predictiveLearningGainChannel !== undefined && {
+        predictiveLearningGainChannel: config.predictiveLearningGainChannel,
+      }),
+      ...(config.plasticityGainChannel !== undefined && {
+        plasticityGainChannel: config.plasticityGainChannel,
+      }),
     },
     config.rewardPredictionError,
     config.transmissionModulation,
@@ -890,7 +992,7 @@ export function runCharPredictionTrial(
   const trigramAcc = new SlidingWindowAccuracy(config.slidingWindow);
 
   const source = charNextPairs(corpus);
-  let context = "";
+  let context = '';
   let charactersDone = 0;
 
   // LRN-10 / docs/prior-art.md §2.9, PLAN.md C1. Accumulated here rather than read
@@ -909,29 +1011,54 @@ export function runCharPredictionTrial(
   // writers per tick, and the top-up drags it back toward a constant the
   // coupling is trying to move -- docs/findings.md finding 21's "configured, and
   // configures nothing" failure mode, one level up.
-  if (config.predictionErrorCoupling !== undefined && config.tonicModulator !== undefined) {
-    const driven = [config.predictionErrorCoupling.unexpected?.channel, config.predictionErrorCoupling.expected?.channel];
+  if (
+    config.predictionErrorCoupling !== undefined &&
+    config.tonicModulator !== undefined
+  ) {
+    const driven = [
+      config.predictionErrorCoupling.unexpected?.channel,
+      config.predictionErrorCoupling.expected?.channel,
+    ];
     if (driven.includes(config.tonicModulator.channel)) {
       throw new Error(
         `channel ${config.tonicModulator.channel} is both driven by predictionErrorCoupling and held by tonicModulator; ` +
-          "pick one -- the tonic top-up would fight the coupling every character (PLAN.md C2)",
+          'pick one -- the tonic top-up would fight the coupling every character (PLAN.md C2)',
       );
     }
   }
   const tonic = config.tonicModulator;
-  const tonicTau = tonic !== undefined ? config.plasticity?.modulatorTauTicks[tonic.channel] : undefined;
-  const tonicTopUp = tonic !== undefined && tonicTau !== undefined ? tonic.level * (1 - Math.exp(-config.ticksPerInput / tonicTau)) : 0;
+  const tonicTau =
+    tonic !== undefined
+      ? config.plasticity?.modulatorTauTicks[tonic.channel]
+      : undefined;
+  const tonicTopUp =
+    tonic !== undefined && tonicTau !== undefined
+      ? tonic.level * (1 - Math.exp(-config.ticksPerInput / tonicTau))
+      : 0;
   if (tonic !== undefined && tonicTau !== undefined) {
     sim.injectModulator(tonic.channel, tonic.level);
   }
   // PLAN.md C5: the same hold, per extra channel, after the primary one so a run
   // with none configured executes exactly the statements above and no others.
   const extraTonics = (config.extraTonicModulators ?? []).map((held) => {
-    if (held.channel === tonic?.channel || config.predictionErrorCoupling?.unexpected?.channel === held.channel || config.predictionErrorCoupling?.expected?.channel === held.channel) {
-      throw new Error(`channel ${held.channel} in extraTonicModulators is already held or driven elsewhere; a second writer would fight the first every character (PLAN.md C2/C5)`);
+    if (
+      held.channel === tonic?.channel ||
+      config.predictionErrorCoupling?.unexpected?.channel === held.channel ||
+      config.predictionErrorCoupling?.expected?.channel === held.channel
+    ) {
+      throw new Error(
+        `channel ${held.channel} in extraTonicModulators is already held or driven elsewhere; a second writer would fight the first every character (PLAN.md C2/C5)`,
+      );
     }
     const tau = config.plasticity?.modulatorTauTicks[held.channel];
-    return { ...held, topUp: tau !== undefined ? held.level * (1 - Math.exp(-config.ticksPerInput / tau)) : 0, live: tau !== undefined };
+    return {
+      ...held,
+      topUp:
+        tau !== undefined
+          ? held.level * (1 - Math.exp(-config.ticksPerInput / tau))
+          : 0,
+      live: tau !== undefined,
+    };
   });
   for (const held of extraTonics) {
     if (held.live) sim.injectModulator(held.channel, held.level);
@@ -959,7 +1086,7 @@ export function runCharPredictionTrial(
     // Requirement 2 AC2: closes the "never called at all" gap found during
     // this spec's own research -- `undefined` (default) skips this
     // entirely, matching today's behaviour exactly.
-    if (config.rewardSignal === "correctness") {
+    if (config.rewardSignal === 'correctness') {
       // PLAN.md C3: still the same boolean. What differs is what the
       // substrate does with it -- with `rewardPredictionError` configured the
       // expectation is subtracted inside `Scheduler::reward`, so a run of
@@ -977,7 +1104,9 @@ export function runCharPredictionTrial(
       const ranked = rankByOverlapFraction(step.observed, candidates);
       const top = ranked[0]?.fraction ?? 0;
       const runnerUp = ranked[1]?.fraction ?? 0;
-      const wasCollision = top >= MIN_ACTIVITY_FRACTION_FOR_COLLISION && top - runnerUp < collisionMargin;
+      const wasCollision =
+        top >= MIN_ACTIVITY_FRACTION_FOR_COLLISION &&
+        top - runnerUp < collisionMargin;
       sim.recordGrowthActivation(wasCollision);
     }
     const trigramPrediction = trigram.predict(context);
@@ -994,7 +1123,11 @@ export function runCharPredictionTrial(
     // effect it has -- replayed STDP credit, the global weight downscale,
     // the aggressive prune -- lands on the network the *next* character
     // sees, which is the whole point.
-    if (cadence !== undefined && charactersDone % cadence.everyCharacters === 0 && charactersDone < source.length) {
+    if (
+      cadence !== undefined &&
+      charactersDone % cadence.everyCharacters === 0 &&
+      charactersDone < source.length
+    ) {
       sleeps++;
       const report = sim.runConsolidation(consolidationSeed(seed, sleeps), {
         replayWindow: cadence.replayWindow,
@@ -1006,7 +1139,10 @@ export function runCharPredictionTrial(
       prunedBySleep += report.pruned;
     }
     onCharacter?.(sim);
-    if (onProgress !== undefined && charactersDone % PROGRESS_EVERY_CHARACTERS === 0) {
+    if (
+      onProgress !== undefined &&
+      charactersDone % PROGRESS_EVERY_CHARACTERS === 0
+    ) {
       onProgress(charactersDone, source.length, {
         networkAccuracy: networkAcc.accuracy,
         trigramAccuracy: trigramAcc.accuracy,
@@ -1023,7 +1159,9 @@ export function runCharPredictionTrial(
     networkAccuracy: networkAcc.accuracy,
     trigramAccuracy: trigramAcc.accuracy,
     sampleCount: networkAcc.sampleCount,
-    ...(config.structuralPlasticity !== undefined && { structuralStats: sim.structuralStats() }),
+    ...(config.structuralPlasticity !== undefined && {
+      structuralStats: sim.structuralStats(),
+    }),
     ...(cadence !== undefined && {
       consolidationStats: {
         passes: sleeps,
@@ -1036,7 +1174,11 @@ export function runCharPredictionTrial(
 }
 
 /** decode() only ever reports a `DecodeResult` when confident (Requirement 7.2); non-decoded steps count as misses here, matching README's stated metric of a caller choosing to score "no guess" as wrong (`step.predicted?.label === step.actual` is `false` for both a wrong guess and no guess). */
-export function runCharPredictionTrials(corpus: string, seeds: readonly bigint[], config: CharPredictionConfig = DEFAULT_CONFIG): TrialResult[] {
+export function runCharPredictionTrials(
+  corpus: string,
+  seeds: readonly bigint[],
+  config: CharPredictionConfig = DEFAULT_CONFIG,
+): TrialResult[] {
   return seeds.map((seed) => runCharPredictionTrial(corpus, seed, config));
 }
 
@@ -1058,8 +1200,16 @@ function mean(values: readonly number[]): number {
  * trigram accuracy by more than `toleranceBand`, assessed on the aggregate
  * rather than any individual seed.
  */
-export function assessMilestone(trials: readonly TrialResult[], toleranceBand = 0): MilestoneAssessment {
+export function assessMilestone(
+  trials: readonly TrialResult[],
+  toleranceBand = 0,
+): MilestoneAssessment {
   const meanNetworkAccuracy = mean(trials.map((t) => t.networkAccuracy));
   const meanTrigramAccuracy = mean(trials.map((t) => t.trigramAccuracy));
-  return { trials, meanNetworkAccuracy, meanTrigramAccuracy, milestoneMet: meanNetworkAccuracy > meanTrigramAccuracy + toleranceBand };
+  return {
+    trials,
+    meanNetworkAccuracy,
+    meanTrigramAccuracy,
+    milestoneMet: meanNetworkAccuracy > meanTrigramAccuracy + toleranceBand,
+  };
 }

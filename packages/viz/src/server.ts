@@ -14,28 +14,38 @@
 // execution model, and applying immediately avoids a busy-loop
 // re-scheduling `setImmediate` while paused just to find an empty queue.
 
-import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFile } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
-import { fileURLToPath } from "node:url";
-import type { Simulation, ProbeData } from "@brain/core";
-import { attachWebSocketServer, type WsConnection } from "./ws.ts";
-import { encode, decode, ProtocolError, type ClientMessage, type ServerMessage } from "./protocol.ts";
+import {
+  createServer as createHttpServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { extname, join, normalize } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { Simulation, ProbeData } from '@brain/core';
+import { attachWebSocketServer, type WsConnection } from './ws.ts';
+import {
+  encode,
+  decode,
+  ProtocolError,
+  type ClientMessage,
+  type ServerMessage,
+} from './protocol.ts';
 
-const DEFAULT_PUBLIC_DIR = fileURLToPath(new URL("../public", import.meta.url));
+const DEFAULT_PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 // The compiled output tree (this file itself is `dist/server.js` once
 // built), served verbatim at `/dist/*` so that every relative import the
 // compiled client bundle makes (e.g. `client/main.js`'s `../protocol.js`)
 // resolves to the same real file on disk that produced it, with no
 // bundler rewriting import paths (Requirement 7.1, VIZ-2's "no charting
 // or graph library" extended to "no bundler either").
-const DEFAULT_DIST_DIR = fileURLToPath(new URL(".", import.meta.url));
+const DEFAULT_DIST_DIR = fileURLToPath(new URL('.', import.meta.url));
 
 const MIME: Readonly<Record<string, string>> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
 };
 
 export interface VizServerOptions {
@@ -75,16 +85,16 @@ export interface VizServer {
 }
 
 /** Client-mutating message types (Requirement 8.5): restricted to the primary connection. */
-function isMutating(type: ClientMessage["type"]): boolean {
+function isMutating(type: ClientMessage['type']): boolean {
   return (
-    type === "pause" ||
-    type === "resume" ||
-    type === "stepOnce" ||
-    type === "stimulate" ||
-    type === "reward" ||
-    type === "injectModulator" ||
-    type === "setStateStride" ||
-    type === "setMetricsCadence"
+    type === 'pause' ||
+    type === 'resume' ||
+    type === 'stepOnce' ||
+    type === 'stimulate' ||
+    type === 'reward' ||
+    type === 'injectModulator' ||
+    type === 'setStateStride' ||
+    type === 'setMetricsCadence'
   );
 }
 
@@ -107,7 +117,7 @@ function isMutating(type: ClientMessage["type"]): boolean {
  */
 export function startVizServer(options: VizServerOptions): Promise<VizServer> {
   const { sim } = options;
-  const host = options.host ?? "127.0.0.1";
+  const host = options.host ?? '127.0.0.1';
   const publicDir = options.publicDir ?? DEFAULT_PUBLIC_DIR;
   const distDir = options.distDir ?? DEFAULT_DIST_DIR;
   let stateStride = Math.max(1, options.stateStride ?? 1);
@@ -124,12 +134,18 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
   const attachedProbes = new Set<number>();
 
   function topologyNeuronsMessage(): ServerMessage {
-    return { type: "topologyNeurons", epoch: sim.epoch(), coords: sim.coordsView(), polarity: sim.polarityView(), threshold: sim.thresholdView() };
+    return {
+      type: 'topologyNeurons',
+      epoch: sim.epoch(),
+      coords: sim.coordsView(),
+      polarity: sim.polarityView(),
+      threshold: sim.thresholdView(),
+    };
   }
 
   function topologySynapsesMessage(): ServerMessage {
     return {
-      type: "topologySynapses",
+      type: 'topologySynapses',
       epoch: sim.epoch(),
       capPerNeuron: sim.synapseCapPerNeuron(),
       connectionThreshold: sim.connectionThreshold,
@@ -145,7 +161,7 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
   function metricsSnapshotMessage(): ServerMessage {
     const snap = sim.metricsSnapshot();
     return {
-      type: "metricsSnapshot",
+      type: 'metricsSnapshot',
       sparsity: snap.sparsity,
       meanPermanence: snap.meanPermanence,
       meanWeight: snap.meanWeight,
@@ -156,10 +172,12 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
 
   function probeDataMessage(neuron: number, data: ProbeData): ServerMessage {
     return {
-      type: "probeData",
+      type: 'probeData',
       neuron,
       spikeTimes: Uint32Array.from(data.spikeTimes),
-      membraneTrace: data.membraneTrace ? Float32Array.from(data.membraneTrace) : undefined,
+      membraneTrace: data.membraneTrace
+        ? Float32Array.from(data.membraneTrace)
+        : undefined,
       segmentSamples: data.segmentSamples,
     };
   }
@@ -170,7 +188,7 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
   }
 
   function sendError(conn: WsConnection, message: string): void {
-    conn.send(encode({ type: "error", message }));
+    conn.send(encode({ type: 'error', message }));
   }
 
   /**
@@ -194,12 +212,18 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
     const tick = sim.currentTick();
     const includeState = tick % stateStride === 0;
     broadcast({
-      type: "tick",
+      type: 'tick',
       tick,
       firingRate: sim.firingRate(),
       predictionAccuracy: sim.predictionAccuracy(),
       spiked: Uint32Array.from(spiked),
-      state: includeState ? { membrane: sim.membraneView(), predictive: sim.predictiveView(), refractory: sim.refractoryView() } : undefined,
+      state: includeState
+        ? {
+            membrane: sim.membraneView(),
+            predictive: sim.predictiveView(),
+            refractory: sim.refractoryView(),
+          }
+        : undefined,
     });
     if (metricsCadence > 0 && tick % metricsCadence === 0) {
       broadcast(metricsSnapshotMessage());
@@ -231,30 +255,33 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
 
   function dispatch(conn: WsConnection, msg: ClientMessage): void {
     if (isMutating(msg.type) && conn !== primary) {
-      sendError(conn, `only the primary connection may send '${msg.type}' (Requirement 8.5)`);
+      sendError(
+        conn,
+        `only the primary connection may send '${msg.type}' (Requirement 8.5)`,
+      );
       return;
     }
     switch (msg.type) {
-      case "pause":
+      case 'pause':
         paused = true;
         break;
-      case "resume":
+      case 'resume':
         paused = false;
         scheduleLoop();
         break;
-      case "stepOnce":
+      case 'stepOnce':
         stepAndBroadcast();
         break;
-      case "stimulate":
+      case 'stimulate':
         sim.stimulate(msg.index, msg.current);
         break;
-      case "reward":
+      case 'reward':
         sim.reward(msg.amount);
         break;
-      case "injectModulator":
+      case 'injectModulator':
         sim.injectModulator(msg.channel, msg.amount);
         break;
-      case "attachProbe":
+      case 'attachProbe':
         sim.attachProbe(msg.neuron, {
           capacity: msg.capacity,
           recordMembrane: msg.recordMembrane,
@@ -263,20 +290,20 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
         });
         attachedProbes.add(msg.neuron);
         break;
-      case "detachProbe":
+      case 'detachProbe':
         sim.detachProbe(msg.neuron);
         attachedProbes.delete(msg.neuron);
         break;
-      case "requestRaster":
-        conn.send(encode({ type: "rasterExport", bytes: sim.rasterBytes() }));
+      case 'requestRaster':
+        conn.send(encode({ type: 'rasterExport', bytes: sim.rasterBytes() }));
         break;
-      case "requestMetricsSnapshot":
+      case 'requestMetricsSnapshot':
         conn.send(encode(metricsSnapshotMessage()));
         break;
-      case "setStateStride":
+      case 'setStateStride':
         stateStride = Math.max(1, msg.stride);
         break;
-      case "setMetricsCadence":
+      case 'setMetricsCadence':
         metricsCadence = Math.max(0, msg.intervalTicks);
         break;
     }
@@ -294,7 +321,10 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
     try {
       msg = decode(bytes) as ClientMessage;
     } catch (err) {
-      sendError(conn, err instanceof ProtocolError ? err.message : "malformed message");
+      sendError(
+        conn,
+        err instanceof ProtocolError ? err.message : 'malformed message',
+      );
       return;
     }
     try {
@@ -313,24 +343,29 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
     }
   }
 
-  async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async function serveStatic(
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> {
     try {
-      const requestPath = (req.url ?? "/").split("?")[0]!;
+      const requestPath = (req.url ?? '/').split('?')[0]!;
       const [root, relative] =
-        requestPath === "/dist" || requestPath.startsWith("/dist/")
-          ? [distDir, requestPath.slice("/dist".length) || "/index.js"]
-          : [publicDir, requestPath === "/" ? "/index.html" : requestPath];
+        requestPath === '/dist' || requestPath.startsWith('/dist/')
+          ? [distDir, requestPath.slice('/dist'.length) || '/index.js']
+          : [publicDir, requestPath === '/' ? '/index.html' : requestPath];
       const resolved = normalize(join(root, relative));
       const normalizedRoot = normalize(root);
       if (!resolved.startsWith(normalizedRoot)) {
-        res.writeHead(403).end("forbidden");
+        res.writeHead(403).end('forbidden');
         return;
       }
       const body = await readFile(resolved);
-      res.writeHead(200, { "content-type": MIME[extname(resolved)] ?? "application/octet-stream" });
+      res.writeHead(200, {
+        'content-type': MIME[extname(resolved)] ?? 'application/octet-stream',
+      });
       res.end(body);
     } catch {
-      res.writeHead(404).end("not found");
+      res.writeHead(404).end('not found');
     }
   }
 
@@ -340,11 +375,12 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
   attachWebSocketServer(httpServer, { onConnection, onMessage, onClose });
 
   return new Promise<VizServer>((resolve, reject) => {
-    httpServer.once("error", reject);
+    httpServer.once('error', reject);
     httpServer.listen(options.port ?? 0, host, () => {
-      httpServer.removeListener("error", reject);
+      httpServer.removeListener('error', reject);
       const address = httpServer.address();
-      const port = typeof address === "object" && address !== null ? address.port : 0;
+      const port =
+        typeof address === 'object' && address !== null ? address.port : 0;
       scheduleLoop(); // starts running immediately, not paused -- a live network to watch, per VIZ-1's framing
       resolve({
         port,

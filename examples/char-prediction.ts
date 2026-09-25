@@ -15,12 +15,18 @@
 // `packages/io/src/milestone/charPrediction.ts`'s module doc for the
 // tuning history and the honestly-measured outcome this script reproduces.
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { runCharPredictionTrials, assessMilestone, DEFAULT_CONFIG } from "../packages/io/src/milestone/charPrediction.ts";
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import {
+  runCharPredictionTrials,
+  assessMilestone,
+  DEFAULT_CONFIG,
+} from '../packages/io/src/milestone/charPrediction.ts';
 
-const corpusPath = fileURLToPath(new URL("../packages/io/test/fixtures/corpus.txt", import.meta.url));
-const fullCorpus = readFileSync(corpusPath, "utf8");
+const corpusPath = fileURLToPath(
+  new URL('../packages/io/test/fixtures/corpus.txt', import.meta.url),
+);
+const fullCorpus = readFileSync(corpusPath, 'utf8');
 
 // A slice, not the full ~400KB corpus, per seed: this network's per-character
 // cost (~1-2ms, dominated by the scheduler-level k-WTA competition running
@@ -32,7 +38,9 @@ const SLICE_LENGTH = 15_000;
 const SEEDS = [1n, 2n, 3n, 4n, 5n];
 
 const corpus = fullCorpus.slice(0, SLICE_LENGTH);
-console.log(`Streaming ${corpus.length} characters across ${SEEDS.length} seeds (network vs. trigram baseline)...`);
+console.log(
+  `Streaming ${corpus.length} characters across ${SEEDS.length} seeds (network vs. trigram baseline)...`,
+);
 
 const t0 = Date.now();
 const trials = runCharPredictionTrials(corpus, SEEDS, DEFAULT_CONFIG);
@@ -45,19 +53,27 @@ for (const trial of trials) {
 }
 
 const assessment = assessMilestone(trials);
-console.log(`\nAggregate across ${trials.length} seeds (elapsed ${elapsedMs}ms):`);
-console.log(`  mean network accuracy: ${assessment.meanNetworkAccuracy.toFixed(4)}`);
-console.log(`  mean trigram accuracy: ${assessment.meanTrigramAccuracy.toFixed(4)}`);
+console.log(
+  `\nAggregate across ${trials.length} seeds (elapsed ${elapsedMs}ms):`,
+);
+console.log(
+  `  mean network accuracy: ${assessment.meanNetworkAccuracy.toFixed(4)}`,
+);
+console.log(
+  `  mean trigram accuracy: ${assessment.meanTrigramAccuracy.toFixed(4)}`,
+);
 console.log(`  milestone met (network > trigram): ${assessment.milestoneMet}`);
 
 if (assessment.milestoneMet) {
-  console.log("\nOK: the network's sliding-window accuracy exceeds the trigram baseline's (Requirement 13.4).");
+  console.log(
+    "\nOK: the network's sliding-window accuracy exceeds the trigram baseline's (Requirement 13.4).",
+  );
 } else {
   // Requirement 13.6: record honestly, do not quietly loosen the bar.
   console.log(
     "\nNOT MET: after reasonable tuning (see packages/io/src/milestone/charPrediction.ts's module doc " +
       "for the tuning history), this network's sliding-window accuracy does not exceed the trigram " +
       "baseline's on this corpus slice. Recorded honestly per Requirement 13.6 -- see README §11's " +
-      "Phase 5 status for the project-level record of this result.",
+      'Phase 5 status for the project-level record of this result.',
   );
 }

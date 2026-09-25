@@ -3,13 +3,24 @@
 // scripts/investigate-c5-staircase.worker.ts (the staircase sweep) and
 // scripts/measure-c5-hook-cost.ts (the real-workload cost and bit-identity check).
 
-import type { Simulation } from "@brain/core";
+import type { Simulation } from '@brain/core';
 
 /** What one trial leaves behind. Every field is either a count or a 32-bit hash, so a row is a few hundred bytes. */
 export interface Observation {
   /** Requirement 12's four outcomes accumulated over EVERY step (OBS-2) -- "did the gated rule ever fire", not an end-of-run reading. */
-  readonly outcomes: { readonly correct: number; readonly falsePositive: number; readonly unpredicted: number; readonly classifiedAsPredicted: number };
-  readonly structural?: { readonly sproutedTotal: number; readonly prunedTotal: number; readonly eliminatedTotal: number; readonly unsilencedTotal: number; readonly occupiedNow: number };
+  readonly outcomes: {
+    readonly correct: number;
+    readonly falsePositive: number;
+    readonly unpredicted: number;
+    readonly classifiedAsPredicted: number;
+  };
+  readonly structural?: {
+    readonly sproutedTotal: number;
+    readonly prunedTotal: number;
+    readonly eliminatedTotal: number;
+    readonly unsilencedTotal: number;
+    readonly occupiedNow: number;
+  };
   readonly occupied: number;
   /** Occupied synapses with permanence >= the connection threshold. */
   readonly connected: number;
@@ -31,15 +42,23 @@ export interface Observation {
 
 const FNV_OFFSET = 0x811c9dc5;
 const FNV_PRIME = 0x01000193;
-const mix = (h: number, word: number): number => Math.imul(h ^ (word >>> 0), FNV_PRIME) >>> 0;
-const hex = (h: number): string => h.toString(16).padStart(8, "0");
+const mix = (h: number, word: number): number =>
+  Math.imul(h ^ (word >>> 0), FNV_PRIME) >>> 0;
+const hex = (h: number): string => h.toString(16).padStart(8, '0');
 
-export function observe(sim: Simulation, hasStructuralPlasticity: boolean): Observation {
+export function observe(
+  sim: Simulation,
+  hasStructuralPlasticity: boolean,
+): Observation {
   const perm = sim.synapsePermanenceView();
   const weight = sim.synapseWeightView();
   const occ = sim.synapseOccupiedView();
   const permBits = new Uint32Array(perm.buffer, perm.byteOffset, perm.length);
-  const weightBits = new Uint32Array(weight.buffer, weight.byteOffset, weight.length);
+  const weightBits = new Uint32Array(
+    weight.buffer,
+    weight.byteOffset,
+    weight.length,
+  );
   const threshold = sim.connectionThreshold;
 
   let occupied = 0;
@@ -72,7 +91,13 @@ export function observe(sim: Simulation, hasStructuralPlasticity: boolean): Obse
   return {
     outcomes: sim.predictionOutcomeTotals(),
     ...(s !== undefined && {
-      structural: { sproutedTotal: s.sproutedTotal, prunedTotal: s.prunedTotal, eliminatedTotal: s.eliminatedTotal, unsilencedTotal: s.unsilencedTotal, occupiedNow: s.occupiedNow },
+      structural: {
+        sproutedTotal: s.sproutedTotal,
+        prunedTotal: s.prunedTotal,
+        eliminatedTotal: s.eliminatedTotal,
+        unsilencedTotal: s.unsilencedTotal,
+        occupiedNow: s.occupiedNow,
+      },
     }),
     occupied,
     connected,
@@ -81,7 +106,9 @@ export function observe(sim: Simulation, hasStructuralPlasticity: boolean): Obse
     atOne,
     atZero,
     distinctPermanences: byValue.size,
-    topPermanences: [...byValue.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5),
+    topPermanences: [...byValue.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5),
     topologyHash: hex(hTopology),
     permanenceHash: hex(hPermanence),
     weightHash: hex(hWeight),

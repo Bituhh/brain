@@ -4,9 +4,16 @@
 // these results (and the trials are deterministic), a resumed run makes
 // exactly the choices an uninterrupted one would.
 
-import { appendFileSync, existsSync, readFileSync, openSync, fsyncSync, closeSync } from "node:fs";
-import type { StructuralStats } from "@brain/core";
-import type { ConsolidationStats } from "../../packages/io/src/milestone/charPrediction.ts";
+import {
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  openSync,
+  fsyncSync,
+  closeSync,
+} from 'node:fs';
+import type { StructuralStats } from '@brain/core';
+import type { ConsolidationStats } from '../../packages/io/src/milestone/charPrediction.ts';
 
 export interface TrialRecord {
   readonly key: string;
@@ -30,11 +37,11 @@ export class Checkpoint {
   constructor(path: string) {
     this.#path = path;
     if (!existsSync(path)) return;
-    for (const line of readFileSync(path, "utf8").split("\n")) {
-      if (line.trim() === "") continue;
+    for (const line of readFileSync(path, 'utf8').split('\n')) {
+      if (line.trim() === '') continue;
       try {
         const record = JSON.parse(line) as TrialRecord;
-        if (typeof record.key === "string" && typeof record.ok === "boolean") {
+        if (typeof record.key === 'string' && typeof record.ok === 'boolean') {
           // A later line for the same key (a retried failure) supersedes an earlier one.
           this.#records.set(record.key, record);
         } else {
@@ -69,7 +76,7 @@ export class Checkpoint {
   append(record: TrialRecord): void {
     // A leading newline guarantees a cut-off previous line never merges with this one.
     appendFileSync(this.#path, `\n${JSON.stringify(record)}`);
-    const fd = openSync(this.#path, "r+");
+    const fd = openSync(this.#path, 'r+');
     try {
       fsyncSync(fd);
     } finally {

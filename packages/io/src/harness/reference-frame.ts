@@ -17,10 +17,15 @@
 // score, mirroring `loop.ts`'s own reasoning for being a separate function
 // from `streamThrough` rather than a wrapper around it.
 
-import type { Simulation } from "@brain/core";
-import type { Sdr } from "../sdr.ts";
-import type { ColumnHandle } from "../columns.ts";
-import { PathIntegrator, encodeLocation, type LocationEncoderConfig, type Position } from "../location.ts";
+import type { Simulation } from '@brain/core';
+import type { Sdr } from '../sdr.ts';
+import type { ColumnHandle } from '../columns.ts';
+import {
+  PathIntegrator,
+  encodeLocation,
+  type LocationEncoderConfig,
+  type Position,
+} from '../location.ts';
 
 /** The environment half of the loop -- structurally identical to `loop.ts`'s `Environment<Obs, Act>`. */
 export interface Environment<Obs, Act> {
@@ -72,7 +77,10 @@ export function* runReferenceFrameLoop<Obs, Act>(
 
   for (;;) {
     const observation = environment.observe();
-    const locationSdr = encodeLocation(config.locationConfig, integrator.position);
+    const locationSdr = encodeLocation(
+      config.locationConfig,
+      integrator.position,
+    );
     const sensorySdr = config.encodeObservation(observation);
     config.locationColumn.stimulateSdr(config.sim, locationSdr, current);
     config.sensoryColumn.stimulateSdr(config.sim, sensorySdr, current);

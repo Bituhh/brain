@@ -24,7 +24,10 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+);
 const README_PATH = path.join(repoRoot, 'README.md');
 const thisFile = fileURLToPath(import.meta.url);
 
@@ -163,7 +166,14 @@ const SCAN_ROOTS = [
   path.join(repoRoot, 'scripts'),
   path.join(repoRoot, 'examples'),
 ];
-const SKIP_DIRS = new Set(['node_modules', 'target', 'dist', '.git', 'coverage', 'build']);
+const SKIP_DIRS = new Set([
+  'node_modules',
+  'target',
+  'dist',
+  '.git',
+  'coverage',
+  'build',
+]);
 const SOURCE_EXTENSIONS = new Set(['.rs', '.ts', '.mjs']);
 
 function walk(dir, out = []) {
@@ -193,7 +203,9 @@ function parseReadmeIds(markdown) {
   const start = markdown.indexOf('## 3. Core model requirements');
   const end = markdown.indexOf('## 10. Architectural invariants');
   if (start === -1 || end === -1 || end <= start) {
-    throw new Error('Could not find README §3-9 requirement tables -- has the document been restructured?');
+    throw new Error(
+      'Could not find README §3-9 requirement tables -- has the document been restructured?',
+    );
   }
   const section = markdown.slice(start, end);
   const rowPattern = /^\|\s*([A-Z]+-\d+[a-z]?)\s*\|\s*([MSC])\s*\|/gm;
@@ -294,14 +306,17 @@ function main() {
   const nowCovered = [...DEFERRED].filter((id) => citedInTest.has(id));
   const gaps = [...codeOnly, ...unmentioned].filter((id) => !DEFERRED.has(id));
 
-  console.log(`Requirement-ID coverage: ${readmeIds.size} ids in README §3-9, scanned ${files.length} source files.`);
+  console.log(
+    `Requirement-ID coverage: ${readmeIds.size} ids in README §3-9, scanned ${files.length} source files.`,
+  );
   console.log(`  cited by a test:            ${citedByTest.length}`);
   console.log(`  mentioned in code, no test: ${codeOnly.length}`);
   console.log(`  not mentioned anywhere:     ${unmentioned.length}`);
   console.log(`  deliberately deferred:      ${DEFERRED.size}`);
 
   if (listAll) {
-    const line = (id) => `  - ${id} (${readmeIds.get(id)})${DEFERRED.has(id) ? ' [deferred]' : ''}`;
+    const line = (id) =>
+      `  - ${id} (${readmeIds.get(id)})${DEFERRED.has(id) ? ' [deferred]' : ''}`;
     console.log(`\ncited by a test:`);
     for (const id of citedByTest) console.log(line(id));
     console.log(`\nmentioned in code, no test:`);
@@ -314,24 +329,34 @@ function main() {
 
   if (staleDeferrals.length > 0) {
     ok = false;
-    console.error(`\nFAIL: deferral list names ids that no longer exist in README §3-9: ${staleDeferrals.join(', ')}`);
+    console.error(
+      `\nFAIL: deferral list names ids that no longer exist in README §3-9: ${staleDeferrals.join(', ')}`,
+    );
   }
 
   if (nowCovered.length > 0) {
-    console.warn(`\nNote: deferred ids now have a citing test -- remove from DEFERRED: ${nowCovered.join(', ')}`);
+    console.warn(
+      `\nNote: deferred ids now have a citing test -- remove from DEFERRED: ${nowCovered.join(', ')}`,
+    );
   }
 
   if (gaps.length > 0) {
     ok = false;
-    console.error(`\nFAIL: ${gaps.length} requirement ids have no citing test and are not on the deferral list:`);
+    console.error(
+      `\nFAIL: ${gaps.length} requirement ids have no citing test and are not on the deferral list:`,
+    );
     for (const id of gaps) {
-      const bucket = codeOnly.includes(id) ? 'mentioned in code, no test' : 'not mentioned anywhere';
+      const bucket = codeOnly.includes(id)
+        ? 'mentioned in code, no test'
+        : 'not mentioned anywhere';
       console.error(`  - ${id} (${readmeIds.get(id)}) -- ${bucket}`);
     }
   }
 
   if (ok) {
-    console.log('\nOK: every requirement id is cited by a test or deliberately deferred.');
+    console.log(
+      '\nOK: every requirement id is cited by a test or deliberately deferred.',
+    );
   }
   process.exit(ok ? 0 : 1);
 }

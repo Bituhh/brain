@@ -103,40 +103,67 @@
 // change the working tree while it runs: every worker imports the harness afresh per
 // trial (HANDOFF's stash warning).
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { cpus } from "node:os";
-import { Worker } from "node:worker_threads";
-import { DEFAULT_CONFIG, type CharPredictionConfig } from "../packages/io/src/milestone/charPrediction.ts";
-import { canonicalJson, searchCondition, toConfig } from "./b5-search/conditions.ts";
-import type { B5ParamName } from "./b5-search/space.ts";
-import type { Point } from "./b4-search/space.ts";
-import type { CheapSample, HorizonSeries } from "./investigate-corpus-horizon.worker.ts";
+import {
+  readFileSync,
+  writeFileSync,
+  appendFileSync,
+  existsSync,
+} from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { cpus } from 'node:os';
+import { Worker } from 'node:worker_threads';
+import {
+  DEFAULT_CONFIG,
+  type CharPredictionConfig,
+} from '../packages/io/src/milestone/charPrediction.ts';
+import {
+  canonicalJson,
+  searchCondition,
+  toConfig,
+} from './b5-search/conditions.ts';
+import type { B5ParamName } from './b5-search/space.ts';
+import type { Point } from './b4-search/space.ts';
+import type {
+  CheapSample,
+  HorizonSeries,
+} from './investigate-corpus-horizon.worker.ts';
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 const paths = {
-  chosen: here("./tune-b5-values.chosen.json"),
-  checkpoint: here("./investigate-corpus-horizon.checkpoint.jsonl"),
-  log: here("./investigate-corpus-horizon.log"),
-  results: here("./investigate-corpus-horizon.results.md"),
-  worker: here("./investigate-corpus-horizon.worker.ts"),
+  chosen: here('./tune-b5-values.chosen.json'),
+  checkpoint: here('./investigate-corpus-horizon.checkpoint.jsonl'),
+  log: here('./investigate-corpus-horizon.log'),
+  results: here('./investigate-corpus-horizon.results.md'),
+  worker: here('./investigate-corpus-horizon.worker.ts'),
 };
 
 const LONG_LENGTH = 200_000;
 const CONTROL_LENGTH = 15_000;
 const SEEDS = [1n, 2n, 3n] as const;
 const ACETYLCHOLINE = 1;
-const PROTOCOL = "corpus-horizon-v1";
-const workers = Math.max(1, Math.min(Number(process.env.HORIZON_WORKERS ?? 9), cpus().length));
+const PROTOCOL = 'corpus-horizon-v1';
+const workers = Math.max(
+  1,
+  Math.min(Number(process.env.HORIZON_WORKERS ?? 9), cpus().length),
+);
 
-const fullCorpus = readFileSync(here("../packages/io/test/fixtures/corpus.txt"), "utf8");
-if (fullCorpus.length < LONG_LENGTH) throw new Error(`corpus has ${fullCorpus.length} characters, need ${LONG_LENGTH}`);
+const fullCorpus = readFileSync(
+  here('../packages/io/test/fixtures/corpus.txt'),
+  'utf8',
+);
+if (fullCorpus.length < LONG_LENGTH)
+  throw new Error(
+    `corpus has ${fullCorpus.length} characters, need ${LONG_LENGTH}`,
+  );
 
-const chosen = JSON.parse(readFileSync(paths.chosen, "utf8")) as { readonly winner: Point<B5ParamName> };
+const chosen = JSON.parse(readFileSync(paths.chosen, 'utf8')) as {
+  readonly winner: Point<B5ParamName>;
+};
 const b5Winner = toConfig(searchCondition(chosen.winner));
-if (b5Winner.plasticity === undefined) throw new Error("B5's winner must configure plasticity");
+if (b5Winner.plasticity === undefined)
+  throw new Error("B5's winner must configure plasticity");
 
-type ConditionName = "A-b5" | "B-reward" | "C-default";
+type ConditionName = 'A-b5' | 'B-reward' | 'C-default';
 interface Cond {
   readonly name: ConditionName;
   readonly what: string;
@@ -144,14 +171,24 @@ interface Cond {
   readonly perCharacterDopamine: boolean;
 }
 const CONDITIONS: readonly Cond[] = [
-  { name: "A-b5", what: "B5's winner -- the live reference (20.36% selection / 19.05% confirmation at 15,000)", config: b5Winner, perCharacterDopamine: false },
   {
-    name: "B-reward",
+    name: 'A-b5',
+    what: "B5's winner -- the live reference (20.36% selection / 19.05% confirmation at 15,000)",
+    config: b5Winner,
+    perCharacterDopamine: false,
+  },
+  {
+    name: 'B-reward',
     what: 'B5\'s winner + rewardSignal "correctness" -- the raw-reward path (finding 16: -0.87 points; C3: -0.52/-0.54)',
-    config: { ...b5Winner, rewardSignal: "correctness" },
+    config: { ...b5Winner, rewardSignal: 'correctness' },
     perCharacterDopamine: true,
   },
-  { name: "C-default", what: "DEFAULT_CONFIG -- no `plasticity`, so STDP never runs; findings 7-10's configuration", config: { ...DEFAULT_CONFIG }, perCharacterDopamine: false },
+  {
+    name: 'C-default',
+    what: "DEFAULT_CONFIG -- no `plasticity`, so STDP never runs; findings 7-10's configuration",
+    config: { ...DEFAULT_CONFIG },
+    perCharacterDopamine: false,
+  },
 ];
 
 interface Job {
@@ -165,28 +202,44 @@ interface TrialRecord extends Job {
   readonly finishedAt: string;
 }
 
-const jobKey = (c: ConditionName, seed: bigint, length: number, config: CharPredictionConfig) =>
+const jobKey = (
+  c: ConditionName,
+  seed: bigint,
+  length: number,
+  config: CharPredictionConfig,
+) =>
   `${PROTOCOL}|${c}|chars=${length}|seed=${seed}|${canonicalJson(config as unknown as Record<string, unknown>)}`;
 
 const jobs: Job[] = [];
 for (const cond of CONDITIONS) {
   for (const length of [LONG_LENGTH, CONTROL_LENGTH]) {
     for (const seed of SEEDS) {
-      jobs.push({ key: jobKey(cond.name, seed, length, cond.config), condition: cond.name, seed, length });
+      jobs.push({
+        key: jobKey(cond.name, seed, length, cond.config),
+        condition: cond.name,
+        seed,
+        length,
+      });
     }
   }
 }
 
 const done = new Map<string, TrialRecord>();
 if (existsSync(paths.checkpoint)) {
-  for (const line of readFileSync(paths.checkpoint, "utf8").split("\n")) {
+  for (const line of readFileSync(paths.checkpoint, 'utf8').split('\n')) {
     if (!line.trim()) continue;
-    const parsed = JSON.parse(line, (_k, v) => (typeof v === "string" && /^\d+n$/.test(v) ? BigInt(v.slice(0, -1)) : v)) as TrialRecord;
+    const parsed = JSON.parse(line, (_k, v) =>
+      typeof v === 'string' && /^\d+n$/.test(v) ? BigInt(v.slice(0, -1)) : v,
+    ) as TrialRecord;
     done.set(parsed.key, parsed);
   }
 }
 
-const stamp = () => new Date().toISOString().replace("T", " ").replace(/\.\d+Z$/, " +0000");
+const stamp = () =>
+  new Date()
+    .toISOString()
+    .replace('T', ' ')
+    .replace(/\.\d+Z$/, ' +0000');
 const log = (line: string) => {
   const text = `[${stamp()}] ${line}`;
   console.log(text);
@@ -196,10 +249,15 @@ const log = (line: string) => {
 // scripts/CLAUDE.md: a script whose real run is long must have an env-gated smoke path
 // that exercises the real addon on a shortened budget. HORIZON_SMOKE=1 runs one trial per
 // condition at 3,000 characters, to its own checkpoint, and never touches the real one.
-if (process.env.HORIZON_SMOKE === "1") {
+if (process.env.HORIZON_SMOKE === '1') {
   for (const cond of CONDITIONS) {
     const started = Date.now();
-    const r = await runOne({ key: "smoke", condition: cond.name, seed: 1n, length: 3_000 });
+    const r = await runOne({
+      key: 'smoke',
+      condition: cond.name,
+      seed: 1n,
+      length: 3_000,
+    });
     console.log(
       `smoke ${cond.name}: network=${(r.series.accuracy * 100).toFixed(2)}% trigram=${(r.series.trigramAccuracy * 100).toFixed(2)}% ` +
         `cheap=${r.series.cheap.length} sparse=${r.series.sparse.length} modulators=${JSON.stringify(r.series.cheap[r.series.cheap.length - 1]?.modulators)} ` +
@@ -210,13 +268,18 @@ if (process.env.HORIZON_SMOKE === "1") {
 }
 
 const pending = jobs.filter((j) => !done.has(j.key));
-if (process.env.HORIZON_DRY === "1") {
-  console.log(`${jobs.length} trials, ${done.size} already in the checkpoint, ${pending.length} to run, ${workers} workers.`);
-  for (const j of pending) console.log(`  ${j.condition} seed=${j.seed} chars=${j.length}`);
+if (process.env.HORIZON_DRY === '1') {
+  console.log(
+    `${jobs.length} trials, ${done.size} already in the checkpoint, ${pending.length} to run, ${workers} workers.`,
+  );
+  for (const j of pending)
+    console.log(`  ${j.condition} seed=${j.seed} chars=${j.length}`);
   process.exit(0);
 }
 
-log(`corpus-horizon: ${jobs.length} trials total, ${done.size} reused, ${pending.length} to run on ${workers} workers.`);
+log(
+  `corpus-horizon: ${jobs.length} trials total, ${done.size} reused, ${pending.length} to run on ${workers} workers.`,
+);
 
 function runOne(job: Job): Promise<TrialRecord> {
   const cond = CONDITIONS.find((c) => c.name === job.condition)!;
@@ -228,16 +291,20 @@ function runOne(job: Job): Promise<TrialRecord> {
         config: cond.config,
         sampleDopaminePerCharacter: cond.perCharacterDopamine,
       },
-      execArgv: ["--experimental-strip-types", "--no-warnings"],
+      execArgv: ['--experimental-strip-types', '--no-warnings'],
     });
     let series: HorizonSeries | undefined;
-    worker.on("message", (m: HorizonSeries) => {
+    worker.on('message', (m: HorizonSeries) => {
       series = m;
     });
-    worker.on("error", reject);
-    worker.on("exit", (code) => {
+    worker.on('error', reject);
+    worker.on('exit', (code) => {
       if (code !== 0 || series === undefined) {
-        reject(new Error(`${job.condition} seed=${job.seed} chars=${job.length} exited ${code}`));
+        reject(
+          new Error(
+            `${job.condition} seed=${job.seed} chars=${job.length} exited ${code}`,
+          ),
+        );
         return;
       }
       resolve({ ...job, series, finishedAt: stamp() });
@@ -253,8 +320,11 @@ const runStarted = Date.now();
 // this script. Same cadence and shape as investigate-c5-horizon.ts's.
 const heartbeat = setInterval(() => {
   const elapsed = (Date.now() - runStarted) / 1000;
-  const eta = completed > 0 ? ((pending.length - completed) * elapsed) / completed : NaN;
-  log(`[heartbeat] ${completed}/${pending.length} done, ${(elapsed / 60).toFixed(1)} min elapsed, ETA ${Number.isNaN(eta) ? "?" : (eta / 60).toFixed(1)} min`);
+  const eta =
+    completed > 0 ? ((pending.length - completed) * elapsed) / completed : NaN;
+  log(
+    `[heartbeat] ${completed}/${pending.length} done, ${(elapsed / 60).toFixed(1)} min elapsed, ETA ${Number.isNaN(eta) ? '?' : (eta / 60).toFixed(1)} min`,
+  );
 }, 60_000);
 async function drain(): Promise<void> {
   for (;;) {
@@ -263,7 +333,10 @@ async function drain(): Promise<void> {
     const started = Date.now();
     const record = await runOne(job);
     done.set(record.key, record);
-    appendFileSync(paths.checkpoint, `${JSON.stringify(record, (_k, v) => (typeof v === "bigint" ? `${v}n` : v))}\n`);
+    appendFileSync(
+      paths.checkpoint,
+      `${JSON.stringify(record, (_k, v) => (typeof v === 'bigint' ? `${v}n` : v))}\n`,
+    );
     completed++;
     log(
       `  [${completed}/${pending.length}] ${job.condition} seed=${job.seed} chars=${job.length} -> ` +
@@ -273,9 +346,13 @@ async function drain(): Promise<void> {
   }
 }
 
-await Promise.all(Array.from({ length: Math.max(1, Math.min(workers, queue.length)) }, () => drain()));
+await Promise.all(
+  Array.from({ length: Math.max(1, Math.min(workers, queue.length)) }, () =>
+    drain(),
+  ),
+);
 clearInterval(heartbeat);
-log("all trials finished; writing results");
+log('all trials finished; writing results');
 
 // ---------------------------------------------------------------- reporting
 
@@ -287,22 +364,33 @@ const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
 const mean = (v: readonly number[]) => v.reduce((a, b) => a + b, 0) / v.length;
 
 /** Mean network accuracy over the samples whose character count falls in [from, to]. */
-const bandMean = (cheap: readonly CheapSample[], from: number, to: number) => mean(cheap.filter((s) => s.chars >= from && s.chars <= to).map((s) => s.networkAccuracy));
+const bandMean = (cheap: readonly CheapSample[], from: number, to: number) =>
+  mean(
+    cheap
+      .filter((s) => s.chars >= from && s.chars <= to)
+      .map((s) => s.networkAccuracy),
+  );
 
 /** The "always guess space" bar over a prefix (docs/findings.md finding 7): how many NEXT characters are a space. */
 function alwaysGuessSpace(length: number): number {
   let spaces = 0;
-  for (let i = 1; i < length; i++) if (fullCorpus[i] === " ") spaces++;
+  for (let i = 1; i < length; i++) if (fullCorpus[i] === ' ') spaces++;
   return spaces / (length - 1);
 }
 
 const out: string[] = [];
-const w = (s = "") => out.push(s);
+const w = (s = '') => out.push(s);
 
-w(`# Corpus horizon: is 15,000 characters enough? (investigate-corpus-horizon.ts)`);
+w(
+  `# Corpus horizon: is 15,000 characters enough? (investigate-corpus-horizon.ts)`,
+);
 w();
-w(`Generated ${stamp()}. Protocol \`${PROTOCOL}\`. Seeds ${SEEDS.join(", ")}; long run ${LONG_LENGTH.toLocaleString()} characters, control ${CONTROL_LENGTH.toLocaleString()}.`);
-w(`Every question's reading was written into the script header before any trial ran. Raw per-trial series are in \`investigate-corpus-horizon.checkpoint.jsonl\`.`);
+w(
+  `Generated ${stamp()}. Protocol \`${PROTOCOL}\`. Seeds ${SEEDS.join(', ')}; long run ${LONG_LENGTH.toLocaleString()} characters, control ${CONTROL_LENGTH.toLocaleString()}.`,
+);
+w(
+  `Every question's reading was written into the script header before any trial ran. Raw per-trial series are in \`investigate-corpus-horizon.checkpoint.jsonl\`.`,
+);
 w();
 for (const c of CONDITIONS) w(`- **${c.name}** — ${c.what}`);
 w();
@@ -321,7 +409,9 @@ for (const c of CONDITIONS) {
       controlsPass = false;
       continue;
     }
-    const shared = short.series.cheap.filter((s) => s.chars <= CONTROL_LENGTH - 250);
+    const shared = short.series.cheap.filter(
+      (s) => s.chars <= CONTROL_LENGTH - 250,
+    );
     let mismatch: string | undefined;
     for (const s of shared) {
       const l = long.series.cheap.find((x) => x.chars === s.chars);
@@ -340,22 +430,34 @@ for (const c of CONDITIONS) {
       }
     }
     if (mismatch !== undefined) controlsPass = false;
-    w(`| C1 prefix | ${c.name} | ${seed} | ${mismatch === undefined ? `PASS (${shared.length} shared samples identical)` : `**FAIL** — ${mismatch}`} |`);
+    w(
+      `| C1 prefix | ${c.name} | ${seed} | ${mismatch === undefined ? `PASS (${shared.length} shared samples identical)` : `**FAIL** — ${mismatch}`} |`,
+    );
   }
 }
 for (const seed of SEEDS) {
-  const a = recordFor("A-b5", seed, LONG_LENGTH);
+  const a = recordFor('A-b5', seed, LONG_LENGTH);
   if (a === undefined) {
     controlsPass = false;
     continue;
   }
-  const worst = Math.max(...a.series.cheap.map((s) => Math.abs((s.modulators[ACETYLCHOLINE] ?? NaN) - 1.0)));
+  const worst = Math.max(
+    ...a.series.cheap.map((s) =>
+      Math.abs((s.modulators[ACETYLCHOLINE] ?? NaN) - 1.0),
+    ),
+  );
   const ok = worst < 1e-3;
   if (!ok) controlsPass = false;
-  w(`| C2 held ACh | A-b5 | ${seed} | ${ok ? "PASS" : "**FAIL**"} — max \\|level − 1.0\\| = ${worst.toExponential(2)} |`);
+  w(
+    `| C2 held ACh | A-b5 | ${seed} | ${ok ? 'PASS' : '**FAIL**'} — max \\|level − 1.0\\| = ${worst.toExponential(2)} |`,
+  );
 }
 w();
-w(controlsPass ? `**All controls pass.**` : `**A CONTROL FAILED — read nothing below until it is explained.**`);
+w(
+  controlsPass
+    ? `**All controls pass.**`
+    : `**A CONTROL FAILED — read nothing below until it is explained.**`,
+);
 w();
 
 w(`## Q1 — Is accuracy still climbing at 15,000?`);
@@ -368,21 +470,32 @@ w(`| seed | 7.5k–10k | 12.5k–15k | Δ points |`);
 w(`|---|---|---|---|`);
 const q1: number[] = [];
 for (const seed of SEEDS) {
-  const a = recordFor("A-b5", seed, LONG_LENGTH);
+  const a = recordFor('A-b5', seed, LONG_LENGTH);
   if (a === undefined) continue;
   const early = bandMean(a.series.cheap, 7_500, 10_000);
   const late = bandMean(a.series.cheap, 12_500, 15_000);
   q1.push((late - early) * 100);
-  w(`| ${seed} | ${pct(early)} | ${pct(late)} | ${((late - early) * 100).toFixed(2)} |`);
+  w(
+    `| ${seed} | ${pct(early)} | ${pct(late)} | ${((late - early) * 100).toFixed(2)} |`,
+  );
 }
-const q1Verdict = q1.length === 0 ? "NO DATA" : q1.every((d) => d >= 1.0) ? "STILL CLIMBING at 15,000" : q1.every((d) => Math.abs(d) <= 0.5) ? "PLATEAUED by 15,000" : "UNRESOLVED at 3 seeds";
+const q1Verdict =
+  q1.length === 0
+    ? 'NO DATA'
+    : q1.every((d) => d >= 1.0)
+      ? 'STILL CLIMBING at 15,000'
+      : q1.every((d) => Math.abs(d) <= 0.5)
+        ? 'PLATEAUED by 15,000'
+        : 'UNRESOLVED at 3 seeds';
 w();
 w(`**Q1: ${q1Verdict}.**`);
 w();
 
 w(`## Q2 — Where does it plateau?`);
 w();
-w(`Per seed, the smallest character count after which no later 10,000-character block improves on the running best by ≥ 1.0 point. No verdict — this is the horizon a longer protocol would use.`);
+w(
+  `Per seed, the smallest character count after which no later 10,000-character block improves on the running best by ≥ 1.0 point. No verdict — this is the horizon a longer protocol would use.`,
+);
 w();
 w(`| condition | seed | plateau at | best block mean | final window |`);
 w(`|---|---|---|---|---|`);
@@ -406,7 +519,9 @@ for (const c of CONDITIONS) {
         break;
       }
     }
-    w(`| ${c.name} | ${seed} | ${plateau} | ${pct(bestMean)} | ${pct(r.series.accuracy)} |`);
+    w(
+      `| ${c.name} | ${seed} | ${plateau} | ${pct(bestMean)} | ${pct(r.series.accuracy)} |`,
+    );
   }
 }
 w();
@@ -415,9 +530,13 @@ w(`## Q3 — Do the bars move with length?`);
 w();
 const spaceShort = alwaysGuessSpace(CONTROL_LENGTH);
 const spaceLong = alwaysGuessSpace(LONG_LENGTH);
-w(`"Always guess space" over the prefix: **${pct(spaceShort)}** at 15,000 (findings.md finding 7 records 16.56%), **${pct(spaceLong)}** at 200,000.`);
+w(
+  `"Always guess space" over the prefix: **${pct(spaceShort)}** at 15,000 (findings.md finding 7 records 16.56%), **${pct(spaceLong)}** at 200,000.`,
+);
 w();
-w(`| condition | seed | network @15k | network @200k | trigram @15k | trigram @200k | margin over space @200k |`);
+w(
+  `| condition | seed | network @15k | network @200k | trigram @15k | trigram @200k | margin over space @200k |`,
+);
 w(`|---|---|---|---|---|---|---|`);
 for (const c of CONDITIONS) {
   for (const seed of SEEDS) {
@@ -433,9 +552,13 @@ w();
 
 w(`## Q4 — Is the cost linear?`);
 w();
-w(`Milliseconds per 1,000 characters, sampling excluded, first decile against last. Threshold fixed in advance: within 1.5× on every seed is "linear". Conditions A and C only.`);
+w(
+  `Milliseconds per 1,000 characters, sampling excluded, first decile against last. Threshold fixed in advance: within 1.5× on every seed is "linear". Conditions A and C only.`,
+);
 w();
-w(`| condition | seed | first decile | last decile | ratio | synapses @5k | synapses @200k | total sim |`);
+w(
+  `| condition | seed | first decile | last decile | ratio | synapses @5k | synapses @200k | total sim |`,
+);
 w(`|---|---|---|---|---|---|---|---|`);
 const q4: number[] = [];
 const simMinutes: number[] = [];
@@ -450,13 +573,18 @@ for (const c of CONDITIONS.filter((x) => !x.perCharacterDopamine)) {
     q4.push(last / first);
     simMinutes.push(r.series.simMs / 1000 / 60);
     const firstSyn = r.series.sparse[0]?.occupiedNow ?? -1;
-    const lastSyn = r.series.sparse[r.series.sparse.length - 1]?.occupiedNow ?? -1;
-    w(`| ${c.name} | ${seed} | ${first.toFixed(1)} ms | ${last.toFixed(1)} ms | ${(last / first).toFixed(2)}× | ${firstSyn.toLocaleString()} | ${lastSyn.toLocaleString()} | ${(r.series.simMs / 1000).toFixed(0)} s |`);
+    const lastSyn =
+      r.series.sparse[r.series.sparse.length - 1]?.occupiedNow ?? -1;
+    w(
+      `| ${c.name} | ${seed} | ${first.toFixed(1)} ms | ${last.toFixed(1)} ms | ${(last / first).toFixed(2)}× | ${firstSyn.toLocaleString()} | ${lastSyn.toLocaleString()} | ${(r.series.simMs / 1000).toFixed(0)} s |`,
+    );
   }
 }
 w();
 if (q4.length > 0) {
-  w(`**Q4: ${q4.every((x) => x <= 1.5) ? "LINEAR" : "NOT LINEAR"}** (worst ratio ${Math.max(...q4).toFixed(2)}×). A 400,000-character run would cost roughly ${(mean(simMinutes) * 2).toFixed(0)} minutes per seed at this scaling.`);
+  w(
+    `**Q4: ${q4.every((x) => x <= 1.5) ? 'LINEAR' : 'NOT LINEAR'}** (worst ratio ${Math.max(...q4).toFixed(2)}×). A 400,000-character run would cost roughly ${(mean(simMinutes) * 2).toFixed(0)} minutes per seed at this scaling.`,
+  );
 }
 w();
 
@@ -466,17 +594,22 @@ w(
   `Condition B injects \`sim.reward(hit ? 1.0 : 0.0)\` once per character into a channel with τ = 1000 ticks at 2 ticks/character. If it accumulates, the steady state is ≈ hit-rate × 1/(1 − e^(−2/1000)) ≈ 500 × the per-character amount.`,
 );
 w();
-w(`| seed | mean level | median | min | max | early third | late third | accuracy vs A |`);
+w(
+  `| seed | mean level | median | min | max | early third | late third | accuracy vs A |`,
+);
 w(`|---|---|---|---|---|---|---|---|`);
 const q5med: number[] = [];
 for (const seed of SEEDS) {
-  const b = recordFor("B-reward", seed, LONG_LENGTH);
-  const a = recordFor("A-b5", seed, LONG_LENGTH);
+  const b = recordFor('B-reward', seed, LONG_LENGTH);
+  const a = recordFor('A-b5', seed, LONG_LENGTH);
   const d = b?.series.dopaminePerCharacter;
   if (b === undefined || d === undefined) continue;
   q5med.push(d.p50);
-  const delta = a === undefined ? NaN : (b.series.accuracy - a.series.accuracy) * 100;
-  w(`| ${seed} | ${d.mean.toFixed(3)} | ${d.p50.toFixed(3)} | ${d.min.toFixed(3)} | ${d.max.toFixed(3)} | ${d.thirds[0]?.mean.toFixed(3) ?? "—"} | ${d.thirds[2]?.mean.toFixed(3) ?? "—"} | ${delta.toFixed(2)} pts |`);
+  const delta =
+    a === undefined ? NaN : (b.series.accuracy - a.series.accuracy) * 100;
+  w(
+    `| ${seed} | ${d.mean.toFixed(3)} | ${d.p50.toFixed(3)} | ${d.min.toFixed(3)} | ${d.max.toFixed(3)} | ${d.thirds[0]?.mean.toFixed(3) ?? '—'} | ${d.thirds[2]?.mean.toFixed(3) ?? '—'} | ${delta.toFixed(2)} pts |`,
+  );
 }
 if (q5med.length > 0) {
   // The mean per-character injection is `hit ? 1 : 0` averaged over the WHOLE run, so it is
@@ -485,35 +618,50 @@ if (q5med.length > 0) {
   // The first run of this script reported "hit rate 0.00%" for exactly that reason.
   const hitRate = mean(
     SEEDS.flatMap((s) => {
-      const c = recordFor("B-reward", s, LONG_LENGTH)?.series.cheap ?? [];
+      const c = recordFor('B-reward', s, LONG_LENGTH)?.series.cheap ?? [];
       return c.length > 0 ? [mean(c.map((x) => x.networkAccuracy))] : [];
     }),
   );
   const m = mean(q5med);
-  const verdict = m > 50 * hitRate ? "ACCUMULATING — not a burst" : m < 5 * hitRate ? "PHASIC" : "neither label applies; read the trajectory";
+  const verdict =
+    m > 50 * hitRate
+      ? 'ACCUMULATING — not a burst'
+      : m < 5 * hitRate
+        ? 'PHASIC'
+        : 'neither label applies; read the trajectory';
   w();
-  w(`Mean per-character injection ≈ the hit rate over the whole run, ${pct(hitRate)}.`);
+  w(
+    `Mean per-character injection ≈ the hit rate over the whole run, ${pct(hitRate)}.`,
+  );
   w();
-  w(`**Q5, by the pre-registered statistic (median level over the whole run): ${verdict}.**`);
+  w(
+    `**Q5, by the pre-registered statistic (median level over the whole run): ${verdict}.**`,
+  );
   w();
   w(
     `**That verdict is an artifact, and the statistic was badly chosen.** The reading fixed in advance did not anticipate that the network would COLLAPSE partway through: once accuracy reaches 0 the harness injects \`reward(0.0)\` on every character, the channel decays to nothing, and dopamine is ~0 for the majority of the run. The median is therefore measuring the dead tail, not the mechanism. This is recorded rather than replaced, per the honest-reporting rule — the corrected reading is below, and it is POST HOC.`,
   );
   w();
-  w(`Post-hoc, over the EARLY THIRD only — the period in which the network was still earning reward:`);
+  w(
+    `Post-hoc, over the EARLY THIRD only — the period in which the network was still earning reward:`,
+  );
   w();
-  w(`| seed | dopamine mean, early third | max | mean injection (early accuracy) | ratio |`);
+  w(
+    `| seed | dopamine mean, early third | max | mean injection (early accuracy) | ratio |`,
+  );
   w(`|---|---|---|---|---|`);
   const ratios: number[] = [];
   for (const seed of SEEDS) {
-    const b = recordFor("B-reward", seed, LONG_LENGTH);
+    const b = recordFor('B-reward', seed, LONG_LENGTH);
     const d = b?.series.dopaminePerCharacter;
     if (b === undefined || d === undefined) continue;
     const early = b.series.cheap.filter((x) => x.chars <= LONG_LENGTH / 3);
     const inject = mean(early.map((x) => x.networkAccuracy));
     const ratio = (d.thirds[0]?.mean ?? NaN) / inject;
     ratios.push(ratio);
-    w(`| ${seed} | ${d.thirds[0]?.mean.toFixed(2) ?? "—"} | ${d.max.toFixed(2)} | ${pct(inject)} | ${ratio.toFixed(0)}× |`);
+    w(
+      `| ${seed} | ${d.thirds[0]?.mean.toFixed(2) ?? '—'} | ${d.max.toFixed(2)} | ${pct(inject)} | ${ratio.toFixed(0)}× |`,
+    );
   }
   if (ratios.length > 0) {
     w();
@@ -533,30 +681,47 @@ w();
 w(`| seed | chars | dendritic rate | decoded accuracy |`);
 w(`|---|---|---|---|`);
 for (const seed of SEEDS) {
-  const a = recordFor("A-b5", seed, LONG_LENGTH);
+  const a = recordFor('A-b5', seed, LONG_LENGTH);
   if (a === undefined) continue;
   for (const at of [15_000, 50_000, 100_000, 200_000]) {
-    const s = a.series.cheap.reduce<CheapSample | undefined>((acc, x) => (x.chars <= at && (acc === undefined || x.chars > acc.chars) ? x : acc), undefined);
+    const s = a.series.cheap.reduce<CheapSample | undefined>(
+      (acc, x) =>
+        x.chars <= at && (acc === undefined || x.chars > acc.chars) ? x : acc,
+      undefined,
+    );
     if (s === undefined) continue;
-    const rate = s.outcomes.classifiedAsPredicted > 0 ? s.outcomes.correct / s.outcomes.classifiedAsPredicted : NaN;
-    w(`| ${seed} | ${s.chars.toLocaleString()} | ${(rate * 100).toFixed(2)}% | ${pct(s.networkAccuracy)} |`);
+    const rate =
+      s.outcomes.classifiedAsPredicted > 0
+        ? s.outcomes.correct / s.outcomes.classifiedAsPredicted
+        : NaN;
+    w(
+      `| ${seed} | ${s.chars.toLocaleString()} | ${(rate * 100).toFixed(2)}% | ${pct(s.networkAccuracy)} |`,
+    );
   }
 }
 w();
 
 w(`## The curve (condition A, network sliding-window accuracy)`);
 w();
-w(`| chars | ${SEEDS.map((s) => `seed ${s}`).join(" | ")} | trigram (seed 1) |`);
-w(`|---|${SEEDS.map(() => "---|").join("")}---|`);
+w(
+  `| chars | ${SEEDS.map((s) => `seed ${s}`).join(' | ')} | trigram (seed 1) |`,
+);
+w(`|---|${SEEDS.map(() => '---|').join('')}---|`);
 for (let at = 5_000; at <= LONG_LENGTH; at += 5_000) {
   const cells = SEEDS.map((seed) => {
-    const s = recordFor("A-b5", seed, LONG_LENGTH)?.series.cheap.find((x) => x.chars === at);
-    return s === undefined ? "—" : pct(s.networkAccuracy);
+    const s = recordFor('A-b5', seed, LONG_LENGTH)?.series.cheap.find(
+      (x) => x.chars === at,
+    );
+    return s === undefined ? '—' : pct(s.networkAccuracy);
   });
-  const tri = recordFor("A-b5", 1n, LONG_LENGTH)?.series.cheap.find((x) => x.chars === at);
-  w(`| ${at.toLocaleString()} | ${cells.join(" | ")} | ${tri === undefined ? "—" : pct(tri.trigramAccuracy)} |`);
+  const tri = recordFor('A-b5', 1n, LONG_LENGTH)?.series.cheap.find(
+    (x) => x.chars === at,
+  );
+  w(
+    `| ${at.toLocaleString()} | ${cells.join(' | ')} | ${tri === undefined ? '—' : pct(tri.trigramAccuracy)} |`,
+  );
 }
 w();
 
-writeFileSync(paths.results, `${out.join("\n")}\n`);
+writeFileSync(paths.results, `${out.join('\n')}\n`);
 log(`wrote ${paths.results}`);

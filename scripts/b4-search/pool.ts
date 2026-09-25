@@ -5,8 +5,8 @@
 // - a per-trial timeout that terminates a hung worker;
 // - retries, after which a trial is recorded as failed and the run carries on.
 
-import type { StructuralStats } from "@brain/core";
-import type { ConsolidationStats } from "../../packages/io/src/milestone/charPrediction.ts";
+import type { StructuralStats } from '@brain/core';
+import type { ConsolidationStats } from '../../packages/io/src/milestone/charPrediction.ts';
 
 export interface Job {
   readonly key: string;
@@ -31,7 +31,10 @@ export interface RunningTrial {
 }
 
 /** Starts one trial. `onProgress` is called as it advances (characters done, of total). */
-export type TrialRunner = (job: Job, onProgress: (done: number, total: number) => void) => RunningTrial;
+export type TrialRunner = (
+  job: Job,
+  onProgress: (done: number, total: number) => void,
+) => RunningTrial;
 
 export interface JobResult {
   readonly job: Job;
@@ -65,10 +68,15 @@ function formatDuration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
-  return h > 0 ? `${h}h${String(m).padStart(2, "0")}m` : `${m}m${String(s % 60).padStart(2, "0")}s`;
+  return h > 0
+    ? `${h}h${String(m).padStart(2, '0')}m`
+    : `${m}m${String(s % 60).padStart(2, '0')}s`;
 }
 
-export async function runJobs(jobs: readonly Job[], options: PoolOptions): Promise<JobResult[]> {
+export async function runJobs(
+  jobs: readonly Job[],
+  options: PoolOptions,
+): Promise<JobResult[]> {
   const results: JobResult[] = [];
   if (jobs.length === 0) return results;
 
@@ -80,12 +88,21 @@ export async function runJobs(jobs: readonly Job[], options: PoolOptions): Promi
 
   const heartbeat = setInterval(() => {
     const running = [...active]
-      .map((a) => `${a.job.label} s${a.job.seed} ${Math.round(a.progress * 100)}% ${formatDuration(Date.now() - a.startedAt)}`)
-      .join(" | ");
+      .map(
+        (a) =>
+          `${a.job.label} s${a.job.seed} ${Math.round(a.progress * 100)}% ${formatDuration(Date.now() - a.startedAt)}`,
+      )
+      .join(' | ');
     const remaining = jobs.length - finished;
-    const eta = finished > 0 ? formatDuration(((totalSeconds / finished) * 1000 * remaining) / options.concurrency) : "unknown until the first trial finishes";
+    const eta =
+      finished > 0
+        ? formatDuration(
+            ((totalSeconds / finished) * 1000 * remaining) /
+              options.concurrency,
+          )
+        : 'unknown until the first trial finishes';
     options.log(
-      `[heartbeat] ${options.stageName}: ${finished}/${jobs.length} done, ${active.size} running, elapsed ${formatDuration(Date.now() - stageStart)}, stage ETA ${eta}${running ? ` -- ${running}` : ""}`,
+      `[heartbeat] ${options.stageName}: ${finished}/${jobs.length} done, ${active.size} running, elapsed ${formatDuration(Date.now() - stageStart)}, stage ETA ${eta}${running ? ` -- ${running}` : ''}`,
     );
   }, options.heartbeatMs);
 
@@ -95,7 +112,8 @@ export async function runJobs(jobs: readonly Job[], options: PoolOptions): Promi
     });
     let timer: ReturnType<typeof setTimeout> | undefined;
     let timedOut = false;
-    const timeoutError = () => new Error(`timed out after ${formatDuration(options.timeoutMs)}`);
+    const timeoutError = () =>
+      new Error(`timed out after ${formatDuration(options.timeoutMs)}`);
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         timedOut = true;
@@ -133,10 +151,19 @@ export async function runJobs(jobs: readonly Job[], options: PoolOptions): Promi
           result = { job, ok: true, output, seconds: (Date.now() - t0) / 1000 };
           break;
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           const final = tryNumber === options.retries;
-          options.log(`[${final ? "FAILED" : "retrying"}] ${job.label} seed ${job.seed}: ${message}${final ? " -- recorded as failed, the run continues" : ` (attempt ${tryNumber + 2} of ${options.retries + 1})`}`);
-          if (final) result = { job, ok: false, error: message, seconds: (Date.now() - t0) / 1000 };
+          options.log(
+            `[${final ? 'FAILED' : 'retrying'}] ${job.label} seed ${job.seed}: ${message}${final ? ' -- recorded as failed, the run continues' : ` (attempt ${tryNumber + 2} of ${options.retries + 1})`}`,
+          );
+          if (final)
+            result = {
+              job,
+              ok: false,
+              error: message,
+              seconds: (Date.now() - t0) / 1000,
+            };
         }
       }
       active.delete(entry);
@@ -145,15 +172,23 @@ export async function runJobs(jobs: readonly Job[], options: PoolOptions): Promi
       results.push(result!);
       if (result!.ok) {
         const stats = result!.output!.structuralStats;
-        const counts = stats ? ` sprouted=${stats.sproutedTotal} unsilenced=${stats.unsilencedTotal} eliminated=${stats.eliminatedTotal} silentNow=${stats.silentNow}` : "";
-        options.log(`[done ${finished}/${jobs.length}] ${job.label} seed ${job.seed}: ${(result!.output!.accuracy * 100).toFixed(2)}% in ${formatDuration(result!.seconds * 1000)}${counts}`);
+        const counts = stats
+          ? ` sprouted=${stats.sproutedTotal} unsilenced=${stats.unsilencedTotal} eliminated=${stats.eliminatedTotal} silentNow=${stats.silentNow}`
+          : '';
+        options.log(
+          `[done ${finished}/${jobs.length}] ${job.label} seed ${job.seed}: ${(result!.output!.accuracy * 100).toFixed(2)}% in ${formatDuration(result!.seconds * 1000)}${counts}`,
+        );
       }
       options.onResult(result!);
     }
   }
 
   try {
-    await Promise.all(Array.from({ length: Math.min(options.concurrency, jobs.length) }, () => lane()));
+    await Promise.all(
+      Array.from({ length: Math.min(options.concurrency, jobs.length) }, () =>
+        lane(),
+      ),
+    );
   } finally {
     clearInterval(heartbeat);
   }

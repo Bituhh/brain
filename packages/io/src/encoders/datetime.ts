@@ -7,7 +7,7 @@
 // terms) would share no bits at all; a cyclic component's window does
 // wrap, so they do.
 
-import { makeSdr, type Sdr } from "../sdr.ts";
+import { makeSdr, type Sdr } from '../sdr.ts';
 
 export interface CyclicComponent {
   /** Human-readable name, only used in error messages. */
@@ -32,10 +32,17 @@ export const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 export const DAYS_PER_WEEK = 7;
 
 /** Time-of-day, wrapping every `MILLISECONDS_PER_DAY` (Requirement 4.1's "own periodic range"). */
-export function timeOfDayComponent(width: number, activeBits: number): CyclicComponent {
+export function timeOfDayComponent(
+  width: number,
+  activeBits: number,
+): CyclicComponent {
   return {
-    name: "timeOfDay",
-    extract: (date) => date.getHours() * 3_600_000 + date.getMinutes() * 60_000 + date.getSeconds() * 1000 + date.getMilliseconds(),
+    name: 'timeOfDay',
+    extract: (date) =>
+      date.getHours() * 3_600_000 +
+      date.getMinutes() * 60_000 +
+      date.getSeconds() * 1000 +
+      date.getMilliseconds(),
     period: MILLISECONDS_PER_DAY,
     width,
     activeBits,
@@ -43,8 +50,17 @@ export function timeOfDayComponent(width: number, activeBits: number): CyclicCom
 }
 
 /** Day-of-week, wrapping every `DAYS_PER_WEEK`. */
-export function dayOfWeekComponent(width: number, activeBits: number): CyclicComponent {
-  return { name: "dayOfWeek", extract: (date) => date.getDay(), period: DAYS_PER_WEEK, width, activeBits };
+export function dayOfWeekComponent(
+  width: number,
+  activeBits: number,
+): CyclicComponent {
+  return {
+    name: 'dayOfWeek',
+    extract: (date) => date.getDay(),
+    period: DAYS_PER_WEEK,
+    width,
+    activeBits,
+  };
 }
 
 /**
@@ -63,7 +79,12 @@ export function dayOfWeekComponent(width: number, activeBits: number): CyclicCom
  * period. `encodeDatetime` below is now a thin caller of this, not a
  * parallel implementation.
  */
-export function encodeCyclicComponent(period: number, width: number, activeBits: number, rawValue: number): number[] {
+export function encodeCyclicComponent(
+  period: number,
+  width: number,
+  activeBits: number,
+  rawValue: number,
+): number[] {
   const raw = ((rawValue % period) + period) % period; // normalise into [0, period)
   const buckets = width; // a cyclic window has no "activeBits - 1" shrinkage: bucket 0 and bucket (width-1) are themselves adjacent
   const fraction = raw / period; // in [0, 1)
@@ -86,7 +107,12 @@ export function encodeDatetime(config: DatetimeEncoderConfig, date: Date): Sdr {
   const bits: number[] = [];
   let offset = 0;
   for (const component of config.components) {
-    for (const bit of encodeCyclicComponent(component.period, component.width, component.activeBits, component.extract(date))) {
+    for (const bit of encodeCyclicComponent(
+      component.period,
+      component.width,
+      component.activeBits,
+      component.extract(date),
+    )) {
       bits.push(offset + bit);
     }
     offset += component.width;

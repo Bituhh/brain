@@ -73,36 +73,50 @@
 // battery's and C2 battery's own checkpoints rather than recomputed. Output:
 // investigate-c3-reward-prediction-error.results.md.
 
-import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { cpus } from "node:os";
-import { Checkpoint } from "./b4-search/checkpoint.ts";
-import { workerRunner } from "./b4-search/evaluator.ts";
-import { runJobs, type Job } from "./b4-search/pool.ts";
-import type { Point } from "./b4-search/space.ts";
-import { canonicalJson, conditionLabel, PROTOCOL_VERSION, searchCondition, toConfig } from "./b5-search/conditions.ts";
-import type { B5ParamName } from "./b5-search/space.ts";
-import type { CharPredictionConfig } from "../packages/io/src/milestone/charPrediction.ts";
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { cpus } from 'node:os';
+import { Checkpoint } from './b4-search/checkpoint.ts';
+import { workerRunner } from './b4-search/evaluator.ts';
+import { runJobs, type Job } from './b4-search/pool.ts';
+import type { Point } from './b4-search/space.ts';
+import {
+  canonicalJson,
+  conditionLabel,
+  PROTOCOL_VERSION,
+  searchCondition,
+  toConfig,
+} from './b5-search/conditions.ts';
+import type { B5ParamName } from './b5-search/space.ts';
+import type { CharPredictionConfig } from '../packages/io/src/milestone/charPrediction.ts';
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 const paths = {
-  chosen: here("./tune-b5-values.chosen.json"),
-  valueSearchCheckpoint: here("./tune-b5-values.checkpoint.jsonl"),
-  growthCheckpoint: here("./investigate-b5-growth.checkpoint.jsonl"),
-  consolidationCheckpoint: here("./investigate-c1-consolidation.checkpoint.jsonl"),
-  c2Checkpoint: here("./investigate-c2-neuromodulators.checkpoint.jsonl"),
-  checkpoint: here("./investigate-c3-reward-prediction-error.checkpoint.jsonl"),
-  log: here("./investigate-c3-reward-prediction-error.log"),
-  results: here("./investigate-c3-reward-prediction-error.results.md"),
-  worker: here("./b4-search/trial.worker.ts"),
+  chosen: here('./tune-b5-values.chosen.json'),
+  valueSearchCheckpoint: here('./tune-b5-values.checkpoint.jsonl'),
+  growthCheckpoint: here('./investigate-b5-growth.checkpoint.jsonl'),
+  consolidationCheckpoint: here(
+    './investigate-c1-consolidation.checkpoint.jsonl',
+  ),
+  c2Checkpoint: here('./investigate-c2-neuromodulators.checkpoint.jsonl'),
+  checkpoint: here('./investigate-c3-reward-prediction-error.checkpoint.jsonl'),
+  log: here('./investigate-c3-reward-prediction-error.log'),
+  results: here('./investigate-c3-reward-prediction-error.results.md'),
+  worker: here('./b4-search/trial.worker.ts'),
 };
 
 const CORPUS_LENGTH = 15_000;
 const SELECTION_SEEDS = [1n, 2n, 3n, 4n, 5n] as const;
 const CONFIRMATION_SEEDS = [11n, 12n, 13n, 14n, 15n] as const;
 const SEEDS = [...SELECTION_SEEDS, ...CONFIRMATION_SEEDS];
-const corpus = readFileSync(here("../packages/io/test/fixtures/corpus.txt"), "utf8").slice(0, CORPUS_LENGTH);
-const workers = Math.max(1, Math.min(Number(process.env.C3_WORKERS ?? 10), cpus().length));
+const corpus = readFileSync(
+  here('../packages/io/test/fixtures/corpus.txt'),
+  'utf8',
+).slice(0, CORPUS_LENGTH);
+const workers = Math.max(
+  1,
+  Math.min(Number(process.env.C3_WORKERS ?? 10), cpus().length),
+);
 const timeoutHours = Number(process.env.C3_TIMEOUT_HOURS ?? 4);
 
 const DOPAMINE = 0;
@@ -111,10 +125,20 @@ const BASELINE = 1.0;
 const GAIN = 1.0;
 const MAX_LEVEL = 4.0;
 
-const chosen = JSON.parse(readFileSync(paths.chosen, "utf8")) as { readonly winner: Point<B5ParamName> };
+const chosen = JSON.parse(readFileSync(paths.chosen, 'utf8')) as {
+  readonly winner: Point<B5ParamName>;
+};
 const winnerConfig = toConfig(searchCondition(chosen.winner));
 
-const rpe = (tauEvents: number) => ({ tauEvents, drive: { channel: DOPAMINE, baseline: BASELINE, gain: GAIN, maxLevel: MAX_LEVEL } });
+const rpe = (tauEvents: number) => ({
+  tauEvents,
+  drive: {
+    channel: DOPAMINE,
+    baseline: BASELINE,
+    gain: GAIN,
+    maxLevel: MAX_LEVEL,
+  },
+});
 
 interface Row {
   readonly name: string;
@@ -122,16 +146,41 @@ interface Row {
 }
 
 const REFERENCE = "B5's winner (no reward signal at all, the reference)";
-const RAW_REWARD = "raw reward: rewardSignal on, no baseline (dopamine as C3 found it)";
+const RAW_REWARD =
+  'raw reward: rewardSignal on, no baseline (dopamine as C3 found it)';
 
 const ROWS: readonly Row[] = [
   { name: REFERENCE, config: winnerConfig },
-  { name: RAW_REWARD, config: { ...winnerConfig, rewardSignal: "correctness" } },
-  { name: "RPE, tauEvents 50 (~last few dozen characters)", config: { ...winnerConfig, rewardSignal: "correctness", rewardPredictionError: rpe(50) } },
-  { name: "RPE, tauEvents 200 (~recent performance)", config: { ...winnerConfig, rewardSignal: "correctness", rewardPredictionError: rpe(200) } },
-  { name: "RPE, tauEvents 1000 (~a fifteenth of the corpus)", config: { ...winnerConfig, rewardSignal: "correctness", rewardPredictionError: rpe(1000) } },
   {
-    name: "baseline configured, nothing rewards (exactness control -- must equal the reference bit-identically)",
+    name: RAW_REWARD,
+    config: { ...winnerConfig, rewardSignal: 'correctness' },
+  },
+  {
+    name: 'RPE, tauEvents 50 (~last few dozen characters)',
+    config: {
+      ...winnerConfig,
+      rewardSignal: 'correctness',
+      rewardPredictionError: rpe(50),
+    },
+  },
+  {
+    name: 'RPE, tauEvents 200 (~recent performance)',
+    config: {
+      ...winnerConfig,
+      rewardSignal: 'correctness',
+      rewardPredictionError: rpe(200),
+    },
+  },
+  {
+    name: 'RPE, tauEvents 1000 (~a fifteenth of the corpus)',
+    config: {
+      ...winnerConfig,
+      rewardSignal: 'correctness',
+      rewardPredictionError: rpe(1000),
+    },
+  },
+  {
+    name: 'baseline configured, nothing rewards (exactness control -- must equal the reference bit-identically)',
     config: { ...winnerConfig, rewardPredictionError: rpe(200) },
   },
 ];
@@ -146,7 +195,7 @@ const ROWS: readonly Row[] = [
  * `rewardSignal` set at all, so there is nothing cached for the reward path to
  * invalidate -- this key exists for the next change, not for this one.
  */
-const C3_PROTOCOL = "c3-v1";
+const C3_PROTOCOL = 'c3-v1';
 
 /**
  * Same shape as `scripts/b5-search/conditions.ts`'s `trialKey` for a config
@@ -157,18 +206,22 @@ const C3_PROTOCOL = "c3-v1";
  */
 function keyOf(config: CharPredictionConfig, seed: bigint): string {
   const base = `${PROTOCOL_VERSION}|chars=${CORPUS_LENGTH}|${canonicalJson(config)}|seed=${seed}`;
-  const touchesReward = config.rewardSignal !== undefined || config.rewardPredictionError !== undefined;
+  const touchesReward =
+    config.rewardSignal !== undefined ||
+    config.rewardPredictionError !== undefined;
   return touchesReward ? `${base}|${C3_PROTOCOL}` : base;
 }
 
 function log(line: string): void {
-  const stamped = `[${new Date().toISOString().replace("T", " ").slice(0, 19)}] ${line}`;
+  const stamped = `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] ${line}`;
   console.log(stamped);
   appendFileSync(paths.log, `${stamped}\n`);
 }
 
-process.on("unhandledRejection", (reason) => {
-  log(`[FATAL] unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)} -- re-run the same command to resume`);
+process.on('unhandledRejection', (reason) => {
+  log(
+    `[FATAL] unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)} -- re-run the same command to resume`,
+  );
   process.exit(1);
 });
 
@@ -179,19 +232,27 @@ const priorCheckpoints = [
   new Checkpoint(paths.c2Checkpoint),
 ];
 const checkpoint = new Checkpoint(paths.checkpoint);
-const recordOf = (key: string) => (checkpoint.hasSucceeded(key) ? checkpoint.get(key) : priorCheckpoints.find((c) => c.hasSucceeded(key))?.get(key));
+const recordOf = (key: string) =>
+  checkpoint.hasSucceeded(key)
+    ? checkpoint.get(key)
+    : priorCheckpoints.find((c) => c.hasSucceeded(key))?.get(key);
 
-log(`=== investigate-c3-reward-prediction-error starting: ${workers} workers, corpus ${CORPUS_LENGTH} characters, seeds ${SEEDS.join(", ")} ===`);
+log(
+  `=== investigate-c3-reward-prediction-error starting: ${workers} workers, corpus ${CORPUS_LENGTH} characters, seeds ${SEEDS.join(', ')} ===`,
+);
 log(`winner: ${conditionLabel(searchCondition(chosen.winner))}`);
 
 const jobs: Job[] = [];
 for (const row of ROWS) {
   for (const seed of SEEDS) {
     const key = keyOf(row.config, seed);
-    if (recordOf(key) === undefined) jobs.push({ key, label: row.name, seed, payload: row.config });
+    if (recordOf(key) === undefined)
+      jobs.push({ key, label: row.name, seed, payload: row.config });
   }
 }
-log(`${ROWS.length * SEEDS.length} trials, ${ROWS.length * SEEDS.length - jobs.length} already measured, ${jobs.length} to run`);
+log(
+  `${ROWS.length * SEEDS.length} trials, ${ROWS.length * SEEDS.length - jobs.length} already measured, ${jobs.length} to run`,
+);
 
 const failed = (
   await runJobs(jobs, {
@@ -201,15 +262,19 @@ const failed = (
     heartbeatMs: 60_000,
     timeoutMs: timeoutHours * 3_600_000,
     retries: 1,
-    stageName: "C3 reward-prediction-error battery",
+    stageName: 'C3 reward-prediction-error battery',
     onResult: (result) =>
       checkpoint.append({
         key: result.job.key,
         label: result.job.label,
         seed: String(result.job.seed),
         ok: result.ok,
-        ...(result.output !== undefined && { accuracy: result.output.accuracy }),
-        ...(result.output?.structuralStats !== undefined && { structuralStats: result.output.structuralStats }),
+        ...(result.output !== undefined && {
+          accuracy: result.output.accuracy,
+        }),
+        ...(result.output?.structuralStats !== undefined && {
+          structuralStats: result.output.structuralStats,
+        }),
         ...(result.error !== undefined && { error: result.error }),
         seconds: result.seconds,
         finishedAt: new Date().toISOString(),
@@ -220,9 +285,13 @@ const failed = (
 // --- Report ---
 
 const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
-const mean = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+const mean = (xs: readonly number[]) =>
+  xs.reduce((a, b) => a + b, 0) / xs.length;
 
-const accuraciesFor = (config: CharPredictionConfig, seeds: readonly bigint[]) => seeds.map((seed) => recordOf(keyOf(config, seed))?.accuracy);
+const accuraciesFor = (
+  config: CharPredictionConfig,
+  seeds: readonly bigint[],
+) => seeds.map((seed) => recordOf(keyOf(config, seed))?.accuracy);
 const meanFor = (config: CharPredictionConfig, seeds: readonly bigint[]) => {
   const xs = accuraciesFor(config, seeds);
   return xs.every((x) => x !== undefined) ? mean(xs as number[]) : NaN;
@@ -233,7 +302,7 @@ function table(title: string, seeds: readonly bigint[]): string[] {
   const rawMean = meanFor(ROWS[1]!.config, seeds);
   const lines = [
     ``,
-    `### ${title} (seeds ${seeds.join(", ")})`,
+    `### ${title} (seeds ${seeds.join(', ')})`,
     ``,
     `| condition | mean | vs reference | vs raw reward | per seed |`,
     `| --- | --- | --- | --- | --- |`,
@@ -241,11 +310,19 @@ function table(title: string, seeds: readonly bigint[]): string[] {
   for (const row of ROWS) {
     const m = meanFor(row.config, seeds);
     const per = accuraciesFor(row.config, seeds)
-      .map((a) => (a === undefined ? "--" : pct(a)))
-      .join(", ");
-    const vsRef = Number.isNaN(m) || Number.isNaN(referenceMean) ? "--" : `${m >= referenceMean ? "+" : ""}${((m - referenceMean) * 100).toFixed(2)}`;
-    const vsRaw = Number.isNaN(m) || Number.isNaN(rawMean) ? "--" : `${m >= rawMean ? "+" : ""}${((m - rawMean) * 100).toFixed(2)}`;
-    lines.push(`| ${row.name} | ${Number.isNaN(m) ? "--" : pct(m)} | ${vsRef} | ${vsRaw} | ${per} |`);
+      .map((a) => (a === undefined ? '--' : pct(a)))
+      .join(', ');
+    const vsRef =
+      Number.isNaN(m) || Number.isNaN(referenceMean)
+        ? '--'
+        : `${m >= referenceMean ? '+' : ''}${((m - referenceMean) * 100).toFixed(2)}`;
+    const vsRaw =
+      Number.isNaN(m) || Number.isNaN(rawMean)
+        ? '--'
+        : `${m >= rawMean ? '+' : ''}${((m - rawMean) * 100).toFixed(2)}`;
+    lines.push(
+      `| ${row.name} | ${Number.isNaN(m) ? '--' : pct(m)} | ${vsRef} | ${vsRaw} | ${per} |`,
+    );
   }
   return lines;
 }
@@ -264,9 +341,13 @@ function inertnessCheck(): string[] {
     const ref = recordOf(keyOf(winnerConfig, seed))?.accuracy;
     const got = recordOf(keyOf(control.config, seed))?.accuracy;
     if (ref === undefined || got === undefined) {
-      mismatches.push(`seed ${seed}: missing (reference ${ref ?? "--"}, control ${got ?? "--"})`);
+      mismatches.push(
+        `seed ${seed}: missing (reference ${ref ?? '--'}, control ${got ?? '--'})`,
+      );
     } else if (ref !== got) {
-      mismatches.push(`seed ${seed}: reference ${pct(ref)} vs control ${pct(got)}`);
+      mismatches.push(
+        `seed ${seed}: reference ${pct(ref)} vs control ${pct(got)}`,
+      );
     }
   }
   return [
@@ -275,7 +356,7 @@ function inertnessCheck(): string[] {
     ``,
     mismatches.length === 0
       ? `**PASS** -- a configured-but-unfed baseline reproduces the reference exactly on all ${SEEDS.length} seeds, so C3 left every pre-C3 configuration alone.`
-      : `**FAIL** on ${mismatches.length} of ${SEEDS.length} seeds:\n\n${mismatches.map((m) => `- ${m}`).join("\n")}`,
+      : `**FAIL** on ${mismatches.length} of ${SEEDS.length} seeds:\n\n${mismatches.map((m) => `- ${m}`).join('\n')}`,
   ];
 }
 
@@ -307,7 +388,7 @@ const TAU_TRAJECTORY_NOTE = [
   `### Why the three time constants are indistinguishable`,
   ``,
   "`tauEvents` does reach the native layer and does change the expectation's trajectory. Sampling",
-  "`expectedReward()` every 1,000 characters on the real VAL-4 stream, with an identical reward sequence",
+  '`expectedReward()` every 1,000 characters on the real VAL-4 stream, with an identical reward sequence',
   `across taus:`,
   ``,
   `| character | 0 | 1000 | 2000 | 3000 | 4000 | 5000 |`,
@@ -344,14 +425,16 @@ const report = [
   ``,
   `The bar to quote alongside any number here: **16.56%**, the "always guess space" mode baseline`,
   `(docs/findings.md finding 7). A configuration below it has undone the only real progress this network has made.`,
-  ...table("Confirmation seeds", CONFIRMATION_SEEDS),
-  ...table("Selection seeds", SELECTION_SEEDS),
+  ...table('Confirmation seeds', CONFIRMATION_SEEDS),
+  ...table('Selection seeds', SELECTION_SEEDS),
   ...inertnessCheck(),
   ...TAU_TRAJECTORY_NOTE,
   ``,
-  failed.length === 0 ? `All trials completed.` : `**${failed.length} trials failed** -- see the log.`,
+  failed.length === 0
+    ? `All trials completed.`
+    : `**${failed.length} trials failed** -- see the log.`,
   ``,
-].join("\n");
+].join('\n');
 
 writeFileSync(paths.results, report);
 log(`wrote ${paths.results}`);

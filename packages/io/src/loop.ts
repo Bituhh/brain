@@ -17,10 +17,10 @@
 // orchestration once `ColumnHandle`/`decode()` exist, so sharing that much
 // is enough.
 
-import type { Simulation } from "@brain/core";
-import type { Sdr } from "./sdr.ts";
-import { decode, type Candidate } from "./decoders/overlap.ts";
-import type { ColumnHandle } from "./columns.ts";
+import type { Simulation } from '@brain/core';
+import type { Sdr } from './sdr.ts';
+import { decode, type Candidate } from './decoders/overlap.ts';
+import type { ColumnHandle } from './columns.ts';
 
 /** The environment half of the loop (Requirement 16.1) -- `GridWorld` (`environments/grid.ts`) is this phase's only implementation. */
 export interface Environment<Obs, Act> {
@@ -54,11 +54,17 @@ export interface SensorimotorStep<Obs, Act> {
  * caller stops by breaking out of its `for...of` loop or simply not
  * calling `.next()` again.
  */
-export function* runSensorimotorLoop<Obs, Act>(environment: Environment<Obs, Act>, config: SensorimotorConfig<Obs, Act>): Generator<SensorimotorStep<Obs, Act>> {
+export function* runSensorimotorLoop<Obs, Act>(
+  environment: Environment<Obs, Act>,
+  config: SensorimotorConfig<Obs, Act>,
+): Generator<SensorimotorStep<Obs, Act>> {
   const current = config.stimulateCurrent ?? 10.0;
   const minConfidence = config.minConfidence ?? 0.3;
   const [primary] = config.columns;
-  const candidates: Candidate<Act>[] = Array.from(config.actions.entries(), ([label, sdr]) => ({ label, sdr }));
+  const candidates: Candidate<Act>[] = Array.from(
+    config.actions.entries(),
+    ([label, sdr]) => ({ label, sdr }),
+  );
 
   for (;;) {
     const observation = environment.observe();
@@ -70,7 +76,9 @@ export function* runSensorimotorLoop<Obs, Act>(environment: Environment<Obs, Act
     for (let tick = 0; tick < config.ticksPerStep; tick++) {
       spiked = config.sim.step();
     }
-    const decoded = primary ? decode(primary.observedSdr(spiked), candidates, minConfidence) : undefined;
+    const decoded = primary
+      ? decode(primary.observedSdr(spiked), candidates, minConfidence)
+      : undefined;
     const action = decoded?.label;
     if (action !== undefined) {
       environment.act(action);

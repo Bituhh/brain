@@ -4,7 +4,7 @@
 // centered there. Nearby values share most of their run (substantial
 // overlap); far values share none (Requirement 3.2).
 
-import { makeSdr, type Sdr } from "../sdr.ts";
+import { makeSdr, type Sdr } from '../sdr.ts';
 
 export interface ScalarEncoderConfig {
   readonly min: number;
@@ -20,17 +20,21 @@ export interface ScalarEncoderConfig {
    * an explicit, documented per-instance choice rather than silently
    * inconsistent between call sites.
    */
-  readonly outOfRange: "clamp" | "reject";
+  readonly outOfRange: 'clamp' | 'reject';
 }
 
 export class ScalarRangeError extends RangeError {}
 
 function validateConfig(config: ScalarEncoderConfig): void {
   if (!(config.max > config.min)) {
-    throw new RangeError(`ScalarEncoderConfig.max (${config.max}) must be greater than min (${config.min})`);
+    throw new RangeError(
+      `ScalarEncoderConfig.max (${config.max}) must be greater than min (${config.min})`,
+    );
   }
   if (!(config.activeBits > 0) || config.activeBits > config.width) {
-    throw new RangeError(`ScalarEncoderConfig.activeBits (${config.activeBits}) must be in (0, width (${config.width})]`);
+    throw new RangeError(
+      `ScalarEncoderConfig.activeBits (${config.activeBits}) must be in (0, width (${config.width})]`,
+    );
   }
 }
 
@@ -44,16 +48,21 @@ export function encodeScalar(config: ScalarEncoderConfig, value: number): Sdr {
   validateConfig(config);
   let v = value;
   if (v < config.min || v > config.max) {
-    if (config.outOfRange === "clamp") {
+    if (config.outOfRange === 'clamp') {
       v = Math.min(config.max, Math.max(config.min, v));
     } else {
-      throw new ScalarRangeError(`value ${value} is outside [${config.min}, ${config.max}] and outOfRange is "reject"`);
+      throw new ScalarRangeError(
+        `value ${value} is outside [${config.min}, ${config.max}] and outOfRange is "reject"`,
+      );
     }
   }
 
   const buckets = config.width - config.activeBits + 1; // distinct window start positions
   const fraction = (v - config.min) / (config.max - config.min); // in [0, 1]
-  const start = Math.min(buckets - 1, Math.max(0, Math.round(fraction * (buckets - 1))));
+  const start = Math.min(
+    buckets - 1,
+    Math.max(0, Math.round(fraction * (buckets - 1))),
+  );
   const bits: number[] = [];
   for (let i = start; i < start + config.activeBits; i++) {
     bits.push(i);

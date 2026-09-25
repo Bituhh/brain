@@ -29,7 +29,11 @@
 //    called explicitly before measuring after a quiet gap; the gap alone
 //    does not clear stale residue.
 
-import { Simulation, type SimulationOptions, type LifConfig } from "@brain/core";
+import {
+  Simulation,
+  type SimulationOptions,
+  type LifConfig,
+} from '@brain/core';
 
 const SYMBOL_SIZE = 20;
 const HALF_SIZE = SYMBOL_SIZE / 2;
@@ -56,7 +60,10 @@ function halfRange(symbol: number, half: number): number[] {
 
 /** Deterministic, stateless per-(a,b,c) hash in [0, 1) -- no persistent generator (docs/decisions.md decision 7), just a reproducible mix. */
 function hashToUnit(seed: number, a: number, b: number): number {
-  let h = BigInt(seed) * 0x9e3779b97f4a7c15n + BigInt(a) * 0xff51afd7ed558ccdn + BigInt(b) * 0xc4ceb9fe1a85ec53n;
+  let h =
+    BigInt(seed) * 0x9e3779b97f4a7c15n +
+    BigInt(a) * 0xff51afd7ed558ccdn +
+    BigInt(b) * 0xc4ceb9fe1a85ec53n;
   h &= 0xffffffffffffffffn;
   h ^= h >> 33n;
   h = (h * 0xff51afd7ed558ccdn) & 0xffffffffffffffffn;
@@ -64,11 +71,18 @@ function hashToUnit(seed: number, a: number, b: number): number {
   return Number(h & 0xffffffffn) / 0x100000000;
 }
 
-function wire(sim: Simulation, seed: number, sources: number[], targets: number[], segment: number): void {
+function wire(
+  sim: Simulation,
+  seed: number,
+  sources: number[],
+  targets: number[],
+  segment: number,
+): void {
   for (const source of sources) {
     for (const target of targets) {
       if (hashToUnit(seed, source, target) < WIRING_PROBABILITY) {
-        const permanence = 0.2 + hashToUnit(seed, source * 100003 + target, 7) * 0.7; // mostly above CONNECTION_THRESHOLD
+        const permanence =
+          0.2 + hashToUnit(seed, source * 100003 + target, 7) * 0.7; // mostly above CONNECTION_THRESHOLD
         sim.connect(source, target, segment, 1, permanence);
       }
     }
@@ -76,7 +90,14 @@ function wire(sim: Simulation, seed: number, sources: number[], targets: number[
 }
 
 function buildNetwork(seed: number): Simulation {
-  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0, tauPredictiveTicks: 50, predictiveThresholdReduction: 0.6 };
+  const lif: LifConfig = {
+    tauMTicks: 5,
+    vRest: 0,
+    vReset: 0,
+    refractoryTicks: 0,
+    tauPredictiveTicks: 50,
+    predictiveThresholdReduction: 0.6,
+  };
   const options: SimulationOptions = {
     maxDelay: 4,
     connectionThreshold: CONNECTION_THRESHOLD,
@@ -129,7 +150,11 @@ function presentSequence(sim: Simulation, sequence: number[]): number[][] {
   for (const symbol of sequence) {
     for (const i of blockRange(symbol)) sim.stimulate(i, PRESENT_CURRENT);
     const spiked = sim.step();
-    const won = new Set(spiked.filter((i) => i >= blockStart(symbol) && i < blockStart(symbol) + SYMBOL_SIZE));
+    const won = new Set(
+      spiked.filter(
+        (i) => i >= blockStart(symbol) && i < blockStart(symbol) + SYMBOL_SIZE,
+      ),
+    );
     for (const i of blockRange(symbol)) {
       if (!won.has(i)) sim.pokeMembrane(i, 0.0);
     }
@@ -152,7 +177,7 @@ function train(sim: Simulation, trials: number): void {
 
 const seed = 1;
 
-console.log("Training on ABCD and XBCY (interleaved)...");
+console.log('Training on ABCD and XBCY (interleaved)...');
 const netAbc = buildNetwork(seed);
 train(netAbc, TRAINING_TRIALS);
 quietTicks(netAbc, 300);
@@ -171,14 +196,24 @@ quietTicks(netXbc, 1);
 const dAfterXbc = predictiveMass(netXbc, D);
 const yAfterXbc = predictiveMass(netXbc, Y);
 
-console.log(`After "ABC": predictive(D)=${dAfterAbc.toFixed(3)}, predictive(Y)=${yAfterAbc.toFixed(3)}`);
-console.log(`After "XBC": predictive(D)=${dAfterXbc.toFixed(3)}, predictive(Y)=${yAfterXbc.toFixed(3)}`);
+console.log(
+  `After "ABC": predictive(D)=${dAfterAbc.toFixed(3)}, predictive(Y)=${yAfterAbc.toFixed(3)}`,
+);
+console.log(
+  `After "XBC": predictive(D)=${dAfterXbc.toFixed(3)}, predictive(Y)=${yAfterXbc.toFixed(3)}`,
+);
 
 if (!(dAfterAbc > yAfterAbc)) {
-  throw new Error(`Expected "ABC" to predict D over Y, got D=${dAfterAbc}, Y=${yAfterAbc}`);
+  throw new Error(
+    `Expected "ABC" to predict D over Y, got D=${dAfterAbc}, Y=${yAfterAbc}`,
+  );
 }
 if (!(yAfterXbc > dAfterXbc)) {
-  throw new Error(`Expected "XBC" to predict Y over D, got D=${dAfterXbc}, Y=${yAfterXbc}`);
+  throw new Error(
+    `Expected "XBC" to predict Y over D, got D=${dAfterXbc}, Y=${yAfterXbc}`,
+  );
 }
 
-console.log("OK: the network predicts D after ABC and Y after XBC (Requirement 14.4 -- the exit criterion).");
+console.log(
+  'OK: the network predicts D after ABC and Y after XBC (Requirement 14.4 -- the exit criterion).',
+);

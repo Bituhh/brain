@@ -1,8 +1,13 @@
-import { test } from "node:test";
-import assert from "node:assert/strict";
-import { Simulation, type LifConfig, type SimulationOptions, type ColumnConfig } from "@brain/core";
-import { wrapColumnHandles } from "../src/columns.ts";
-import { makeSdr } from "../src/sdr.ts";
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  Simulation,
+  type LifConfig,
+  type SimulationOptions,
+  type ColumnConfig,
+} from '@brain/core';
+import { wrapColumnHandles } from '../src/columns.ts';
+import { makeSdr } from '../src/sdr.ts';
 
 function columnConfig(overrides: Partial<ColumnConfig> = {}): ColumnConfig {
   return {
@@ -12,7 +17,13 @@ function columnConfig(overrides: Partial<ColumnConfig> = {}): ColumnConfig {
     baseX: 0,
     baseY: 0,
     baseZ: 0,
-    internalPolicy: { p0: 0.0, lengthScale: 1.0, delayMin: 1, delayMax: 1, initialPermanence: 0.9 },
+    internalPolicy: {
+      p0: 0.0,
+      lengthScale: 1.0,
+      delayMin: 1,
+      delayMax: 1,
+      initialPermanence: 0.9,
+    },
     neighbourhoodSize: 4,
     k: 4, // every candidate can win -- this bridge is not testing inhibition
     // No dendritic segments in play here (a bare stimulate/step mapping
@@ -25,9 +36,21 @@ function columnConfig(overrides: Partial<ColumnConfig> = {}): ColumnConfig {
   };
 }
 
-function buildSim(): { sim: Simulation; column: ReturnType<typeof wrapColumnHandles>[number] } {
-  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
-  const options: SimulationOptions = { maxDelay: 2, connectionThreshold: 0.5, synapseCapPerNeuron: 4 };
+function buildSim(): {
+  sim: Simulation;
+  column: ReturnType<typeof wrapColumnHandles>[number];
+} {
+  const lif: LifConfig = {
+    tauMTicks: 5,
+    vRest: 0,
+    vReset: 0,
+    refractoryTicks: 0,
+  };
+  const options: SimulationOptions = {
+    maxDelay: 2,
+    connectionThreshold: 0.5,
+    synapseCapPerNeuron: 4,
+  };
   const sim = Simulation.create(lif, options);
   const [handle] = sim.buildColumns(1n, [columnConfig()]);
   const [column] = wrapColumnHandles([handle!]);
@@ -39,16 +62,19 @@ test("ColumnHandle.stimulateSdr maps active bits onto the column's global range 
   const sdr = makeSdr(4, [0, 2]); // local bits 0 and 2 -> global column.range.start + {0, 2}
   column.stimulateSdr(sim, sdr, 10.0);
   const spiked = sim.step();
-  assert.deepEqual([...spiked].sort((a, b) => a - b), [column.range.start, column.range.start + 2]);
+  assert.deepEqual(
+    [...spiked].sort((a, b) => a - b),
+    [column.range.start, column.range.start + 2],
+  );
 });
 
-test("ColumnHandle.stimulateSdr rejects an Sdr wider than the column", () => {
+test('ColumnHandle.stimulateSdr rejects an Sdr wider than the column', () => {
   const { sim, column } = buildSim();
   const tooWide = makeSdr(100, [50]);
   assert.throws(() => column.stimulateSdr(sim, tooWide, 10.0), RangeError);
 });
 
-test("ColumnHandle.observedSdr filters and shifts the global spiked list to local indices (Requirement 7.5)", () => {
+test('ColumnHandle.observedSdr filters and shifts the global spiked list to local indices (Requirement 7.5)', () => {
   const { sim, column } = buildSim();
   const sdr = makeSdr(4, [1, 3]);
   column.stimulateSdr(sim, sdr, 10.0);
@@ -59,10 +85,22 @@ test("ColumnHandle.observedSdr filters and shifts the global spiked list to loca
 });
 
 test("ColumnHandle.observedSdr ignores spikes outside this column's range", () => {
-  const lif: LifConfig = { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 };
-  const options: SimulationOptions = { maxDelay: 2, connectionThreshold: 0.5, synapseCapPerNeuron: 4 };
+  const lif: LifConfig = {
+    tauMTicks: 5,
+    vRest: 0,
+    vReset: 0,
+    refractoryTicks: 0,
+  };
+  const options: SimulationOptions = {
+    maxDelay: 2,
+    connectionThreshold: 0.5,
+    synapseCapPerNeuron: 4,
+  };
   const sim = Simulation.create(lif, options);
-  const handles = sim.buildColumns(1n, [columnConfig({ baseY: 0 }), columnConfig({ baseY: 10 })]);
+  const handles = sim.buildColumns(1n, [
+    columnConfig({ baseY: 0 }),
+    columnConfig({ baseY: 10 }),
+  ]);
   const [columnA, columnB] = wrapColumnHandles(handles);
 
   columnA!.stimulateSdr(sim, makeSdr(4, [0]), 10.0);
@@ -73,7 +111,7 @@ test("ColumnHandle.observedSdr ignores spikes outside this column's range", () =
   assert.deepEqual(columnB!.observedSdr(spiked).activeBits, [1]);
 });
 
-test("ColumnHandle.membraneWindow/predictiveWindow are zero-copy subarrays scoped to the column (Requirement 8.4)", () => {
+test('ColumnHandle.membraneWindow/predictiveWindow are zero-copy subarrays scoped to the column (Requirement 8.4)', () => {
   const { sim, column } = buildSim();
   const membraneWindow = column.membraneWindow(sim);
   const predictiveWindow = column.predictiveWindow(sim);

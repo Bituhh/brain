@@ -24,7 +24,10 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+);
 // Two requirements docs, Phase 0-3 and Phase 5 (Phase 4 never got its own --
 // it extended Phase 0-3's numbering by amendment instead). Both are parsed
 // into the *same* flat id space below ("N.M", no phase prefix), which is a
@@ -43,14 +46,32 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 // than done as a side effect of Phase 5's own traceability extension.
 const REQUIREMENTS_PATHS = [
   path.join(repoRoot, '.claude', 'scratch', 'brain-engine', 'requirements.md'),
-  path.join(repoRoot, '.claude', 'scratch', 'brain-engine-phase5', 'requirements.md'),
+  path.join(
+    repoRoot,
+    '.claude',
+    'scratch',
+    'brain-engine-phase5',
+    'requirements.md',
+  ),
   // Phase 5.5 joins the same known id-collision limitation documented above
   // (its own Requirements 1-9 restart from scratch too) -- accepted rather
   // than fixed here, following Phase 5's own precedent for joining this list.
-  path.join(repoRoot, '.claude', 'scratch', 'brain-engine-phase5-5', 'requirements.md'),
+  path.join(
+    repoRoot,
+    '.claude',
+    'scratch',
+    'brain-engine-phase5-5',
+    'requirements.md',
+  ),
   // Phase 6 (browser visualiser) joins the same list, same known
   // id-collision limitation, same precedent.
-  path.join(repoRoot, '.claude', 'scratch', 'brain-engine-phase6', 'requirements.md'),
+  path.join(
+    repoRoot,
+    '.claude',
+    'scratch',
+    'brain-engine-phase6',
+    'requirements.md',
+  ),
 ];
 
 // Deliberate, reviewed gaps -- add to this list only with a comment
@@ -143,7 +164,9 @@ function parseRequiredCriteria(markdown) {
     // A criterion line starts at column 0 with "<digits>. " -- continuation
     // lines in this document are always indented, so this alone
     // disambiguates a new item from a wrapped one.
-    const criterionNumbers = [...body.matchAll(/^(\d+)\.\s/gm)].map((m) => Number(m[1]));
+    const criterionNumbers = [...body.matchAll(/^(\d+)\.\s/gm)].map((m) =>
+      Number(m[1]),
+    );
     if (criterionNumbers.length === 0) continue;
     const max = Math.max(...criterionNumbers);
     for (let n = 1; n <= max; n += 1) {
@@ -167,7 +190,8 @@ function findCitedCriteria(files) {
     // (about itself and about the deferral list) -- excluding it from the
     // scan is what keeps that self-description from being read back as
     // coverage evidence.
-    if (path.resolve(file) === path.resolve(fileURLToPath(import.meta.url))) continue;
+    if (path.resolve(file) === path.resolve(fileURLToPath(import.meta.url)))
+      continue;
     const text = readFileSync(file, 'utf8');
     for (const match of text.matchAll(CITATION_PATTERN)) {
       cited.add(match[1]);
@@ -182,8 +206,13 @@ function main() {
   // entry, since this checker cannot distinguish which phase a citation was
   // written against -- see REQUIREMENTS_PATHS's comment above for why that
   // is a documented limitation rather than a bug).
-  const idsPerDoc = REQUIREMENTS_PATHS.map((p) => parseRequiredCriteria(readFileSync(p, 'utf8')));
-  const totalCriteriaAcrossDocs = idsPerDoc.reduce((sum, ids) => sum + ids.length, 0);
+  const idsPerDoc = REQUIREMENTS_PATHS.map((p) =>
+    parseRequiredCriteria(readFileSync(p, 'utf8')),
+  );
+  const totalCriteriaAcrossDocs = idsPerDoc.reduce(
+    (sum, ids) => sum + ids.length,
+    0,
+  );
   const allIds = [...new Set(idsPerDoc.flat())];
   const testFiles = TEST_DIRS.flatMap((dir) => walk(dir));
   const cited = findCitedCriteria(testFiles);
@@ -192,31 +221,45 @@ function main() {
   const staleDeferrals = [...DEFERRED].filter((id) => !allIds.includes(id));
   const nowCovered = [...DEFERRED].filter((id) => cited.has(id));
 
-  console.log(`Traceability: ${totalCriteriaAcrossDocs} acceptance criteria found across ${REQUIREMENTS_PATHS.length} requirements docs (${allIds.length} distinct ids -- see the id-collision note above).`);
-  console.log(`Scanned ${testFiles.length} test files across ${TEST_DIRS.length} directories.`);
-  console.log(`${cited.size} distinct criterion ids cited in tests. ${DEFERRED.size} deliberately deferred.`);
+  console.log(
+    `Traceability: ${totalCriteriaAcrossDocs} acceptance criteria found across ${REQUIREMENTS_PATHS.length} requirements docs (${allIds.length} distinct ids -- see the id-collision note above).`,
+  );
+  console.log(
+    `Scanned ${testFiles.length} test files across ${TEST_DIRS.length} directories.`,
+  );
+  console.log(
+    `${cited.size} distinct criterion ids cited in tests. ${DEFERRED.size} deliberately deferred.`,
+  );
 
   let ok = true;
 
   if (staleDeferrals.length > 0) {
     ok = false;
-    console.error(`\nFAIL: deferral list names criteria that no longer exist in requirements.md: ${staleDeferrals.join(', ')}`);
+    console.error(
+      `\nFAIL: deferral list names criteria that no longer exist in requirements.md: ${staleDeferrals.join(', ')}`,
+    );
   }
 
   if (nowCovered.length > 0) {
-    console.warn(`\nNote: deferred criteria now have a citing test -- remove from DEFERRED: ${nowCovered.join(', ')}`);
+    console.warn(
+      `\nNote: deferred criteria now have a citing test -- remove from DEFERRED: ${nowCovered.join(', ')}`,
+    );
   }
 
   if (missing.length > 0) {
     ok = false;
-    console.error(`\nFAIL: ${missing.length} acceptance criteria have no citing test and are not on the deferral list:`);
+    console.error(
+      `\nFAIL: ${missing.length} acceptance criteria have no citing test and are not on the deferral list:`,
+    );
     for (const id of missing) {
       console.error(`  - Requirement ${id}`);
     }
   }
 
   if (ok) {
-    console.log('\nOK: every acceptance criterion is covered or deliberately deferred.');
+    console.log(
+      '\nOK: every acceptance criterion is covered or deliberately deferred.',
+    );
   }
   process.exit(ok ? 0 : 1);
 }

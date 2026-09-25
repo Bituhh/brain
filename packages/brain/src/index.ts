@@ -46,8 +46,15 @@ import {
   type StdpModulationStatsFfi,
   type TransmissionModulationStatsFfi,
   type StructuralStatsFfi,
-} from "@brain/napi";
-import { openSync, writeSync, fsyncSync, closeSync, renameSync, readFileSync } from "node:fs";
+} from '@brain/napi';
+import {
+  openSync,
+  writeSync,
+  fsyncSync,
+  closeSync,
+  renameSync,
+  readFileSync,
+} from 'node:fs';
 
 export type {
   LifConfig,
@@ -84,8 +91,11 @@ export type {
  * `PredictiveLearningConfig::validate()` actually accepts (PLAN.md B5,
  * docs/decisions.md decision 13). Omit for `"permanence"`, today's behaviour.
  */
-export type PredictiveLearningConfig = Omit<NapiPredictiveLearningConfig, "learningTarget"> & {
-  learningTarget?: "permanence" | "weight" | "both";
+export type PredictiveLearningConfig = Omit<
+  NapiPredictiveLearningConfig,
+  'learningTarget'
+> & {
+  learningTarget?: 'permanence' | 'weight' | 'both';
 };
 
 /** A probe's configuration (OBS-1, Phase 6 Requirement 4). */
@@ -331,12 +341,20 @@ function hashConfig(lif: LifConfig, options: SimulationOptions): bigint {
       newbornMaturation: options.newbornMaturation ?? null,
       // Only present when set, so every config hashed before this option
       // existed still hashes the same and its snapshots still restore.
-      ...(options.silentSynapses !== undefined && { silentSynapses: options.silentSynapses }),
-      ...(options.transmissionModulation !== undefined && { transmissionModulation: options.transmissionModulation }),
-      ...(options.predictionErrorCoupling !== undefined && { predictionErrorCoupling: options.predictionErrorCoupling }),
-      ...(options.rewardPredictionError !== undefined && { rewardPredictionError: options.rewardPredictionError }),
+      ...(options.silentSynapses !== undefined && {
+        silentSynapses: options.silentSynapses,
+      }),
+      ...(options.transmissionModulation !== undefined && {
+        transmissionModulation: options.transmissionModulation,
+      }),
+      ...(options.predictionErrorCoupling !== undefined && {
+        predictionErrorCoupling: options.predictionErrorCoupling,
+      }),
+      ...(options.rewardPredictionError !== undefined && {
+        rewardPredictionError: options.rewardPredictionError,
+      }),
     },
-    (_key, value) => (typeof value === "bigint" ? value.toString() : value),
+    (_key, value) => (typeof value === 'bigint' ? value.toString() : value),
   );
   const prime = 0x100000001b3n;
   const mask = 0xffffffffffffffffn;
@@ -356,7 +374,7 @@ function hashConfig(lif: LifConfig, options: SimulationOptions): bigint {
  */
 function writeFileAtomically(path: string, bytes: Uint8Array): void {
   const tmpPath = `${path}.tmp`;
-  const fd = openSync(tmpPath, "w");
+  const fd = openSync(tmpPath, 'w');
   try {
     writeSync(fd, bytes);
     fsyncSync(fd);
@@ -379,9 +397,9 @@ export class StaleViewError extends Error {
   constructor(mintedEpoch: number, currentEpoch: number) {
     super(
       `Stale view: minted at epoch ${mintedEpoch}, arena is now at epoch ${currentEpoch}. ` +
-        "The arena grew since this view was taken -- call Brain.views() again.",
+        'The arena grew since this view was taken -- call Brain.views() again.',
     );
-    this.name = "StaleViewError";
+    this.name = 'StaleViewError';
   }
 }
 
@@ -521,7 +539,11 @@ export class Simulation {
    */
   #viewCache = new Map<string, { epoch: number; array: unknown }>();
 
-  private constructor(native: NativeSimulation, lif: LifConfig, options: SimulationOptions) {
+  private constructor(
+    native: NativeSimulation,
+    lif: LifConfig,
+    options: SimulationOptions,
+  ) {
     this.#native = native;
     this.#lif = lif;
     this.#options = options;
@@ -577,7 +599,11 @@ export class Simulation {
    * `NativeSimulation.restore`'s doc comment for why) -- not silently
    * tolerated if they differ.
    */
-  static restore(path: string, lif: LifConfig, options: SimulationOptions): Simulation {
+  static restore(
+    path: string,
+    lif: LifConfig,
+    options: SimulationOptions,
+  ): Simulation {
     const bytes = readFileSync(path);
     const configHash = hashConfig(lif, options);
     const native = NativeSimulation.restore(
@@ -616,8 +642,17 @@ export class Simulation {
    * otherwise it is ignored and the synapse is feedforward regardless of
    * its value.
    */
-  connect(source: number, target: number, segment: number, delay: number, permanence: number): number | undefined {
-    return this.#native.connect(source, target, segment, delay, permanence) ?? undefined;
+  connect(
+    source: number,
+    target: number,
+    segment: number,
+    delay: number,
+    permanence: number,
+  ): number | undefined {
+    return (
+      this.#native.connect(source, target, segment, delay, permanence) ??
+      undefined
+    );
   }
 
   /**
@@ -741,8 +776,14 @@ export class Simulation {
    */
   predictiveView(): Float32Array {
     const epoch = this.#native.epoch();
-    if (!this.#predictiveViewCache || this.#predictiveViewCache.epoch !== epoch) {
-      this.#predictiveViewCache = { epoch, array: this.#native.predictiveView() };
+    if (
+      !this.#predictiveViewCache ||
+      this.#predictiveViewCache.epoch !== epoch
+    ) {
+      this.#predictiveViewCache = {
+        epoch,
+        array: this.#native.predictiveView(),
+      };
     }
     return this.#predictiveViewCache.array;
   }
@@ -761,32 +802,32 @@ export class Simulation {
 
   /** Zero-copy view over every neuron's position (NET-3, Phase 6 Requirement 1), flattened `[x0,y0,z0,x1,y1,z1,...]`. Same caching/validity contract as `membraneView()`. */
   coordsView(): Float32Array {
-    return this.#cachedView("coords", () => this.#native.coordsView());
+    return this.#cachedView('coords', () => this.#native.coordsView());
   }
 
   /** Zero-copy view over every neuron's fixed polarity (NEU-4, Phase 6 Requirement 1). Same caching/validity contract as `membraneView()`. */
   polarityView(): Int8Array {
-    return this.#cachedView("polarity", () => this.#native.polarityView());
+    return this.#cachedView('polarity', () => this.#native.polarityView());
   }
 
   /** Zero-copy view over every neuron's threshold (Phase 6 Requirement 1). Same caching/validity contract as `membraneView()`. */
   thresholdView(): Float32Array {
-    return this.#cachedView("threshold", () => this.#native.thresholdView());
+    return this.#cachedView('threshold', () => this.#native.thresholdView());
   }
 
   /** Zero-copy view over the tick until which each neuron is refractory (NEU-1, Phase 6 Requirement 1). Same caching/validity contract as `membraneView()`. */
   refractoryView(): Uint32Array {
-    return this.#cachedView("refractory", () => this.#native.refractoryView());
+    return this.#cachedView('refractory', () => this.#native.refractoryView());
   }
 
   /** Zero-copy view over the tick each neuron last spiked at (Phase 6 Requirement 1). Same caching/validity contract as `membraneView()`. */
   lastSpikeView(): Uint32Array {
-    return this.#cachedView("lastSpike", () => this.#native.lastSpikeView());
+    return this.#cachedView('lastSpike', () => this.#native.lastSpikeView());
   }
 
   /** Zero-copy view over every neuron's spike-frequency adaptation state (NEU-8, Phase 6 Requirement 1). Same caching/validity contract as `membraneView()`. */
   adaptationView(): Float32Array {
-    return this.#cachedView("adaptation", () => this.#native.adaptationView());
+    return this.#cachedView('adaptation', () => this.#native.adaptationView());
   }
 
   /** `SynapseArena`'s fixed per-source-block capacity (Phase 6 Requirement 2.1) -- a synapse id `i`'s source neuron is `Math.floor(i / synapseCapPerNeuron())`. */
@@ -796,17 +837,23 @@ export class Simulation {
 
   /** Zero-copy view over every synapse slot's target neuron (SYN-1, Phase 6 Requirement 2). Includes unoccupied slots -- see `synapseOccupiedView()`. */
   synapseTargetNeuronView(): Uint32Array {
-    return this.#cachedView("synapseTargetNeuron", () => this.#native.synapseTargetNeuronView());
+    return this.#cachedView('synapseTargetNeuron', () =>
+      this.#native.synapseTargetNeuronView(),
+    );
   }
 
   /** Zero-copy view over every synapse slot's target dendritic segment (SYN-1, Phase 6 Requirement 2). */
   synapseTargetSegmentView(): Uint32Array {
-    return this.#cachedView("synapseTargetSegment", () => this.#native.synapseTargetSegmentView());
+    return this.#cachedView('synapseTargetSegment', () =>
+      this.#native.synapseTargetSegmentView(),
+    );
   }
 
   /** Zero-copy view over every synapse slot's permanence (SYN-3, Phase 6 Requirement 2) -- filter against `connectionThreshold` client-side to find functionally-connected synapses. */
   synapsePermanenceView(): Float32Array {
-    return this.#cachedView("synapsePermanence", () => this.#native.synapsePermanenceView());
+    return this.#cachedView('synapsePermanence', () =>
+      this.#native.synapsePermanenceView(),
+    );
   }
 
   /**
@@ -816,12 +863,16 @@ export class Simulation {
    * `synapsePermanenceView()`'s structural "is this connected" gate.
    */
   synapseWeightView(): Float32Array {
-    return this.#cachedView("synapseWeight", () => this.#native.synapseWeightView());
+    return this.#cachedView('synapseWeight', () =>
+      this.#native.synapseWeightView(),
+    );
   }
 
   /** Zero-copy view over every synapse slot's axonal delay (SYN-2, Phase 6 Requirement 2). */
   synapseDelayView(): Uint16Array {
-    return this.#cachedView("synapseDelay", () => this.#native.synapseDelayView());
+    return this.#cachedView('synapseDelay', () =>
+      this.#native.synapseDelayView(),
+    );
   }
 
   /**
@@ -887,7 +938,10 @@ export class Simulation {
    * (`threadCount` omitted or 1) only, matching `snapshot()`/`restore()`'s
    * existing restriction.
    */
-  runConsolidation(seed: bigint, config: ConsolidationConfig): ConsolidationReport {
+  runConsolidation(
+    seed: bigint,
+    config: ConsolidationConfig,
+  ): ConsolidationReport {
     return this.#native.runConsolidation(seed, config);
   }
 

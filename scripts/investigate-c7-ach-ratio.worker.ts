@@ -7,10 +7,17 @@
 // One native Simulation per thread is safe (no shared global state; see
 // investigate-growth-regression.worker.ts).
 
-import { parentPort, workerData } from "node:worker_threads";
-import type { Simulation, StdpModulationStats, StructuralStats } from "@brain/core";
-import { runCharPredictionTrial, type CharPredictionConfig } from "../packages/io/src/milestone/charPrediction.ts";
-import { observe, type Observation } from "./c5-observe.ts";
+import { parentPort, workerData } from 'node:worker_threads';
+import type {
+  Simulation,
+  StdpModulationStats,
+  StructuralStats,
+} from '@brain/core';
+import {
+  runCharPredictionTrial,
+  type CharPredictionConfig,
+} from '../packages/io/src/milestone/charPrediction.ts';
+import { observe, type Observation } from './c5-observe.ts';
 
 const ACETYLCHOLINE = 1;
 
@@ -33,13 +40,23 @@ export interface RatioObservation extends Observation {
   readonly structuralStats?: StructuralStats;
   readonly stdpModulation: StdpModulationStats | null;
   /** The acetylcholine level after each character, summarised by third of the run. */
-  readonly achLevel: { readonly first: LevelSummary; readonly middle: LevelSummary; readonly last: LevelSummary };
+  readonly achLevel: {
+    readonly first: LevelSummary;
+    readonly middle: LevelSummary;
+    readonly last: LevelSummary;
+  };
 }
 
 const summarise = (xs: readonly number[]): LevelSummary => {
   const s = [...xs].sort((a, b) => a - b);
-  const at = (p: number) => s[Math.min(s.length - 1, Math.floor(p * s.length))]!;
-  return { mean: xs.reduce((a, b) => a + b, 0) / xs.length, p05: at(0.05), p50: at(0.5), p95: at(0.95) };
+  const at = (p: number) =>
+    s[Math.min(s.length - 1, Math.floor(p * s.length))]!;
+  return {
+    mean: xs.reduce((a, b) => a + b, 0) / xs.length,
+    p05: at(0.05),
+    p50: at(0.5),
+    p95: at(0.95),
+  };
 };
 
 const { corpus, seed, config } = workerData as TrialData;
@@ -64,7 +81,13 @@ parentPort!.postMessage({
   ...observed!,
   accuracy: result.networkAccuracy,
   sampleCount: result.sampleCount,
-  ...(result.structuralStats !== undefined && { structuralStats: result.structuralStats }),
+  ...(result.structuralStats !== undefined && {
+    structuralStats: result.structuralStats,
+  }),
   stdpModulation,
-  achLevel: { first: summarise(levels.slice(0, third)), middle: summarise(levels.slice(third, 2 * third)), last: summarise(levels.slice(2 * third)) },
+  achLevel: {
+    first: summarise(levels.slice(0, third)),
+    middle: summarise(levels.slice(third, 2 * third)),
+    last: summarise(levels.slice(2 * third)),
+  },
 } satisfies RatioObservation);

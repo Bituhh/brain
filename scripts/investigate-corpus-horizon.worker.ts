@@ -24,10 +24,14 @@
 // One native Simulation per thread is safe (no shared global state; see
 // investigate-growth-regression.worker.ts).
 
-import { parentPort, workerData } from "node:worker_threads";
-import type { Simulation } from "@brain/core";
-import { runCharPredictionTrial, type CharPredictionConfig, type TrialProgressSample } from "../packages/io/src/milestone/charPrediction.ts";
-import { observe, type Observation } from "./c5-observe.ts";
+import { parentPort, workerData } from 'node:worker_threads';
+import type { Simulation } from '@brain/core';
+import {
+  runCharPredictionTrial,
+  type CharPredictionConfig,
+  type TrialProgressSample,
+} from '../packages/io/src/milestone/charPrediction.ts';
+import { observe, type Observation } from './c5-observe.ts';
 
 const DOPAMINE = 0;
 const SPARSE_EVERY_CHARACTERS = 5_000;
@@ -52,7 +56,12 @@ export interface CheapSample {
   /** All four channels, `modulatorLevels()` order (dopamine, acetylcholine, noradrenaline, serotonin). */
   readonly modulators: readonly number[];
   /** Requirement 12's outcomes, cumulative since construction. */
-  readonly outcomes: { readonly correct: number; readonly falsePositive: number; readonly unpredicted: number; readonly classifiedAsPredicted: number };
+  readonly outcomes: {
+    readonly correct: number;
+    readonly falsePositive: number;
+    readonly unpredicted: number;
+    readonly classifiedAsPredicted: number;
+  };
 }
 
 /** One 5,000-character sample: the scans too expensive to run every 250. */
@@ -78,7 +87,11 @@ export interface SeriesSummary {
   readonly max: number;
   readonly exactlyZero: number;
   /** Early / middle / late, so a level that is still climbing at the end is visible as one. */
-  readonly thirds: readonly { readonly mean: number; readonly min: number; readonly max: number }[];
+  readonly thirds: readonly {
+    readonly mean: number;
+    readonly min: number;
+    readonly max: number;
+  }[];
 }
 
 export interface HorizonSeries extends Observation {
@@ -94,10 +107,14 @@ export interface HorizonSeries extends Observation {
 
 function summarise(xs: readonly number[]): SeriesSummary {
   const sorted = [...xs].sort((a, b) => a - b);
-  const q = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? NaN;
-  const mean = (v: readonly number[]) => v.reduce((a, b) => a + b, 0) / v.length;
+  const q = (p: number) =>
+    sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? NaN;
+  const mean = (v: readonly number[]) =>
+    v.reduce((a, b) => a + b, 0) / v.length;
   const third = Math.ceil(xs.length / 3);
-  const thirds = [0, 1, 2].map((i) => xs.slice(i * third, (i + 1) * third)).filter((v) => v.length > 0);
+  const thirds = [0, 1, 2]
+    .map((i) => xs.slice(i * third, (i + 1) * third))
+    .filter((v) => v.length > 0);
   return {
     n: xs.length,
     mean: mean(xs),
@@ -107,11 +124,16 @@ function summarise(xs: readonly number[]): SeriesSummary {
     min: sorted[0] ?? NaN,
     max: sorted[sorted.length - 1] ?? NaN,
     exactlyZero: xs.filter((x) => x === 0).length / xs.length,
-    thirds: thirds.map((v) => ({ mean: mean(v), min: Math.min(...v), max: Math.max(...v) })),
+    thirds: thirds.map((v) => ({
+      mean: mean(v),
+      min: Math.min(...v),
+      max: Math.max(...v),
+    })),
   };
 }
 
-const { corpus, seed, config, sampleDopaminePerCharacter } = workerData as TrialData;
+const { corpus, seed, config, sampleDopaminePerCharacter } =
+  workerData as TrialData;
 
 const cheap: CheapSample[] = [];
 const sparse: SparseSample[] = [];
@@ -177,5 +199,7 @@ parentPort!.postMessage({
   cheap,
   sparse,
   simMs,
-  ...(sampleDopaminePerCharacter && { dopaminePerCharacter: summarise(dopamine) }),
+  ...(sampleDopaminePerCharacter && {
+    dopaminePerCharacter: summarise(dopamine),
+  }),
 } satisfies HorizonSeries);

@@ -30,7 +30,7 @@
         gap: 0.25rem;
         align-items: center;
       }
-      header input[type="number"] {
+      header input[type='number'] {
         width: 5rem;
       }
       main {
@@ -89,18 +89,35 @@
       <button type="button" data-action="resume">Resume</button>
       <button type="button" data-action="step">Step once</button>
       <form data-form="stimulate">
-        <label>Stimulate neuron <input type="number" name="index" min="0" step="1" required /></label>
-        <label>current <input type="number" name="current" step="0.1" value="10" required /></label>
+        <label
+          >Stimulate neuron
+          <input type="number" name="index" min="0" step="1" required
+        /></label>
+        <label
+          >current
+          <input type="number" name="current" step="0.1" value="10" required
+        /></label>
         <button type="submit">Go</button>
       </form>
       <form data-form="reward">
-        <label>Reward <input type="number" name="amount" step="0.1" value="1" required /></label>
+        <label
+          >Reward
+          <input type="number" name="amount" step="0.1" value="1" required
+        /></label>
         <button type="submit">Send</button>
       </form>
-      <label>State stride <input type="number" data-input="stride" min="1" step="1" value="1" /></label>
-      <label><input type="checkbox" data-input="show-potential" /> Show potential synapses</label>
+      <label
+        >State stride
+        <input type="number" data-input="stride" min="1" step="1" value="1"
+      /></label>
+      <label
+        ><input type="checkbox" data-input="show-potential" /> Show potential
+        synapses</label
+      >
       <button type="button" data-action="request-raster">Request raster</button>
-      <button type="button" data-action="request-metrics">Request metrics</button>
+      <button type="button" data-action="request-metrics">
+        Request metrics
+      </button>
     </header>
     <main>
       <div id="graph-container">
@@ -111,7 +128,10 @@
     <footer>
       <span id="metrics">(no metrics yet -- click "Request metrics")</span>
       <span>
-        <label>Scrub <input type="range" id="scrub" min="0" max="0" value="0" disabled /></label>
+        <label
+          >Scrub
+          <input type="range" id="scrub" min="0" max="0" value="0" disabled
+        /></label>
         <button type="button" id="follow" disabled>Follow live</button>
       </span>
     </footer>

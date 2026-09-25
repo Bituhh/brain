@@ -12,7 +12,7 @@
 // scrubbed-to tick against the last-known topology, and makes no claim
 // about historical colouring beyond that.
 
-const RASTER_MAGIC = "RASTER";
+const RASTER_MAGIC = 'RASTER';
 const SUPPORTED_VERSION = 1;
 
 export class RasterFormatError extends Error {}
@@ -23,11 +23,13 @@ export interface DecodedRaster {
 
 export function decodeRaster(bytes: Uint8Array): DecodedRaster {
   if (bytes.length < 14) {
-    throw new RasterFormatError("raster export shorter than its own header");
+    throw new RasterFormatError('raster export shorter than its own header');
   }
   const magic = String.fromCharCode(...bytes.subarray(0, 6));
   if (magic !== RASTER_MAGIC) {
-    throw new RasterFormatError(`bad magic: expected '${RASTER_MAGIC}', got '${magic}'`);
+    throw new RasterFormatError(
+      `bad magic: expected '${RASTER_MAGIC}', got '${magic}'`,
+    );
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const version = view.getUint32(6, true);
@@ -36,7 +38,9 @@ export function decodeRaster(bytes: Uint8Array): DecodedRaster {
   }
   const count = view.getUint32(10, true);
   if (bytes.length !== 14 + count * 8) {
-    throw new RasterFormatError("raster export length does not match its own declared event count");
+    throw new RasterFormatError(
+      'raster export length does not match its own declared event count',
+    );
   }
   const events: Array<readonly [number, number]> = [];
   let offset = 14;
@@ -93,6 +97,11 @@ export class Scrubber {
   }
 
   isInRange(tick: number): boolean {
-    return this.#loaded && this.hasAnyEvents() && tick >= this.#minTick && tick <= this.#maxTick;
+    return (
+      this.#loaded &&
+      this.hasAnyEvents() &&
+      tick >= this.#minTick &&
+      tick <= this.#maxTick
+    );
   }
 }

@@ -28,12 +28,16 @@ export interface Sdr {
  */
 export function makeSdr(width: number, activeBits: Iterable<number>): Sdr {
   if (!Number.isInteger(width) || width < 0) {
-    throw new RangeError(`Sdr width must be a non-negative integer, got ${width}`);
+    throw new RangeError(
+      `Sdr width must be a non-negative integer, got ${width}`,
+    );
   }
   const seen = new Set<number>();
   for (const bit of activeBits) {
     if (!Number.isInteger(bit) || bit < 0 || bit >= width) {
-      throw new RangeError(`Sdr active bit ${bit} is out of range for width ${width}`);
+      throw new RangeError(
+        `Sdr active bit ${bit} is out of range for width ${width}`,
+      );
     }
     seen.add(bit);
   }

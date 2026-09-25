@@ -43,7 +43,10 @@ export class SegmentPanel {
     return this.#currentNeuron === neuron;
   }
 
-  open(neuron: number, membersBySegment: ReadonlyMap<number, readonly SegmentMember[]>): void {
+  open(
+    neuron: number,
+    membersBySegment: ReadonlyMap<number, readonly SegmentMember[]>,
+  ): void {
     if (this.#currentNeuron !== undefined && this.#currentNeuron !== neuron) {
       this.#callbacks.onClose(this.#currentNeuron);
     }
@@ -63,36 +66,47 @@ export class SegmentPanel {
   }
 
   /** Fed by `main.ts` on every `probeData` message for the currently-open neuron. */
-  updateActivity(neuron: number, samples: readonly SegmentActivitySample[] | undefined): void {
+  updateActivity(
+    neuron: number,
+    samples: readonly SegmentActivitySample[] | undefined,
+  ): void {
     if (neuron !== this.#currentNeuron) return;
-    const activityEl = this.#root.querySelector<HTMLElement>("[data-role='activity']");
+    const activityEl = this.#root.querySelector<HTMLElement>(
+      "[data-role='activity']",
+    );
     if (!activityEl) return;
     if (!samples || samples.length === 0) {
-      activityEl.textContent = "(no segment activity recorded yet)";
+      activityEl.textContent = '(no segment activity recorded yet)';
       return;
     }
     const lines = samples
       .slice(-20)
-      .map((s) => `tick ${s.tick}  segment ${s.segment}  active=${s.active}${s.depolarisation > 0 ? "  FIRED" : ""}`);
-    activityEl.textContent = lines.join("\n");
+      .map(
+        (s) =>
+          `tick ${s.tick}  segment ${s.segment}  active=${s.active}${s.depolarisation > 0 ? '  FIRED' : ''}`,
+      );
+    activityEl.textContent = lines.join('\n');
   }
 
-  #renderStructure(neuron: number, membersBySegment: ReadonlyMap<number, readonly SegmentMember[]>): void {
+  #renderStructure(
+    neuron: number,
+    membersBySegment: ReadonlyMap<number, readonly SegmentMember[]>,
+  ): void {
     this.#root.replaceChildren();
 
-    const heading = document.createElement("h3");
+    const heading = document.createElement('h3');
     heading.textContent = `Neuron ${neuron}`;
     this.#root.appendChild(heading);
 
-    const closeButton = document.createElement("button");
-    closeButton.type = "button";
-    closeButton.textContent = "Close";
-    closeButton.addEventListener("click", () => this.close());
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.textContent = 'Close';
+    closeButton.addEventListener('click', () => this.close());
     this.#root.appendChild(closeButton);
 
     if (membersBySegment.size === 0) {
-      const note = document.createElement("p");
-      note.textContent = "This neuron has no dendritic segments configured.";
+      const note = document.createElement('p');
+      note.textContent = 'This neuron has no dendritic segments configured.';
       this.#root.appendChild(note);
       return;
     }
@@ -100,26 +114,26 @@ export class SegmentPanel {
     const segments = [...membersBySegment.keys()].sort((a, b) => a - b);
     for (const segment of segments) {
       const members = membersBySegment.get(segment) ?? [];
-      const segHeading = document.createElement("h4");
-      segHeading.textContent = `Segment ${segment} (${members.length} synapse${members.length === 1 ? "" : "s"})`;
+      const segHeading = document.createElement('h4');
+      segHeading.textContent = `Segment ${segment} (${members.length} synapse${members.length === 1 ? '' : 's'})`;
       this.#root.appendChild(segHeading);
 
-      const list = document.createElement("ul");
+      const list = document.createElement('ul');
       for (const member of members) {
-        const item = document.createElement("li");
+        const item = document.createElement('li');
         item.textContent = `from neuron ${member.source}, permanence ${member.permanence.toFixed(2)}, weight ${member.weight.toFixed(2)}`;
         list.appendChild(item);
       }
       this.#root.appendChild(list);
     }
 
-    const activityHeading = document.createElement("h4");
-    activityHeading.textContent = "Recent activity";
+    const activityHeading = document.createElement('h4');
+    activityHeading.textContent = 'Recent activity';
     this.#root.appendChild(activityHeading);
 
-    const activity = document.createElement("pre");
-    activity.dataset["role"] = "activity";
-    activity.textContent = "(waiting for activity...)";
+    const activity = document.createElement('pre');
+    activity.dataset['role'] = 'activity';
+    activity.textContent = '(waiting for activity...)';
     this.#root.appendChild(activity);
   }
 }

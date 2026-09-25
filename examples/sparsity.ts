@@ -4,7 +4,7 @@
 // Run directly: `node examples/sparsity.ts` (Node 24 strips TS types
 // natively -- no build step, no tsx dependency, per ENG-3/ENG-6).
 
-import { Simulation } from "@brain/core";
+import { Simulation } from '@brain/core';
 
 const POPULATION = 500;
 const NEIGHBOURHOOD_SIZE = 50;
@@ -18,7 +18,9 @@ function buildAndRun(withInhibition: boolean, ticks: number): number {
       maxDelay: 4,
       connectionThreshold: 0.5,
       synapseCapPerNeuron: 1,
-      ...(withInhibition ? { inhibition: { neighbourhoodSize: NEIGHBOURHOOD_SIZE, k: K } } : {}),
+      ...(withInhibition
+        ? { inhibition: { neighbourhoodSize: NEIGHBOURHOOD_SIZE, k: K } }
+        : {}),
     },
   );
 
@@ -34,7 +36,9 @@ function buildAndRun(withInhibition: boolean, ticks: number): number {
   // the Rust-side integration test's "varied input" driver).
   let state = 0x2545f4914f6cdd1dn;
   const nextFloat = (): number => {
-    state = (state * 6364136223846793005n + 1442695040888963407n) & 0xffffffffffffffffn;
+    state =
+      (state * 6364136223846793005n + 1442695040888963407n) &
+      0xffffffffffffffffn;
     return Number((state >> 32n) & 0xffffffffn) / 0xffffffff;
   };
 
@@ -60,12 +64,19 @@ console.log(`Target sparsity:        ${(TARGET_SPARSITY * 100).toFixed(2)}%`);
 console.log(`With inhibition:        ${(withInhibition * 100).toFixed(2)}%`);
 console.log(`Without inhibition:     ${(withoutInhibition * 100).toFixed(2)}%`);
 
-const relativeError = Math.abs(withInhibition - TARGET_SPARSITY) / TARGET_SPARSITY;
+const relativeError =
+  Math.abs(withInhibition - TARGET_SPARSITY) / TARGET_SPARSITY;
 if (relativeError >= 0.3) {
-  throw new Error(`Sparsity with inhibition (${withInhibition}) is not within 30% of target (${TARGET_SPARSITY}).`);
+  throw new Error(
+    `Sparsity with inhibition (${withInhibition}) is not within 30% of target (${TARGET_SPARSITY}).`,
+  );
 }
 if (withoutInhibition <= TARGET_SPARSITY * 2.0) {
-  throw new Error("Expected disabling inhibition to substantially break the sparsity bound (Requirement 7.5).");
+  throw new Error(
+    'Expected disabling inhibition to substantially break the sparsity bound (Requirement 7.5).',
+  );
 }
 
-console.log("OK: inhibition holds sparsity near target; disabling it breaks the bound.");
+console.log(
+  'OK: inhibition holds sparsity near target; disabling it breaks the bound.',
+);

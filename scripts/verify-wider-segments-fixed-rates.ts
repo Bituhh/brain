@@ -35,30 +35,44 @@
 // (verify-wider-segments-fixed-rates.segments-<N>.results.md) so
 // concurrent processes never contend over the same file.
 
-import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { runCharPredictionTrials, assessMilestone, DEFAULT_CONFIG, type CharPredictionConfig } from "../packages/io/src/milestone/charPrediction.ts";
-import type { SegmentThresholdHomeostasisConfig } from "@brain/core";
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import {
+  runCharPredictionTrials,
+  assessMilestone,
+  DEFAULT_CONFIG,
+  type CharPredictionConfig,
+} from '../packages/io/src/milestone/charPrediction.ts';
+import type { SegmentThresholdHomeostasisConfig } from '@brain/core';
 
 const segmentsArg = process.argv[2];
 const segmentsPerNeuron = Number(segmentsArg);
 if (!Number.isInteger(segmentsPerNeuron) || segmentsPerNeuron < 1) {
-  console.error("Usage: node scripts/verify-wider-segments-fixed-rates.ts <segmentsPerNeuron: positive integer>");
+  console.error(
+    'Usage: node scripts/verify-wider-segments-fixed-rates.ts <segmentsPerNeuron: positive integer>',
+  );
   process.exit(1);
 }
 
-const RESULTS_PATH = fileURLToPath(new URL(`./verify-wider-segments-fixed-rates.segments-${segmentsPerNeuron}.results.md`, import.meta.url));
+const RESULTS_PATH = fileURLToPath(
+  new URL(
+    `./verify-wider-segments-fixed-rates.segments-${segmentsPerNeuron}.results.md`,
+    import.meta.url,
+  ),
+);
 writeFileSync(
   RESULTS_PATH,
   `# Wider segmentsPerNeuron / fixed-targetRate verification -- segmentsPerNeuron=${segmentsPerNeuron}\n\n` +
     `Generated ${new Date().toISOString()} by scripts/verify-wider-segments-fixed-rates.ts ${segmentsPerNeuron}.\n\n` +
     "Verification-only coarse spot-check, not a coordinate search (see this file's own module doc) -- checks 4 fixed targetRate values rather than searching to convergence. Official 5-seed protocol, 15,000-character corpus slice, matching Phase B (scripts/tune-segments-and-threshold.ts).\n\n" +
-    "| segmentsPerNeuron | targetRate | seeds | mean network accuracy | range across seeds | mean trigram accuracy |\n" +
-    "|---|---|---|---|---|---|\n",
+    '| segmentsPerNeuron | targetRate | seeds | mean network accuracy | range across seeds | mean trigram accuracy |\n' +
+    '|---|---|---|---|---|---|\n',
 );
 
-const corpusPath = fileURLToPath(new URL("../packages/io/test/fixtures/corpus.txt", import.meta.url));
-const fullCorpus = readFileSync(corpusPath, "utf8");
+const corpusPath = fileURLToPath(
+  new URL('../packages/io/test/fixtures/corpus.txt', import.meta.url),
+);
+const fullCorpus = readFileSync(corpusPath, 'utf8');
 const corpus = fullCorpus.slice(0, 15_000);
 
 const OFFICIAL_SEEDS = [1n, 2n, 3n, 4n, 5n] as const;
@@ -66,19 +80,34 @@ const TARGET_RATES = [0.25, 0.5, 0.75, 0.99] as const;
 
 const BASE_HOMEOSTASIS = DEFAULT_CONFIG.segmentThresholdHomeostasis;
 if (BASE_HOMEOSTASIS === undefined) {
-  throw new Error("DEFAULT_CONFIG.segmentThresholdHomeostasis must be set as this script's smoothing/adjustmentRate/minThreshold/intervalTicks baseline.");
+  throw new Error(
+    "DEFAULT_CONFIG.segmentThresholdHomeostasis must be set as this script's smoothing/adjustmentRate/minThreshold/intervalTicks baseline.",
+  );
 }
 
 function configFor(targetRate: number): CharPredictionConfig {
-  const homeostasis: SegmentThresholdHomeostasisConfig = { ...BASE_HOMEOSTASIS!, targetRate };
-  return { ...DEFAULT_CONFIG, segmentsPerNeuron, segmentThresholdHomeostasis: homeostasis };
+  const homeostasis: SegmentThresholdHomeostasisConfig = {
+    ...BASE_HOMEOSTASIS!,
+    targetRate,
+  };
+  return {
+    ...DEFAULT_CONFIG,
+    segmentsPerNeuron,
+    segmentThresholdHomeostasis: homeostasis,
+  };
 }
 
-console.log(`segmentsPerNeuron=${segmentsPerNeuron}: checking targetRate in {${TARGET_RATES.join(", ")}} (fixed-grid verification, not a search)`);
+console.log(
+  `segmentsPerNeuron=${segmentsPerNeuron}: checking targetRate in {${TARGET_RATES.join(', ')}} (fixed-grid verification, not a search)`,
+);
 
 for (const targetRate of TARGET_RATES) {
   const t0 = Date.now();
-  const trials = runCharPredictionTrials(corpus, [...OFFICIAL_SEEDS], configFor(targetRate));
+  const trials = runCharPredictionTrials(
+    corpus,
+    [...OFFICIAL_SEEDS],
+    configFor(targetRate),
+  );
   const assessment = assessMilestone(trials);
   const perSeed = trials.map((t) => t.networkAccuracy);
   const range = `${(Math.min(...perSeed) * 100).toFixed(2)}%-${(Math.max(...perSeed) * 100).toFixed(2)}%`;
@@ -86,7 +115,9 @@ for (const targetRate of TARGET_RATES) {
     RESULTS_PATH,
     `| ${segmentsPerNeuron} | ${targetRate.toFixed(4)} | ${OFFICIAL_SEEDS.length} | ${(assessment.meanNetworkAccuracy * 100).toFixed(2)}% | ${range} | ${(assessment.meanTrigramAccuracy * 100).toFixed(2)}% |\n`,
   );
-  console.log(`  targetRate=${targetRate.toFixed(4)} -> mean network accuracy=${(assessment.meanNetworkAccuracy * 100).toFixed(2)}% (range ${range}, ${Date.now() - t0}ms)`);
+  console.log(
+    `  targetRate=${targetRate.toFixed(4)} -> mean network accuracy=${(assessment.meanNetworkAccuracy * 100).toFixed(2)}% (range ${range}, ${Date.now() - t0}ms)`,
+  );
 }
 
 console.log(`\nDone. Results written to ${RESULTS_PATH}`);

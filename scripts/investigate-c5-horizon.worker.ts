@@ -7,10 +7,13 @@
 // One native Simulation per thread is safe (no shared global state; see
 // investigate-growth-regression.worker.ts).
 
-import { parentPort, workerData } from "node:worker_threads";
-import type { Simulation } from "@brain/core";
-import { runCharPredictionTrial, type CharPredictionConfig } from "../packages/io/src/milestone/charPrediction.ts";
-import { observe, type Observation } from "./c5-observe.ts";
+import { parentPort, workerData } from 'node:worker_threads';
+import type { Simulation } from '@brain/core';
+import {
+  runCharPredictionTrial,
+  type CharPredictionConfig,
+} from '../packages/io/src/milestone/charPrediction.ts';
+import { observe, type Observation } from './c5-observe.ts';
 
 const NORADRENALINE = 2;
 
@@ -33,22 +36,34 @@ export interface SeriesSummary {
   readonly exactlyZero: number;
   /** Below 1e-6: C2's "exactly zero" criterion in investigate-c2-signal-shape.ts, kept so the two are comparable. */
   readonly belowOneInAMillion: number;
-  readonly thirds: readonly { readonly mean: number; readonly max: number; readonly belowOneInAMillion: number }[];
+  readonly thirds: readonly {
+    readonly mean: number;
+    readonly max: number;
+    readonly belowOneInAMillion: number;
+  }[];
 }
 
 export interface HorizonObservation extends Observation {
   readonly accuracy: number;
   readonly sampleCount: number;
-  readonly noradrenaline?: { readonly surprise: SeriesSummary; readonly level: SeriesSummary };
+  readonly noradrenaline?: {
+    readonly surprise: SeriesSummary;
+    readonly level: SeriesSummary;
+  };
 }
 
 function summarise(xs: readonly number[]): SeriesSummary {
   const sorted = [...xs].sort((a, b) => a - b);
-  const q = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? NaN;
-  const mean = (v: readonly number[]) => v.reduce((a, b) => a + b, 0) / v.length;
-  const frac = (v: readonly number[], f: (x: number) => boolean) => v.filter(f).length / v.length;
+  const q = (p: number) =>
+    sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? NaN;
+  const mean = (v: readonly number[]) =>
+    v.reduce((a, b) => a + b, 0) / v.length;
+  const frac = (v: readonly number[], f: (x: number) => boolean) =>
+    v.filter(f).length / v.length;
   const third = Math.ceil(xs.length / 3);
-  const thirds = [0, 1, 2].map((i) => xs.slice(i * third, (i + 1) * third)).filter((v) => v.length > 0);
+  const thirds = [0, 1, 2]
+    .map((i) => xs.slice(i * third, (i + 1) * third))
+    .filter((v) => v.length > 0);
   return {
     n: xs.length,
     mean: mean(xs),
@@ -58,7 +73,11 @@ function summarise(xs: readonly number[]): SeriesSummary {
     max: sorted[sorted.length - 1] ?? NaN,
     exactlyZero: frac(xs, (x) => x === 0),
     belowOneInAMillion: frac(xs, (x) => x < 1e-6),
-    thirds: thirds.map((v) => ({ mean: mean(v), max: Math.max(...v), belowOneInAMillion: frac(v, (x) => x < 1e-6) })),
+    thirds: thirds.map((v) => ({
+      mean: mean(v),
+      max: Math.max(...v),
+      belowOneInAMillion: frac(v, (x) => x < 1e-6),
+    })),
   };
 }
 
@@ -88,5 +107,7 @@ parentPort!.postMessage({
   ...observed!,
   accuracy: result.networkAccuracy,
   sampleCount: result.sampleCount,
-  ...(sampleNoradrenaline && { noradrenaline: { surprise: summarise(surprise), level: summarise(level) } }),
+  ...(sampleNoradrenaline && {
+    noradrenaline: { surprise: summarise(surprise), level: summarise(level) },
+  }),
 } satisfies HorizonObservation);
