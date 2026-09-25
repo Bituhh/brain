@@ -1,90 +1,56 @@
 # PLAN.md C9 -- acetylcholine's encoding/retrieval pair: the pre-registered VAL-4 measurement
 
-Generated 2026-09-24T15:10:43.121Z. 15000 characters per trial, B5's winner as
-the base, accuracy is the harness's 2,000-character sliding window at the end of
-the run. Every choice below was written into the script header before any trial
-ran.
+Generated 2026-09-24T15:10:43.121Z. 15000 characters per trial, B5's winner as the base, accuracy is the harness's 2,000-character sliding window at the end of the run. Every choice below was written into the script header before any trial ran.
 
 ## 1. B5's figures, reproduced, and the exactness controls -- all must PASS before section 4 is read
 
-Reference (checkpointed B5 winner): seeds 1-5 mean **20.36%** (B5: 20.36%),
-seeds 11-15 **19.05%** (B5: 19.05%).
+Reference (checkpointed B5 winner): seeds 1-5 mean **20.36%** (B5: 20.36%), seeds 11-15 **19.05%** (B5: 19.05%).
 
-- G seed 1 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- OFF seed 1 (ACh driven, read only by gain-0 maps) vs checkpointed reference:
-  **PASS**
-- G seed 2 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- OFF seed 2 (ACh driven, read only by gain-0 maps) vs checkpointed reference:
-  **PASS**
-- G seed 3 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- OFF seed 3 (ACh driven, read only by gain-0 maps) vs checkpointed reference:
-  **PASS**
-- G seed 4 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- OFF seed 4 (ACh driven, read only by gain-0 maps) vs checkpointed reference:
-  **PASS**
-- G seed 5 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- OFF seed 5 (ACh driven, read only by gain-0 maps) vs checkpointed reference:
-  **PASS**
-- G seed 11 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- OFF seed 11 (ACh driven, read only by gain-0 maps) vs checkpointed reference:
-  **PASS**
-- G seed 12 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- OFF seed 12 (ACh driven, read only by gain-0 maps) vs checkpointed reference:
-  **PASS**
-- G seed 13 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- OFF seed 13 (ACh driven, read only by gain-0 maps) vs checkpointed reference:
-  **PASS**
-- G seed 14 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- OFF seed 14 (ACh driven, read only by gain-0 maps) vs checkpointed reference:
-  **PASS**
-- G seed 15 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- OFF seed 15 (ACh driven, read only by gain-0 maps) vs checkpointed reference:
-  **PASS**
+- G seed 1 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- OFF seed 1 (ACh driven, read only by gain-0 maps) vs checkpointed reference: **PASS**
+- G seed 2 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- OFF seed 2 (ACh driven, read only by gain-0 maps) vs checkpointed reference: **PASS**
+- G seed 3 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- OFF seed 3 (ACh driven, read only by gain-0 maps) vs checkpointed reference: **PASS**
+- G seed 4 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- OFF seed 4 (ACh driven, read only by gain-0 maps) vs checkpointed reference: **PASS**
+- G seed 5 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- OFF seed 5 (ACh driven, read only by gain-0 maps) vs checkpointed reference: **PASS**
+- G seed 11 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- OFF seed 11 (ACh driven, read only by gain-0 maps) vs checkpointed reference: **PASS**
+- G seed 12 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- OFF seed 12 (ACh driven, read only by gain-0 maps) vs checkpointed reference: **PASS**
+- G seed 13 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- OFF seed 13 (ACh driven, read only by gain-0 maps) vs checkpointed reference: **PASS**
+- G seed 14 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- OFF seed 14 (ACh driven, read only by gain-0 maps) vs checkpointed reference: **PASS**
+- G seed 15 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- OFF seed 15 (ACh driven, read only by gain-0 maps) vs checkpointed reference: **PASS**
 - F seed 1 (fresh B5 winner) vs checkpointed reference: **PASS**
 - G seed 1 vs F, bit for bit (topology, permanence, weight hashes): **PASS**
 - OFF seed 1 vs F, bit for bit (topology, permanence, weight hashes): **PASS**
-- X seed 1 (both maps live, ACh held at the reference) vs its gain-0 twin, bit
-  for bit: **PASS**
+- X seed 1 (both maps live, ACh held at the reference) vs its gain-0 twin, bit for bit: **PASS**
 - F seed 11 (fresh B5 winner) vs checkpointed reference: **PASS**
 - G seed 11 vs F, bit for bit (topology, permanence, weight hashes): **PASS**
 - OFF seed 11 vs F, bit for bit (topology, permanence, weight hashes): **PASS**
-- X seed 11 (both maps live, ACh held at the reference) vs its gain-0 twin, bit
-  for bit: **PASS**
+- X seed 11 (both maps live, ACh held at the reference) vs its gain-0 twin, bit for bit: **PASS**
 
 All controls PASS.
 
 ## 2. What this task can and cannot exhibit: the spared pathway
 
-VAL-4 stimulates its column directly (`stimulateSdr`) and wires its whole
-recurrent web onto dendritic segments, so it has almost no feedforward
-_synapses_ to spare. The FF row is OFF plus a gain-0 map on the **feedforward**
-role as well, so its `events` count is every delivery of either role; OFF's is
-the recurrent ones alone. The difference is the spared pathway's size.
+VAL-4 stimulates its column directly (`stimulateSdr`) and wires its whole recurrent web onto dendritic segments, so it has almost no feedforward _synapses_ to spare. The FF row is OFF plus a gain-0 map on the **feedforward** role as well, so its `events` count is every delivery of either role; OFF's is the recurrent ones alone. The difference is the spared pathway's size.
 
 | seed | recurrent deliveries (OFF) | all deliveries (FF) | feedforward share |
 | ---- | -------------------------- | ------------------- | ----------------- |
 | 1    | 122568287                  | 122568287           | 0.000%            |
 | 11   | 123624382                  | 123624382           | 0.000%            |
 
-So "leaving feedforward delivery untouched" is close to vacuous here, exactly as
-PLAN.md C9's prompt anticipated. The spared-pathway contrast itself is asserted
-on a network that has both pathways, in
-`crates/brain-core/tests/transmission_modulation.rs`.
+So "leaving feedforward delivery untouched" is close to vacuous here, exactly as PLAN.md C9's prompt anticipated. The spared-pathway contrast itself is asserted on a network that has both pathways, in `crates/brain-core/tests/transmission_modulation.rs`.
 
 ## 3. The measured reference, and what acetylcholine did
 
-Acetylcholine sampled after every character (between ticks). Medians by third of
-the run:
+Acetylcholine sampled after every character (between ticks). Medians by third of the run:
 
 | row | seed | first third | middle third | last third (5-95%)     |
 | --- | ---- | ----------- | ------------ | ---------------------- |
@@ -109,14 +75,11 @@ the run:
 | TP  | 14   | 1.9796      | 1.8855       | 1.3980 (1.3895-1.4730) |
 | TP  | 15   | 1.9789      | 1.9000       | 1.3984 (1.3951-1.5094) |
 
-**reference = 1.4565618470117512** (median of the selection seeds' last-third
-medians, 1.45802, 1.46393, 1.44901, 1.45038, 1.47943, times exp(-1/1000)).
+**reference = 1.4565618470117512** (median of the selection seeds' last-third medians, 1.45802, 1.46393, 1.44901, 1.45038, 1.47943, times exp(-1/1000)).
 
 ## 4. The comparisons
 
-Paired seed by seed. Threshold (pre-registered): an effect only if |mean
-change| >= 1.0 point with the same sign on both seed sets. "Always guess space"
-is **16.56%**.
+Paired seed by seed. Threshold (pre-registered): an effect only if |mean change| >= 1.0 point with the same sign on both seed sets. "Always guess space" is **16.56%**.
 
 ### 1. TP vs OFF -- the pair the evidence describes
 
@@ -205,8 +168,7 @@ is **16.56%**.
 
 ## 5. What the two mechanisms did
 
-The transmission gate, per arm -- "the gate was configured" and "transmission
-actually changed" are different claims:
+The transmission gate, per arm -- "the gate was configured" and "transmission actually changed" are different claims:
 
 | arm | seed | deliveries gated | scaled | silenced | min scale | max scale |
 | --- | ---- | ---------------- | ------ | -------- | --------- | --------- |
@@ -298,14 +260,9 @@ The STDP hook, per arm (the recurrent chain's own counters):
 
 ## Verdict
 
-- **1. TP vs OFF -- the pair the evidence describes: NO EFFECT by the
-  pre-registered rule (-0.52 on seeds 1-5, +0.63 on 11-15).**
-- **2. T1 vs OFF -- the transmission half alone: an EFFECT by the pre-registered
-  rule (-12.69 and -11.44 points).**
-- **3. P1 vs OFF -- the plasticity half alone: NO EFFECT by the pre-registered
-  rule (-1.38 on seeds 1-5, +0.07 on 11-15).**
-- **4. TP vs T1 -- what the plasticity half adds on top of the transmission
-  half: an EFFECT by the pre-registered rule (+12.17 and +12.07 points).**
-- **5. T05 vs OFF -- the half dose: NO EFFECT by the pre-registered rule (-1.40
-  on seeds 1-5, +0.15 on 11-15).**
+- **1. TP vs OFF -- the pair the evidence describes: NO EFFECT by the pre-registered rule (-0.52 on seeds 1-5, +0.63 on 11-15).**
+- **2. T1 vs OFF -- the transmission half alone: an EFFECT by the pre-registered rule (-12.69 and -11.44 points).**
+- **3. P1 vs OFF -- the plasticity half alone: NO EFFECT by the pre-registered rule (-1.38 on seeds 1-5, +0.07 on 11-15).**
+- **4. TP vs T1 -- what the plasticity half adds on top of the transmission half: an EFFECT by the pre-registered rule (+12.17 and +12.07 points).**
+- **5. T05 vs OFF -- the half dose: NO EFFECT by the pre-registered rule (-1.40 on seeds 1-5, +0.15 on 11-15).**
 - Lowest TP seed: 17.80% against the 16.56% bar.

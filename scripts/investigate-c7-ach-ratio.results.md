@@ -1,73 +1,45 @@
 # PLAN.md C7 -- acetylcholine sets the LTP/LTD ratio: the pre-registered VAL-4 measurement
 
-Generated 2026-09-22T07:02:43.968Z. 15000 characters per trial, B5's winner as
-the base, accuracy is the harness's 2,000-character sliding window at the end of
-the run. Every choice below was written into the script header before any trial
-ran.
+Generated 2026-09-22T07:02:43.968Z. 15000 characters per trial, B5's winner as the base, accuracy is the harness's 2,000-character sliding window at the end of the run. Every choice below was written into the script header before any trial ran.
 
 ## 1. B5's figures, reproduced, and the exactness controls -- all must PASS before section 3 is read
 
-Reference (checkpointed B5 winner): seeds 1-5 mean **20.36%** (B5: 20.36%),
-seeds 11-15 **19.05%** (B5: 19.05%), seeds 1 / 2 / 3 19.85% / 20.50% / 21.10%
-(B5: 19.85 / 20.50 / 21.10%).
+Reference (checkpointed B5 winner): seeds 1-5 mean **20.36%** (B5: 20.36%), seeds 11-15 **19.05%** (B5: 19.05%), seeds 1 / 2 / 3 19.85% / 20.50% / 21.10% (B5: 19.85 / 20.50 / 21.10%).
 
-- G seed 1 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- M seed 1 (ACh driven, read only by a gain-0 map) vs checkpointed reference:
-  **PASS**
-- G seed 2 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- M seed 2 (ACh driven, read only by a gain-0 map) vs checkpointed reference:
-  **PASS**
-- G seed 3 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- M seed 3 (ACh driven, read only by a gain-0 map) vs checkpointed reference:
-  **PASS**
-- G seed 4 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- M seed 4 (ACh driven, read only by a gain-0 map) vs checkpointed reference:
-  **PASS**
-- G seed 5 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- M seed 5 (ACh driven, read only by a gain-0 map) vs checkpointed reference:
-  **PASS**
-- G seed 11 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- M seed 11 (ACh driven, read only by a gain-0 map) vs checkpointed reference:
-  **PASS**
-- G seed 12 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- M seed 12 (ACh driven, read only by a gain-0 map) vs checkpointed reference:
-  **PASS**
-- G seed 13 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- M seed 13 (ACh driven, read only by a gain-0 map) vs checkpointed reference:
-  **PASS**
-- G seed 14 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- M seed 14 (ACh driven, read only by a gain-0 map) vs checkpointed reference:
-  **PASS**
-- G seed 15 (cash-in on held serotonin) vs checkpointed reference, accuracy +
-  structural totals: **PASS**
-- M seed 15 (ACh driven, read only by a gain-0 map) vs checkpointed reference:
-  **PASS**
+- G seed 1 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- M seed 1 (ACh driven, read only by a gain-0 map) vs checkpointed reference: **PASS**
+- G seed 2 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- M seed 2 (ACh driven, read only by a gain-0 map) vs checkpointed reference: **PASS**
+- G seed 3 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- M seed 3 (ACh driven, read only by a gain-0 map) vs checkpointed reference: **PASS**
+- G seed 4 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- M seed 4 (ACh driven, read only by a gain-0 map) vs checkpointed reference: **PASS**
+- G seed 5 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- M seed 5 (ACh driven, read only by a gain-0 map) vs checkpointed reference: **PASS**
+- G seed 11 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- M seed 11 (ACh driven, read only by a gain-0 map) vs checkpointed reference: **PASS**
+- G seed 12 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- M seed 12 (ACh driven, read only by a gain-0 map) vs checkpointed reference: **PASS**
+- G seed 13 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- M seed 13 (ACh driven, read only by a gain-0 map) vs checkpointed reference: **PASS**
+- G seed 14 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- M seed 14 (ACh driven, read only by a gain-0 map) vs checkpointed reference: **PASS**
+- G seed 15 (cash-in on held serotonin) vs checkpointed reference, accuracy + structural totals: **PASS**
+- M seed 15 (ACh driven, read only by a gain-0 map) vs checkpointed reference: **PASS**
 - F seed 1 (fresh B5 winner) vs checkpointed reference: **PASS**
 - G seed 1 vs F, bit for bit (topology, permanence, weight hashes): **PASS**
 - M seed 1 vs F, bit for bit (topology, permanence, weight hashes): **PASS**
-- X (INV3's map, ACh held exactly at the reference) seed 1 vs F, bit for bit
-  (topology, permanence, weight hashes): **PASS**
+- X (INV3's map, ACh held exactly at the reference) seed 1 vs F, bit for bit (topology, permanence, weight hashes): **PASS**
 - F seed 11 (fresh B5 winner) vs checkpointed reference: **PASS**
 - G seed 11 vs F, bit for bit (topology, permanence, weight hashes): **PASS**
 - M seed 11 vs F, bit for bit (topology, permanence, weight hashes): **PASS**
-- X (INV3's map, ACh held exactly at the reference) seed 11 vs F, bit for bit
-  (topology, permanence, weight hashes): **PASS**
+- X (INV3's map, ACh held exactly at the reference) seed 11 vs F, bit for bit (topology, permanence, weight hashes): **PASS**
 
 All controls PASS.
 
 ## 2. The measured reference, and what acetylcholine did
 
-Acetylcholine sampled after every character (between ticks). Medians by third of
-the run:
+Acetylcholine sampled after every character (between ticks). Medians by third of the run:
 
 | row  | seed | first third | middle third | last third (5-95%)     |
 | ---- | ---- | ----------- | ------------ | ---------------------- |
@@ -92,14 +64,11 @@ the run:
 | INV3 | 14   | 1.9317      | 1.7980       | 1.7638 (1.7368-1.7876) |
 | INV3 | 15   | 1.9275      | 1.8082       | 1.7700 (1.7371-1.7861) |
 
-**reference = 1.4565618470117512** (median of the selection seeds' last-third
-medians, 1.45802, 1.46393, 1.44901, 1.45038, 1.47943, times exp(-1/1000)).
+**reference = 1.4565618470117512** (median of the selection seeds' last-third medians, 1.45802, 1.46393, 1.44901, 1.45038, 1.47943, times exp(-1/1000)).
 
 ## 3. The comparisons
 
-Paired seed by seed. Threshold (pre-registered): an effect only if |mean
-change| >= 1.0 point with the same sign on both seed sets. "Always guess space"
-is **16.56%**.
+Paired seed by seed. Threshold (pre-registered): an effect only if |mean change| >= 1.0 point with the same sign on both seed sets. "Always guess space" is **16.56%**.
 
 ### 1. INV3 vs R -- the modulator-driven ratio against the tuned constant
 
@@ -231,19 +200,13 @@ is **16.56%**.
 | SHARED3 | 14   | 210549521 | 99.34%     | 7.572%        | -0.5668   |
 | SHARED3 | 15   | 210784699 | 99.35%     | 7.758%        | -0.5674   |
 
-"Pairings" is every STDP kernel evaluation over the run; "sign inverted" the
-share at which a causal pairing laid down depression.
+"Pairings" is every STDP kernel evaluation over the run; "sign inverted" the share at which a causal pairing laid down depression.
 
 ## Verdict
 
-- **1. INV3 vs R -- the modulator-driven ratio against the tuned constant: an
-  EFFECT by the pre-registered rule (-19.30 and -17.36 points).**
-- **2. INV3 vs SUP3 -- the sign inversion itself: NO EFFECT by the
-  pre-registered rule (-0.77 on seeds 1-5, -0.30 on 11-15).**
-- **3. INV1.5 vs R -- the low dose: an EFFECT by the pre-registered rule (-16.29
-  and -14.66 points).**
-- **4. V vs R -- the channel now varies (shared wiring, no map): NO EFFECT by
-  the pre-registered rule (-0.72 on seeds 1-5, +1.40 on 11-15).**
-- **5. SHARED3 vs V -- the channel now does something, on the shipped wiring: an
-  EFFECT by the pre-registered rule (-17.98 and -17.90 points).**
+- **1. INV3 vs R -- the modulator-driven ratio against the tuned constant: an EFFECT by the pre-registered rule (-19.30 and -17.36 points).**
+- **2. INV3 vs SUP3 -- the sign inversion itself: NO EFFECT by the pre-registered rule (-0.77 on seeds 1-5, -0.30 on 11-15).**
+- **3. INV1.5 vs R -- the low dose: an EFFECT by the pre-registered rule (-16.29 and -14.66 points).**
+- **4. V vs R -- the channel now varies (shared wiring, no map): NO EFFECT by the pre-registered rule (-0.72 on seeds 1-5, +1.40 on 11-15).**
+- **5. SHARED3 vs V -- the channel now does something, on the shipped wiring: an EFFECT by the pre-registered rule (-17.98 and -17.90 points).**
 - Lowest INV3 seed: 0.50% against the 16.56% bar.

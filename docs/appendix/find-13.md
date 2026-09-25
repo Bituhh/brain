@@ -1,7 +1,6 @@
 # Data: finding 13
 
-Raw data tables for [`findings.md`](../findings.md) finding 13 — Four mechanisms
-are built, tested and reachable from no caller — found 2026-09-13, same.
+Raw data tables for [`findings.md`](../findings.md) finding 13 — Four mechanisms are built, tested and reachable from no caller — found 2026-09-13, same.
 
 ---
 

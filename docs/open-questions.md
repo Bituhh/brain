@@ -1,425 +1,95 @@
 # Open questions
 
-Genuinely undecided or unbuilt design questions — what this project has not yet
-settled. A question is only listed here while it stays open; once it is resolved
-it belongs in [`decisions.md`](decisions.md) (a design call) or
-[`findings.md`](findings.md) (a bug found and fixed), not here.
+Genuinely undecided or unbuilt design questions — what this project has not yet settled. A question is only listed here while it stays open; once it is resolved it belongs in [`decisions.md`](decisions.md) (a design call) or [`findings.md`](findings.md) (a bug found and fixed), not here.
 
-**Related files:** [`decisions.md`](decisions.md), [`findings.md`](findings.md),
-[`prior-art.md`](prior-art.md) for the evidence a question is weighed against.
+**Related files:** [`decisions.md`](decisions.md), [`findings.md`](findings.md), [`prior-art.md`](prior-art.md) for the evidence a question is weighed against.
 
 ---
 
-1. **Scale ceiling — partially resolved 2026-09-10 (Phase 4 Step 23), against
-   ENG-11's two separate targets.**
+1. **Scale ceiling — partially resolved 2026-09-10 (Phase 4 Step 23), against ENG-11's two separate targets.**
 
-   **Memory (target: 100k neurons / 50M synapses resident on a workstation).**
-   Met, with wide headroom. `crates/brain-core/tests/scale.rs` (`#[ignore]`d,
-   `npm run test:slow`) builds exactly 100,000 neurons and 50,000,000 synapses
-   (500 synapses/neuron, deterministic ring wiring rather than
-   `DistancePolicy`'s O(population²) connectivity, which is computationally
-   infeasible at this size and beside this test's point) and reports
-   `NeuronArena`/`SynapseArena`'s own `approx_memory_bytes()` (summed
-   `Vec::capacity()`, no OS-specific `/proc` parsing, no new dependency —
-   ENG-6). Measured: **5.8 MB** for the neurons, **1,485.1 MB** for the
-   synapses, **≈1.46 GB total** — comfortably within any modern workstation's
-   RAM, let alone the WASM32 build's 4 GB address-space ceiling this section
-   used to worry about first.
+   **Memory (target: 100k neurons / 50M synapses resident on a workstation).** Met, with wide headroom. `crates/brain-core/tests/scale.rs` (`#[ignore]`d, `npm run test:slow`) builds exactly 100,000 neurons and 50,000,000 synapses (500 synapses/neuron, deterministic ring wiring rather than `DistancePolicy`'s O(population²) connectivity, which is computationally infeasible at this size and beside this test's point) and reports `NeuronArena`/`SynapseArena`'s own `approx_memory_bytes()` (summed `Vec::capacity()`, no OS-specific `/proc` parsing, no new dependency — ENG-6). Measured: **5.8 MB** for the neurons, **1,485.1 MB** for the synapses, **≈1.46 GB total** — comfortably within any modern workstation's RAM, let alone the WASM32 build's 4 GB address-space ceiling this section used to worry about first.
 
-   **Throughput (target: ≥1M synaptic events/second/core).** Not met at the
-   network size this benchmark tests, and _why not_ is now a specific, measured
-   answer rather than an open question.
-   `crates/brain-core/benches/core_bench.rs`'s
-   `bench_synaptic_events_per_second` group drives two
-   16-column/200-neuron-column (3,200-neuron) networks — one column-free/flat,
-   one built from the Step 14 column primitive with inhibition and segments
-   attached — at saturating input (every neuron re-stimulated every tick) across
-   thread counts 1/2/4/8/20 (this machine's
-   `std::thread::available_parallelism()`), and reports total events/second via
-   `Throughput::Elements`. Results (thread count → events/second):
+   **Throughput (target: ≥1M synaptic events/second/core).** Not met at the network size this benchmark tests, and _why not_ is now a specific, measured answer rather than an open question. `crates/brain-core/benches/core_bench.rs`'s `bench_synaptic_events_per_second` group drives two 16-column/200-neuron-column (3,200-neuron) networks — one column-free/flat, one built from the Step 14 column primitive with inhibition and segments attached — at saturating input (every neuron re-stimulated every tick) across thread counts 1/2/4/8/20 (this machine's `std::thread::available_parallelism()`), and reports total events/second via `Throughput::Elements`. Results (thread count → events/second):
 
    Full data: [`docs/appendix/oq-1.md`](appendix/oq-1.md).
 
-   The flat network hits ENG-11's ≥1M/second bar on a _single_ core, but
-   per-core throughput falls as threads increase (8 threads: ~2.03 Melem/s total
-   ÷ 8 ≈ 254 Kelem/s/core, a quarter of the single-core figure; 20 threads
-   regresses in absolute terms too). The column network's inhibition (k-WTA
-   suppresses most candidates every tick) and segment evaluation overhead pull
-   it well below 1M/second even single-threaded. Neither result should be read
-   as "partitioning doesn't scale" — 3,200 neurons split across 8+ partitions
-   gives each partition only a few hundred neurons, so
-   `PartitionRuntime::step`'s fixed per-tick, per-partition bookkeeping (the
-   stage 0/1/2/3 pipeline, the merge phase, the boundary-neuron table) stops
-   being amortised against enough real per-neuron work and starts dominating the
-   measurement — a small-network artifact of _this_ benchmark's size, not
-   necessarily evidence about behaviour at ENG-11's actual 100k-neuron target,
-   which `bench_cross_partition_fraction` (below) and `tests/scale.rs` together
-   suggest is reachable in memory but has **not yet been throughput-benchmarked
-   directly** (running the full 1M-events/second/core check at 100k neurons /
-   50M synapses, with real thread scaling, is the concrete follow-up this leaves
-   open — not attempted here because building that network via `DistancePolicy`
-   is O(population²) and the ring-wiring shortcut `tests/scale.rs` uses to reach
-   50M synapses cheaply produces a topology with no meaningful locality, which
-   would make any partitioning-quality throughput number measured on it
-   misleading rather than informative).
+   The flat network hits ENG-11's ≥1M/second bar on a _single_ core, but per-core throughput falls as threads increase (8 threads: ~2.03 Melem/s total ÷ 8 ≈ 254 Kelem/s/core, a quarter of the single-core figure; 20 threads regresses in absolute terms too). The column network's inhibition (k-WTA suppresses most candidates every tick) and segment evaluation overhead pull it well below 1M/second even single-threaded. Neither result should be read as "partitioning doesn't scale" — 3,200 neurons split across 8+ partitions gives each partition only a few hundred neurons, so `PartitionRuntime::step`'s fixed per-tick, per-partition bookkeeping (the stage 0/1/2/3 pipeline, the merge phase, the boundary-neuron table) stops being amortised against enough real per-neuron work and starts dominating the measurement — a small-network artifact of _this_ benchmark's size, not necessarily evidence about behaviour at ENG-11's actual 100k-neuron target, which `bench_cross_partition_fraction` (below) and `tests/scale.rs` together suggest is reachable in memory but has **not yet been throughput-benchmarked directly** (running the full 1M-events/second/core check at 100k neurons / 50M synapses, with real thread scaling, is the concrete follow-up this leaves open — not attempted here because building that network via `DistancePolicy` is O(population²) and the ring-wiring shortcut `tests/scale.rs` uses to reach 50M synapses cheaply produces a topology with no meaningful locality, which would make any partitioning-quality throughput number measured on it misleading rather than informative).
 
-   **Follow-up measured, 2026-09-12 (Phase 7, Requirement 1(c)):** the
-   O(population²) wall above applies to a single whole-network `connect` call,
-   not to `GraphBuilder::connect`ing many columns independently — each column's
-   own wiring cost is O(column_size²) regardless of how many columns exist, so a
-   genuinely locality-realistic topology at a _larger_ (if not yet the full
-   100k) scale is cheap to build.
-   `bench_locality_realistic_synaptic_events_per_second`
-   (`crates/brain-core/benches/core_bench.rs`) reuses Requirement 1(a)/(b)'s own
-   validated topology fixture (`tests/common/build_scale_columns`) at 32 columns
-   × 200 neurons (6,400 neurons — double the table above's 3,200), with the same
-   thin cross-column ring `build_benchmark_network` uses and no dendritic
-   segments attached (matching Requirement 1(a)/(b)'s own validated
-   configuration exactly, not a superficially similar one). Results (thread
-   count → events/second):
+   **Follow-up measured, 2026-09-12 (Phase 7, Requirement 1(c)):** the O(population²) wall above applies to a single whole-network `connect` call, not to `GraphBuilder::connect`ing many columns independently — each column's own wiring cost is O(column_size²) regardless of how many columns exist, so a genuinely locality-realistic topology at a _larger_ (if not yet the full 100k) scale is cheap to build. `bench_locality_realistic_synaptic_events_per_second` (`crates/brain-core/benches/core_bench.rs`) reuses Requirement 1(a)/(b)'s own validated topology fixture (`tests/common/build_scale_columns`) at 32 columns × 200 neurons (6,400 neurons — double the table above's 3,200), with the same thin cross-column ring `build_benchmark_network` uses and no dendritic segments attached (matching Requirement 1(a)/(b)'s own validated configuration exactly, not a superficially similar one). Results (thread count → events/second):
 
    Full data: [`docs/appendix/oq-1.md`](appendix/oq-1.md).
 
-   Doubling network scale genuinely changes the shape of the curve, not just its
-   absolute level: throughput now _rises_ from 1→2→4→8 threads (237 → 361 → 490
-   → 506 Kelem/s) before regressing at 20 threads, rather than falling almost
-   immediately the way the 3,200-neuron column network above does. Per-core
-   throughput still degrades with thread count (8 threads: 505.94 Kelem/s ÷ 8 ≈
-   63.2 Kelem/s/core, about a quarter of the single-core figure — the same
-   _proportional_ degradation as the smaller benchmark), and the absolute
-   numbers remain far below ENG-11's ≥1M/second/core target regardless of thread
-   count. This is evidence _for_ the "small-network artifact" explanation above
-   (doubling scale measurably helps peak throughput and pushes the regression
-   point from 4 threads out to 8), not evidence the target is close to being met
-   — the real 100k-neuron measurement remains the open follow-up; 6,400 neurons
-   is a data point on the way there, not a substitute for it.
-   `LOCALITY_COLUMN_COUNT`'s own doc comment names going further (more columns,
-   still linear construction cost) as the concrete next step if a future pass
-   wants to press this further.
+   Doubling network scale genuinely changes the shape of the curve, not just its absolute level: throughput now _rises_ from 1→2→4→8 threads (237 → 361 → 490 → 506 Kelem/s) before regressing at 20 threads, rather than falling almost immediately the way the 3,200-neuron column network above does. Per-core throughput still degrades with thread count (8 threads: 505.94 Kelem/s ÷ 8 ≈ 63.2 Kelem/s/core, about a quarter of the single-core figure — the same _proportional_ degradation as the smaller benchmark), and the absolute numbers remain far below ENG-11's ≥1M/second/core target regardless of thread count. This is evidence _for_ the "small-network artifact" explanation above (doubling scale measurably helps peak throughput and pushes the regression point from 4 threads out to 8), not evidence the target is close to being met — the real 100k-neuron measurement remains the open follow-up; 6,400 neurons is a data point on the way there, not a substitute for it. `LOCALITY_COLUMN_COUNT`'s own doc comment names going further (more columns, still linear construction cost) as the concrete next step if a future pass wants to press this further.
 
-   **Cross-partition overhead (Requirement 10 AC4, Requirement 6 AC2).**
-   `bench_cross_partition_fraction` holds the column network and total thread
-   count (4) fixed and varies only the partition count (2/4/8/16, always a
-   divisor of the 16-column count so no column is ever split), reporting
-   `PartitionPlan::cross_partition_edge_fraction` alongside timing:
+   **Cross-partition overhead (Requirement 10 AC4, Requirement 6 AC2).** `bench_cross_partition_fraction` holds the column network and total thread count (4) fixed and varies only the partition count (2/4/8/16, always a divisor of the 16-column count so no column is ever split), reporting `PartitionPlan::cross_partition_edge_fraction` alongside timing:
 
    Full data: [`docs/appendix/oq-1.md`](appendix/oq-1.md).
 
-   Time improves from 2→4 partitions (more of the fixed 4-thread pool actually
-   used), then is roughly flat 4→8 (partition count exceeding thread count stops
-   buying parallelism, but cross-partition messaging overhead is still small
-   enough not to show up), then rises slightly 8→16 as the cross-partition edge
-   fraction approaches 10% — a small but real, directionally expected cost, not
-   a cliff.
+   Time improves from 2→4 partitions (more of the fixed 4-thread pool actually used), then is roughly flat 4→8 (partition count exceeding thread count stops buying parallelism, but cross-partition messaging overhead is still small enough not to show up), then rises slightly 8→16 as the cross-partition edge fraction approaches 10% — a small but real, directionally expected cost, not a cliff.
 
-2. **Fast one-shot binding (hippocampus-like) — confirmed 2026-09-10 as _needs
-   an early decision_, and the window is open right now. Now LRN-12; decided and
-   designed in Phase 5, built in Phase 5.5 if that design concludes it is
-   needed.**
+2. **Fast one-shot binding (hippocampus-like) — confirmed 2026-09-10 as _needs an early decision_, and the window is open right now. Now LRN-12; decided and designed in Phase 5, built in Phase 5.5 if that design concludes it is needed.**
 
-   docs/prior-art.md §2.9 and LRN-10 assume a "fast storage" that gets replayed
-   into slow cortical storage during consolidation, but nothing in §3–§9
-   specifies what performs that fast, one-shot binding — sparse pattern
-   separation plus near-instant potentiation on a single coincidence, unlike
-   SYN-3's gradually-accumulating permanence. Reading the core sharpens this
-   into four findings, two of which change what the decision actually is.
+   docs/prior-art.md §2.9 and LRN-10 assume a "fast storage" that gets replayed into slow cortical storage during consolidation, but nothing in §3–§9 specifies what performs that fast, one-shot binding — sparse pattern separation plus near-instant potentiation on a single coincidence, unlike SYN-3's gradually-accumulating permanence. Reading the core sharpens this into four findings, two of which change what the decision actually is.
 
-   **(a) LRN-10 now _does_ have a defined replay source, and it is the wrong
-   shape.** This entry used to say it had none; that is no longer true, because
-   Phase 5's design pins `run_consolidation(..., raster: &SpikeRaster, ...)` and
-   replays recorded events through `commit_spike`. That is a tape recorder, not
-   a fast store: no pattern separation, no one-shot binding, no consolidation
-   _from a separate representation_. It satisfies LRN-10 literally while
-   bypassing the mechanism this item is about — and it is exactly the interface
-   commitment this item warned against. It is also still free to avoid, because
-   nothing is implemented yet. The minimum decision is **not** "build the fast
-   store": it is "make the replay source an abstraction rather than a concrete
-   `&SpikeRaster`, and shape `ConsolidationParams` to match." That costs an
-   afternoon now; after `runConsolidation` ships it means changing a core
-   signature, a `#[napi(object)]` shape, and every test citing the requirement.
+   **(a) LRN-10 now _does_ have a defined replay source, and it is the wrong shape.** This entry used to say it had none; that is no longer true, because Phase 5's design pins `run_consolidation(..., raster: &SpikeRaster, ...)` and replays recorded events through `commit_spike`. That is a tape recorder, not a fast store: no pattern separation, no one-shot binding, no consolidation _from a separate representation_. It satisfies LRN-10 literally while bypassing the mechanism this item is about — and it is exactly the interface commitment this item warned against. It is also still free to avoid, because nothing is implemented yet. The minimum decision is **not** "build the fast store": it is "make the replay source an abstraction rather than a concrete `&SpikeRaster`, and shape `ConsolidationParams` to match." That costs an afternoon now; after `runConsolidation` ships it means changing a core signature, a `#[napi(object)]` shape, and every test citing the requirement.
 
-   **(b) `PlasticityRule` structurally cannot host this — and there is already a
-   precedent for where it goes instead.** A rule sees only `LocalContext` (two
-   `NeuronLocal` copies, modulators, tick) and `SynapseMut` (four borrowed
-   scalars): no synapse id, no arena, no population view. Pattern separation is
-   unreachable from there _by construction_, and deliberately so (invariant 1).
-   But `plasticity/predictive.rs` already establishes the escape hatch —
-   `adjust_segment_permanence` and `reinforce_or_sprout_burst` write
-   `synapses.permanence[id]` directly, outside the rule interface, as a
-   scheduler-invoked module. A fast store following that precedent does **not**
-   violate invariant 1, which is worth settling explicitly because it is the
-   obvious first objection.
+   **(b) `PlasticityRule` structurally cannot host this — and there is already a precedent for where it goes instead.** A rule sees only `LocalContext` (two `NeuronLocal` copies, modulators, tick) and `SynapseMut` (four borrowed scalars): no synapse id, no arena, no population view. Pattern separation is unreachable from there _by construction_, and deliberately so (invariant 1). But `plasticity/predictive.rs` already establishes the escape hatch — `adjust_segment_permanence` and `reinforce_or_sprout_burst` write `synapses.permanence[id]` directly, outside the rule interface, as a scheduler-invoked module. A fast store following that precedent does **not** violate invariant 1, which is worth settling explicitly because it is the obvious first objection.
 
-   **(c) A sub-threshold "potential" synapse is currently a dead end.**
-   `deliver` skips synapses below `connection_threshold` with `continue`
-   _before_ calling `on_delivery`, and `on_post_spike`'s STDP contribution is
-   gated on `last_active != u32::MAX`, which only delivery ever writes. So a
-   synapse below threshold can never be potentiated by activity — structural
-   plasticity's own sprouts (deliberately sub-threshold) are inert unless
-   something writes their permanence directly, and `tests/emergent.rs` already
-   works around this by drawing initial permanences mostly above threshold. For
-   LRN-12 this is _good_ news: one-shot binding means writing permanence to 1.0
-   via `SynapseArena::insert`, so **SYN-3's [0,1] scalar is not the blocker this
-   item implied.**
+   **(c) A sub-threshold "potential" synapse is currently a dead end.** `deliver` skips synapses below `connection_threshold` with `continue` _before_ calling `on_delivery`, and `on_post_spike`'s STDP contribution is gated on `last_active != u32::MAX`, which only delivery ever writes. So a synapse below threshold can never be potentiated by activity — structural plasticity's own sprouts (deliberately sub-threshold) are inert unless something writes their permanence directly, and `tests/emergent.rs` already works around this by drawing initial permanences mostly above threshold. For LRN-12 this is _good_ news: one-shot binding means writing permanence to 1.0 via `SynapseArena::insert`, so **SYN-3's [0,1] scalar is not the blocker this item implied.**
 
-   **(d) The invariant that actually bites is `cap_per_neuron`, and Phase 4 is
-   what made it expensive.** `SynapseArena::new(cap_per_neuron)` takes a
-   **single constant for the whole network**; a synapse id is
-   `source * cap_per_neuron + slot` and `source_of(id) = id / cap_per_neuron`. A
-   fast store wants high fan-out for pattern separation, and raising the cap
-   raises it for _every_ neuron: 500/neuron × 100k neurons is already the
-   measured 1.46 GB, so a store wanting 4,000/neuron on even a small dedicated
-   population multiplies synapse memory roughly eightfold, paid by the 98% of
-   neurons that do not need it. Fixing that later means either a second
-   `SynapseArena` — which drags in `split_views_mut`'s
-   neuron-range→synapse-range derivation, `boundary_neurons`,
-   `PartitionRuntime::step`'s single `synapses` parameter, `snapshot.rs`'s
-   `FORMAT_VERSION`, and every `Scheduler` method taking a `SynapseArenaViewMut`
-   — or a variable-block arena, which breaks the `id / cap_per_neuron`
-   derivation that cross-partition `on_post_spike` routing depends on. **Neither
-   was expensive before Phase 4 shipped; both are now.** This, rather than the
-   interface-shape argument, is the concrete reason waiting costs more, and it
-   is the thing to settle in Phase 5's design even if no fast store is built for
-   another two phases.
+   **(d) The invariant that actually bites is `cap_per_neuron`, and Phase 4 is what made it expensive.** `SynapseArena::new(cap_per_neuron)` takes a **single constant for the whole network**; a synapse id is `source * cap_per_neuron + slot` and `source_of(id) = id / cap_per_neuron`. A fast store wants high fan-out for pattern separation, and raising the cap raises it for _every_ neuron: 500/neuron × 100k neurons is already the measured 1.46 GB, so a store wanting 4,000/neuron on even a small dedicated population multiplies synapse memory roughly eightfold, paid by the 98% of neurons that do not need it. Fixing that later means either a second `SynapseArena` — which drags in `split_views_mut`'s neuron-range→synapse-range derivation, `boundary_neurons`, `PartitionRuntime::step`'s single `synapses` parameter, `snapshot.rs`'s `FORMAT_VERSION`, and every `Scheduler` method taking a `SynapseArenaViewMut` — or a variable-block arena, which breaks the `id / cap_per_neuron` derivation that cross-partition `on_post_spike` routing depends on. **Neither was expensive before Phase 4 shipped; both are now.** This, rather than the interface-shape argument, is the concrete reason waiting costs more, and it is the thing to settle in Phase 5's design even if no fast store is built for another two phases.
 
-3. **Three things LRN-10's replay is not, found 2026-09-19 while wiring
-   consolidation into a real experiment (PLAN.md C1) — recorded, deliberately
-   not fixed there.** C1's question was whether sleeping helps VAL-4; it does
-   not (docs/findings.md finding 13). These three are what that measurement
-   exposed about the mechanism itself, and each is its own scoped piece of work
-   rather than a knob on the one C1 measured.
+3. **Three things LRN-10's replay is not, found 2026-09-19 while wiring consolidation into a real experiment (PLAN.md C1) — recorded, deliberately not fixed there.** C1's question was whether sleeping helps VAL-4; it does not (docs/findings.md finding 13). These three are what that measurement exposed about the mechanism itself, and each is its own scoped piece of work rather than a knob on the one C1 measured.
 
-   **(a) Replay is not the learning the live path does.**
-   `Scheduler::commit_and_schedule` runs STDP and delivery scheduling for a
-   replayed spike but, by its own documented decision, not predictive-learning
-   classification — a replayed event has no dendritic-segment evaluation, so
-   `predictive_before` has no well-defined value. Replay also never calls
-   `step()`, so none of the periodic sweeps (`HomeostaticScaling`,
-   `StructuralPlasticity`, segment-threshold homeostasis) runs during a replayed
-   span, while `self.tick` advances past the schedule each of them gates on. One
-   sleep at C1's reference cadence is therefore roughly 1,500 ticks of
-   STDP-only, unregulated learning. C1 measured the consequence directly: with
-   the online LRN-6 sweep left on, a 750-character cadence costs 1.69 points on
-   selection seeds and gains 0.09 on confirmation seeds; with it off, the same
-   cadence costs 8.32 and 7.45. Making replay run the _same_ learning a live
-   tick runs is a real design question (which sweeps should fire on a virtual
-   clock? what is a replayed spike's predictive context?), not a parameter.
+   **(a) Replay is not the learning the live path does.** `Scheduler::commit_and_schedule` runs STDP and delivery scheduling for a replayed spike but, by its own documented decision, not predictive-learning classification — a replayed event has no dendritic-segment evaluation, so `predictive_before` has no well-defined value. Replay also never calls `step()`, so none of the periodic sweeps (`HomeostaticScaling`, `StructuralPlasticity`, segment-threshold homeostasis) runs during a replayed span, while `self.tick` advances past the schedule each of them gates on. One sleep at C1's reference cadence is therefore roughly 1,500 ticks of STDP-only, unregulated learning. C1 measured the consequence directly: with the online LRN-6 sweep left on, a 750-character cadence costs 1.69 points on selection seeds and gains 0.09 on confirmation seeds; with it off, the same cadence costs 8.32 and 7.45. Making replay run the _same_ learning a live tick runs is a real design question (which sweeps should fire on a virtual clock? what is a replayed spike's predictive context?), not a parameter.
 
-   **(b) The replay source is almost entirely a recording of the _input_, not of
-   the network.** Measured on B5's winner over a full 15,000-character VAL-4
-   run: the externally stimulated tick contributes a flat 64 events per
-   character (k-WTA at k = 64, i.e. the encoder's own SDR), while the purely
-   internal prediction tick contributes 0.02 events per character over the first
-   1,500 characters, rising to 27.60 over the last 1,500 — total 64.02 rising to
-   91.60, mean 75.09. Replaying this raster is therefore mostly re-presenting
-   the corpus, which is new, quantified evidence for item 2(a)'s "tape recorder,
-   not the fast store docs/prior-art.md §2.9 describes" objection rather than a
-   separate complaint. A `ReplaySource` backed by LRN-12's fast store (PLAN.md
-   F6) is the named successor; nothing about C1's negative result should be read
-   as evidence about _that_.
+   **(b) The replay source is almost entirely a recording of the _input_, not of the network.** Measured on B5's winner over a full 15,000-character VAL-4 run: the externally stimulated tick contributes a flat 64 events per character (k-WTA at k = 64, i.e. the encoder's own SDR), while the purely internal prediction tick contributes 0.02 events per character over the first 1,500 characters, rising to 27.60 over the last 1,500 — total 64.02 rising to 91.60, mean 75.09. Replaying this raster is therefore mostly re-presenting the corpus, which is new, quantified evidence for item 2(a)'s "tape recorder, not the fast store docs/prior-art.md §2.9 describes" objection rather than a separate complaint. A `ReplaySource` backed by LRN-12's fast store (PLAN.md F6) is the named successor; nothing about C1's negative result should be read as evidence about _that_.
 
-   **(c) `run_consolidation` is `Runtime::Single`-only.**
-   `NativeSimulation::run_consolidation` returns an error in partitioned mode
-   (`threadCount > 1`), matching `snapshotBytes`/`restore`'s own Phase 4
-   precedent: replaying a raster whose events may target any partition,
-   correctly and deterministically, through the cross-partition messaging path
-   is materially more complex than single-threaded replay. This was already
-   documented at both the Rust and FFI levels and is restated here because C1 is
-   the first item for which it is a _capability_ limit rather than a note — a
-   consolidating network cannot use RUN-4's threading. Scoped as PLAN.md's F8
-   row. It is not urgent on VAL-4's own evidence: sleeping does not help at any
-   cadence measured, so nothing currently wants to sleep _and_ scale.
+   **(c) `run_consolidation` is `Runtime::Single`-only.** `NativeSimulation::run_consolidation` returns an error in partitioned mode (`threadCount > 1`), matching `snapshotBytes`/`restore`'s own Phase 4 precedent: replaying a raster whose events may target any partition, correctly and deterministically, through the cross-partition messaging path is materially more complex than single-threaded replay. This was already documented at both the Rust and FFI levels and is restated here because C1 is the first item for which it is a _capability_ limit rather than a note — a consolidating network cannot use RUN-4's threading. Scoped as PLAN.md's F8 row. It is not urgent on VAL-4's own evidence: sleeping does not help at any cadence measured, so nothing currently wants to sleep _and_ scale.
 
-4. **What the other two neuromodulator channels should gate, and how — opened
-   2026-09-20 by PLAN.md C2's own audit
-   (`.claude/scratch/neuromodulators/investigation.md`).** C2 gave noradrenaline
-   and acetylcholine a producer. It did not settle what acetylcholine _routes_,
-   and it left dopamine carrying the wrong signal. Both are recorded here
-   because each is a real design fork rather than a missing line of code, and
-   because docs/prior-art.md §2.5 currently asserts all four channel roles in
-   one unsourced parenthetical that the audit found to be only partly right.
+4. **What the other two neuromodulator channels should gate, and how — opened 2026-09-20 by PLAN.md C2's own audit (`.claude/scratch/neuromodulators/investigation.md`).** C2 gave noradrenaline and acetylcholine a producer. It did not settle what acetylcholine _routes_, and it left dopamine carrying the wrong signal. Both are recorded here because each is a real design fork rather than a missing line of code, and because docs/prior-art.md §2.5 currently asserts all four channel roles in one unsourced parenthetical that the audit found to be only partly right.
 
-   - **(a) Acetylcholine's second job, and the interface question under it —
-     closed 2026-09-24 by PLAN.md C8 (the interface) and C9 (the mechanism);
-     docs/decisions.md decisions 24 and 25, docs/findings.md finding 22.**
-     Neither of the two ways through listed below was taken: the discriminant
-     reaches plasticity as a **routing** decision
-     (`Scheduler::with_plasticity_for_role`), so the interface was not widened
-     _and_ no second place where plasticity happens was created. Both halves of
-     the encoding/retrieval account exist and switch separately, and on VAL-4
-     the pair is a null whose transmission half alone is ruinous. **The second,
-     smaller point below is NOT closed and is now sharper** — see (e). The
-     original text follows, unedited.
+   - **(a) Acetylcholine's second job, and the interface question under it — closed 2026-09-24 by PLAN.md C8 (the interface) and C9 (the mechanism); docs/decisions.md decisions 24 and 25, docs/findings.md finding 22.** Neither of the two ways through listed below was taken: the discriminant reaches plasticity as a **routing** decision (`Scheduler::with_plasticity_for_role`), so the interface was not widened _and_ no second place where plasticity happens was created. Both halves of the encoding/retrieval account exist and switch separately, and on VAL-4 the pair is a null whose transmission half alone is ruinous. **The second, smaller point below is NOT closed and is now sharper** — see (e). The original text follows, unedited.
 
      ***
 
-     Hasselmo's encoding/retrieval account is two mechanisms in opposite
-     directions: acetylcholine presynaptically suppresses transmission at
-     _recurrent/intracortical_ synapses while sparing _feedforward_ input, and
-     simultaneously _enhances_ LTP at those same suppressed synapses. High
-     acetylcholine is therefore "encoding mode" — feedforward drives the
-     activity, recurrent connections do the learning. Building only one of the
-     two halves is building a different model, and saying so. The obstacle is
-     not the mechanism but LRN-1: a `PlasticityRule` is handed only
-     `LocalContext` and `SynapseMut`, neither of which carries the synapse's
-     target segment, and _that narrowness is how invariant 1 is enforced
-     structurally rather than by discipline_. The data exists one level up
-     (`SynapseArena.target_segment`, `segment::FEEDFORWARD_SEGMENT`). Two ways
-     through, and the choice is deliberately not made here: widen the interface
-     with a feedforward/recurrent discriminant (cheap; permanently widens the
-     thing the invariant rests on), or add a scheduler-invoked module following
-     `plasticity/predictive.rs`'s existing precedent (leaves the interface
-     alone; costs a second place where plasticity happens outside the rule
-     chain). PLAN.md C8 is the decision, C9 the mechanism. **Note the overlap
-     with F10's segment role tag for NET-6 — that is the same distinction
-     approached from a different direction, and it should end up as one scheme
-     rather than two.**
+     Hasselmo's encoding/retrieval account is two mechanisms in opposite directions: acetylcholine presynaptically suppresses transmission at _recurrent/intracortical_ synapses while sparing _feedforward_ input, and simultaneously _enhances_ LTP at those same suppressed synapses. High acetylcholine is therefore "encoding mode" — feedforward drives the activity, recurrent connections do the learning. Building only one of the two halves is building a different model, and saying so. The obstacle is not the mechanism but LRN-1: a `PlasticityRule` is handed only `LocalContext` and `SynapseMut`, neither of which carries the synapse's target segment, and _that narrowness is how invariant 1 is enforced structurally rather than by discipline_. The data exists one level up (`SynapseArena.target_segment`, `segment::FEEDFORWARD_SEGMENT`). Two ways through, and the choice is deliberately not made here: widen the interface with a feedforward/recurrent discriminant (cheap; permanently widens the thing the invariant rests on), or add a scheduler-invoked module following `plasticity/predictive.rs`'s existing precedent (leaves the interface alone; costs a second place where plasticity happens outside the rule chain). PLAN.md C8 is the decision, C9 the mechanism. **Note the overlap with F10's segment role tag for NET-6 — that is the same distinction approached from a different direction, and it should end up as one scheme rather than two.**
 
-     A second, smaller point the audit surfaced: Yu & Dayan give acetylcholine
-     _expected_ uncertainty as well, which is the quantity C2 now drives it
-     with. If acetylcholine later becomes the feedforward/recurrent router, that
-     second role needs somewhere to live or the channel is doing two jobs at
-     once.
+     A second, smaller point the audit surfaced: Yu & Dayan give acetylcholine _expected_ uncertainty as well, which is the quantity C2 now drives it with. If acetylcholine later becomes the feedforward/recurrent router, that second role needs somewhere to live or the channel is doing two jobs at once.
 
-   - **(b) Dopamine carried a reward, not a reward _prediction error_, and it
-     was switched off — closed 2026-09-20 by PLAN.md C3; docs/findings.md
-     finding 16 has the measurement.** Kept here rather than deleted because two
-     things in the original text below turned out to be wrong, and both are the
-     kind of wrong that a later item would otherwise inherit. (i) "The latent
-     trap is the other direction… harmless while no shipped configuration does
-     it" was **already false when it was written**: `canonicalBrain.ts` routed
-     `plasticity.modulatorChannel` — the weight-writing three-factor rule — on
-     dopamine, and had since A1. It was harmless only because dopamine had no
-     producer, which is a different statement, and giving it one is exactly what
-     would have made it bite. C3 moved that rule to acetylcholine and left
-     dopamine on the permanence-writing rule alone. (ii) "The fix is small — one
-     running expected-reward term" was right about the arithmetic and wrong
-     about the item: the term itself is four lines, and the work was the sign
-     decision, the snapshot section, the partition-count determinism, and
-     finding that the FFI's own `reward` had never called `Scheduler::reward` at
-     all.
+   - **(b) Dopamine carried a reward, not a reward _prediction error_, and it was switched off — closed 2026-09-20 by PLAN.md C3; docs/findings.md finding 16 has the measurement.** Kept here rather than deleted because two things in the original text below turned out to be wrong, and both are the kind of wrong that a later item would otherwise inherit. (i) "The latent trap is the other direction… harmless while no shipped configuration does it" was **already false when it was written**: `canonicalBrain.ts` routed `plasticity.modulatorChannel` — the weight-writing three-factor rule — on dopamine, and had since A1. It was harmless only because dopamine had no producer, which is a different statement, and giving it one is exactly what would have made it bite. C3 moved that rule to acetylcholine and left dopamine on the permanence-writing rule alone. (ii) "The fix is small — one running expected-reward term" was right about the arithmetic and wrong about the item: the term itself is four lines, and the work was the sign decision, the snapshot section, the partition-count determinism, and finding that the FFI's own `reward` had never called `Scheduler::reward` at all.
 
      The original text follows, unedited.
 
      ***
 
-     `charPrediction.ts`'s `sim.reward(hit ? 1.0 : 0.0)` subtracts no
-     expectation, so a network `charPrediction.ts`'s
-     `sim.reward(hit ? 1.0 : 0.0)` subtracts no expectation, so a network that
-     is right 90% of the time gets the same burst for an expected success as for
-     a surprising one. docs/prior-art.md §2.5 says "dopamine = reward prediction
-     error" and the substrate does not deliver one. The fix is small — one
-     running expected-reward term — and it is worth making _before_ D4's 1–3
-     week re-tune rather than after, since tuning against a mislabelled signal
-     is how a measurement quietly stops meaning what it says. PLAN.md C3.
+     `charPrediction.ts`'s `sim.reward(hit ? 1.0 : 0.0)` subtracts no expectation, so a network `charPrediction.ts`'s `sim.reward(hit ? 1.0 : 0.0)` subtracts no expectation, so a network that is right 90% of the time gets the same burst for an expected success as for a surprising one. docs/prior-art.md §2.5 says "dopamine = reward prediction error" and the substrate does not deliver one. The fix is small — one running expected-reward term — and it is worth making _before_ D4's 1–3 week re-tune rather than after, since tuning against a mislabelled signal is how a measurement quietly stops meaning what it says. PLAN.md C3.
 
-     Where it should be routed is already right by accident and worth stating so
-     it is not "fixed": synaptic tagging and capture (Redondo & Morris 2011) is
-     dopamine gating the conversion of early-LTP into late-LTP — _persistence_,
-     not strength — which against docs/decisions.md's weight/permanence split is
-     `permanence`, and `PredictiveLearningParams::learning_target` already
-     defaults there. The latent trap is the other direction: several tests pass
-     `ThreeFactorParams::new(..., DOPAMINE)`, and that rule writes **weight**,
-     which is the inverse of "permanently reinforced". Harmless while no shipped
-     configuration does it.
+     Where it should be routed is already right by accident and worth stating so it is not "fixed": synaptic tagging and capture (Redondo & Morris 2011) is dopamine gating the conversion of early-LTP into late-LTP — _persistence_, not strength — which against docs/decisions.md's weight/permanence split is `permanence`, and `PredictiveLearningParams::learning_target` already defaults there. The latent trap is the other direction: several tests pass `ThreeFactorParams::new(..., DOPAMINE)`, and that rule writes **weight**, which is the inverse of "permanently reinforced". Harmless while no shipped configuration does it.
 
-     One honest caveat against the tidy three-way split: β-adrenergic
-     (noradrenaline) receptors are _also_ required for the same
-     plasticity-related-protein process. "Dopamine commits, noradrenaline
-     amplifies" is a defensible modelling simplification, not a description of
-     the biology, and is recorded as one.
+     One honest caveat against the tidy three-way split: β-adrenergic (noradrenaline) receptors are _also_ required for the same plasticity-related-protein process. "Dopamine commits, noradrenaline amplifies" is a defensible modelling simplification, not a description of the biology, and is recorded as one.
 
-   - **(c) Whether serotonin and histamine earn a place at all.** Both are
-     deferred with reasons rather than omitted — PLAN.md F19 and F20.
-     Serotonin's "prevents runaway excitation" reading is _contradicted_ by the
-     evidence (elevated 5-HT amplifies synaptic noise and facilitates
-     epileptiform oscillations), and the stabiliser job is already held by LRN-6
-     plus NEU-7, which C1's battery measured at 2.2–3.2 VAL-4 points. What 5-HT
-     _is_ well supported for — Doya's discount factor, "patience" — has nowhere
-     to attach until LRN-11 action selection exists. Histamine's wake/sleep role
-     is already modelled explicitly, and more strictly, as LRN-10's
-     consolidation phases. Neither absence is an oversight.
+   - **(c) Whether serotonin and histamine earn a place at all.** Both are deferred with reasons rather than omitted — PLAN.md F19 and F20. Serotonin's "prevents runaway excitation" reading is _contradicted_ by the evidence (elevated 5-HT amplifies synaptic noise and facilitates epileptiform oscillations), and the stabiliser job is already held by LRN-6 plus NEU-7, which C1's battery measured at 2.2–3.2 VAL-4 points. What 5-HT _is_ well supported for — Doya's discount factor, "patience" — has nowhere to attach until LRN-11 action selection exists. Histamine's wake/sleep role is already modelled explicitly, and more strictly, as LRN-10's consolidation phases. Neither absence is an oversight.
 
-   - **(d) Nitric oxide is not an LRN-5 channel, and cannot be made into one.**
-     `NeuromodulatorField::levels_at` takes a tick and nothing else — a unit
-     test asserts there is no argument it _could_ route on — whereas a
-     concentration field `NO(x, y, z, t)` is addressed by position. It needs its
-     own requirement for a spatial signalling class before any code (PLAN.md
-     F21). It does **not** violate invariant 2, and the instinct that it does is
-     worth correcting explicitly: a diffusing scalar concentration is _more_
-     local than the existing global broadcast, and is the limiting case of the
-     "broadcast by region" this module's own docs already reserve room for
-     (`region_id`, currently always 0). What would violate the invariant is if
-     the diffusing quantity were an _error_ term, or if the kernel became a way
-     to deliver per-synapse credit.
+   - **(d) Nitric oxide is not an LRN-5 channel, and cannot be made into one.** `NeuromodulatorField::levels_at` takes a tick and nothing else — a unit test asserts there is no argument it _could_ route on — whereas a concentration field `NO(x, y, z, t)` is addressed by position. It needs its own requirement for a spatial signalling class before any code (PLAN.md F21). It does **not** violate invariant 2, and the instinct that it does is worth correcting explicitly: a diffusing scalar concentration is _more_ local than the existing global broadcast, and is the limiting case of the "broadcast by region" this module's own docs already reserve room for (`region_id`, currently always 0). What would violate the invariant is if the diffusing quantity were an _error_ term, or if the kernel became a way to deliver per-synapse credit.
 
-   - **(e) Acetylcholine is now doing two jobs at once, and PLAN.md C9 made that
-     concrete rather than resolving it — opened 2026-09-24.** (a)'s closing note
-     anticipated this: Yu & Dayan give acetylcholine _expected uncertainty_,
-     which is what C2 drives the channel with, and Hasselmo gives it the
-     encoding/retrieval switch, which is what C9 built. C9 wired the second to
-     the first — the pathway gate is driven by the uncertainty estimate — and
-     that is a modelling choice, not a finding. Two things make it a real fork
-     rather than a detail.
+   - **(e) Acetylcholine is now doing two jobs at once, and PLAN.md C9 made that concrete rather than resolving it — opened 2026-09-24.** (a)'s closing note anticipated this: Yu & Dayan give acetylcholine _expected uncertainty_, which is what C2 drives the channel with, and Hasselmo gives it the encoding/retrieval switch, which is what C9 built. C9 wired the second to the first — the pathway gate is driven by the uncertainty estimate — and that is a modelling choice, not a finding. Two things make it a real fork rather than a detail.
 
-     First, on VAL-4 expected uncertainty is a slow learning-progress
-     _schedule_, so "encoding mode" there means "early in the run" and not "this
-     input is novel" (docs/findings.md items 20 and 22). The mechanism the
-     biology describes is a response to novelty; what was measured is a response
-     to inexperience. Those coincide on a stationary corpus and come apart on
-     anything with change points in it.
+     First, on VAL-4 expected uncertainty is a slow learning-progress _schedule_, so "encoding mode" there means "early in the run" and not "this input is novel" (docs/findings.md items 20 and 22). The mechanism the biology describes is a response to novelty; what was measured is a response to inexperience. Those coincide on a stationary corpus and come apart on anything with change points in it.
 
-     Second, C9 measured the two jobs interfering. The transmission half alone
-     drives the network into a state where it predicts almost nothing, which
-     keeps expected uncertainty high, which keeps the suppression on — the
-     channel's own output feeding its own driver. The pair does not do this, and
-     whether that is because the plasticity half breaks the loop or because it
-     simply restores prediction is **not established**: no open-loop control was
-     run (C7's `investigate-c7-open-loop.ts` is the template if one is wanted).
+     Second, C9 measured the two jobs interfering. The transmission half alone drives the network into a state where it predicts almost nothing, which keeps expected uncertainty high, which keeps the suppression on — the channel's own output feeding its own driver. The pair does not do this, and whether that is because the plasticity half breaks the loop or because it simply restores prediction is **not established**: no open-loop control was run (C7's `investigate-c7-open-loop.ts` is the template if one is wanted).
 
-     The fork: either acetylcholine carries both roles and the coupling between
-     them is accepted and documented as a modelling claim, or the pathway gate
-     is driven by something else — a genuine novelty signal, or a schedule that
-     is not the network's own failure rate — and expected uncertainty keeps the
-     channel to itself. Nothing is built either way, and no measured result here
-     favours one: the pair is a null on the only task it has been run on.
+     The fork: either acetylcholine carries both roles and the coupling between them is accepted and documented as a modelling claim, or the pathway gate is driven by something else — a genuine novelty signal, or a schedule that is not the network's own failure rate — and expected uncertainty keeps the channel to itself. Nothing is built either way, and no measured result here favours one: the pair is a null on the only task it has been run on.
 
 ---
 
-5. **Three mechanisms are now waiting on a task with change points in it, and
-   there is no such task — opened 2026-09-24, after PLAN.md C6, C7 and C9 each
-   hit the same wall.** VAL-4 is a _stationary_ stream: English prose's
-   statistics do not shift inside a run. Measured consequences, all three from
-   different items:
+5. **Three mechanisms are now waiting on a task with change points in it, and there is no such task — opened 2026-09-24, after PLAN.md C6, C7 and C9 each hit the same wall.** VAL-4 is a _stationary_ stream: English prose's statistics do not shift inside a run. Measured consequences, all three from different items:
 
-   - C2's **surprise** signal (noradrenaline, unexpected uncertainty) is exactly
-     zero on 88–89% of characters, because `max(0, fast − slow)` over one
-     failure rate only fires when the world changes (HANDOFF fact 12). So C6's
-     window-widening map is inert there by construction, and its VAL-4 null was
-     pre-registered as the expected outcome rather than discovered.
-   - C3's **reward prediction error** is inert for the same reason through a
-     different channel: the hit rate is stationary, so the expectation converges
-     on it and `hit − expected` averages to zero (HANDOFF fact 14(c)).
-   - C9's **encoding/retrieval pair** is driven by _expected_ uncertainty, which
-     is not zero on VAL-4 — but on this corpus it is a slow learning-progress
-     schedule, so what the pair responds to is "early in the run" rather than
-     "this input is novel" (item 4(c), docs/findings.md finding 22).
+   - C2's **surprise** signal (noradrenaline, unexpected uncertainty) is exactly zero on 88–89% of characters, because `max(0, fast − slow)` over one failure rate only fires when the world changes (HANDOFF fact 12). So C6's window-widening map is inert there by construction, and its VAL-4 null was pre-registered as the expected outcome rather than discovered.
+   - C3's **reward prediction error** is inert for the same reason through a different channel: the hit rate is stationary, so the expectation converges on it and `hit − expected` averages to zero (HANDOFF fact 14(c)).
+   - C9's **encoding/retrieval pair** is driven by _expected_ uncertainty, which is not zero on VAL-4 — but on this corpus it is a slow learning-progress schedule, so what the pair responds to is "early in the run" rather than "this input is novel" (item 4(c), docs/findings.md finding 22).
 
-   Each of those is a property of the task, not of its mechanism, and each is
-   recorded as such in its own finding. What does not exist is the thing that
-   would settle any of them: a validation task whose input distribution
-   genuinely shifts mid-run, with its own baselines. The Rust tests build a
-   two-neuron A→B / A→C contingency switch
-   (`tests/prediction_error_coupling.rs`, `tests/transmission_modulation.rs`)
-   and it is enough to prove a mechanism _fires_ correctly; it is far too small
-   to say anything about whether a mechanism _helps_.
+   Each of those is a property of the task, not of its mechanism, and each is recorded as such in its own finding. What does not exist is the thing that would settle any of them: a validation task whose input distribution genuinely shifts mid-run, with its own baselines. The Rust tests build a two-neuron A→B / A→C contingency switch (`tests/prediction_error_coupling.rs`, `tests/transmission_modulation.rs`) and it is enough to prove a mechanism _fires_ correctly; it is far too small to say anything about whether a mechanism _helps_.
 
-   This is an unbuilt item rather than a design fork, and it is recorded here
-   because three separate items have now deferred to it and the fourth would
-   too. What it needs deciding first: whether a switching corpus is a new VAL
-   requirement with its own milestone (the honest option, and expensive — it
-   needs a baseline family of its own, since trigram accuracy on a switching
-   stream is not comparable to trigram accuracy on prose), or a diagnostic
-   harness with no milestone attached (cheap, and it can only ever produce "the
-   mechanism responds", never "the mechanism helps"). Nothing in PLAN.md
-   currently owns it.
+   This is an unbuilt item rather than a design fork, and it is recorded here because three separate items have now deferred to it and the fourth would too. What it needs deciding first: whether a switching corpus is a new VAL requirement with its own milestone (the honest option, and expensive — it needs a baseline family of its own, since trigram accuracy on a switching stream is not comparable to trigram accuracy on prose), or a diagnostic harness with no milestone attached (cheap, and it can only ever produce "the mechanism responds", never "the mechanism helps"). Nothing in PLAN.md currently owns it.

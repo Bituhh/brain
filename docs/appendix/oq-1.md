@@ -1,7 +1,6 @@
 # Data: item 1
 
-Raw data tables for [`open-questions.md`](../open-questions.md) item 1 — Scale
-ceiling — partially resolved 2026-09-10 (Phase 4 Step 23), against ENG-11's two.
+Raw data tables for [`open-questions.md`](../open-questions.md) item 1 — Scale ceiling — partially resolved 2026-09-10 (Phase 4 Step 23), against ENG-11's two.
 
 ---
 

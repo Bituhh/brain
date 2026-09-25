@@ -6,14 +6,20 @@ export default [
   eslint.configs.recommended,
   eslintConfigPrettier,
   {
-    ignores: ['**/node_modules/**', '**/dist/**', 'target/**', 'crates/**', 'scripts/**'],
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      'target/**',
+      'crates/**',
+      'scripts/**',
+    ],
   },
   {
     languageOptions: {
       globals: {
         ...globals.node,
         ...globals.browser,
-      }
-    }
-  }
+      },
+    },
+  },
 ];
