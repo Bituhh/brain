@@ -1,0 +1,27 @@
+[2026-09-24 20:16:33 +0000] corpus-horizon: 18 trials total, 0 reused, 18 to run on 9 workers.
+[2026-09-24 20:17:49 +0000]   [1/18] A-b5 seed=2 chars=15000 -> network=20.50% trigram=28.40% sim=75.6s wall=75.7s
+[2026-09-24 20:17:49 +0000]   [2/18] A-b5 seed=3 chars=15000 -> network=21.10% trigram=28.40% sim=75.9s wall=76.0s
+[2026-09-24 20:17:50 +0000]   [3/18] A-b5 seed=1 chars=15000 -> network=19.85% trigram=28.40% sim=76.7s wall=76.8s
+[2026-09-24 20:19:00 +0000]   [4/18] B-reward seed=2 chars=15000 -> network=21.30% trigram=28.40% sim=70.6s wall=70.7s
+[2026-09-24 20:19:00 +0000]   [5/18] B-reward seed=3 chars=15000 -> network=21.20% trigram=28.40% sim=70.0s wall=70.1s
+[2026-09-24 20:19:01 +0000]   [6/18] B-reward seed=1 chars=15000 -> network=19.20% trigram=28.40% sim=71.7s wall=71.8s
+[2026-09-24 20:30:18 +0000]   [7/18] C-default seed=1 chars=200000 -> network=14.20% trigram=29.20% sim=677.6s wall=677.7s
+[2026-09-24 20:30:25 +0000]   [8/18] C-default seed=2 chars=200000 -> network=12.95% trigram=29.20% sim=685.3s wall=685.4s
+[2026-09-24 20:30:26 +0000]   [9/18] C-default seed=3 chars=200000 -> network=15.90% trigram=29.20% sim=685.4s wall=685.5s
+[2026-09-24 20:31:08 +0000]   [10/18] C-default seed=1 chars=15000 -> network=15.75% trigram=28.40% sim=49.9s wall=50.0s
+[2026-09-24 20:31:14 +0000]   [11/18] C-default seed=2 chars=15000 -> network=18.55% trigram=28.40% sim=48.9s wall=49.0s
+[2026-09-24 20:31:15 +0000]   [12/18] C-default seed=3 chars=15000 -> network=18.50% trigram=28.40% sim=49.0s wall=49.1s
+[2026-09-24 21:07:51 +0000]   [13/18] A-b5 seed=2 chars=200000 -> network=4.40% trigram=29.20% sim=3078.1s wall=3078.1s
+[2026-09-24 21:08:02 +0000]   [14/18] A-b5 seed=1 chars=200000 -> network=6.10% trigram=29.20% sim=3088.4s wall=3088.4s
+[2026-09-24 21:13:34 +0000]   [15/18] B-reward seed=2 chars=200000 -> network=0.00% trigram=29.20% sim=3420.2s wall=3420.3s
+[2026-09-24 21:18:16 +0000]   [16/18] B-reward seed=1 chars=200000 -> network=0.00% trigram=29.20% sim=3702.7s wall=3702.8s
+[2026-09-24 21:28:14 +0000]   [17/18] B-reward seed=3 chars=200000 -> network=0.00% trigram=29.20% sim=4300.9s wall=4301.0s
+[2026-09-24 21:40:29 +0000]   [18/18] A-b5 seed=3 chars=200000 -> network=7.00% trigram=29.20% sim=5035.4s wall=5035.4s
+[2026-09-24 21:40:29 +0000] all trials finished; writing results
+[2026-09-24 21:40:29 +0000] wrote C:\projects\brain\scripts\investigate-corpus-horizon.results.md
+[2026-09-24 21:41:06 +0000] corpus-horizon: 18 trials total, 18 reused, 0 to run on 9 workers.
+[2026-09-24 21:41:06 +0000] all trials finished; writing results
+[2026-09-24 21:41:07 +0000] wrote C:\projects\brain\scripts\investigate-corpus-horizon.results.md
+[2026-09-24 21:41:45 +0000] corpus-horizon: 18 trials total, 18 reused, 0 to run on 9 workers.
+[2026-09-24 21:41:45 +0000] all trials finished; writing results
+[2026-09-24 21:41:45 +0000] wrote C:\projects\brain\scripts\investigate-corpus-horizon.results.md

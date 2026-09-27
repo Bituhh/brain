@@ -141,7 +141,13 @@ const LONG_LENGTH = 200_000;
 const CONTROL_LENGTH = 15_000;
 const SEEDS = [1n, 2n, 3n] as const;
 const ACETYLCHOLINE = 1;
-const PROTOCOL = 'corpus-horizon-v1';
+// Bumped from `corpus-horizon-v1` on 2026-09-26 for docs/decisions.md decision 27's
+// `target_index` fix, per scripts/CLAUDE.md's protocol-version rule: the fix changes what
+// an unchanged config actually does on any run that prunes, so every v1 row would
+// otherwise be silently reused as if nothing had changed. The v1 checkpoint, results and
+// log are kept beside the live ones as `*.stale-v1.*` so the pre-fix figures -- finding
+// 23's whole trajectory -- stay inspectable.
+const PROTOCOL = 'corpus-horizon-v2-postfix';
 const workers = Math.max(
   1,
   Math.min(Number(process.env.HORIZON_WORKERS ?? 9), cpus().length),
@@ -163,13 +169,22 @@ const b5Winner = toConfig(searchCondition(chosen.winner));
 if (b5Winner.plasticity === undefined)
   throw new Error("B5's winner must configure plasticity");
 
-type ConditionName = 'A-b5' | 'B-reward' | 'C-default';
+type ConditionName = 'A-b5' | 'B-reward' | 'C-default' | 'D-no-sprout';
 interface Cond {
   readonly name: ConditionName;
   readonly what: string;
   readonly config: CharPredictionConfig;
   readonly perCharacterDopamine: boolean;
 }
+// A-b5 minus exactly one field. Built by destructuring rather than by
+// `structuralPlasticity: undefined` so the key the checkpoint derives from the
+// config carries no stray `undefined` entry and the ablation's identity is
+// unambiguous in `canonicalJson`.
+const {
+  structuralPlasticity: _omittedStructuralPlasticity,
+  ...noSproutWinner
+} = b5Winner;
+
 const CONDITIONS: readonly Cond[] = [
   {
     name: 'A-b5',
@@ -187,6 +202,21 @@ const CONDITIONS: readonly Cond[] = [
     name: 'C-default',
     what: "DEFAULT_CONFIG -- no `plasticity`, so STDP never runs; findings 7-10's configuration",
     config: { ...DEFAULT_CONFIG },
+    perCharacterDopamine: false,
+  },
+  // Added 2026-09-27 for the residual-decline question finding 25(d)/(e) left open.
+  // A ONE-VARIABLE ablation of A-b5 (VAL-9's shape): everything B5's winner
+  // configures, with `structuralPlasticity` and nothing else removed. It exists
+  // because the only long-horizon comparison available until now was A-b5 against
+  // C-default, and that differs in at least seven mechanisms at once (no STDP, no
+  // homeostatic scaling, no silent synapses, no tonic ACh, Count-mode votes, a
+  // different coincidence threshold) -- so it cannot attribute anything to sprouting.
+  // This one can. `silentSynapses` is deliberately LEFT ON even though nothing
+  // sprouts here: the point is to vary one field, not to tidy up after it.
+  {
+    name: 'D-no-sprout',
+    what: "B5's winner with ONLY `structuralPlasticity` removed -- the one-variable sprouting ablation (VAL-9)",
+    config: noSproutWinner,
     perCharacterDopamine: false,
   },
 ];

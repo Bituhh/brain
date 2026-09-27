@@ -186,6 +186,11 @@ struct Comparison {
     defects: u32,
     /// First tick after the snapshot at which the restored run's spike set differed.
     first_spike_divergence: Option<u32>,
+    /// Neurons whose `incoming()` list differed live-vs-restored AT the snapshot
+    /// tick, order-sensitively -- checked separately from the float-valued state
+    /// because a different iteration order can happen to produce the same sum,
+    /// and an invariant that holds only by that coincidence is not established.
+    index_order_mismatches: u32,
     /// First tick after the snapshot at which the restored run's *state* differed.
     ///
     /// Compared every tick, not only at the end. The first version of this
@@ -226,6 +231,7 @@ fn compare_snapshot_at_inner(snapshot_tick: u32, restore_sweeps: bool) -> Compar
     sched_i.inject_modulator(DOPAMINE, 1.0);
     let mut snapshot_bytes = None;
     let mut defects = 0;
+    let mut live_lists: Option<Vec<Vec<u32>>> = None;
     for tick in 0..=snapshot_tick {
         stimulate(&mut sched_i, &neurons_i, &ids_i, tick);
         sched_i.step::<Lif>(&mut neurons_i, &mut synapses_i, &params);
@@ -240,6 +246,7 @@ fn compare_snapshot_at_inner(snapshot_tick: u32, restore_sweeps: bool) -> Compar
             ));
             let (w, d) = index_defects(&synapses_i, NEURONS);
             defects = w + d;
+            live_lists = Some((0..NEURONS).map(|n| synapses_i.incoming(n).collect::<Vec<u32>>()).collect::<Vec<_>>());
         }
     }
 
@@ -255,6 +262,11 @@ fn compare_snapshot_at_inner(snapshot_tick: u32, restore_sweeps: bool) -> Compar
         sched_r.restore_sweep_scheduling_state(restored.sweep_scheduling, restored.tick);
     }
 
+    let live_lists = live_lists.unwrap();
+    let index_order_mismatches = (0..NEURONS)
+        .filter(|&n| live_lists[n as usize] != synapses_r.incoming(n).collect::<Vec<u32>>())
+        .count() as u32;
+
     let mut first_spike_divergence = None;
     let mut first_state_divergence = None;
     for tick in (snapshot_tick + 1)..TOTAL_TICKS {
@@ -269,7 +281,7 @@ fn compare_snapshot_at_inner(snapshot_tick: u32, restore_sweeps: bool) -> Compar
             first_state_divergence = Some(tick);
         }
     }
-    Comparison { defects, first_spike_divergence, first_state_divergence }
+    Comparison { defects, index_order_mismatches, first_spike_divergence, first_state_divergence }
 }
 
 /// Guards every other result in this file: a configuration that never prunes
@@ -334,15 +346,26 @@ fn incoming_agrees_with_the_source_major_columns_at_every_tick_of_a_churning_run
 /// whether the defect reaches behaviour depends on whether a consumer reads
 /// the index while the entry is live, which a single tick cannot establish
 /// either way.
+///
+/// Slow-tier by cost, not by flakiness: 300 trials x 1,200 ticks with a full state
+/// digest compared every tick. `golden.rs`'s own rasters use the same convention. This
+/// is NOT the `#[ignore]`-a-failing-test mistake finding 24 records -- the test passes,
+/// and `npm run test:slow` runs `--ignored` in release precisely so a test like this one
+/// is actually executed rather than skipped.
 #[test]
+#[ignore = "slow tier: 300 snapshot/restore trials with a per-tick state comparison"]
 fn snapshot_restore_under_churn_is_bit_identical_to_an_uninterrupted_run() {
     let mut with_defects = 0;
+    let mut order_mismatches = 0;
     let mut spike_divergences = Vec::new();
     let mut state_divergences = Vec::new();
     for snapshot_tick in 20..320 {
         let c = compare_snapshot_at(snapshot_tick);
         if c.defects > 0 {
             with_defects += 1;
+        }
+        if c.index_order_mismatches > 0 {
+            order_mismatches += 1;
         }
         if let Some(t) = c.first_spike_divergence {
             spike_divergences.push((snapshot_tick, c.defects, t));
@@ -353,8 +376,10 @@ fn snapshot_restore_under_churn_is_bit_identical_to_an_uninterrupted_run() {
     }
     println!("swept snapshot ticks 20..320:");
     println!("  snapshot ticks at which the live index had a defect: {with_defects}");
+    println!("  snapshot ticks at which live and restored incoming() ORDER differed: {order_mismatches}");
     println!("  restored continuations diverging in SPIKES: {} {:?}", spike_divergences.len(), &spike_divergences[..spike_divergences.len().min(8)]);
     println!("  restored continuations diverging in STATE:  {} {:?}", state_divergences.len(), &state_divergences[..state_divergences.len().min(8)]);
+    assert_eq!(order_mismatches, 0, "a restored arena's incoming() order must match the running arena's, or bit-identity holds only by float coincidence");
     assert!(
         spike_divergences.is_empty() && state_divergences.is_empty(),
         "snapshot/restore under churn is not bit-identical: {} spike and {} state divergences",

@@ -25,3 +25,100 @@
 [2026-09-24 21:41:45 +0000] corpus-horizon: 18 trials total, 18 reused, 0 to run on 9 workers.
 [2026-09-24 21:41:45 +0000] all trials finished; writing results
 [2026-09-24 21:41:45 +0000] wrote C:\projects\brain\scripts\investigate-corpus-horizon.results.md
+[2026-09-26 22:31:40 +0000] corpus-horizon: 18 trials total, 0 reused, 18 to run on 9 workers.
+[2026-09-26 22:32:40 +0000] [heartbeat] 0/18 done, 1.0 min elapsed, ETA ? min
+[2026-09-26 22:33:40 +0000] [heartbeat] 0/18 done, 2.0 min elapsed, ETA ? min
+[2026-09-26 22:34:06 +0000]   [1/18] A-b5 seed=3 chars=15000 -> network=21.10% trigram=28.40% sim=146.2s wall=146.4s
+[2026-09-26 22:34:06 +0000]   [2/18] A-b5 seed=2 chars=15000 -> network=20.50% trigram=28.40% sim=146.3s wall=146.4s
+[2026-09-26 22:34:07 +0000]   [3/18] A-b5 seed=1 chars=15000 -> network=19.85% trigram=28.40% sim=147.7s wall=147.8s
+[2026-09-26 22:34:40 +0000] [heartbeat] 3/18 done, 3.0 min elapsed, ETA 15.0 min
+[2026-09-26 22:35:40 +0000] [heartbeat] 3/18 done, 4.0 min elapsed, ETA 20.0 min
+[2026-09-26 22:36:31 +0000]   [4/18] B-reward seed=2 chars=15000 -> network=21.25% trigram=28.40% sim=144.2s wall=144.4s
+[2026-09-26 22:36:32 +0000]   [5/18] B-reward seed=3 chars=15000 -> network=20.50% trigram=28.40% sim=144.5s wall=144.8s
+[2026-09-26 22:36:32 +0000]   [6/18] B-reward seed=1 chars=15000 -> network=20.25% trigram=28.40% sim=146.1s wall=146.3s
+[2026-09-26 22:36:40 +0000] [heartbeat] 6/18 done, 5.0 min elapsed, ETA 10.0 min
+[2026-09-26 22:37:40 +0000] [heartbeat] 6/18 done, 6.0 min elapsed, ETA 12.0 min
+[2026-09-26 22:38:40 +0000] [heartbeat] 6/18 done, 7.0 min elapsed, ETA 14.0 min
+[2026-09-26 22:39:40 +0000] [heartbeat] 6/18 done, 8.0 min elapsed, ETA 16.0 min
+[2026-09-26 22:40:40 +0000] [heartbeat] 6/18 done, 9.0 min elapsed, ETA 18.0 min
+[2026-09-26 22:41:40 +0000] [heartbeat] 6/18 done, 10.0 min elapsed, ETA 20.0 min
+[2026-09-26 22:42:40 +0000] [heartbeat] 6/18 done, 11.0 min elapsed, ETA 22.0 min
+[2026-09-26 22:43:40 +0000] [heartbeat] 6/18 done, 12.0 min elapsed, ETA 24.0 min
+[2026-09-26 22:44:40 +0000] [heartbeat] 6/18 done, 13.0 min elapsed, ETA 26.0 min
+[2026-09-26 22:45:40 +0000] [heartbeat] 6/18 done, 14.0 min elapsed, ETA 28.0 min
+[2026-09-26 22:46:40 +0000] [heartbeat] 6/18 done, 15.0 min elapsed, ETA 30.0 min
+[2026-09-26 22:47:40 +0000] [heartbeat] 6/18 done, 16.0 min elapsed, ETA 32.0 min
+[2026-09-26 22:48:40 +0000] [heartbeat] 6/18 done, 17.0 min elapsed, ETA 34.0 min
+[2026-09-26 22:49:40 +0000] [heartbeat] 6/18 done, 18.0 min elapsed, ETA 36.0 min
+[2026-09-26 22:50:40 +0000] [heartbeat] 6/18 done, 19.0 min elapsed, ETA 38.0 min
+[2026-09-26 22:51:40 +0000] [heartbeat] 6/18 done, 20.0 min elapsed, ETA 40.0 min
+[2026-09-26 22:52:40 +0000] [heartbeat] 6/18 done, 21.0 min elapsed, ETA 42.0 min
+[2026-09-26 22:53:40 +0000] [heartbeat] 6/18 done, 22.0 min elapsed, ETA 44.0 min
+[2026-09-26 22:54:40 +0000] [heartbeat] 6/18 done, 23.0 min elapsed, ETA 46.0 min
+[2026-09-26 22:55:40 +0000] [heartbeat] 6/18 done, 24.0 min elapsed, ETA 48.0 min
+[2026-09-26 22:56:40 +0000] [heartbeat] 6/18 done, 25.0 min elapsed, ETA 50.0 min
+[2026-09-26 22:57:40 +0000] [heartbeat] 6/18 done, 26.0 min elapsed, ETA 52.0 min
+[2026-09-26 22:58:40 +0000] [heartbeat] 6/18 done, 27.0 min elapsed, ETA 54.0 min
+[2026-09-26 22:59:40 +0000] [heartbeat] 6/18 done, 28.0 min elapsed, ETA 56.0 min
+[2026-09-26 23:00:40 +0000] [heartbeat] 6/18 done, 29.0 min elapsed, ETA 58.0 min
+[2026-09-26 23:01:40 +0000] [heartbeat] 6/18 done, 30.0 min elapsed, ETA 60.0 min
+[2026-09-26 23:02:19 +0000]   [7/18] C-default seed=2 chars=200000 -> network=12.95% trigram=29.20% sim=1547.0s wall=1547.2s
+[2026-09-26 23:02:27 +0000]   [8/18] C-default seed=3 chars=200000 -> network=15.90% trigram=29.20% sim=1554.4s wall=1554.7s
+[2026-09-26 23:02:40 +0000] [heartbeat] 8/18 done, 31.0 min elapsed, ETA 38.8 min
+[2026-09-26 23:02:45 +0000]   [9/18] C-default seed=1 chars=200000 -> network=14.20% trigram=29.20% sim=1574.1s wall=1574.4s
+[2026-09-26 23:03:40 +0000] [heartbeat] 9/18 done, 32.0 min elapsed, ETA 32.0 min
+[2026-09-26 23:04:10 +0000]   [10/18] C-default seed=1 chars=15000 -> network=15.75% trigram=28.40% sim=110.7s wall=110.9s
+[2026-09-26 23:04:16 +0000]   [11/18] C-default seed=2 chars=15000 -> network=18.55% trigram=28.40% sim=109.1s wall=109.3s
+[2026-09-26 23:04:32 +0000]   [12/18] C-default seed=3 chars=15000 -> network=18.50% trigram=28.40% sim=106.9s wall=107.2s
+[2026-09-26 23:04:40 +0000] [heartbeat] 12/18 done, 33.0 min elapsed, ETA 16.5 min
+[2026-09-26 23:05:40 +0000] [heartbeat] 12/18 done, 34.0 min elapsed, ETA 17.0 min
+[2026-09-26 23:06:40 +0000] [heartbeat] 12/18 done, 35.0 min elapsed, ETA 17.5 min
+[2026-09-26 23:06:56 +0000]   [13/18] B-reward seed=1 chars=200000 -> network=10.15% trigram=29.20% sim=2115.8s wall=2116.2s
+[2026-09-26 23:07:19 +0000]   [14/18] B-reward seed=3 chars=200000 -> network=10.55% trigram=29.20% sim=2138.8s wall=2139.1s
+[2026-09-26 23:07:23 +0000]   [15/18] B-reward seed=2 chars=200000 -> network=9.65% trigram=29.20% sim=2143.5s wall=2143.8s
+[2026-09-26 23:07:40 +0000] [heartbeat] 15/18 done, 36.0 min elapsed, ETA 7.2 min
+[2026-09-26 23:08:40 +0000] [heartbeat] 15/18 done, 37.0 min elapsed, ETA 7.4 min
+[2026-09-26 23:09:40 +0000] [heartbeat] 15/18 done, 38.0 min elapsed, ETA 7.6 min
+[2026-09-26 23:10:40 +0000] [heartbeat] 15/18 done, 39.0 min elapsed, ETA 7.8 min
+[2026-09-26 23:11:40 +0000] [heartbeat] 15/18 done, 40.0 min elapsed, ETA 8.0 min
+[2026-09-26 23:12:40 +0000] [heartbeat] 15/18 done, 41.0 min elapsed, ETA 8.2 min
+[2026-09-26 23:13:40 +0000] [heartbeat] 15/18 done, 42.0 min elapsed, ETA 8.4 min
+[2026-09-26 23:13:44 +0000]   [16/18] A-b5 seed=2 chars=200000 -> network=14.90% trigram=29.20% sim=2524.6s wall=2524.8s
+[2026-09-26 23:13:54 +0000]   [17/18] A-b5 seed=1 chars=200000 -> network=17.00% trigram=29.20% sim=2534.6s wall=2534.7s
+[2026-09-26 23:14:07 +0000]   [18/18] A-b5 seed=3 chars=200000 -> network=14.05% trigram=29.20% sim=2546.7s wall=2546.8s
+[2026-09-26 23:14:07 +0000] all trials finished; writing results
+[2026-09-26 23:14:07 +0000] wrote C:\projects\brain\scripts\investigate-corpus-horizon.results.md
+[2026-09-27 08:59:57 +0000] corpus-horizon: 24 trials total, 18 reused, 6 to run on 9 workers.
+[2026-09-27 09:00:57 +0000] [heartbeat] 0/6 done, 1.0 min elapsed, ETA ? min
+[2026-09-27 09:01:20 +0000]   [1/6] D-no-sprout seed=3 chars=15000 -> network=17.80% trigram=28.40% sim=83.4s wall=83.6s
+[2026-09-27 09:01:21 +0000]   [2/6] D-no-sprout seed=2 chars=15000 -> network=17.15% trigram=28.40% sim=84.0s wall=84.1s
+[2026-09-27 09:01:22 +0000]   [3/6] D-no-sprout seed=1 chars=15000 -> network=14.15% trigram=28.40% sim=85.2s wall=85.3s
+[2026-09-27 09:01:57 +0000] [heartbeat] 3/6 done, 2.0 min elapsed, ETA 2.0 min
+[2026-09-27 09:02:57 +0000] [heartbeat] 3/6 done, 3.0 min elapsed, ETA 3.0 min
+[2026-09-27 09:03:57 +0000] [heartbeat] 3/6 done, 4.0 min elapsed, ETA 4.0 min
+[2026-09-27 09:04:57 +0000] [heartbeat] 3/6 done, 5.0 min elapsed, ETA 5.0 min
+[2026-09-27 09:05:57 +0000] [heartbeat] 3/6 done, 6.0 min elapsed, ETA 6.0 min
+[2026-09-27 09:06:57 +0000] [heartbeat] 3/6 done, 7.0 min elapsed, ETA 7.0 min
+[2026-09-27 09:07:57 +0000] [heartbeat] 3/6 done, 8.0 min elapsed, ETA 8.0 min
+[2026-09-27 09:08:57 +0000] [heartbeat] 3/6 done, 9.0 min elapsed, ETA 9.0 min
+[2026-09-27 09:09:57 +0000] [heartbeat] 3/6 done, 10.0 min elapsed, ETA 10.0 min
+[2026-09-27 09:10:57 +0000] [heartbeat] 3/6 done, 11.0 min elapsed, ETA 11.0 min
+[2026-09-27 09:11:57 +0000] [heartbeat] 3/6 done, 12.0 min elapsed, ETA 12.0 min
+[2026-09-27 09:12:57 +0000] [heartbeat] 3/6 done, 13.0 min elapsed, ETA 13.0 min
+[2026-09-27 09:13:57 +0000] [heartbeat] 3/6 done, 14.0 min elapsed, ETA 14.0 min
+[2026-09-27 09:14:57 +0000] [heartbeat] 3/6 done, 15.0 min elapsed, ETA 15.0 min
+[2026-09-27 09:15:57 +0000] [heartbeat] 3/6 done, 16.0 min elapsed, ETA 16.0 min
+[2026-09-27 09:16:57 +0000] [heartbeat] 3/6 done, 17.0 min elapsed, ETA 17.0 min
+[2026-09-27 09:17:57 +0000] [heartbeat] 3/6 done, 18.0 min elapsed, ETA 18.0 min
+[2026-09-27 09:18:57 +0000] [heartbeat] 3/6 done, 19.0 min elapsed, ETA 19.0 min
+[2026-09-27 09:19:57 +0000] [heartbeat] 3/6 done, 20.0 min elapsed, ETA 20.0 min
+[2026-09-27 09:20:57 +0000] [heartbeat] 3/6 done, 21.0 min elapsed, ETA 21.0 min
+[2026-09-27 09:21:57 +0000] [heartbeat] 3/6 done, 22.0 min elapsed, ETA 22.0 min
+[2026-09-27 09:22:57 +0000] [heartbeat] 3/6 done, 23.0 min elapsed, ETA 23.0 min
+[2026-09-27 09:23:57 +0000] [heartbeat] 3/6 done, 24.0 min elapsed, ETA 24.0 min
+[2026-09-27 09:24:57 +0000] [heartbeat] 3/6 done, 25.0 min elapsed, ETA 25.0 min
+[2026-09-27 09:24:59 +0000]   [4/6] D-no-sprout seed=3 chars=200000 -> network=14.80% trigram=29.20% sim=1502.3s wall=1502.4s
+[2026-09-27 09:25:00 +0000]   [5/6] D-no-sprout seed=1 chars=200000 -> network=13.75% trigram=29.20% sim=1503.6s wall=1503.7s
+[2026-09-27 09:25:10 +0000]   [6/6] D-no-sprout seed=2 chars=200000 -> network=14.30% trigram=29.20% sim=1512.9s wall=1513.1s
+[2026-09-27 09:25:10 +0000] all trials finished; writing results
+[2026-09-27 09:25:10 +0000] wrote C:\projects\brain\scripts\investigate-corpus-horizon.results.md

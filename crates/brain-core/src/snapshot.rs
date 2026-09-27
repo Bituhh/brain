@@ -790,11 +790,33 @@ fn read_newborn_maturation_state(r: &mut Reader<'_>) -> Result<Option<NewbornMat
     Ok(Some(NewbornMaturationRawState { last_swept_at, birth_tick, mature_threshold }))
 }
 
+/// Writes the occupied synapses **grouped by target neuron, in each target's
+/// own `incoming()` order** rather than source-major.
+///
+/// This is an ordering choice, not a layout change: every record carries its
+/// own `id` and `read_synapses` restores by that id, so the sequence is free.
+/// What it buys is RUN-3. `restore_slot` appends to `target_index` in the order
+/// it is called, so writing target-major reproduces the running arena's
+/// reverse-index order exactly, where a source-major write reproduced only an
+/// ascending-id approximation of it. That distinction is load-bearing because
+/// `HomeostaticScaling::rescale_one` sums `incoming()`'s weights in iteration
+/// order and float addition is not associative -- measured at 214 of 300
+/// snapshot ticks differing in order before this change (docs/findings.md
+/// finding 25, docs/decisions.md decision 27).
+///
+/// A snapshot written by an older build restores exactly as it did before: its
+/// records are source-major, so it rebuilds the ascending-id order it always
+/// did. Nothing about the format's byte layout or version changes.
 fn write_synapses(w: &mut Writer, synapses: &SynapseArena, neuron_count: u32) {
     w.u32(synapses.cap_per_neuron());
     w.u32(neuron_count);
-    let occupied: Vec<u32> =
-        (0..neuron_count).flat_map(|source| synapses.occupied_in_block(source)).collect();
+    let occupied: Vec<u32> = (0..neuron_count).flat_map(|target| synapses.incoming(target)).collect();
+    debug_assert_eq!(
+        occupied.len(),
+        (0..neuron_count).flat_map(|source| synapses.occupied_in_block(source)).count(),
+        "the target-major enumeration must cover exactly the occupied synapses the source-major one does -- \
+         if it does not, some synapse targets a neuron outside target_index's range and would be dropped from the snapshot"
+    );
     w.u32(occupied.len() as u32);
     for id in occupied {
         let i = id as usize;

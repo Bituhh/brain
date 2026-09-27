@@ -147,6 +147,8 @@ graph TD
 
 **C4 was inserted 2026-09-21, after C3 closed, and it is the one item in Phase C that is not about neuromodulators.** It was promoted out of docs/findings.md finding 10's findings rather than newly discovered: B5's growth battery measured grown neurons receiving 33,104 synapses and sending **zero** to the original population, so the whole of NET-10's grown capacity is invisible to the readout. Everything else still open in this phase is "a mechanism exists and we have not measured whether it helps"; this is the only one where the repo's own record says a mechanism **cannot** help as currently wired, for a reason no parameter can touch. It sits immediately after C3 and before D4 for the same reason C3 did: a 1-3 week re-tune should not be run on a network that cannot use the capacity it grows. Inserting it renumbered `C4…C11` to `C5…C12`; the only citations outside this file were in docs/open-questions.md/docs/findings.md and `.claude/HANDOFF.md`, all updated in the same pass. **Its design call was taken the same day rather than left to the session**, so it is an implementation item: sprout reach becomes _spatial_, via `NeuronArena::coords`, kept separate from the inhibition neighbourhood so NET-2 and every golden raster stay untouched. Three alternatives were rejected with reasons, and the prompt carries them because each is the kind a later reader re-proposes — the sharpest being arbor-following reach, which cannot bootstrap a newborn (its outgoing arbor is empty by construction) and degenerates to "no locality" at this network's fan-out anyway. **Closed 2026-09-21: the limit was real and was not what was holding VAL-4 down.** The same instrumented condition that measured 0 grown→original synapses measures 15,822 under spatial reach, and growth is still a null — at every radius it sits at or below its own no-growth control. So the phase's one structural blocker is gone, and no later growth idea can be justified by "it was never reachable". See C4's Status row, docs/decisions.md decision 15 and docs/findings.md finding 17.
 
+**C13 was appended 2026-09-27, and it is the first item in this file that owns corpus length.** `.claude/HANDOFF.md` fact 20 recorded, in September 2026, that _nothing in PLAN.md owns corpus length_ — every VAL-4 figure in the repository is one number at 15,000 characters, a horizon that was inherited rather than argued for. Two measurements since then make that gap load-bearing rather than tidy. Finding 23 showed the protocol stops **before** the peak (accuracy is still climbing at 15,000; it peaks in the low tens of thousands). Findings 25 and 26 showed what is past it: the catastrophic collapse finding 23 measured was a `target_index` correctness bug and is gone, but a **gentle ~8.7-point decline from peak to 200,000 characters remains, and it is not caused by structural plasticity** — a one-variable ablation puts the drop at 8.67 points with sprouting and 8.80 without. So there is a real, unexplained stability limit, and no item owns either it or the horizon question it sits behind. **Appended as C13 rather than inserted**, deliberately: C4's insertion renumbered `C4…C11` to `C5…C12` and had to chase citations through three other files, and nothing about this item's content requires it to sit earlier in Phase C. It is ordered **before D4** because D4 is a 1-3 week re-tune and should not be run against a horizon nobody has justified — the same reasoning that put C3 and C4 before D4.
+
 **C5 is a shared hook, not a mechanism.** Before C5, exactly two functions in the whole core read the neuromodulator field, and both multiply a delta by a level. Nothing lets a modulator reach an STDP _window_, an LTP/LTD _ratio_, a threshold, or a routing decision. C6, C7 and F19 all need the same plumbing into `StdpParams`; building it once is the difference between Phase C being three items and three copies of one change. **It also carried the staircase check** (added 2026-09-21, task step 5): C6 and C7 are searches over the knob C5 builds, and if a modulator gain turned out to be a step function rather than a continuous one — which C3's own results hinted at — then those searches would report noise as structure. **Settled by C5 (2026-09-21): not a staircase.** On the permanence path (C3's) a gain is _inert_ — permanence moves continuously but neither reader of its magnitude is reachable, so a search would report a flat line; on the weight path, which is what C6 and C7 act on, it is _continuous_ and searchable — **but its response reversed between 6,000 and 15,000 characters**, so both prompts now carry a correction block. See C5's Status row, docs/decisions.md decision 16 and docs/findings.md finding 18. **Qualified by a post-close review (2026-09-21):** "inert" and "continuous" were both 6,000-character results. At 15,000 the permanence path is _nearly_ inert and the weight path is _sensitive_: a 1e-4 nudge moves topology on one seed, and nearby settings differ by ~0.4 points of noise. C6's own knob also reversed with horizon. docs/findings.md finding 18's addendum.
 
 **C8 is a design call before it is code, and it is invariant-adjacent. Decided with the user 2026-09-22 and landed 2026-09-24 (docs/decisions.md decision 24), and by neither of the two options it was framed with.** LRN-1 hands a `PlasticityRule` only `LocalContext` and `SynapseMut`; neither carries the synapse's target segment, and that narrowness _is_ how invariant 1 is enforced structurally rather than by discipline. The data exists one level up (`SynapseArena.target_segment`, `segment::FEEDFORWARD_SEGMENT`). Rather than widen the interface, or write plasticity outside the rule chain, **the scheduler now routes**: it resolves `segment::SegmentRole` (one function, `segment_role`, which `apply_local_effect`'s own `is_dendritic` test calls) and selects _which configured `RuleChain` runs_, via `Scheduler::with_plasticity_for_role`. No rule gained any input, so invariant 1 and LRN-1's text are unchanged; role-dependent behaviour is expressed as two configured rule instances. Nothing calls it yet and every configuration is bit-identical. **C9 is unblocked**, and F10 must extend `SegmentRole` with `TopDown` rather than inventing a second scheme.
@@ -181,35 +183,36 @@ graph TD
 | 10 | **C10** | Small correctness issues from the A1-A3 verification | A3 | 1 session | — |
 | 11 | **C11** | Periodic sweeps silently inert in multi-threaded mode | A4, B1 | 1 session | — |
 | 12 | **C12** | Selective (replay-gated) downscaling, not uniform | C1 | 1 session | hours of runs |
-| 13 | **D1** | `polarity` in `NeuronLocal` + E/I-aware `rescale_one` | B1 | 1 session | — |
-| 14 | **D2** | Inhibitory STDP rule (Vogels-style) + kernel tests | D1 | 1 session | — |
-| 15 | **D3** | Polarity dispatch + E/I-balance ablation test | D2 | 1 session | — |
-| 16 | **D4** | Turn on 80:20 and re-tune ⚠️ | B2, B5, C1, C2, D3, C10 | 1 session | **1-3 weeks tuning** |
-| 17 | **E1** | Named brain store + explicit lifecycle | B1 | 1 session | — |
-| 18 | **E2** | Cross-process resume + growth after restore | E1 | 1 session | — |
-| 19 | **F1** | Short-term plasticity: per-synapse state + delivery | B1 | 1 session | — |
-| 20 | **F2** | STP curve tests + VAL-4 measured both ways | F1 | 1 session | tuning |
-| 21 | **F3** | `cap_per_neuron`: the design call | B1 | 1 session | **1 design call** |
-| 22 | **F4** | `cap_per_neuron`: implement ⚠️ | F3 | 1 session | **heavy review** |
-| 23 | **F5** | `cap_per_neuron`: scale + footprint re-measure | F4 | 1 session | hours of runs |
-| 24 | **F6** | LRN-12 / BTSP one-shot binding + pattern separation | F4 | 1 session | — |
-| 25 | **F7** | `ReplaySource` for the fast store + VAL-4 measurement | F6 | 1 session | experiments |
-| 26 | **F8** | Consolidation in partitioned mode: cross-partition replay routing | C1 | 1 session | — |
-| 27 | **F9** | Replay bit-identity across thread counts + FFI surface | F8 | 1 session | — |
-| 28 | **F10** | NET-6: segment role tag | — | 1 session | — |
-| 29 | **F11** | Descending projections + distinct apical effect | F10 | 1 session | — |
-| 30 | **F12** | Top-down prediction changes what the lower population predicts | F11 | 1 session | experiments |
-| 31 | **F13** | Delay plasticity rule | F1 | 1 session | — |
-| 32 | **F14** | NET-8: does adaptive delay produce gamma/theta structure? | F13 | 1 session | experiments |
-| 33 | **F15** | Laminar columns: scope the redesign | — | 1 session | **1 design call** |
-| 34 | **F16** | Column internal populations with defined roles | F15 | 1 session | — |
-| 35 | **F17** | Per-column configuration made live | F16 | 1 session | — |
-| 36 | **F18** | Output-layer lateral voting + the NET-9 location decision | F17 | 1 session | experiments |
-| 37 | **F19** | Serotonin: LTP/LTD threshold bias — _deferred, see docs/prior-art.md §2_ | C5 | 1 session | — |
-| 38 | **F20** | Histamine: `NUM_MODULATORS` 4→5 + global excitability — _deferred_ | — | 1 session | — |
-| 39 | **F21** | Nitric oxide: spatial diffusion field — _deferred, needs a requirement first_ | — | 1 session | — |
+| 13 | **C13** | Corpus horizon: who owns length, and what causes the post-peak decline | — | 1 session | hours of runs |
+| 14 | **D1** | `polarity` in `NeuronLocal` + E/I-aware `rescale_one` | B1 | 1 session | — |
+| 15 | **D2** | Inhibitory STDP rule (Vogels-style) + kernel tests | D1 | 1 session | — |
+| 16 | **D3** | Polarity dispatch + E/I-balance ablation test | D2 | 1 session | — |
+| 17 | **D4** | Turn on 80:20 and re-tune ⚠️ | B2, B5, C1, C2, D3, C10 | 1 session | **1-3 weeks tuning** |
+| 18 | **E1** | Named brain store + explicit lifecycle | B1 | 1 session | — |
+| 19 | **E2** | Cross-process resume + growth after restore | E1 | 1 session | — |
+| 20 | **F1** | Short-term plasticity: per-synapse state + delivery | B1 | 1 session | — |
+| 21 | **F2** | STP curve tests + VAL-4 measured both ways | F1 | 1 session | tuning |
+| 22 | **F3** | `cap_per_neuron`: the design call | B1 | 1 session | **1 design call** |
+| 23 | **F4** | `cap_per_neuron`: implement ⚠️ | F3 | 1 session | **heavy review** |
+| 24 | **F5** | `cap_per_neuron`: scale + footprint re-measure | F4 | 1 session | hours of runs |
+| 25 | **F6** | LRN-12 / BTSP one-shot binding + pattern separation | F4 | 1 session | — |
+| 26 | **F7** | `ReplaySource` for the fast store + VAL-4 measurement | F6 | 1 session | experiments |
+| 27 | **F8** | Consolidation in partitioned mode: cross-partition replay routing | C1 | 1 session | — |
+| 28 | **F9** | Replay bit-identity across thread counts + FFI surface | F8 | 1 session | — |
+| 29 | **F10** | NET-6: segment role tag | — | 1 session | — |
+| 30 | **F11** | Descending projections + distinct apical effect | F10 | 1 session | — |
+| 31 | **F12** | Top-down prediction changes what the lower population predicts | F11 | 1 session | experiments |
+| 32 | **F13** | Delay plasticity rule | F1 | 1 session | — |
+| 33 | **F14** | NET-8: does adaptive delay produce gamma/theta structure? | F13 | 1 session | experiments |
+| 34 | **F15** | Laminar columns: scope the redesign | — | 1 session | **1 design call** |
+| 35 | **F16** | Column internal populations with defined roles | F15 | 1 session | — |
+| 36 | **F17** | Per-column configuration made live | F16 | 1 session | — |
+| 37 | **F18** | Output-layer lateral voting + the NET-9 location decision | F17 | 1 session | experiments |
+| 38 | **F19** | Serotonin: LTP/LTD threshold bias — _deferred, see docs/prior-art.md §2_ | C5 | 1 session | — |
+| 39 | **F20** | Histamine: `NUM_MODULATORS` 4→5 + global excitability — _deferred_ | — | 1 session | — |
+| 40 | **F21** | Nitric oxide: spatial diffusion field — _deferred, needs a requirement first_ | — | 1 session | — |
 
-**Phase totals from here:** C ≈ 11-14 sessions + runs · D ≈ 4 sessions + 1-3 weeks tuning · E ≈ 2 · F ≈ 19 sessions + experiments. Every row is one session of coding by construction; the wall-clock column is where the real cost still lives (§1's own point — coding compresses with an LLM, experiments do not).
+**Phase totals from here:** C ≈ 12-15 sessions + runs · D ≈ 4 sessions + 1-3 weeks tuning · E ≈ 2 · F ≈ 19 sessions + experiments. Every row is one session of coding by construction; the wall-clock column is where the real cost still lives (§1's own point — coding compresses with an LLM, experiments do not).
 
 ---
 
@@ -1883,6 +1886,16 @@ partitioned.
 ### C12 — Selective, not uniform, downscaling
 
 ```
+READ FIRST, ADDED 2026-09-27: `HomeostaticScaling::rescale_one` — the function this item changes —
+turned out to be the mechanism that makes `incoming()`'s ITERATION ORDER semantically load-bearing.
+It sums incoming weights in list order, and float addition is not associative, so a reordering of
+that list changes results. That is how docs/findings.md finding 25 found determinism (RUN-3) holding
+by coincidence rather than by construction. Two consequences for this item: any change here that
+alters the order or the arity of what is summed is a behaviour change even when it looks like a
+refactor, and `rescale_one` is also the consumer whose double-counting finding 24 quantified (sum
+weight 2.1x over target at 200,000 characters, now 1.0% over). Do not rewrite the accumulation
+without measuring.
+
 Read README.md docs/prior-art.md §13.13(h), docs/prior-art.md §2.9, LRN-10, docs/findings.md finding 13 (all four of its numbered findings), and
 PLAN.md §4. Read C1's Status row before designing anything — this item exists because of one
 specific thing C1 found, and the rest of what C1 found constrains how you measure.
@@ -1971,6 +1984,191 @@ DONE WHEN. Selective downscaling is built, deterministic and unit-tested; measur
 protocol and reported honestly against both seed sets and the 16.56% bar; docs/prior-art.md §13.13(h)'s
 "remains unbuilt" sentence and docs/findings.md finding 13's finding 1 both record the outcome; and PLAN.md's
 C12 row plus `.claude/HANDOFF.md` are updated the way every item before it did (see §4).
+```
+
+---
+
+### C13 — Corpus horizon: who owns length, and what causes the post-peak decline
+
+```
+Read, in this order, before writing any code:
+  1. `.claude/HANDOFF.md` — facts 20 and 21, and the "Where things stand" block.
+  2. `docs/findings.md` findings 23 (the horizon), 25 (the fix and what it left), 26 (the sprouting
+     ablation), and finding 2 (which predicted a three-loop instability on the same quantity).
+  3. `docs/appendix/find-23.md`, `find-25.md` (sections 8 and 9 especially), `find-26.md`.
+  4. PLAN.md §4 and `scripts/CLAUDE.md`.
+  5. `docs/decisions.md` decision 11 (the weight/permanence split) — it is the reason the leading
+     hypothesis below is a hypothesis at all.
+
+WHAT THIS IS. Two questions that nothing in this file has ever owned, and they are one item because
+the second is the reason the first now matters.
+
+  (1) THE HORIZON. Every VAL-4 figure in this repository is a single number at 15,000 characters.
+      That horizon was inherited, never argued for, and it is measurably wrong: accuracy is still
+      climbing there (+3.6 to +5.2 points over the preceding band) and peaks in the low tens of
+      thousands. The corpus fixture holds 400,099 characters; the protocol uses 3.75% of them.
+      Changing it unilaterally would orphan findings 7-22, which is exactly why nobody has.
+
+  (2) THE DECLINE. Past the peak, accuracy falls ~8.7 points by 200,000 characters (B5's winner:
+      peak 23.75/24.15/24.65% -> 17.00/14.90/14.05%, mean 15.32%, which is 0.93 points UNDER the
+      16.25% "always guess space" bar at that length). This is NOT the collapse finding 23
+      measured — that was the `target_index` bug and it is fixed. This is what is left, and it is
+      unexplained.
+
+WHAT IS ALREADY RULED OUT, so you do not re-run it.
+  - **Structural plasticity does not cause it** (finding 26, one-variable ablation): the drop is
+    8.67 points with sprouting and 8.80 without. Sprouting DOES buy an earlier, slightly higher
+    peak (+4.12 points at 15,000, and it is what clears the 16.56% bar) — it just neither causes
+    nor prevents the decline. Do not re-litigate this with another sprouting condition.
+  - **The churn runaway and the cost superlinearity are not involved**: both were the index bug.
+    Cost is now linear (0.95-0.98x), so a 200,000-character trial is ~42 minutes and long runs are
+    affordable. Budget from that, not from finding 23's pre-fix numbers.
+  - **`pruneFloor`/`sproutPermanence` are exonerated** for the collapse (finding 25(c)): no
+    constant changed and the runaway vanished. They are not exonerated for the residual decline,
+    but they are not the leading suspect either.
+
+A LENGTHENED PROTOCOL IS NOT A ROUTE TO THE MILESTONE, and the item must not be run as if it were.
+VAL-4's milestone is the GAP to trigram, not the network's level, and the gap is worst at length
+because trigram IMPROVES with exposure while the network does not. Measured, condition A-b5, mean of
+three seeds:
+
+  |   chars | network | trigram |    gap |
+  |---------|---------|---------|--------|
+  |  15,000 |  20.48% |  28.35% |  -7.87 |
+  |  25,000 |  20.78% |  28.55% |  -7.77 |
+  |  35,000 |  20.47% |  27.35% |  -6.88 |
+  |  50,000 |  19.42% |  30.80% | -11.38 |
+  | 200,000 |  15.50% |  29.60% | -14.10 |
+
+So the level gains ~0.3 points by 25,000 and the best gap (-6.88 at 35,000) is mostly trigram having
+a bad patch, not the network improving. **Do NOT propose moving the protocol in order to bank a
+better-looking number**: it would cost a re-derivation of findings 7-22 to buy about one point that
+is largely baseline noise. The horizon question in task 4 is about measuring a transient honestly,
+nothing more.
+
+THE LEADING HYPOTHESIS, and it is a hypothesis. `HomeostaticScaling` regulates `weight`, not
+`permanence` — decision 11's split, deliberate — while dendritic coincidence detection is gated on
+`permanence`. So NOTHING IN THE ENGINE REGULATES THE DISTRIBUTION OF THE QUANTITY THAT DECIDES
+PREDICTIONS. Measured at 200,000 characters: `atOne/occupied` is 50-59% with sprouting and 66-70%
+without, against 35.8% at 15,000, while `connected/occupied` falls from 100% to ~70%. The
+distribution polarises — piling up at the ceiling and below the threshold, emptying in the middle,
+which is a loss of graded discrimination. `DEFAULT_CONFIG` declines too and shares `predictive.rs`'s
+permanence writes and `segmentThresholdHomeostasis` but shares neither STDP nor sprouting nor
+homeostatic scaling, which narrows the shared cause to those two.
+
+ONE CONFIRMED CODE FACT THAT MAKES THE HYPOTHESIS SHARP, and the reason it is worth this item's time.
+`predictive.rs`'s `apply_delta` — the only writer of permanence outside structural plasticity — is
+
+    *p = (*p + delta).clamp(0.0, 1.0);
+
+purely ADDITIVE with HARD bounds, no weight dependence. That is exactly the condition the theory
+says drives synapses to the extremes: Song, Miller & Abbott (2000) showed additive STDP with hard
+bounds produces a BIMODAL distribution, and van Rossum, Bi & Turrigiano (2000) showed a
+weight-dependent (soft-bound) update produces a stable UNIMODAL one instead. We have additive plus a
+hard clamp, and we measure a bimodal distribution piled at both bounds. Prediction and observation
+match. **Neither paper is in `docs/prior-art.md` or `docs/references.bib` yet — nor is anything on
+BCM/metaplasticity, heterosynaptic competition, or Turrigiano's scaling — so any mechanism change
+here starts by adding them** (CLAUDE.md's tiered evidence rule).
+
+THE TASK.
+
+1. MAKE THE PERMANENCE DISTRIBUTION A TRAJECTORY, NOT AN ENDPOINT. This is the whole item's
+   critical path and it is a small change. `atOne`, `atZero`, `distinctPermanences`, `sumPermanence`
+   and `connected` are sampled ONCE per trial, at the end
+   (`scripts/investigate-corpus-horizon.worker.ts`'s `observe`). Sample them on the existing
+   5,000-character `sparse` cadence instead. Until that exists, nothing can say whether saturation
+   LEADS the accuracy decline (cause) or TRAILS it (symptom), and that distinction is the item.
+   Mind the sampling-cost trap decision 26 records: `structuralStats()` is a full synapse scan, so
+   keep it on the sparse cadence and keep sampling time out of the timed region.
+
+2. PRE-REGISTER THE READING BEFORE RUNNING ANYTHING. Fix in advance what "saturation leads the
+   decline" looks like as a number — e.g. the character count at which `atOne/occupied` crosses
+   some level against the count at which the sliding-window accuracy turns over, per seed, with a
+   threshold for calling one earlier than the other. Finding 23's Q5 is the cautionary tale: a
+   statistic taken over a whole run assumes the run stays in one regime, and on this task that is
+   known to be false. Write the reading into the script header, as the horizon investigation did.
+
+3. THEN, AND ONLY IF (1) SAYS SATURATION LEADS: test a regulator. Do NOT build one first. If it
+   trails, the cause is upstream and permanence is a symptom — say so and stop, because a
+   permanence regulator would then be fixing the thermometer. If it leads, the ablation has VAL-9's
+   shape: introduce whatever regulates the distribution, disable it, assert the decline returns.
+
+   **This is a biological-fidelity design call, so put the options to the user with the evidence
+   rather than picking one** (the house pattern for C7, C8 and C9). Four families, ranked by how
+   well the evidence matches the measured symptom:
+   - **(a) Weight-dependent / soft-bound updates.** Scale the potentiation step by something like
+     `(1 - p)` so permanence approaches the ceiling asymptotically. Best match — it is the direct
+     remedy for the exact distribution we measured (Song/Miller/Abbott 2000; van Rossum/Bi/
+     Turrigiano 2000) and the smallest change in the codebase.
+   - **(b) Metaplasticity, a sliding modification threshold (BCM).** The LTP/LTD crossover moves
+     with the postsynaptic activity history, so an active neuron becomes harder to potentiate.
+     Theory: Bienenstock, Cooper & Munro 1982. Experiment: Kirkwood, Rioult & Bear 1996 measured
+     that crossover shifting with visual experience. C5's modulator hook means some plumbing exists.
+   - **(c) Heterosynaptic competition.** Potentiating one synapse depresses its neighbours on the
+     same neuron, conserving the total. Royer & Paré 2003 measured exactly that conservation. This
+     is the fast, local counterpart of what `HomeostaticScaling` does slowly and globally.
+   - **(d) Multiplicative scaling of permanence**, i.e. what LRN-6 already does for weight
+     (Turrigiano et al. 1998 — and note it is MULTIPLICATIVE precisely so it preserves relative
+     differences). Cheapest to reason about, but see the dissent below.
+
+   **Dissent that bears directly on the choice, and must be recorded whichever way it goes:** Zenke,
+   Gerstner & Ganguli (2017) argue the homeostatic mechanisms actually measured in biology are far
+   too slow (hours to days) to stabilise Hebbian learning, so something faster must exist. That is
+   an argument against (d) and for (a) or (c) — regulators built into the update rule rather than
+   run on a sweep. It is also consistent with this repository's own record: C1 measured
+   consolidation's downscale and it did not help VAL-4 (finding 13), and C12 is the selective
+   version of the same idea.
+
+   **The honesty caveat that must go in the prior-art entry, not just the commit message:**
+   `permanence` is NOT synaptic efficacy. Decision 11 deliberately made it a structural variable,
+   and every paper above measures weight/efficacy. Importing those results onto permanence is a
+   defensible modelling analogy but it IS an analogy — CLAUDE.md forbids citing a paper as backing
+   for something it only loosely supports, so say so explicitly. If the user judges the analogy too
+   loose, the change belongs in docs/open-questions.md as an untested design choice, not in the code.
+
+4. SETTLE THE HORIZON, AS A DECISION WITH A COST ATTACHED. This is the part that is a judgement
+   call, not a measurement, and it should go to the user rather than be taken unilaterally. What is
+   now known: 15,000 is before the peak; the peak plateau is in the low tens of thousands; past it
+   there is a decline that may or may not be fixable by (3). Options, each with its real price:
+   (a) leave 15,000 and always quote a second horizon beside it — cheap, keeps findings 7-22
+   comparable, but every tuned constant stays fitted to a transient; (b) move to a horizon at or
+   past the peak — honest, and costs a re-derivation of every pinned figure; (c) make the protocol
+   two horizons by definition. Do not pick (b) quietly: HANDOFF fact 20 exists because doing so
+   unilaterally would orphan findings 7-22.
+   Note the bars are length-dependent and do not transfer: "always guess space" is 16.56% at 15,000
+   and 16.25% at 200,000, and trigram moves the OTHER way (28.40% -> 29.20%), so the gap widens
+   from both ends.
+
+5. ONE LOOSE END WORTH PICKING UP WHILE YOU ARE HERE, reported without a verdict in finding 25(f):
+   the `rewardSignal: "correctness"` condition survives post-fix at ~10% where it used to reach
+   exactly 0.00%, but its churn is 15,000 sprouts/sweep — 300x baseline — against 4/sweep pre-fix,
+   because pre-fix the network was DEAD and had nothing to sprout from. That is a genuine runaway
+   the index bug does not explain. It is in scope here only if (1) implicates the same mechanism;
+   otherwise record it and leave it.
+
+TRAPS.
+  - A-b5 vs C-default is NOT an ablation of anything. `DEFAULT_CONFIG` differs from B5's winner in
+    at least seven mechanisms at once. Finding 25(e) made this mistake and finding 26 corrected it;
+    use `D-no-sprout` as the model for any new condition — vary ONE field, by destructuring, and
+    leave the now-moot neighbours alone.
+  - A peak landing at exactly 17,250 characters on independent seeds is a corpus artifact, not a
+    learning milestone — all three A-b5 seeds peak there, and so does the no-sprout ablation's
+    seed 3. Report peaks at BLOCK level, not to the character: the 25,000-character block means are
+    17.76 / 19.63 / 18.67 / 16.96 / 16.57 / 15.71 / 15.65 / 15.20% across 0-200,000, which peaks in
+    the 25,001-50,000 block at 19.63% — BELOW the 20.48% the same seeds read at 15,000. The raw
+    2,000-character sliding window peaks at 23.75-24.65% and that number should not be quoted as a
+    VAL-4 result.
+  - Do not reuse any pre-2026-09-26 figure measured with reward on: those runs prune inside 15,000
+    characters and were measured on the corrupt index (finding 25(g)).
+  - Three seeds is what findings 25 and 26 had, and it is thin for a statistical claim (VAL-6). Any
+    number this item wants to defend needs the official seed protocol.
+
+DONE WHEN. The permanence distribution is a trajectory and its reading was pre-registered; the
+lead/trail question has a measured answer either way; a regulator is built and ablated ONLY if the
+measurement earned it; the horizon decision is put to the user with its cost stated and recorded in
+docs/decisions.md whichever way it goes; docs/findings.md carries the outcome including a null, with
+raw data under docs/appendix/; and `.claude/HANDOFF.md` fact 20 is updated to say what is now true.
+Timestamps [YYYY-MM-DD HH:MM +ZZZZ] on every new entry.
 ```
 
 ---
@@ -2165,6 +2363,34 @@ THE TASK.
    first configuration in the project's history to clear. A mixed population that improves on some
    internal delta but falls back below 16.56% has lost the only real ground gained; report against
    that bar explicitly, not just against the previous configuration.
+4b. **CORRECTION BLOCK, added 2026-09-27 after the `target_index` fix (docs/findings.md finding 25,
+   docs/decisions.md decision 27). Two of this prompt's premises moved, in opposite directions.**
+   - **The horizon in step 4 is no longer the only affordable option, and that is new.** A
+     200,000-character trial on a sprouting configuration used to cost 50-85 minutes and scale
+     8.6-11.6x superlinearly, which is why every prompt in this file assumes 15,000. The
+     superlinearity was the `target_index` bug: cost is now **linear** (0.95-0.98x first-vs-last
+     decile) and a 200,000-character trial is ~42 minutes with nine running concurrently. A
+     longer-horizon re-tune is now a budget question, not an impossibility. **Do not silently
+     assume 15,000 because this prompt says so** — decide it, and write down why.
+   - **But 15,000 is measurably the wrong horizon, and that cuts against re-tuning there.**
+     Accuracy is still climbing at 15,000 and peaks around 20,000-35,000 characters (finding 23),
+     so a constant fitted at 15,000 is fitted to a transient — which is exactly what every value
+     step 4a tells you to defend already is. Past the peak there is an unexplained gentle decline
+     (finding 25(d): 17.00/14.90/14.05% at 200,000, mean 15.32%, which is 0.93 points UNDER the
+     16.25% "always guess space" bar at that length).
+   - **What that means for this item concretely.** Re-tuning a mixed population at 15,000 and
+     reporting only that number would fit a transient twice over — once for the horizon, once for
+     the 1.0-excitatory values being replaced. At minimum, carry the chosen finalists out to
+     200,000 characters on three seeds and report both horizons, so the item cannot ship a value
+     that wins at 15,000 and loses past the peak. Costing that is a handful of ~42-minute trials,
+     not weeks.
+   - **The bar in step 4a is length-dependent** and step 4a does not say so: "always guess space"
+     is 16.56% at 15,000 and **16.25%** at 200,000, and the trigram baseline moves the other way
+     (28.40% -> 29.20%). Quote the horizon next to whichever bar you use.
+   - **Do not reuse any figure measured with `rewardSignal: "correctness"` as a reference here**
+     without re-deriving it: reward-on configurations DO prune inside 15,000 characters, so unlike
+     B5's winner they were measured on the corrupt index (finding 25(g)).
+
 5. Watch for a genuinely NEW result, not just a worse number: does E/I balance now produce sparsity
    without the k-WTA doing the work? docs/prior-art.md §13.13(a) notes that avalanche-size distributions are
    the measurable signature of the critical regime docs/prior-art.md §2.4 invokes — that is a candidate new VAL test
@@ -2236,6 +2462,18 @@ existence. Cross-process resume is E2's claim to make, not this one's.
 ### E2 — Cross-process resume + growth after restore
 
 ```
+READ FIRST, ADDED 2026-09-27: `snapshot.rs`'s synapse section now writes records grouped by
+TARGET neuron rather than source-major, and that is load-bearing rather than cosmetic —
+`restore_slot` appends to `target_index` in call order, so the write order is what makes a
+restored arena's reverse index match a running one's (docs/decisions.md decision 27). Before this,
+snapshot/restore was NOT bit-identical under structural churn: 260 of 300 swept snapshot ticks
+diverged, entirely in synaptic weight and never once in a spike train — so a resume check built on
+comparing spikes would have passed throughout. This item's own checks must compare STATE, and must
+churn (prune, not merely sprout) or they cannot see the class of bug that was there.
+`crates/brain-core/tests/target_index_integrity.rs` is the harness to copy, including its positive
+control: the first version of it compared only end-of-run state and reported a false clean, because
+two runs reconverge once the offending synapse is pruned.
+
 Read E1's prompt above for the full context — this item is steps 2 and 4 of it, split 2026-09-20 to
 fit one session.
 
@@ -3121,6 +3359,7 @@ demonstrated and ablated, and docs/prior-art.md §13.13 records a new subsection
 | C10 | not started |  |  | **Was `G1` until 2026-09-20**; renamed to match its position (9th) after the reorder — no citation anywhere outside PLAN.md referenced the old ID, unlike `F8`/`C12`, which is why those kept theirs. Scope unchanged: ENG-5 false gap, stale deferrals, vetoed segments invisible. Still best before D4 — that is when vetoed segments first become visible. |
 | C11 | not started |  |  | **Was `G2` until 2026-09-20**; renamed to match its position (10th), same reasoning as C10. Scope unchanged. Moved ahead of D4 because its sweep wiring changes what a partitioned re-tune measures, and re-tuning is a 1–3 week item. |
 | C12 | not started |  |  | Scoped out of C1 (2026-09-19). **The one C1 follow-up whose negative result does not already apply**: C1 measured the _uniform_ downscale, which changes only scale and is therefore erased exactly by the online LRN-6 sweep (targets 6.0 and 3.0 bit-identical on all ten seeds). Selective downscaling changes ratios _within_ a neuron, which a total-renormalising sweep preserves — reasoning from that verified composition argument, not measured. docs/prior-art.md §13.13(h). |
+| C13 | not started | — | — | Appended 2026-09-27. The first item to own corpus length, and the owner of the residual post-peak decline findings 25 and 26 left open. **Two things are already ruled out, so this item starts narrower than it looks:** structural plasticity does not cause the decline (finding 26's one-variable ablation: 8.67 points of drop with sprouting, 8.80 without), and the churn runaway plus cost superlinearity were the `target_index` bug (finding 25). Leading hypothesis, with numbers but not yet causally tested: nothing regulates `permanence`'s distribution — `HomeostaticScaling` acts on `weight` (decision 11's split) while dendritic prediction is gated on `permanence` — and `atOne/occupied` reads 50-59% with sprouting and 66-70% without at 200,000 characters against 35.8% at 15,000. Critical path is one small harness change: the permanence-distribution fields are sampled once per trial, so nothing can yet say whether saturation leads the decline or trails it. Carries a horizon **decision** for the user (§4 of the prompt), not just a measurement. |
 | D1 | not started |  |  |  |
 | D2 | not started |  |  |  |
 | D3 | not started |  |  | Split out of D2 on 2026-09-20 so every item fits one session; D2's prompt carries the shared context and this row's prompt states the sub-scope. The ablation needs a network that actually contains inhibitory neurons, plus a chosen measurable for "balance" (Vogels' asynchronous irregular state, or Beggs & Plenz avalanche exponents — docs/prior-art.md §13.13(a) names both) and multi-seed evidence per VAL-6. |

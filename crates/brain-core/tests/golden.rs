@@ -315,6 +315,116 @@ fn run_structural_plasticity_b4_scenario(switches: B4Switches) -> SpikeRaster {
     run_structural_plasticity_b4_scenario_with(switches, B4_KNOBS)
 }
 
+/// Why this scenario -- alone among the four golden rasters -- had to be
+/// regenerated for docs/decisions.md decision 27's `target_index` fix. It is
+/// the only one that *removes* synapses, so the only one where a freed slot is
+/// ever reused and a stale reverse-index entry can go live. Reported as
+/// numbers rather than asserted from the scenario's prose, because "the fix
+/// changed it" is not a justification for regenerating a golden reference.
+///
+/// Also a guard: if a later change made this scenario stop eliminating
+/// synapses, its raster would silently stop covering the code path it exists
+/// to cover, and this test would say so.
+#[derive(Debug)]
+struct B4Churn {
+    sprouted: u64,
+    pruned: u64,
+    eliminated: u64,
+    /// Ticks on which `incoming()` disagreed with the source-major columns.
+    defect_ticks: u32,
+    /// The worst single-tick disagreement seen.
+    peak_defects: u32,
+}
+
+fn measure_structural_plasticity_b4_churn() -> B4Churn {
+    let mut neurons = NeuronArena::new();
+    let mut ids = Vec::new();
+    for i in 0..8u32 {
+        ids.push(neurons.allocate(NeuronSpec { threshold: 0.6, polarity: 1, coords: [i as f32, 0.0, 0.0] }).index);
+    }
+    let mut synapses = SynapseArena::new(8);
+    synapses.reserve_for_neurons(neurons.capacity_len());
+    let (group_a, group_b, group_c) = (&ids[0..3], &ids[3..5], &ids[5..8]);
+    let k = B4_KNOBS;
+    let stdp = StdpParams { a_plus: k.stdp_amplitude, a_minus: k.stdp_amplitude, tau_plus: 4.0, tau_minus: 4.0, window_ticks: 20 };
+    let plasticity = RuleChain::new(vec![Box::new(ThreeFactorStdp::new(ThreeFactorParams::new(stdp, 500.0, 1.0, DOPAMINE)))]);
+    let mut sched = Scheduler::new(4, 0.3)
+        .with_segments(SegmentConfig::new(2, BinaryCoincidenceParams { threshold: k.coincidence_threshold }))
+        .with_silent_synapses(SilentSynapseParams { unsilence_weight: k.unsilence_weight, silent_transmits: false })
+        .with_plasticity(plasticity, [500.0; NUM_MODULATORS])
+        .with_structural_plasticity(StructuralPlasticity::new(
+            StructuralPlasticityParams {
+                prune_floor: 0.05,
+                sprout_permanence: 0.35,
+                sprout_weight: 0.05,
+                min_activity_streak: 2,
+                sweep_interval_ticks: 50,
+                unused_ticks_before_reclaim: 1_000_000,
+                min_cross_partition_delay: 2,
+                max_sprout_source_index: None,
+                sprout_timing: Some(SproutTimingWindow { min_gap_ticks: 1, max_gap_ticks: k.max_gap_ticks }),
+                seed: k.seed,
+                segments_per_neuron: 2,
+                spread_sprout_segments: true,
+                silent_elimination_ticks: Some(k.elimination_ticks),
+            },
+            FixedNeighbourhoods::new(8, 8),
+        ));
+    let params = LifParams::new(6.0, 0.0, 0.0, 1).with_predictive(20.0, 0.5);
+    sched.inject_modulator(DOPAMINE, 1.0);
+    let (mut defect_ticks, mut peak_defects) = (0, 0);
+    for tick in 0..STRUCTURAL_B4_TICKS {
+        sched.inject_modulator(DOPAMINE, 0.002);
+        let (cycle, phase) = (tick / 16, tick % 16);
+        let b_and_c_drive = if cycle % k.strong_every_cycles == 0 { 5.0 } else { k.weak_drive };
+        match phase {
+            0 => group_a.iter().for_each(|&id| sched.stimulate(&neurons, id, 5.0)),
+            2 => group_b.iter().for_each(|&id| sched.stimulate(&neurons, id, b_and_c_drive)),
+            4 => group_c.iter().for_each(|&id| sched.stimulate(&neurons, id, b_and_c_drive)),
+            _ => {}
+        }
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        // `incoming()` against the source-major columns, which carry no index
+        // of their own and so cannot be wrong the same way.
+        let mut defects = 0;
+        for n in 0..8u32 {
+            let listed: Vec<u32> = synapses.incoming(n).collect();
+            for &id in &listed {
+                if synapses.target_neuron[id as usize] != n {
+                    defects += 1;
+                }
+            }
+            let mut seen = listed.clone();
+            seen.sort_unstable();
+            let before = seen.len();
+            seen.dedup();
+            defects += (before - seen.len()) as u32;
+        }
+        if defects > 0 {
+            defect_ticks += 1;
+            peak_defects = peak_defects.max(defects);
+        }
+    }
+    let totals = sched.structural_plasticity_totals().expect("structural plasticity is configured");
+    B4Churn { sprouted: totals.sprouted, pruned: totals.pruned, eliminated: totals.eliminated, defect_ticks, peak_defects }
+}
+
+#[test]
+fn the_b4_golden_scenario_removes_synapses_which_is_why_its_raster_moved() {
+    let churn = measure_structural_plasticity_b4_churn();
+    println!("B4 golden scenario over {STRUCTURAL_B4_TICKS} ticks: {churn:?}");
+    assert!(
+        churn.pruned + churn.eliminated > 0,
+        "this scenario must remove synapses -- it is the only golden raster that does, and that is the whole reason decision 27's fix moved it. {churn:?}"
+    );
+    assert!(churn.sprouted > 0, "and must sprout, since it is the reuse of a freed slot that made a stale entry live. {churn:?}");
+    assert_eq!(
+        (churn.defect_ticks, churn.peak_defects),
+        (0, 0),
+        "after decision 27's fix, incoming() must agree with the source-major columns on every tick of this scenario          (before it, this read (1300, 12) of {STRUCTURAL_B4_TICKS} ticks). {churn:?}"
+    );
+}
+
 fn run_structural_plasticity_b4_scenario_with(switches: B4Switches, k: B4Knobs) -> SpikeRaster {
     let mut neurons = NeuronArena::new();
     let mut ids = Vec::new();
