@@ -114,3 +114,86 @@ export function observe(
     weightHash: hex(hWeight),
   };
 }
+
+/** How many equal-width bins `permanenceDistribution` splits `[0, 1]` into. */
+export const PERMANENCE_BINS = 20;
+/** The band counted as `mid` -- graded, neither pinned at a bound nor decayed below `connectionThreshold`. */
+export const MID_BAND: readonly [number, number] = [0.2, 0.8];
+
+/**
+ * The permanence distribution ALONE, cheap enough to sample repeatedly over one
+ * run rather than once at the end -- PLAN.md C13's critical path.
+ *
+ * WHY THIS IS SEPARATE FROM `observe`. `observe` also builds three FNV hashes and a
+ * distinct-value map over every occupied synapse, and its `Observation` shape is
+ * consumed by `investigate-c5-staircase.worker.ts` and `measure-c5-hook-cost.ts` as
+ * an end-of-run identity. This function answers a different question -- what SHAPE
+ * does permanence have right now -- and is called on a sparse cadence mid-run, so it
+ * carries no hashes and allocates nothing but its own bin array. docs/decisions.md
+ * decision 26's sampling-cost note applies: keep it off the sparse cadence's own
+ * timing, exactly as `structuralStats()` is.
+ *
+ * `distinctPermanences` is kept because it is the sharpest single sign of the lattice
+ * a purely additive update produces (15-16 distinct values at 15,000 characters
+ * against 207-259 at 200,000 -- docs/appendix/find-25.md section 9).
+ */
+export interface PermanenceDistribution {
+  readonly occupied: number;
+  /** Occupied synapses with permanence >= `connectionThreshold` -- the structural gate `deliver` reads. */
+  readonly connected: number;
+  readonly atOne: number;
+  readonly atZero: number;
+  /** Occupied synapses whose permanence is inside `MID_BAND` -- the graded middle a bimodal distribution empties. */
+  readonly mid: number;
+  readonly sumPermanence: number;
+  readonly sumWeight: number;
+  readonly distinctPermanences: number;
+  /** `PERMANENCE_BINS` equal-width counts over `[0, 1]`; permanence exactly 1.0 lands in the last bin. */
+  readonly histogram: readonly number[];
+}
+
+export function permanenceDistribution(
+  sim: Simulation,
+): PermanenceDistribution {
+  const perm = sim.synapsePermanenceView();
+  const weight = sim.synapseWeightView();
+  const occ = sim.synapseOccupiedView();
+  const threshold = sim.connectionThreshold;
+  const [midLow, midHigh] = MID_BAND;
+
+  let occupied = 0;
+  let connected = 0;
+  let atOne = 0;
+  let atZero = 0;
+  let mid = 0;
+  let sumPermanence = 0;
+  let sumWeight = 0;
+  const histogram = new Array<number>(PERMANENCE_BINS).fill(0);
+  const seen = new Set<number>();
+  for (let i = 0; i < occ.length; i++) {
+    if (occ[i] === 0) continue;
+    occupied++;
+    const p = perm[i]!;
+    sumPermanence += p;
+    sumWeight += weight[i]!;
+    if (p === 1) atOne++;
+    if (p === 0) atZero++;
+    if (p >= midLow && p <= midHigh) mid++;
+    if (p >= threshold) connected++;
+    histogram[
+      Math.min(PERMANENCE_BINS - 1, Math.floor(p * PERMANENCE_BINS))
+    ]!++;
+    seen.add(p);
+  }
+  return {
+    occupied,
+    connected,
+    atOne,
+    atZero,
+    mid,
+    sumPermanence,
+    sumWeight,
+    distinctPermanences: seen.size,
+    histogram,
+  };
+}
