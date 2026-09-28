@@ -4,6 +4,45 @@ Design questions this project has settled, in the order each was decided. Number
 
 **Related files:** [`open-questions.md`](open-questions.md) for what is still undecided, [`findings.md`](findings.md) for measurements behind a decision, [`prior-art.md`](prior-art.md) for the evidence a decision is weighed against.
 
+## At a glance
+
+Every numbered decision, in the order taken. IDs are permanent and cited from code and tests, so they are never renumbered. **Status** says whether the decision still governs: _Active_ if it does, _Superseded_ / _Corrected_ if a later entry changed it, _Not adopted_ where the call was to build something and leave it off.
+
+| # | What was decided | Status | Note |
+| --- | --- | --- | --- |
+| 1 | Event-driven work on a fixed 0.1 ms grid, not a global priority queue | Active | A queue would be one global ordering point (RUN-1b) |
+| 2 | Dendritic detail: binary coincidence counters, graded interface | Active | Graded return keeps multi-compartment addable |
+| 3 | Reference frames are in, after the sensorimotor loop | Active | NET-9, Phase 5.5; unblocked by decision 23 |
+| 4 | First real task: character prediction against a trigram (VAL-4) | Active | Still unmet — see findings 1 and 28 |
+| 5 | WebGPU stays optional and narrow | Active | Poor fit for sparse, mutable-topology event work (RUN-11) |
+| 6 | Rust core, TypeScript shell | Active | SoA layout sidesteps Rust's hardest part |
+| 7 | Randomness by stateless tuple-keyed derivation, not per-thread RNG | Active | What makes RUN-3 and RUN-9a hold together |
+| 8 | A fast-binding store gets a _second_ `SynapseArena`, not a variable-block one | Active (unbuilt) | Additive; a variable-block arena breaks id arithmetic |
+| 9 | LRN-12 not built in Phase 5.5 | Active | Three emergent requirements shipped without needing it |
+| 10 | Prefer a self-tuning target _rate_ over a hardcoded scale-dependent value | Active | Invariant 10 means such values keep going stale |
+| 11 | SYN-1's `weight`/`permanence` split — what moves which field | Active, partly re-decided | Reopened by decision 13 once votes carried weight |
+| 12 | Structural plasticity's four B4 fixes | Active | Fixes 1+2 carry the result; fix 4 is harmful, off |
+| 13 | A dendritic vote is weighted, capped at one full vote | Active | **Sprouting finally helps** — the B5 result |
+| 14 | Dopamine gates _persistence_, not strength | Active | A negative RPE is a dip below tonic, not a negative level |
+| 15 | Sprout _reach_ is separate from the k-WTA group, and is spatial | Active | Closed the last structural excuse; growth still a null |
+| 16 | A modulator level can shape the STDP _curve_, not just scale it | Active (unused) | Plumbing for C6/C7/F19; unset in every shipped config |
+| 17 | Noradrenaline widens the STDP window — width only | Active (unadopted) | Triangular window deferred, not rejected |
+| 18 | Acetylcholine sets the LTP/LTD ratio at induction, may invert | Active (unadopted) | Decided on primary papers with the user; ruinous on VAL-4 |
+| 19 | Threading library: rayon, decisively | Active | Pinned-pool alternative is 10× worse at 8 threads |
+| 20 | Working memory / attractor states are _additive_ | Active | NET-12, Phase 5.5 |
+| 21 | Action selection is additive in core, blocked on LRN-11 | Active | NET-13, Phase 5.5 |
+| 22 | Binding by synchrony: the named risk is falsified by shipped code | Closed | The narrower real risk is closed too, by a named test |
+| 23 | Embodied grounding: IO-5 moves earlier, into Phase 5 | Active | Built alongside VAL-4 rather than after it |
+| 24 | A feedforward/recurrent discriminant reaches plasticity by _routing_ | Active | Option (c) — neither option the prompt framed |
+| 25 | Acetylcholine's encoding/retrieval pair is two independent mechanisms | Active (unadopted) | Separately switchable, deliberately |
+| 26 | The trial progress callback carries live accuracies and the `Simulation` | Active | Engineering; records the sampling-cost trap |
+| 27 | `remove` drops the id from `target_index`; snapshots write target-major | Active | A real RUN-3 violation, not a leak |
+| 28 | VAL-4 has **two horizons by definition**: 15,000 and 200,000 | Active | Decided with the user; a figure without its horizon is incomplete |
+| 29 | C14's two arms built, measured, **not** adopted, deliberately kept | **Superseded in part** by 30 | Arm 2 (soft bounds) still stands as written |
+| 30 | Contributor gating **ON by default**; pins re-derived; a standing rule | Active | _Default on for fidelity corrections that measure within noise — never merely for measuring within noise_ |
+
+> **The one reversal worth knowing about.** Decisions 29 and 30 were taken a day apart and 30 overturns half of 29: arm 1 went from "not adopted" to "on by default" once the argument shifted from _does it help_ to _is it correct_. The pinned VAL-4 figures moved **20.36% / 19.05% → 20.05% / 19.67%** as a result, so every figure in `findings.md` 7–22 is a pre-gate number that needs `contributorGating: false` to reproduce at HEAD.
+
 ---
 
 ## Decisions
@@ -361,3 +400,41 @@ Hasselmo's account is _two_ mechanisms pointing in opposite directions over the 
     - **The bars do NOT transfer between the two horizons, and they move in opposite directions.** "Always guess space" is **16.56%** at 15,000 and **16.25%** at 200,000; the trigram baseline is **28.40%** at 15,000 and **29.20%** at 200,000. So the gap widens from both ends, and a bar quoted at the wrong length flatters or penalises a result by up to a point. Quote the bar for the horizon the number was measured at (finding 23(f) measured both).
 
     **What this does not decide.** Whether the post-peak decline is fixable is PLAN.md C13's other half and is a measurement, not a judgement call — see docs/findings.md finding 27. This decision holds either way: if the decline is fixed the stability horizon is where that is demonstrated, and if it is not, the stability horizon is where the limit is honestly reported.
+
+29. **Contributor-gated reinforcement and soft-bound permanence updates are built, measured, NOT adopted, and deliberately KEPT in the tree — decided 2026-09-28 [2026-09-28 09:44 +0100] (PLAN.md C14), with three design calls taken with the user and one of them corrected before any code was written.**
+
+    **What the mechanisms are.** **Arm 1**, `PredictiveLearning::with_contributor_gate`: Requirement 12.3's reinforcement reaches only the synapses that actually delivered within a window, instead of every synapse on the segment. **Arm 2**, `with_bound_mode(BoundMode::Soft)`: a potentiation is scaled by `(1 − p)` and a depression by `p`, so either bound is approached asymptotically rather than by clamping. Both are off by default and every pre-C14 configuration is bit-identical, asserted rather than assumed (`both_c14_arms_are_off_by_default`, plus the pass-through ablation below).
+
+    **Why arm 1 existed to be built at all, which is the part worth remembering.** `adjust_segment`'s own doc comment has said since B4 that it "adjusts every synapse on the segment, not only the ones that contributed", and deferred the fix on a stated condition: "built only if the B5 search shows it costs accuracy". **That condition could never have fired — contributor gating was never in the B5 search space.** A deferral whose trigger is unreachable is an untested assumption wearing the clothes of a tested one, and this is the second time this repository has found one (docs/findings.md finding 13's "four mechanisms with zero callers" is the first shape of it).
+
+    **Three design calls, put to the user with the evidence per the C7/C8/C9 pattern.**
+    - **(a) What "contributed" reads.** Decided as a new `last_delivered` field, then **CORRECTED [2026-09-28 01:20 +0100] before any code was written**: the stated reason for rejecting the existing `last_active` — that it is written only by `ThreeFactorStdp::on_delivery` and so unmaintained without `plasticity` — was **wrong**. `Scheduler::deliver` already writes it unconditionally, outside the `has_any_plasticity()` guard, and `snapshot.rs` already persists it. The correction removed the entire cost of the item: **no new field, no +4 bytes/synapse, and no snapshot format version bump**. Recorded because the wrong fact was load-bearing for a decision the user made.
+    - **(b) Strict gate, with the non-contributor fraction as a parameter.** Non-contributors get 0 by default; the fraction is configurable so the biologically truer partial gate is a value rather than a rewrite. A strict gate is **knowingly stricter than the biology** — Engert & Bonhoeffer (1997) measured LTP spreading within ~70 µm and Harvey & Svoboda (2007) measured one spine lowering its neighbours' threshold for ~10 minutes.
+    - **(c) Reinforcement is gated; punishment is not.** Heterosynaptic _depression_ of uninvolved inputs is measured (Royer & Paré 2003); heterosynaptic _potentiation_ of uninvolved inputs is not. The asymmetry is the evidence's, not a half-measure.
+
+    **The measurement, and why it is not adopted.** docs/findings.md finding 28: both mechanisms comprehensively repaired the permanence distribution — soft bounds took ceiling saturation from 55.1% to **0.0%** and nearly doubled the graded middle to 51.1%, gating cut the ceiling to 45.5% and raised connectivity by 9.4 points — and **VAL-4 moved by at most +0.16 points** on ten seeds at the pinned horizon, at **any** window across a 32-fold sweep, with the post-peak decline unchanged. Nothing adopted; `packages/io/src/canonicalBrain.ts` and `B5_VALUES` are untouched.
+
+    **Why they are KEPT rather than reverted, which is a decision and not an oversight.** Three reasons. They are the **only measured handle this repository has on the permanence distribution**, and the next investigation of the decline will want to hold that distribution fixed while varying something else — which is exactly the perturbation shape finding 27 said was needed and finding 28 demonstrated works. They carry a **free VAL-9 ablation**: `nonContributorFraction: 1.0` reproduces the ungated rule bit-for-bit, so any future use is self-checking. And the cost of keeping them is a branch not taken in two functions, against the cost of rediscovering `adjust_segment`'s deferral a third time.
+
+    **Not in `canonicalBrain.ts`, on purpose**, and for a different reason from C6's, C7's and C9's. Those three are excluded because that fixture cannot exercise them meaningfully. These two _would_ change it — they alter what every predictive-learning write does — and a standing test asserting the fixture's behaviour under an unadopted mechanism would pin a configuration no measurement supports. The reasoning is recorded beside `plasticity` in that file.
+
+30. **Contributor-gated reinforcement is ON BY DEFAULT, the pinned VAL-4 figures are re-derived to 20.05% / 19.67%, and this repository now has a standing rule for when a null gets adopted — decided with the user 2026-09-28 [2026-09-28 10:30 +0100] (PLAN.md C14), one day after decision 29 declined to adopt it.**
+
+    **What changed and why the reversal is not a contradiction.** Decision 29 recorded both C14 arms as built, measured, and NOT adopted, on this repository's standing habit that a null is not adopted. The user challenged that for arm 1 specifically, on grounds decision 29 had not weighed: **contributor gating is not an addition, it is a correction.** Reinforcing every synapse on a segment is not a modelling choice that happened to measure flat — it is wrong about the biology. Synapse specificity is the founding result of the LTP literature (Andersen et al. 1977) and has been measured at single-spine _structural_ resolution (Matsuzaki et al. 2004), which is the right grain for a structural variable. CLAUDE.md's own framing settles it: "Biological plausibility and honest measurement are the point; 'make the number go up' is not." A correct mechanism that costs nothing should be the default.
+
+    **THE STANDING RULE, which is the part that outlives this item.** **Default a mechanism ON when it corrects a known biological inaccuracy AND measures within noise. Do not default a mechanism on merely because it measures within noise.** The justification in the first case is fidelity, and the number only has to not regress; in the second there is no justification at all. The rule does not compound, because "known inaccuracy" is a finite, enumerable list rather than every idea anyone tries.
+
+    **A rejected wider version, and the user's correction to my argument for rejecting it.** The wider rule considered was "default on anything losing less than a point". I argued against it that eight mechanisms at −0.9 each would cost 7 points while every individual call looked like noise. **The user pointed out that this is not backed by any evidence — nobody has measured these mechanisms in combination — and they are right.** The one relevant measurement this repository has contradicts my assumption outright: C9's two halves are −12.69 alone and a **null together** (finding 22), which is dramatic non-additivity, and C14's own interaction contrast (−0.23) is the only other combination ever measured. So the honest statement is not "they would add up to −7" but **"nobody knows, because no mechanism in this project has ever been measured in combination with the others"** — a real gap in the method, now recorded in docs/open-questions.md item 8. The narrower fidelity rule was adopted on its own merits, not on the compounding argument.
+
+    **Arm 2 stays OFF and opt-in**, by the same rule read the other way: hard clamping is a modelling choice rather than an error, so soft bounds are an addition, and their measurement is a null.
+
+    **What the flip actually costs, measured rather than estimated.**
+    - **The pinned figures move: 20.36% / 19.05% → 20.05% / 19.67%** (selection seeds 1-5 / confirmation seeds 11-15). Re-derived directly and they reproduce finding 28's `G` rows to the digit, which is the cross-check that the default flip and the measured condition are the same thing. The confirmation figure — the one `.claude/HANDOFF.md` calls the headline — **improves by 0.62**; the selection figure falls 0.31. Both inside noise, net +0.16.
+    - **Still clears the bar**: 19.67% against the 16.56% "always guess space" baseline, by 3.11 points.
+    - **No golden raster moved.** `tests/golden.rs` configures no predictive learning at all, so the four rasters are untouched — this was checked before the flip, not after.
+    - **Seven Rust unit tests needed fixing, and five of them were asserting something biologically wrong.** They construct a synapse, never deliver it, and assert a correct prediction reinforces it. Under the gate a synapse that never delivered is not a contributor, so they now set `last_active` — which is what "the responsible segment" always meant. The other two are C14's own tests, whose premise the flip inverts.
+    - **Every figure in docs/findings.md 7-22 was measured ungated** and needs `contributorGating: false` to reproduce at HEAD. They are not orphaned — that switch exists precisely so they stay reachable — but a reader must know which side of this decision a number was measured on.
+
+    **What keeps the old rule reachable, deliberately.** `PredictiveLearning::without_contributor_gate`, `Scheduler::without_predictive_learning_contributor_gate`, FFI `contributorGating: false`, TS `predictiveUpdate: { contributorGating: false }`. It is arm 1's VAL-9 ablation and it is what reproduces findings 7-22, so it is a first-class switch rather than a deprecated path.
+
+    **Two traps this created, both closed here rather than left.** `packages/io/test/char-prediction.slow.test.ts`'s B5 regression test pins 20.36% within ±0.005, and the gated figure of 20.05% sits **inside that band** — so it would have passed silently while measuring a different configuration. It now sets `contributorGating: false` explicitly, because its stated job is reproducing a search that ran ungated. And `scripts/investigate-c14-credit-and-bounds.ts`'s protocol string is bumped to `v2-gated-default` per scripts/CLAUDE.md's rule: its condition `A` set no `predictiveUpdate`, so under the new default the same checkpoint key would silently mean the gated rule and compare the gate against itself. The v1 checkpoint and results are kept as `*.stale-v1.*`.

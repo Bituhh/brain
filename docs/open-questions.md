@@ -4,6 +4,23 @@ Genuinely undecided or unbuilt design questions — what this project has not ye
 
 **Related files:** [`decisions.md`](decisions.md), [`findings.md`](findings.md), [`prior-art.md`](prior-art.md) for the evidence a question is weighed against.
 
+## At a glance
+
+What this project has not settled. **Status** distinguishes a question that is wholly open from one whose sub-parts have been closed in place — several entries keep closed sub-items deliberately, because the reasoning that led there is worth keeping and because a later item would otherwise re-open them.
+
+| # | The question | Status | Note |
+| --- | --- | --- | --- |
+| 1 | Scale ceiling — can this reach 100k neurons / 50M synapses, and how fast? | Partly resolved | **Memory met** (≈1.46 GB). **Throughput not met**, and never measured at the real scale |
+| 2 | What performs fast one-shot binding (LRN-12), and when must it be decided? | Open (design pinned) | The costly part is `cap_per_neuron`, and Phase 4 made it expensive |
+| 3 | Three things LRN-10's replay is _not_ | Open | Replay is mostly a recording of the **input**, not of the network |
+| 4 | What the other neuromodulator channels should gate, and how | Mostly closed | (a)+(b) closed by C8/C9/C3; **(e) is open and sharper** — ACh now does two jobs |
+| 5 | Three mechanisms are waiting on a task with change points, and none exists | Open, unowned | VAL-4 is stationary, so C6/C3/C9 are inert there **by construction** |
+| 6 | Should `target_index` be canonical rather than insertion-ordered? | Open | Naturally one decision with the next protocol re-derivation, not two |
+| 7 | What causes VAL-4's residual post-peak decline? | Open — **best candidate eliminated** | Permanence polarisation falsified by C14 (finding 28) |
+| 8 | Nothing here has ever been measured _in combination_ with anything else | Open, unowned | Opened by the user; C9's halves (−12.7 alone, null together) show non-additivity |
+
+> **Where the live work is.** Items 5, 7 and 8 are the ones currently blocking progress rather than merely recorded: 5 is why three mechanisms cannot be evaluated at all, 7 is the unexplained stability limit, and 8 is the reason every "X is a null" result in `findings.md` carries an unstated _alone_. None of the three is owned by a PLAN.md item.
+
 ---
 
 1. **Scale ceiling — partially resolved 2026-09-10 (Phase 4 Step 23), against ENG-11's two separate targets.**
@@ -104,7 +121,9 @@ Genuinely undecided or unbuilt design questions — what this project has not ye
 
    **So the two are naturally one decision, not two**: whoever next re-derives the protocol's figures should adopt canonical ordering in the same pass, since the re-derivation is the expensive part and it is already being paid. Nothing in PLAN.md currently owns either.
 
-7. **What causes VAL-4's residual post-peak decline — narrowed by three measurements and still open, and the leading hypothesis is now weakened rather than confirmed. Opened 2026-09-28 [2026-09-28 00:25 +0100] by PLAN.md C13, which measured it and declined to build on the result.**
+7. **What causes VAL-4's residual post-peak decline — narrowed by four measurements and still open, and the hypothesis it was opened around is now FALSIFIED. Opened 2026-09-28 [2026-09-28 00:25 +0100] by PLAN.md C13; the leading hypothesis was closed out the same day [2026-09-28 09:44 +0100] by PLAN.md C14.**
+
+   **AMENDMENT [2026-09-28 09:44 +0100]: permanence polarisation is NOT the cause — it is a passenger, and this is now measured rather than argued.** C14 built the perturbation this item asked for and ran it: contributor-gated reinforcement and soft-bound updates each comprehensively repaired the distribution (soft bounds took ceiling saturation from 55.1% to **0.0%** and nearly doubled the graded middle to 51.1%; gating cut the ceiling to 45.5% and raised connectivity 9.4 points) and **VAL-4 moved by at most +0.16 points on ten seeds at the pinned horizon, at any window across a 32-fold sweep, with the post-peak decline unchanged** (docs/findings.md finding 28, docs/decisions.md decision 29). The bullets below are left as written, because the reasoning that led here is worth keeping, but **the "leading hypothesis" they describe is closed**. What remains open is the question itself, now with its best candidate eliminated and one fewer place to look.
 
    The decline itself is not in doubt: B5's winner peaks at a 19.32% 25,000-character block mean and ends at **14.89%** mean over ten seeds at 200,000 characters, against the 16.25% "always guess space" bar at that length (docs/findings.md finding 27). What causes it has no answer.
 
@@ -125,3 +144,15 @@ Genuinely undecided or unbuilt design questions — what this project has not ye
    **A second, smaller question this opened, recorded so it is not rediscovered.** `C-default`'s permanence distribution stays frozen **despite** `predictive.rs` running heavily there — `predictiveLearning` is installed unconditionally in the harness's `SimulationOptions`, and the condition classifies 17.7 M predictions with 15.0 M correct. Why millions of reinforce/punish events move the distribution by under a point is not known; the untested candidates are Count-mode votes and a different coincidence threshold meaning far fewer segments cross threshold per classification. Related: `C-default`'s `connected/occupied` is already **14.3%** at the first 5,000-character sample against 100% for `D-no-sprout` at the same sample with the same 31,945 synapses, so most of its synapses sit below `connectionThreshold` from at or near construction — which makes `connected/occupied` not comparable between those conditions and is worth knowing before anyone uses `DEFAULT_CONFIG` as a distribution control again.
 
    **And one loose end carried forward unchanged from finding 25(f).** With `rewardSignal: "correctness"`, the final-10,000-character sprout rate is ~15,000/sweep — 300x baseline — and the occupied set ends at ~18,000 against ~71,500 pre-fix. That is a genuine runaway the `target_index` bug does not explain. C13 scoped it in only if the permanence trajectory implicated the same mechanism; it does not, so it stays here. No shipped configuration sets `rewardSignal`.
+
+8. **No mechanism in this project has ever been measured in combination with the others — opened 2026-09-28 [2026-09-28 10:30 +0100] by the user, correcting an unevidenced claim made in the docs/decisions.md decision 30 discussion.**
+
+   Every Phase C item measured its mechanism against B5's winner **one at a time**: C2, C3, C4, C6, C7, C9 and C14 are each a one-variable comparison, which is exactly the discipline finding 26 had to impose after finding 25(e) over-read a seven-mechanism contrast. That discipline is right for attribution and it leaves a gap: **it says nothing about what the mechanisms do together.**
+
+   **Why this is not a theoretical worry.** The claim that prompted it was mine — that adopting several individually-noise-level mechanisms would compound into a large loss. **It is not backed by any measurement**, and the one relevant data point in this repository contradicts it: PLAN.md C9's two halves measure **−12.69 points alone** and a **null together** (finding 22). That is not additive by any reading. The only other combination ever measured here is C14's own 2×2 interaction contrast, −0.23 points on two mechanisms (finding 28). Two data points, one of them dramatically non-additive.
+
+   **What is actually unknown.** Whether the six or so mechanisms that are built, switchable and currently unadopted (C6's noradrenaline window, C7's acetylcholine ratio, C9's encoding/retrieval pair, C14's soft bounds, C12's selective downscaling when built) interact at all — constructively, destructively, or not. Every one of them is a null or a negative _alone_, and every one of them has been evaluated only alone.
+
+   **Why it has not been done.** A full factorial over `n` switchable mechanisms is `2^n` conditions × ten seeds, which is out of reach past about four mechanisms at ~100 s per 15,000-character trial. A screening design (fractional factorial, or one-at-a-time-from-all-on rather than one-at-a-time-from-baseline) is affordable and would answer the first-order question. **Nothing in PLAN.md owns this**, which is the same shape of gap that `.claude/HANDOFF.md` fact 20 recorded for corpus length before C13.
+
+   **What would make it worth doing.** Two of the unadopted mechanisms are halves of one biological account (C9), and C7's is ruinous alone for a reason its own write-up attributes to a missing partner (the dopamine rescue). If the substrate's mechanisms are individually inert because each is compensating for the absence of the others, one-at-a-time measurement cannot ever see it — and that is a hypothesis this project's own record makes plausible rather than a general worry about interactions.

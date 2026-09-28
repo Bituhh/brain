@@ -333,6 +333,21 @@ export function canonicalSimulationOptions(seed: bigint): SimulationOptions {
       // ablation of the novel/familiar distinction).
       modulatorTauTicks: [1000, 1000, 1000, 1000],
     },
+    // PLAN.md C14's two arms have DIFFERENT defaults, and neither is named here
+    // because neither needs to be (docs/decisions.md decisions 29 and 30).
+    // **Contributor gating is ON**, by the engine's own default: it is a
+    // fidelity correction -- synapse specificity is the founding LTP result
+    // (docs/prior-art.md §13.13(l)) and reinforcing every synapse on a segment
+    // was simply wrong -- and it measured free (docs/findings.md finding 28:
+    // +0.16 points, flat across a 32-fold window sweep). So this fixture runs
+    // it, which is what "every mechanism live" is supposed to mean.
+    // **Soft bounds are OFF**: hard clamping is a modelling choice rather than
+    // an error, and the measurement is a null, so adopting it would pin a
+    // configuration no measurement supports. Set `predictiveUpdate.boundMode`
+    // to `"soft"` to exercise it, or `contributorGating: false` to get the
+    // pre-C14 rule back (which is what every figure in docs/findings.md 7-22
+    // was measured under).
+    //
     // PLAN.md C9's transmission half (`transmissionModulation`) is
     // deliberately absent for the reasons beside `plasticity` above --
     // stated here too because this object is what a reader scans to ask

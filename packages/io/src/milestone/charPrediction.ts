@@ -91,7 +91,11 @@ export const NETWORK_DENSITY = 0.08;
  * condition Song, Miller & Abbott (2000) showed produces a bimodal population;
  * `"soft"` is van Rossum, Bi & Turrigiano (2000)'s weight-dependent form.
  *
- * Both omitted (the default) is the pre-C14 rule, bit-identical.
+ * **Arm 1 is ON by default since docs/decisions.md decision 30** -- it is a
+ * fidelity correction (synapse specificity is the founding LTP result) that
+ * measured free, so omitting `predictiveUpdate` gives the GATED rule. Arm 2 is
+ * an addition rather than a correction and measured a null, so it stays opt-in.
+ * `contributorGating: false` restores the pre-C14 whole-segment rule.
  */
 export interface PredictiveUpdateConfig {
   /**
@@ -105,6 +109,15 @@ export interface PredictiveUpdateConfig {
    * measured (Royer & Paré 2003), heterosynaptic potentiation is not.
    */
   readonly contributorWindowTicks?: number;
+  /**
+   * `false` restores the pre-C14 rule -- reinforcement reaches every synapse on
+   * the segment. Omit (or `true`) for the default gate.
+   *
+   * This is arm 1's VAL-9 ablation, and it is what reproduces any figure in
+   * docs/findings.md 7-22, every one of which was measured before the gate
+   * existed (docs/decisions.md decision 30).
+   */
+  readonly contributorGating?: boolean;
   /**
    * What fraction of the reinforcement a non-contributor gets. Omit for `0.0`
    * (strict). `1.0` is bit-identical to no gate and is arm 1's VAL-9 ablation.
@@ -907,6 +920,9 @@ export function buildNetwork(
       // `with_predictive_learning_bound_mode` at all and is bit-identical.
       ...(predictiveUpdate?.contributorWindowTicks !== undefined && {
         contributorWindowTicks: predictiveUpdate.contributorWindowTicks,
+      }),
+      ...(predictiveUpdate?.contributorGating !== undefined && {
+        contributorGating: predictiveUpdate.contributorGating,
       }),
       ...(predictiveUpdate?.nonContributorFraction !== undefined && {
         nonContributorFraction: predictiveUpdate.nonContributorFraction,

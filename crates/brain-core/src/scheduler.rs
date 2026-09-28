@@ -857,6 +857,15 @@ impl Scheduler {
         self
     }
 
+    /// Restores the pre-C14 rule: Requirement 12.3 reinforces every synapse on
+    /// the segment (docs/decisions.md decision 30). Requires
+    /// [`Self::with_predictive_learning`] first, same precedent as above.
+    pub fn without_predictive_learning_contributor_gate(mut self) -> Self {
+        let rule = self.predictive_learning.take().expect("without_predictive_learning_contributor_gate needs with_predictive_learning to have been called first");
+        self.predictive_learning = Some(rule.without_contributor_gate());
+        self
+    }
+
     /// Switches Requirement 12.2/12.3's arithmetic to weight-dependent (soft)
     /// bounds (PLAN.md C14 arm 2). Requires [`Self::with_predictive_learning`]
     /// first, same precedent as above.

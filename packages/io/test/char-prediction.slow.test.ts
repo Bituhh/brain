@@ -200,6 +200,15 @@ test("condition C with B4's searched values reproduces the value search's own re
 // sprouting disabled (15.58%), and the first VAL-4 configuration clearly
 // above "always guess space" (16.56% of this slice's next characters).
 // Deterministic per seed, so the band only absorbs float differences.
+//
+// **`contributorGating: false` is set deliberately and is load-bearing
+// (docs/decisions.md decision 30, PLAN.md C14).** The B5 search ran before
+// contributor gating existed, so reproducing ITS result means reproducing the
+// ungated rule -- and this test's whole job is to notice if that result stops
+// reproducing. Without the flag the shipped default would apply and this would
+// score 20.05%, which is INSIDE the +/-0.005 band and would therefore pass
+// silently while measuring a different configuration. A regression test that
+// passes for the wrong reason is worse than one that fails.
 test("condition C with B5's searched values reproduces the value search's own result (PLAN.md B5)", () => {
   const corpus = fullCorpus.slice(0, SLICE_LENGTH);
   const structuralPlasticity: StructuralPlasticityConfig = {
@@ -241,6 +250,7 @@ test("condition C with B5's searched values reproduces the value search's own re
     voteReferenceWeight: 1.0,
     predictiveLearningTarget: 'permanence',
     homeostaticScaling: { targetTotalWeight: 6.0, intervalTicks: 200 },
+    predictiveUpdate: { contributorGating: false },
   });
   const assessment = assessMilestone(trials);
 
@@ -260,8 +270,8 @@ test("condition C with B5's searched values reproduces the value search's own re
 /**
  * PLAN.md C14, both arms, end to end through the real addon. Three properties,
  * and the middle one is arm 1's VAL-9 ablation:
- *   1. Omitting `predictiveUpdate`, or passing one that configures nothing, is
- *      bit-identical to before C14 existed.
+ *   1. `contributorGating: false` reproduces the pre-C14 rule, which is what
+ *      every figure in docs/findings.md 7-22 was measured under.
  *   2. `nonContributorFraction: 1.0` reproduces the ungated rule exactly, so a
  *      gated run's difference is attributable to the gating itself rather than
  *      to anything else the option pulls in.
@@ -285,11 +295,11 @@ test('predictiveUpdate: off is unchanged, fraction 1.0 is the ablation, and both
         : { ...DEFAULT_CONFIG, predictiveUpdate },
     ).networkAccuracy;
 
-  const ungated = run();
+  const ungated = run({ contributorGating: false });
   assert.equal(
-    run({ nonContributorFraction: 0.0 }),
+    run({ contributorGating: false, contributorWindowTicks: 4 }),
     ungated,
-    'a predictiveUpdate that sets no window and no bound mode must not reach the rule at all',
+    'contributorGating false must win over any window -- it is the pre-C14 rule',
   );
   assert.equal(
     run({ contributorWindowTicks: 4, nonContributorFraction: 1.0 }),
@@ -297,9 +307,9 @@ test('predictiveUpdate: off is unchanged, fraction 1.0 is the ablation, and both
     'nonContributorFraction 1.0 must reproduce the ungated rule exactly -- arm 1 VAL-9 ablation',
   );
   assert.notEqual(
-    run({ contributorWindowTicks: 4 }),
+    run(),
     ungated,
-    'a strict gate must change the outcome, or the controls above assert a dead mechanism',
+    'the SHIPPED default is gated (decision 30), so it must differ from the pre-C14 rule',
   );
   assert.notEqual(
     run({ boundMode: 'soft' }),

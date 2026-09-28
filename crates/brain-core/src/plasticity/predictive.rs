@@ -296,6 +296,17 @@ impl PredictionOutcomeCounts {
 /// that partial gate is a configured value rather than a later rewrite; 0.0
 /// (strict) is the default and 1.0 reproduces the ungated rule exactly, which
 /// is this mechanism's VAL-9 ablation.
+/// The default gate, on since PLAN.md C14's measurement (docs/decisions.md
+/// decision 30). 4 ticks is 2 characters at VAL-4's `ticksPerInput` of 2.
+///
+/// **The window is not delicately tuned and the choice is not load-bearing**:
+/// docs/findings.md finding 28 swept it across a 32-fold range (2-64 ticks) and
+/// mean VAL-4 accuracy spans 0.23 points, every row within +/-0.16 of the
+/// ungated reference. 4 is simply the best of them. This is decision 13's
+/// "the reference weight itself is flat, not knife-edged" precedent.
+pub const DEFAULT_CONTRIBUTOR_GATE: ContributorGate =
+    ContributorGate { window_ticks: 4, non_contributor_fraction: 0.0 };
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ContributorGate {
     /// How recently a synapse must have delivered to count. **Ticks, not
@@ -356,7 +367,7 @@ impl PredictiveLearning {
             params.gain_modulator_index.is_none_or(|i| i < crate::plasticity::NUM_MODULATORS),
             "gain_modulator_index must be a valid channel index"
         );
-        Self { params, neighbourhoods, reach: SproutReach::default(), contributor_gate: None, bound_mode: BoundMode::default() }
+        Self { params, neighbourhoods, reach: SproutReach::default(), contributor_gate: Some(DEFAULT_CONTRIBUTOR_GATE), bound_mode: BoundMode::default() }
     }
 
     /// Restricts 12.3's reinforcement to synapses that delivered inside
@@ -383,6 +394,20 @@ impl PredictiveLearning {
     /// bit-identical to before this existed.
     pub fn with_bound_mode(mut self, mode: BoundMode) -> Self {
         self.bound_mode = mode;
+        self
+    }
+
+    /// Restores the pre-C14 rule: 12.3 reinforces EVERY synapse on the segment,
+    /// contributor or not (docs/decisions.md decision 30).
+    ///
+    /// Kept as a first-class option rather than deleted, for two reasons. It is
+    /// this mechanism's **VAL-9 ablation** -- disable it and the permanence
+    /// distribution polarises again (docs/findings.md finding 28's figures are
+    /// the reference). And it is what reproduces any figure in
+    /// docs/findings.md 7-22, every one of which was measured before the gate
+    /// existed.
+    pub fn without_contributor_gate(mut self) -> Self {
+        self.contributor_gate = None;
         self
     }
 
@@ -475,14 +500,42 @@ impl PredictiveLearning {
     /// the default even though `Weight`/`Both` are now real options.
     ///
     /// **Adjusts every synapse on the segment, not only the ones that
-    /// contributed this tick's coincidence** -- unchanged by B5, and worth
-    /// stating plainly rather than silently carrying forward: no per-tick
-    /// contributor tracking exists (it would need new state -- see this
-    /// crate's `scheduler.rs` `segment_counts`, a per-composite scalar with
-    /// no memory of which synapse delivered), so a punished segment weakens
-    /// every incoming synapse on it, including ones that stayed silent this
-    /// tick. Left as found; built only if the B5 search shows it costs
-    /// accuracy (design.md's recorded call).
+    /// contributed this tick's coincidence** -- still the DEFAULT, so a
+    /// punished segment weakens every incoming synapse on it, including ones
+    /// that stayed silent this tick, and a rewarded one strengthens them all.
+    ///
+    /// **Optional since PLAN.md C14** (docs/decisions.md decision 29): pass a
+    /// [`ContributorGate`] to [`PredictiveLearning::with_contributor_gate`] and
+    /// 12.3's REINFORCEMENT reaches only synapses that delivered inside a
+    /// window. Punishment is deliberately left whole-segment -- heterosynaptic
+    /// depression of uninvolved inputs is measured (Royer & Paré 2003) while
+    /// heterosynaptic potentiation of uninvolved inputs is not
+    /// (docs/prior-art.md §13.13(l)).
+    ///
+    /// **Two claims this comment used to make are RETRACTED, and the first is
+    /// why the work sat undone from B4 to C14.**
+    /// - It said "no per-tick contributor tracking exists (it would need new
+    ///   state)". **It exists and always did**: `synapses.last_active` is
+    ///   stamped by `Scheduler::deliver` on every delivery, unconditionally,
+    ///   outside the `has_any_plasticity()` guard, and is already snapshotted.
+    ///   C14 needed no new state at all. `scheduler.rs`'s `segment_counts` --
+    ///   which the old text pointed at -- is indeed per-composite with no
+    ///   memory of which synapse delivered, but it was never the only place to
+    ///   look.
+    /// - It said "built only if the B5 search shows it costs accuracy". **That
+    ///   trigger could never have fired**: contributor gating was never in the
+    ///   B5 search space, so the deferral was conditioned on a measurement
+    ///   nobody could make. A deferral whose trigger is unreachable is an
+    ///   untested assumption wearing the clothes of a tested one.
+    ///
+    /// **And it is now measured** (docs/findings.md finding 28, ten seeds,
+    /// pre-registered): gating changes the permanence distribution a long way
+    /// -- ceiling saturation 55.1% -> 45.5%, graded middle 27.3% -> 37.4%,
+    /// connectivity 70.2% -> 79.6% at 200,000 characters -- and moves VAL-4 by
+    /// **+0.16 points**, at every window across a 32-fold sweep. So
+    /// whole-segment reinforcement is not what holds VAL-4 down, and permanence
+    /// polarisation is a passenger rather than the cause of the post-peak
+    /// decline.
     ///
     /// **Under `Weight`/`Both`, a punished synapse keeps transmitting and is
     /// never pruned by this rule** -- unlike `Permanence`, where a punished
@@ -805,6 +858,8 @@ mod tests {
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(2);
         let syn = synapses.insert(0, 1, 0, 1, 0.3, 0.3).unwrap(); // source 0 -> target 1, segment 0
+        // PLAN.md C14 (decision 30): reinforcement is contributor-gated BY DEFAULT now, so the synapse under test must have delivered -- which is what "the responsible segment" has always meant.
+        synapses.last_active[syn as usize] = 10;
 
         let mut tracker = PredictingSegmentTracker::new();
         tracker.record_fired(1, 0); // segment 0 fired for neuron 1
@@ -825,6 +880,8 @@ mod tests {
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(2);
         let syn = synapses.insert(0, 1, 0, 1, 0.3, 0.3).unwrap();
+        // PLAN.md C14 (decision 30): reinforcement is contributor-gated BY DEFAULT now, so the synapse under test must have delivered -- which is what "the responsible segment" has always meant.
+        synapses.last_active[syn as usize] = 10;
 
         let mut tracker = PredictingSegmentTracker::new();
         tracker.record_fired(1, 0);
@@ -845,6 +902,8 @@ mod tests {
         let mut synapses = SynapseArena::new(4);
         synapses.reserve_for_neurons(2);
         let syn = synapses.insert(0, 1, 0, 1, 0.3, 0.3).unwrap();
+        // PLAN.md C14 (decision 30): reinforcement is contributor-gated BY DEFAULT now, so the synapse under test must have delivered -- which is what "the responsible segment" has always meant.
+        synapses.last_active[syn as usize] = 10;
 
         let mut tracker = PredictingSegmentTracker::new();
         tracker.record_fired(1, 0);
@@ -881,6 +940,11 @@ mod tests {
         synapses.reserve_for_neurons(2);
         let responsible = synapses.insert(0, 1, 0, 1, 0.3, 0.3).unwrap();
         let other_segment = synapses.insert(0, 1, 1, 1, 0.3, 0.3).unwrap(); // same target, different segment
+        // PLAN.md C14 (decision 30): reinforcement is contributor-gated BY DEFAULT now, so the synapse under test must have delivered -- which is what "the responsible segment" has always meant.
+        synapses.last_active[responsible as usize] = 10;
+        // The OTHER segment's synapse is a contributor too, so this still proves
+        // SEGMENT selectivity rather than passing because the gate excluded it.
+        synapses.last_active[other_segment as usize] = 10;
 
         let mut tracker = PredictingSegmentTracker::new();
         tracker.record_fired(1, 0);
@@ -1010,6 +1074,8 @@ mod tests {
             let mut synapses = SynapseArena::new(4);
             synapses.reserve_for_neurons(2);
             let syn = synapses.insert(0, 1, 0, 1, 0.3, 0.3).unwrap();
+        // PLAN.md C14 (decision 30): reinforcement is contributor-gated BY DEFAULT now, so the synapse under test must have delivered -- which is what "the responsible segment" has always meant.
+            synapses.last_active[syn as usize] = 10;
             let mut tracker = PredictingSegmentTracker::new();
             tracker.record_fired(1, 0);
 
@@ -1273,10 +1339,14 @@ mod tests {
             synapses.last_active[stale as usize] = 2;
             let mut tracker = PredictingSegmentTracker::new();
             tracker.record_fired(2, 0);
-            let mut pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-            if let Some(g) = gate {
-                pl = pl.with_contributor_gate(g);
-            }
+            // PLAN.md C14/decision 30: the gate is ON by default now, so the
+            // ungated baseline this ablation compares against has to be asked
+            // for explicitly.
+            let base = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
+            let pl = match gate {
+                Some(g) => base.with_contributor_gate(g),
+                None => base.without_contributor_gate(),
+            };
             pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 2, 0.9, true, 10, 3, NEUTRAL_MODULATORS);
             (synapses.permanence[fresh as usize], synapses.permanence[stale as usize])
         };
@@ -1393,11 +1463,26 @@ mod tests {
         }
     }
 
-    /// Both arms are off unless asked for, so every pre-C14 caller is unchanged.
+    /// **The two arms have DIFFERENT defaults, and that asymmetry is decision 30's
+    /// whole content.** Contributor gating is a *fidelity correction* -- synapse
+    /// specificity is the founding LTP result (docs/prior-art.md §13.13(l)) and
+    /// the ungated rule was simply wrong -- and it measured free
+    /// (docs/findings.md finding 28: +0.16 points, flat across a 32-fold window
+    /// sweep), so it is ON. Soft bounds are an *addition* rather than a
+    /// correction: hard clamping is a modelling choice, not an error, and the
+    /// measurement is a null, so they stay OFF and opt-in.
     #[test]
-    fn both_c14_arms_are_off_by_default() {
+    fn contributor_gating_is_on_by_default_and_soft_bounds_are_not() {
         let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
-        assert!(pl.contributor_gate().is_none(), "the contributor gate must be opt-in");
-        assert_eq!(pl.bound_mode(), BoundMode::Hard, "hard bounds must be the default");
+        assert_eq!(
+            pl.contributor_gate(),
+            Some(DEFAULT_CONTRIBUTOR_GATE),
+            "contributor gating is on by default -- decision 30"
+        );
+        assert_eq!(pl.bound_mode(), BoundMode::Hard, "soft bounds are opt-in: a null, not a correction");
+        assert!(
+            pl.without_contributor_gate().contributor_gate().is_none(),
+            "and the pre-C14 rule must stay reachable -- it is this mechanism's VAL-9 ablation and what reproduces findings 7-22",
+        );
     }
 }

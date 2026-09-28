@@ -18,7 +18,7 @@ use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
 use brain_core::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
 use brain_core::plasticity::newborn::{NewbornMaturationParams, NewbornWiringParams};
-use brain_core::plasticity::predictive::{BoundMode, ContributorGate, PredictiveLearningParams, SegmentLearningTarget};
+use brain_core::plasticity::predictive::{BoundMode, ContributorGate, PredictiveLearningParams, SegmentLearningTarget, DEFAULT_CONTRIBUTOR_GATE};
 use brain_core::plasticity::stdp::{LevelMap, StdpModulation, StdpModulationError, StdpParams};
 use brain_core::plasticity::structural::{SproutTimingWindow, StructuralPlasticity, StructuralPlasticityParams};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
@@ -367,14 +367,26 @@ pub struct PredictiveLearningConfig {
     pub sprout_reach_radius: Option<f64>,
     /// PLAN.md C14 arm 1: restrict Requirement 12.3's reinforcement to the
     /// synapses that actually *delivered* within this many **ticks**
-    /// (`ticksPerInput` of 2 makes a window of 4 ticks 2 characters). Omit --
-    /// every pre-C14 caller -- to reinforce the whole segment, bit-identical to
-    /// before this field existed.
+    /// (`ticksPerInput` of 2 makes a window of 4 ticks 2 characters).
+    ///
+    /// **ON BY DEFAULT since docs/decisions.md decision 30** -- omitting this
+    /// field gives the default 4-tick window, NOT the pre-C14 whole-segment
+    /// rule. Set `contributorGating: false` for that. The window is not
+    /// delicately tuned: docs/findings.md finding 28 swept it 32-fold and mean
+    /// VAL-4 accuracy spans 0.23 points.
     ///
     /// Punishment is deliberately NOT gated: heterosynaptic depression of
     /// uninvolved inputs is measured (Royer & Paré 2003) while heterosynaptic
     /// potentiation is not (docs/prior-art.md §13.13(k)/(l)).
     pub contributor_window_ticks: Option<u32>,
+    /// `false` restores the pre-C14 rule -- Requirement 12.3 reinforces every
+    /// synapse on the segment, contributor or not. Omit (or `true`) for the
+    /// default gate.
+    ///
+    /// Kept as a first-class switch rather than dropped: it is arm 1's VAL-9
+    /// ablation, and it is what reproduces any figure in docs/findings.md 7-22,
+    /// every one of which was measured before the gate existed.
+    pub contributor_gating: Option<bool>,
     /// What fraction of the reinforcement a NON-contributor receives when
     /// `contributorWindowTicks` is set. Omit for `0.0`, the strict gate; `1.0`
     /// is bit-identical to no gate and is arm 1's VAL-9 ablation. Values
@@ -431,9 +443,15 @@ impl PredictiveLearningConfig {
     /// PLAN.md C14 arm 1. `None` -- every pre-C14 caller -- leaves 12.3
     /// reinforcing the whole segment. `validate()` must have run first.
     fn contributor_gate(&self) -> Option<ContributorGate> {
-        self.contributor_window_ticks.map(|window_ticks| ContributorGate {
-            window_ticks,
-            non_contributor_fraction: self.non_contributor_fraction.unwrap_or(0.0) as f32,
+        if self.contributor_gating == Some(false) {
+            return None;
+        }
+        Some(ContributorGate {
+            window_ticks: self.contributor_window_ticks.unwrap_or(DEFAULT_CONTRIBUTOR_GATE.window_ticks),
+            non_contributor_fraction: self
+                .non_contributor_fraction
+                .map(|f| f as f32)
+                .unwrap_or(DEFAULT_CONTRIBUTOR_GATE.non_contributor_fraction),
         })
     }
 
@@ -1581,8 +1599,9 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
         // PLAN.md C14, both arms: applied only when the caller opted in, so an
         // omitted `contributorWindowTicks`/`boundMode` never touches the rule
         // and every pre-C14 configuration stays bit-identical.
-        if let Some(gate) = cfg.contributor_gate() {
-            scheduler = scheduler.with_predictive_learning_contributor_gate(gate);
+        match cfg.contributor_gate() {
+            Some(gate) => scheduler = scheduler.with_predictive_learning_contributor_gate(gate),
+            None => scheduler = scheduler.without_predictive_learning_contributor_gate(),
         }
         if cfg.bound_mode() != BoundMode::Hard {
             scheduler = scheduler.with_predictive_learning_bound_mode(cfg.bound_mode());
@@ -3047,8 +3066,9 @@ impl NativeSimulation {
             // `build_scheduler`, so an option added there and missed here would
             // make a RESTORED brain gate differently from a running one, which
             // is a RUN-3/RUN-9a violation rather than a cosmetic gap.
-            if let Some(gate) = cfg.contributor_gate() {
-                scheduler = scheduler.with_predictive_learning_contributor_gate(gate);
+            match cfg.contributor_gate() {
+                Some(gate) => scheduler = scheduler.with_predictive_learning_contributor_gate(gate),
+                None => scheduler = scheduler.without_predictive_learning_contributor_gate(),
             }
             if cfg.bound_mode() != BoundMode::Hard {
                 scheduler = scheduler.with_predictive_learning_bound_mode(cfg.bound_mode());
