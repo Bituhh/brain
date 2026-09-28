@@ -8,18 +8,18 @@ Genuinely undecided or unbuilt design questions — what this project has not ye
 
 What this project has not settled. **Status** distinguishes a question that is wholly open from one whose sub-parts have been closed in place — several entries keep closed sub-items deliberately, because the reasoning that led there is worth keeping and because a later item would otherwise re-open them.
 
-| # | The question | Status | Note |
-| --- | --- | --- | --- |
-| 1 | Scale ceiling — can this reach 100k neurons / 50M synapses, and how fast? | Partly resolved | **Memory met** (≈1.46 GB). **Throughput not met**, and never measured at the real scale |
-| 2 | What performs fast one-shot binding (LRN-12), and when must it be decided? | Open (design pinned) | The costly part is `cap_per_neuron`, and Phase 4 made it expensive |
-| 3 | Three things LRN-10's replay is _not_ | Open | Replay is mostly a recording of the **input**, not of the network |
-| 4 | What the other neuromodulator channels should gate, and how | Mostly closed | (a)+(b) closed by C8/C9/C3; **(e) is open and sharper** — ACh now does two jobs |
-| 5 | Three mechanisms are waiting on a task with change points, and none exists | Open, unowned | VAL-4 is stationary, so C6/C3/C9 are inert there **by construction** |
-| 6 | Should `target_index` be canonical rather than insertion-ordered? | Open | Naturally one decision with the next protocol re-derivation, not two |
-| 7 | What causes VAL-4's residual post-peak decline? | Open — **best candidate eliminated** | Permanence polarisation falsified by C14 (finding 28) |
-| 8 | Nothing here has ever been measured _in combination_ with anything else | Open, unowned | Opened by the user; C9's halves (−12.7 alone, null together) show non-additivity |
+| # | The question | Status | Owner | Note |
+| --- | --- | --- | --- | --- |
+| 1 | Scale ceiling — can this reach 100k neurons / 50M synapses, and how fast? | Partly resolved | **F5** (partly) | **Memory met** (≈1.46 GB). **Throughput not met**, and never measured at the real scale — F5 re-measures throughput after the `cap_per_neuron` change; the 100k-neuron ENG-11 check itself is unclaimed |
+| 2 | What performs fast one-shot binding (LRN-12), and when must it be decided? | Open (design pinned) | **F3–F6** | The costly part is `cap_per_neuron`, and Phase 4 made it expensive — F3/F4 settle `cap_per_neuron` (the real blocker), F6 builds it |
+| 3 | Three things LRN-10's replay is _not_ | Open | **F7**, **F8** (partly) | Replay is mostly a recording of the **input**, not of the network — (a) "replay is not the live path's learning" is unowned |
+| 4 | What the other neuromodulator channels should gate, and how | Mostly closed | **F19–F21** (partly) | (a)+(b) closed by C8/C9/C3; **(e) is open and sharper** — ACh now does two jobs — (c) F19/F20, (d) F21 — but **(e), the live part, is unowned** |
+| 5 | Three mechanisms are waiting on a task with change points, and none exists | Open | **Unowned** | VAL-4 is stationary, so C6/C3/C9 are inert there **by construction** — Stated in the item: "Nothing in PLAN.md currently owns it" |
+| 6 | Should `target_index` be canonical rather than insertion-ordered? | Open | **Unowned** | Naturally one decision with the next protocol re-derivation, not two — Stated in the item: "Nothing in PLAN.md currently owns either" |
+| 7 | What causes VAL-4's residual post-peak decline? | Open — **best candidate eliminated** | **Unowned** | Permanence polarisation falsified by C14 (finding 28) — C13 opened it, C14 closed its hypothesis; **both are done** |
+| 8 | Nothing here has ever been measured _in combination_ with anything else | Open | **Unowned** | Opened by the user; C9's halves (−12.7 alone, null together) show non-additivity — Stated in the item: "Nothing in PLAN.md owns this" |
 
-> **Where the live work is.** Items 5, 7 and 8 are the ones currently blocking progress rather than merely recorded: 5 is why three mechanisms cannot be evaluated at all, 7 is the unexplained stability limit, and 8 is the reason every "X is a null" result in `findings.md` carries an unstated _alone_. None of the three is owned by a PLAN.md item.
+> **Half of this file is unowned, and it is the live half.** Items 5, 6, 7 and 8 have no PLAN.md item at all, and the two questions that _are_ owned have their open parts unowned too — item 4's (e) and item 3's (a). So every question currently blocking progress is unclaimed: **5** is why three built mechanisms cannot be evaluated at all, **7** is the unexplained stability limit now that its best candidate is eliminated, and **8** is the reason every "X is a null" in `findings.md` carries an unstated _alone_. What is owned (F3–F8, F19–F21) is all deferred Phase F work that nothing currently blocks.
 
 ---
 
