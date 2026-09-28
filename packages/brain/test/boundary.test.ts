@@ -2457,3 +2457,58 @@ test('PlasticityConfig.stdpModulation: an unusable map is refused at constructio
     ),
   );
 });
+
+test('PredictiveLearningConfig.boundMode: Simulation.create rejects an unrecognised value (ENG-9, PLAN.md C14)', () => {
+  assert.throws(
+    () =>
+      Simulation.create(
+        { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+        {
+          maxDelay: 1,
+          connectionThreshold: 0.3,
+          synapseCapPerNeuron: 1,
+          predictiveLearning: {
+            significanceThreshold: 0.5,
+            reinforceAmount: 0.1,
+            punishAmount: 0.1,
+            burstTargetSegment: 0,
+            burstSproutPermanence: 0.5,
+            burstSproutWeight: 0.05,
+            recentlyActiveWindowTicks: 10,
+            neighbourhoodSize: 4,
+            neighbourhoodK: 1,
+            boundMode: 'nonsense',
+          },
+        },
+      ),
+    /boundMode/,
+  );
+});
+
+test('PredictiveLearningConfig.nonContributorFraction: a value outside [0, 1] is refused with the path named (ENG-9, PLAN.md C14)', () => {
+  assert.throws(
+    () =>
+      Simulation.create(
+        { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+        {
+          maxDelay: 1,
+          connectionThreshold: 0.3,
+          synapseCapPerNeuron: 1,
+          predictiveLearning: {
+            significanceThreshold: 0.5,
+            reinforceAmount: 0.1,
+            punishAmount: 0.1,
+            burstTargetSegment: 0,
+            burstSproutPermanence: 0.5,
+            burstSproutWeight: 0.05,
+            recentlyActiveWindowTicks: 10,
+            neighbourhoodSize: 4,
+            neighbourhoodK: 1,
+            contributorWindowTicks: 4,
+            nonContributorFraction: 1.5,
+          },
+        },
+      ),
+    /nonContributorFraction/,
+  );
+});

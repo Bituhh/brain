@@ -265,6 +265,68 @@ impl PredictionOutcomeCounts {
     }
 }
 
+/// Restricts 12.3's reinforcement to the synapses that actually delivered
+/// (PLAN.md C14, docs/prior-art.md §13.13(l)).
+///
+/// **Why this exists.** [`PredictiveLearning::adjust_segment`] adjusts *every*
+/// synapse on a segment, contributor or not -- see its doc comment, which has
+/// said so since B4 and deferred the fix on a condition ("built only if the B5
+/// search shows it costs accuracy") that could not fire, because contributor
+/// gating was never in the B5 search space. docs/findings.md finding 27
+/// measured the consequence: `reinforce_amount` 0.08 against a 1.0 ceiling,
+/// applied to whole segments with correct predictions outnumbering false
+/// positives ~4:1, drives ~56% of synapses to the ceiling by 200,000
+/// characters, and ~73% of that has already happened by the accuracy peak.
+///
+/// **What "contributed" means here, and the one case worth knowing.** A synapse
+/// counts if `synapses.last_active` -- the tick `Scheduler::deliver` stamps on
+/// *every* delivery, unconditionally and regardless of whether any plasticity
+/// rule is configured -- is within `window_ticks` of now. **A silent synapse is
+/// credited even though it passed no current**, because `deliver` credits a
+/// delivery "regardless of which path it took"; that is deliberate and pinned
+/// by `a_silent_synapse_counts_as_a_contributor_because_delivery_is_credited_
+/// regardless_of_path`.
+///
+/// **This is STRICTER than the biology, knowingly.** Andersen et al. (1977) and
+/// Matsuzaki et al. (2004) establish synapse specificity -- the latter at
+/// single-spine structural resolution, which is the right grain for a
+/// structural variable -- but Engert & Bonhoeffer (1997) measured LTP spreading
+/// within ~70 µm and Harvey & Svoboda (2007) measured one spine lowering its
+/// neighbours' threshold for ~10 minutes. `non_contributor_fraction` exists so
+/// that partial gate is a configured value rather than a later rewrite; 0.0
+/// (strict) is the default and 1.0 reproduces the ungated rule exactly, which
+/// is this mechanism's VAL-9 ablation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ContributorGate {
+    /// How recently a synapse must have delivered to count. **Ticks, not
+    /// characters** -- at VAL-4's `ticksPerInput` of 2 a window of 4 ticks is
+    /// 2 characters (HANDOFF fact 20's dopamine accumulation is the precedent
+    /// for stating both units).
+    pub window_ticks: u32,
+    /// What fraction of the delta a NON-contributor receives. `0.0` is the
+    /// strict gate; `1.0` is bit-identical to no gate at all.
+    pub non_contributor_fraction: f32,
+}
+
+/// How [`PredictiveLearning::apply_delta`] approaches `permanence`'s bounds
+/// (PLAN.md C14 arm 2, docs/prior-art.md §13.13(k)).
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub enum BoundMode {
+    /// `p = (p + delta).clamp(0, 1)` -- additive, hard bounds. Every caller
+    /// before C14, and the condition Song, Miller & Abbott (2000) showed
+    /// produces a bimodal steady state.
+    #[default]
+    Hard,
+    /// Weight-dependent, after van Rossum, Bi & Turrigiano (2000): a
+    /// potentiation is scaled by `(1 - p)` and a depression by `p`, so a
+    /// synapse approaches either bound asymptotically instead of slamming into
+    /// it. **Symmetric deliberately** -- docs/findings.md finding 27 measured
+    /// BOTH ends filling (56% at the ceiling and ~30% decayed below the
+    /// connection gate), not just the ceiling. The clamp is retained as a
+    /// backstop; with soft bounds it should never be the thing doing the work.
+    Soft,
+}
+
 pub struct PredictiveLearning {
     params: PredictiveLearningParams,
     /// Only consulted for its `size()`, and only by
@@ -276,6 +338,12 @@ pub struct PredictiveLearning {
     /// (`reach.rs`). Defaults to [`SproutReach::IndexBlocks`], every
     /// pre-C4 caller's behaviour.
     reach: SproutReach,
+    /// PLAN.md C14 arm 1. `None` -- every pre-C14 caller -- means 12.3
+    /// reinforces the whole segment, which is the behaviour finding 27
+    /// measured.
+    contributor_gate: Option<ContributorGate>,
+    /// PLAN.md C14 arm 2. [`BoundMode::Hard`] is every pre-C14 caller.
+    bound_mode: BoundMode,
 }
 
 impl PredictiveLearning {
@@ -288,7 +356,46 @@ impl PredictiveLearning {
             params.gain_modulator_index.is_none_or(|i| i < crate::plasticity::NUM_MODULATORS),
             "gain_modulator_index must be a valid channel index"
         );
-        Self { params, neighbourhoods, reach: SproutReach::default() }
+        Self { params, neighbourhoods, reach: SproutReach::default(), contributor_gate: None, bound_mode: BoundMode::default() }
+    }
+
+    /// Restricts 12.3's reinforcement to synapses that delivered inside
+    /// `gate.window_ticks` (PLAN.md C14 arm 1). Without this call every
+    /// reinforcement decision is bit-identical to before this existed.
+    ///
+    /// **Reinforcement only -- punishment still adjusts the whole segment**, and
+    /// that asymmetry is the evidence's, not a half-measure: heterosynaptic
+    /// *depression* of uninvolved inputs is measured (Royer & Paré 2003,
+    /// docs/prior-art.md §13.13(k)) while heterosynaptic *potentiation* of
+    /// uninvolved inputs has no comparable support. Decided with the user
+    /// [2026-09-28 01:03 +0100].
+    pub fn with_contributor_gate(mut self, gate: ContributorGate) -> Self {
+        debug_assert!(
+            (0.0..=1.0).contains(&gate.non_contributor_fraction),
+            "non_contributor_fraction must be in [0, 1]"
+        );
+        self.contributor_gate = Some(gate);
+        self
+    }
+
+    /// Switches `apply_delta` to weight-dependent (soft) bounds (PLAN.md C14
+    /// arm 2). Without this call the arithmetic is additive-with-hard-clamp,
+    /// bit-identical to before this existed.
+    pub fn with_bound_mode(mut self, mode: BoundMode) -> Self {
+        self.bound_mode = mode;
+        self
+    }
+
+    /// What [`Self::with_contributor_gate`] was given, if anything -- so a
+    /// caller that must reproduce this rule (the FFI, `PartitionRuntime`) can
+    /// read it back rather than re-deriving it.
+    pub fn contributor_gate(&self) -> Option<ContributorGate> {
+        self.contributor_gate
+    }
+
+    /// What [`Self::with_bound_mode`] was given.
+    pub fn bound_mode(&self) -> BoundMode {
+        self.bound_mode
     }
 
     /// Opts 12.1's burst path into a different [`SproutReach`] (PLAN.md C4,
@@ -385,12 +492,50 @@ impl PredictiveLearning {
     /// unsilenced synapse has no removal path at all under `Weight`. Also
     /// left as found, not closed here (design.md's recorded call).
     fn adjust_segment(&self, synapses: &mut SynapseArenaViewMut, neuron: u32, segment: u32, delta: f32) {
+        self.adjust_segment_gated(synapses, neuron, segment, delta, None, 0)
+    }
+
+    /// [`Self::adjust_segment`], optionally scaling the delta down for synapses
+    /// that did not deliver recently (PLAN.md C14 arm 1).
+    ///
+    /// `gate` is `None` for the punish path and for every pre-C14 caller, which
+    /// is what keeps them bit-identical; `tick` is then unread. See
+    /// [`ContributorGate`] for what counts as contributing and why this is
+    /// deliberately stricter than the biology.
+    fn adjust_segment_gated(
+        &self,
+        synapses: &mut SynapseArenaViewMut,
+        neuron: u32,
+        segment: u32,
+        delta: f32,
+        gate: Option<ContributorGate>,
+        tick: u32,
+    ) {
         let ids: Vec<u32> = synapses
             .incoming(neuron)
             .filter(|&id| synapses.owns_synapse(id) && synapses.target_segment[id as usize] == segment)
             .collect();
         for id in ids {
-            self.apply_delta(synapses, id, delta);
+            let scaled = match gate {
+                // `last_active` is `u32::MAX` until this synapse's first
+                // delivery, so a never-delivered synapse is a non-contributor
+                // by the same arithmetic rather than by a special case --
+                // `saturating_sub` keeps that from wrapping.
+                Some(g) => {
+                    let last = synapses.last_active[id as usize];
+                    let contributed = last != u32::MAX && tick.saturating_sub(last) <= g.window_ticks;
+                    if contributed { delta } else { delta * g.non_contributor_fraction }
+                }
+                None => delta,
+            };
+            // Skipping a zero delta is a real saving under a strict gate (most
+            // synapses on a segment are non-contributors), and it is applied
+            // ONLY when a gate is configured -- the ungated path still calls
+            // `apply_delta` unconditionally, so it cannot diverge from pre-C14
+            // behaviour even in a case where the write would have mattered.
+            if gate.is_none() || scaled != 0.0 {
+                self.apply_delta(synapses, id, scaled);
+            }
         }
     }
 
@@ -405,19 +550,39 @@ impl PredictiveLearning {
         match self.params.learning_target {
             SegmentLearningTarget::Permanence => {
                 let p = &mut synapses.permanence[id as usize];
-                *p = (*p + delta).clamp(0.0, 1.0);
+                *p = Self::bounded(self.bound_mode, *p, delta);
             }
             SegmentLearningTarget::Weight => {
                 let w = &mut synapses.weight[id as usize];
-                *w = (*w + delta).clamp(0.0, 1.0);
+                *w = Self::bounded(self.bound_mode, *w, delta);
             }
             SegmentLearningTarget::Both => {
                 let p = &mut synapses.permanence[id as usize];
-                *p = (*p + delta).clamp(0.0, 1.0);
+                *p = Self::bounded(self.bound_mode, *p, delta);
                 let w = &mut synapses.weight[id as usize];
-                *w = (*w + delta).clamp(0.0, 1.0);
+                *w = Self::bounded(self.bound_mode, *w, delta);
             }
         }
+    }
+
+    /// One bounded update, in whichever [`BoundMode`] is configured (PLAN.md
+    /// C14 arm 2).
+    ///
+    /// [`BoundMode::Hard`] is the pre-C14 expression character for character.
+    /// [`BoundMode::Soft`] scales a potentiation by the headroom `(1 - v)` and
+    /// a depression by the distance to the floor `v`, after van Rossum, Bi &
+    /// Turrigiano (2000) -- so the step shrinks as either bound is approached
+    /// and the value converges on it rather than arriving. The clamp is kept in
+    /// both modes: under `Soft` it should never be what limits the result (the
+    /// scaling already does), and keeping it means no mode can violate SYN-3's
+    /// `[0, 1]` regardless of what a caller passes as `delta`.
+    fn bounded(mode: BoundMode, value: f32, delta: f32) -> f32 {
+        let effective = match mode {
+            BoundMode::Hard => delta,
+            BoundMode::Soft if delta >= 0.0 => delta * (1.0 - value),
+            BoundMode::Soft => delta * value,
+        };
+        (value + effective).clamp(0.0, 1.0)
     }
 
     /// True exactly on the tick a pending prediction lapses: it was
@@ -564,9 +729,21 @@ impl PredictiveLearning {
         let was_predicted = predictive_now >= self.params.significance_threshold;
         match (was_predicted, committed) {
             (true, true) => {
-                // 12.3: correct prediction -- reinforce.
+                // 12.3: correct prediction -- reinforce. PLAN.md C14 arm 1: this
+                // is the ONLY path the contributor gate applies to. The punish
+                // branch below stays whole-segment, following the evidence
+                // asymmetry (heterosynaptic depression is measured, Royer & Paré
+                // 2003; heterosynaptic potentiation is not) -- see
+                // `with_contributor_gate`.
                 if let Some(segment) = tracker.get(neuron) {
-                    self.adjust_segment(synapses, neuron, segment, self.params.reinforce_amount * self.modulator_scale(modulators));
+                    self.adjust_segment_gated(
+                        synapses,
+                        neuron,
+                        segment,
+                        self.params.reinforce_amount * self.modulator_scale(modulators),
+                        self.contributor_gate,
+                        tick,
+                    );
                 }
                 PredictionOutcome::CorrectPrediction
             }
@@ -1019,5 +1196,208 @@ mod tests {
             2,
             "a size-1 neighbourhood no longer disables 12.1 once a radius is set"
         );
+    }
+
+    // ---------------------------------------------------------------- PLAN.md C14
+
+    /// Two synapses on the same segment, one that delivered this tick and one
+    /// that delivered long ago. PLAN.md C14 arm 1: only the contributor is
+    /// reinforced.
+    #[test]
+    fn contributor_gate_reinforces_only_synapses_that_delivered_inside_the_window() {
+        let mut neurons = make_neurons(3);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(3);
+        let fresh = synapses.insert(0, 2, 0, 1, 0.3, 0.3).unwrap();
+        let stale = synapses.insert(1, 2, 0, 1, 0.3, 0.3).unwrap();
+        synapses.last_active[fresh as usize] = 10;
+        synapses.last_active[stale as usize] = 2; // 8 ticks ago, outside a window of 4
+
+        let mut tracker = PredictingSegmentTracker::new();
+        tracker.record_fired(2, 0);
+
+        let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1))
+            .with_contributor_gate(ContributorGate { window_ticks: 4, non_contributor_fraction: 0.0 });
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 2, 0.9, true, 10, 3, NEUTRAL_MODULATORS);
+
+        assert!(
+            (synapses.permanence[fresh as usize] - 0.4).abs() < 1e-6,
+            "a synapse that delivered inside the window must be reinforced, got {}",
+            synapses.permanence[fresh as usize]
+        );
+        assert_eq!(
+            synapses.permanence[stale as usize], 0.3,
+            "a synapse that did not deliver inside the window must be left alone -- this is the whole mechanism"
+        );
+    }
+
+    /// Call (c), decided with the user [2026-09-28 01:03 +0100]: the gate is on
+    /// REINFORCEMENT only. Heterosynaptic depression of uninvolved inputs is a
+    /// measured phenomenon (Royer & Paré 2003); heterosynaptic potentiation is
+    /// not. A false positive must still punish the whole segment.
+    #[test]
+    fn contributor_gate_does_not_apply_to_punishment() {
+        let mut neurons = make_neurons(3);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(3);
+        let stale = synapses.insert(1, 2, 0, 1, 0.3, 0.3).unwrap();
+        synapses.last_active[stale as usize] = 2;
+
+        let mut tracker = PredictingSegmentTracker::new();
+        tracker.record_fired(2, 0);
+
+        let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1))
+            .with_contributor_gate(ContributorGate { window_ticks: 4, non_contributor_fraction: 0.0 });
+        // predicted but did not commit -> 12.2, false positive -> punish.
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 2, 0.9, false, 10, 3, NEUTRAL_MODULATORS);
+
+        assert!(
+            (synapses.permanence[stale as usize] - 0.2).abs() < 1e-6,
+            "a non-contributor must STILL be punished -- the gate is reinforcement-only, got {}",
+            synapses.permanence[stale as usize]
+        );
+    }
+
+    /// The VAL-9 ablation for arm 1, and it costs nothing: at
+    /// `non_contributor_fraction` 1.0 a non-contributor receives the full delta,
+    /// so the gated rule reproduces the ungated one exactly.
+    #[test]
+    fn a_non_contributor_fraction_of_one_reproduces_the_ungated_rule_exactly() {
+        let run = |gate: Option<ContributorGate>| {
+            let mut neurons = make_neurons(3);
+            let mut synapses = SynapseArena::new(4);
+            synapses.reserve_for_neurons(3);
+            let fresh = synapses.insert(0, 2, 0, 1, 0.3, 0.3).unwrap();
+            let stale = synapses.insert(1, 2, 0, 1, 0.42, 0.3).unwrap();
+            synapses.last_active[fresh as usize] = 10;
+            synapses.last_active[stale as usize] = 2;
+            let mut tracker = PredictingSegmentTracker::new();
+            tracker.record_fired(2, 0);
+            let mut pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
+            if let Some(g) = gate {
+                pl = pl.with_contributor_gate(g);
+            }
+            pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 2, 0.9, true, 10, 3, NEUTRAL_MODULATORS);
+            (synapses.permanence[fresh as usize], synapses.permanence[stale as usize])
+        };
+
+        let ungated = run(None);
+        let pass_through = run(Some(ContributorGate { window_ticks: 4, non_contributor_fraction: 1.0 }));
+        assert_eq!(ungated, pass_through, "fraction 1.0 must be bit-identical to no gate -- this is arm 1's ablation");
+
+        let strict = run(Some(ContributorGate { window_ticks: 4, non_contributor_fraction: 0.0 }));
+        assert_ne!(ungated, strict, "and the ablation must be measuring something: strict must differ");
+    }
+
+    /// `last_active` is `u32::MAX` until a synapse's first delivery. A
+    /// never-delivered synapse must be a non-contributor, and must get there by
+    /// the same arithmetic as a stale one rather than by a special case that
+    /// could wrap.
+    #[test]
+    fn a_never_delivered_synapse_is_a_non_contributor() {
+        let mut neurons = make_neurons(3);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(3);
+        let never = synapses.insert(0, 2, 0, 1, 0.3, 0.3).unwrap();
+        assert_eq!(synapses.last_active[never as usize], u32::MAX, "precondition: a fresh synapse has never delivered");
+
+        let mut tracker = PredictingSegmentTracker::new();
+        tracker.record_fired(2, 0);
+
+        let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1))
+            .with_contributor_gate(ContributorGate { window_ticks: 4, non_contributor_fraction: 0.0 });
+        // Tick 0 is the adversarial case: `tick - u32::MAX` would wrap.
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 2, 0.9, true, 0, 3, NEUTRAL_MODULATORS);
+
+        assert_eq!(synapses.permanence[never as usize], 0.3, "a synapse that has never delivered must not be reinforced, even at tick 0");
+    }
+
+    /// **A deliberate semantic, pinned so it is not discovered later.**
+    /// `Scheduler::deliver` stamps `last_active` on every delivery "regardless
+    /// of which path it took" -- including a SILENT synapse, which passes no
+    /// current. The gate consults `last_active` and nothing else, so a silent
+    /// synapse counts as a contributor despite contributing no current. See
+    /// [`ContributorGate`]'s doc comment.
+    #[test]
+    fn a_silent_synapse_counts_as_a_contributor_because_delivery_is_credited_regardless_of_path() {
+        let mut neurons = make_neurons(3);
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(3);
+        let silent = synapses.insert(0, 2, 0, 1, 0.3, 0.3).unwrap();
+        synapses.last_active[silent as usize] = 10;
+        synapses.silent_since[silent as usize] = 0; // silent since tick 0
+
+        let mut tracker = PredictingSegmentTracker::new();
+        tracker.record_fired(2, 0);
+
+        let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1))
+            .with_contributor_gate(ContributorGate { window_ticks: 4, non_contributor_fraction: 0.0 });
+        pl.resolve(&neurons.whole_view_mut(), &mut synapses.whole_view_mut(), &tracker, 2, 0.9, true, 10, 3, NEUTRAL_MODULATORS);
+
+        assert!(
+            (synapses.permanence[silent as usize] - 0.4).abs() < 1e-6,
+            "a silent synapse that was credited with a delivery counts as a contributor -- deliberate, see ContributorGate"
+        );
+    }
+
+    /// PLAN.md C14 arm 2. Soft bounds scale a potentiation by the remaining
+    /// headroom, so the same delta moves a nearly-saturated synapse far less
+    /// than a low one -- the asymptotic approach van Rossum, Bi & Turrigiano
+    /// (2000) describe, against the hard clamp Song, Miller & Abbott (2000)
+    /// showed produces a bimodal population.
+    #[test]
+    fn soft_bounds_shrink_a_potentiation_as_the_ceiling_is_approached() {
+        let low = PredictiveLearning::bounded(BoundMode::Soft, 0.1, 0.1);
+        let high = PredictiveLearning::bounded(BoundMode::Soft, 0.9, 0.1);
+        assert!((low - (0.1 + 0.1 * 0.9)).abs() < 1e-6, "expected 0.1 + delta*(1-0.1), got {low}");
+        assert!((high - (0.9 + 0.1 * 0.1)).abs() < 1e-6, "expected 0.9 + delta*(1-0.9), got {high}");
+        assert!(high - 0.9 < low - 0.1, "the same delta must move a near-ceiling synapse less than a low one");
+    }
+
+    /// The other half, and the reason the mode is symmetric: docs/findings.md
+    /// finding 27 measured BOTH ends of the range filling, not just the ceiling.
+    #[test]
+    fn soft_bounds_shrink_a_depression_as_the_floor_is_approached() {
+        let low = PredictiveLearning::bounded(BoundMode::Soft, 0.1, -0.1);
+        let high = PredictiveLearning::bounded(BoundMode::Soft, 0.9, -0.1);
+        assert!((low - (0.1 - 0.1 * 0.1)).abs() < 1e-6, "expected 0.1 - delta*0.1, got {low}");
+        assert!((high - (0.9 - 0.1 * 0.9)).abs() < 1e-6, "expected 0.9 - delta*0.9, got {high}");
+        assert!(0.1 - low < 0.9 - high, "the same delta must move a near-floor synapse less than a high one");
+    }
+
+    /// Soft bounds must never reach a bound from an interior value, which is the
+    /// property the whole arm rests on -- and the clamp must stay a backstop
+    /// rather than the thing doing the work.
+    #[test]
+    fn soft_bounds_never_reach_a_bound_from_the_interior_however_large_the_delta() {
+        for &v in &[0.01f32, 0.3, 0.5, 0.99] {
+            let up = PredictiveLearning::bounded(BoundMode::Soft, v, 0.9);
+            let down = PredictiveLearning::bounded(BoundMode::Soft, v, -0.9);
+            assert!(up < 1.0, "a potentiation from {v} must stay below the ceiling, got {up}");
+            assert!(down > 0.0, "a depression from {v} must stay above the floor, got {down}");
+        }
+    }
+
+    /// The default is unchanged, asserted rather than assumed (Requirement 5.2).
+    #[test]
+    fn hard_bounds_are_the_default_and_are_the_pre_c14_arithmetic() {
+        assert_eq!(BoundMode::default(), BoundMode::Hard);
+        for &v in &[0.0f32, 0.3, 0.97, 1.0] {
+            for &d in &[-0.5f32, -0.05, 0.0, 0.05, 0.5] {
+                assert_eq!(
+                    PredictiveLearning::bounded(BoundMode::Hard, v, d),
+                    (v + d).clamp(0.0, 1.0),
+                    "hard mode must be exactly the pre-C14 expression for v={v} d={d}"
+                );
+            }
+        }
+    }
+
+    /// Both arms are off unless asked for, so every pre-C14 caller is unchanged.
+    #[test]
+    fn both_c14_arms_are_off_by_default() {
+        let pl = PredictiveLearning::new(default_params(), FixedNeighbourhoods::new(10, 1));
+        assert!(pl.contributor_gate().is_none(), "the contributor gate must be opt-in");
+        assert_eq!(pl.bound_mode(), BoundMode::Hard, "hard bounds must be the default");
     }
 }

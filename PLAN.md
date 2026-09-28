@@ -184,33 +184,34 @@ graph TD
 | 11 | **C11** | Periodic sweeps silently inert in multi-threaded mode | A4, B1 | 1 session | — |
 | 12 | **C12** | Selective (replay-gated) downscaling, not uniform | C1 | 1 session | hours of runs |
 | 13 | **C13** | Corpus horizon: who owns length, and what causes the post-peak decline | — | 1 session | hours of runs |
-| 14 | **D1** | `polarity` in `NeuronLocal` + E/I-aware `rescale_one` | B1 | 1 session | — |
-| 15 | **D2** | Inhibitory STDP rule (Vogels-style) + kernel tests | D1 | 1 session | — |
-| 16 | **D3** | Polarity dispatch + E/I-balance ablation test | D2 | 1 session | — |
-| 17 | **D4** | Turn on 80:20 and re-tune ⚠️ | B2, B5, C1, C2, D3, C10 | 1 session | **1-3 weeks tuning** |
-| 18 | **E1** | Named brain store + explicit lifecycle | B1 | 1 session | — |
-| 19 | **E2** | Cross-process resume + growth after restore | E1 | 1 session | — |
-| 20 | **F1** | Short-term plasticity: per-synapse state + delivery | B1 | 1 session | — |
-| 21 | **F2** | STP curve tests + VAL-4 measured both ways | F1 | 1 session | tuning |
-| 22 | **F3** | `cap_per_neuron`: the design call | B1 | 1 session | **1 design call** |
-| 23 | **F4** | `cap_per_neuron`: implement ⚠️ | F3 | 1 session | **heavy review** |
-| 24 | **F5** | `cap_per_neuron`: scale + footprint re-measure | F4 | 1 session | hours of runs |
-| 25 | **F6** | LRN-12 / BTSP one-shot binding + pattern separation | F4 | 1 session | — |
-| 26 | **F7** | `ReplaySource` for the fast store + VAL-4 measurement | F6 | 1 session | experiments |
-| 27 | **F8** | Consolidation in partitioned mode: cross-partition replay routing | C1 | 1 session | — |
-| 28 | **F9** | Replay bit-identity across thread counts + FFI surface | F8 | 1 session | — |
-| 29 | **F10** | NET-6: segment role tag | — | 1 session | — |
-| 30 | **F11** | Descending projections + distinct apical effect | F10 | 1 session | — |
-| 31 | **F12** | Top-down prediction changes what the lower population predicts | F11 | 1 session | experiments |
-| 32 | **F13** | Delay plasticity rule | F1 | 1 session | — |
-| 33 | **F14** | NET-8: does adaptive delay produce gamma/theta structure? | F13 | 1 session | experiments |
-| 34 | **F15** | Laminar columns: scope the redesign | — | 1 session | **1 design call** |
-| 35 | **F16** | Column internal populations with defined roles | F15 | 1 session | — |
-| 36 | **F17** | Per-column configuration made live | F16 | 1 session | — |
-| 37 | **F18** | Output-layer lateral voting + the NET-9 location decision | F17 | 1 session | experiments |
-| 38 | **F19** | Serotonin: LTP/LTD threshold bias — _deferred, see docs/prior-art.md §2_ | C5 | 1 session | — |
-| 39 | **F20** | Histamine: `NUM_MODULATORS` 4→5 + global excitability — _deferred_ | — | 1 session | — |
-| 40 | **F21** | Nitric oxide: spatial diffusion field — _deferred, needs a requirement first_ | — | 1 session | — |
+| 14 | **C14** | Contributor-gated reinforcement + soft-bound `apply_delta` | C13 | 1 session | hours of runs |
+| 15 | **D1** | `polarity` in `NeuronLocal` + E/I-aware `rescale_one` | B1 | 1 session | — |
+| 16 | **D2** | Inhibitory STDP rule (Vogels-style) + kernel tests | D1 | 1 session | — |
+| 17 | **D3** | Polarity dispatch + E/I-balance ablation test | D2 | 1 session | — |
+| 18 | **D4** | Turn on 80:20 and re-tune ⚠️ | B2, B5, C1, C2, D3, C10 | 1 session | **1-3 weeks tuning** |
+| 19 | **E1** | Named brain store + explicit lifecycle | B1 | 1 session | — |
+| 20 | **E2** | Cross-process resume + growth after restore | E1 | 1 session | — |
+| 21 | **F1** | Short-term plasticity: per-synapse state + delivery | B1 | 1 session | — |
+| 22 | **F2** | STP curve tests + VAL-4 measured both ways | F1 | 1 session | tuning |
+| 23 | **F3** | `cap_per_neuron`: the design call | B1 | 1 session | **1 design call** |
+| 24 | **F4** | `cap_per_neuron`: implement ⚠️ | F3 | 1 session | **heavy review** |
+| 25 | **F5** | `cap_per_neuron`: scale + footprint re-measure | F4 | 1 session | hours of runs |
+| 26 | **F6** | LRN-12 / BTSP one-shot binding + pattern separation | F4 | 1 session | — |
+| 27 | **F7** | `ReplaySource` for the fast store + VAL-4 measurement | F6 | 1 session | experiments |
+| 28 | **F8** | Consolidation in partitioned mode: cross-partition replay routing | C1 | 1 session | — |
+| 29 | **F9** | Replay bit-identity across thread counts + FFI surface | F8 | 1 session | — |
+| 30 | **F10** | NET-6: segment role tag | — | 1 session | — |
+| 31 | **F11** | Descending projections + distinct apical effect | F10 | 1 session | — |
+| 32 | **F12** | Top-down prediction changes what the lower population predicts | F11 | 1 session | experiments |
+| 33 | **F13** | Delay plasticity rule | F1 | 1 session | — |
+| 34 | **F14** | NET-8: does adaptive delay produce gamma/theta structure? | F13 | 1 session | experiments |
+| 35 | **F15** | Laminar columns: scope the redesign | — | 1 session | **1 design call** |
+| 36 | **F16** | Column internal populations with defined roles | F15 | 1 session | — |
+| 37 | **F17** | Per-column configuration made live | F16 | 1 session | — |
+| 38 | **F18** | Output-layer lateral voting + the NET-9 location decision | F17 | 1 session | experiments |
+| 39 | **F19** | Serotonin: LTP/LTD threshold bias — _deferred, see docs/prior-art.md §2_ | C5 | 1 session | — |
+| 40 | **F20** | Histamine: `NUM_MODULATORS` 4→5 + global excitability — _deferred_ | — | 1 session | — |
+| 41 | **F21** | Nitric oxide: spatial diffusion field — _deferred, needs a requirement first_ | — | 1 session | — |
 
 **Phase totals from here:** C ≈ 12-15 sessions + runs · D ≈ 4 sessions + 1-3 weeks tuning · E ≈ 2 · F ≈ 19 sessions + experiments. Every row is one session of coding by construction; the wall-clock column is where the real cost still lives (§1's own point — coding compresses with an LLM, experiments do not).
 
@@ -2173,6 +2174,148 @@ Timestamps [YYYY-MM-DD HH:MM +ZZZZ] on every new entry.
 
 ---
 
+### C14 — Contributor-gated reinforcement + soft-bound `apply_delta`
+
+```
+Read, in this order, before writing any code:
+  1. `.claude/HANDOFF.md` — facts 20 and 22, and the "Where things stand" block.
+  2. `docs/findings.md` finding 27 (what C13 measured and why it stopped), and 25(g3)/26's
+     amendments.
+  3. `docs/appendix/find-27.md` — especially "Why the ordering cannot be resolved" and the
+     histogram section.
+  4. `docs/prior-art.md` §13.13(l) (synapse specificity — this item's evidence) and §13.13(k)
+     (the soft-bound family), plus `docs/decisions.md` decisions 11, 13 and 28.
+  5. PLAN.md §4 and `scripts/CLAUDE.md`.
+
+WHAT THIS IS. Two mechanisms, built together and measured as arms of ONE battery, because
+C13 established that they are cause and symptom of the same thing and measuring either
+alone would not say which.
+
+  ARM 1 — CONTRIBUTOR-GATED REINFORCEMENT (the cause side, and the reason this item exists).
+  `plasticity/predictive.rs`'s `adjust_segment` adjusts EVERY synapse on a segment, not the
+  ones that actually delivered. Its own doc comment says so and says it was "left as found;
+  built only if the B5 search shows it costs accuracy" — and the B5 search never contained a
+  contributor-gating parameter, so that condition could not have fired. Arithmetic: +0.08 on
+  a correct prediction and -0.05 on a false positive, applied to every synapse on the
+  segment, with correct predictions outnumbering false positives ~4:1 over 200,000
+  characters. That is a net upward drift of ~+0.054 per event against a 1.0 ceiling that
+  NINE events reach from the 0.30 initial wiring. This is what drives the population to the
+  bounds.
+
+  ARM 2 — SOFT-BOUND `apply_delta` (the symptom side, C13's family (a)). `apply_delta` is
+  `*p = (*p + delta).clamp(0.0, 1.0)` — additive with hard bounds, exactly the condition
+  Song, Miller & Abbott (2000) showed produces a bimodal steady state, against van Rossum,
+  Bi & Turrigiano (2000)'s weight-dependent rule producing a stable unimodal one.
+
+WHY BOTH, AND WHY ONE BATTERY. C13's verdict was UNRESOLVED and its reasoning points here:
+a permanence regulator alone might fix the distribution and leave the decline (finding
+27(c): `C-default` declines 4.3 points with a FROZEN distribution). So arm 2 alone cannot
+settle anything. Arm 1 is upstream, and if it works it should reduce the saturation *and*
+the decline together. Run as a 2x2 so "does gating help", "does soft-bounding help" and
+"do they interact" are separable. This is C9's shape — two halves that are only
+interpretable together — and C9's own lesson is that one half alone can be ruinous while
+the pair is a null.
+
+DESIGN CALLS — ALREADY DECIDED WITH THE USER [2026-09-28 01:03 +0100]. Do not re-open them.
+  (a) THE GATE READS THE EXISTING `last_active` FIELD. **CORRECTED [2026-09-28 01:20 +0100],
+      and the correction is why this item is cheap.** The call was originally decided as a
+      NEW `last_delivered` field, on the stated grounds that `last_active` is written only
+      by `ThreeFactorStdp::on_delivery` and would therefore be unmaintained without
+      `plasticity`. **That was wrong.** `Scheduler::deliver` already writes
+      `synapses.last_active[synapse_id] = self.tick` UNCONDITIONALLY (scheduler.rs, just
+      after the `has_any_plasticity()` guard block, not inside it); the write in
+      `three_factor.rs` is a redundant second write of the same value on the same tick. So
+      the field is maintained in every configuration including `DEFAULT_CONFIG`, and it is
+      already persisted by `snapshot.rs`. Consequences: **no new field, no +4 bytes/synapse,
+      and NO SNAPSHOT FORMAT VERSION BUMP** — the largest risk this item was scoped around
+      does not exist. The `weight`-style arena plumbing is not needed either.
+      **One subtlety that survives, and must be pinned by a test rather than discovered:**
+      `last_active` is set even for a SILENT synapse that passed no current (`deliver`
+      credits the delivery "regardless of which path it took"), so under a strict gate a
+      silent synapse counts as a contributor despite contributing nothing.
+  (b) THE GATE IS STRICT BY DEFAULT, WITH THE NON-CONTRIBUTOR FRACTION AS A PARAMETER.
+      Non-contributors get 0 by default; the fraction is configurable so the biologically
+      truer partial gate is one search dimension rather than a rewrite. §13.13(l) records
+      why a strict gate is STRICTER THAN BIOLOGY: Engert & Bonhoeffer (1997) measured LTP
+      spreading within ~70 um and Harvey & Svoboda (2007) measured one spine lowering its
+      neighbours' threshold for ~10 min. That divergence must be stated in the write-up, not
+      presented as fidelity.
+  (c) REINFORCEMENT IS GATED; PUNISHMENT IS NOT. The evidence is asymmetric: heterosynaptic
+      DEPRESSION of uninvolved inputs is measured (Royer & Pare 2003, §13.13(k)),
+      heterosynaptic POTENTIATION of uninvolved inputs is not. So the correct-prediction
+      branch gates and the false-positive branch keeps adjusting the whole segment.
+
+THE TASK.
+
+1. NO ARENA CHANGE IS NEEDED — see the correction in call (a). `last_active` already
+   carries "the tick this synapse last delivered", is written unconditionally by
+   `Scheduler::deliver`, and is already snapshotted and already compared by
+   `tests/partitioning_reference.rs`. Verify all three of those before relying on them, then
+   move on: this item touches `plasticity/predictive.rs` and the FFI/TS surface only.
+
+2. The two mechanisms, each independently switchable and each OFF by default, so every
+   existing configuration stays bit-identical (assert it, do not assume it — HANDOFF fact
+   13's trap is that hoisting a read out of a guard can compose an extra decay step).
+   - `PredictiveLearningParams::contributor_window_ticks: Option<u32>` (None = today's
+     behaviour) and `non_contributor_fraction: f32` (default 0.0).
+   - A bound mode on the same params for arm 2. Symmetric soft bounds — potentiation scaled
+     by `(1 - p)`, depression by `p` — because C13 measured BOTH ends filling (56% at the
+     ceiling AND ~30% below the connection gate), not just the ceiling.
+
+3. Mechanism tests before any battery, in `predictive.rs` and a VAL-9 ablation:
+   - A synapse that did not deliver inside the window is NOT reinforced on a correct
+     prediction, and one that did IS.
+   - The same synapse IS still punished on a false positive (call (c)).
+   - `non_contributor_fraction` at 1.0 reproduces the ungated behaviour bit-for-bit — that
+     is the cleanest possible ablation and it is free.
+   - Soft bounds: a synapse at 0.99 gains less than one at 0.10 from the same delta, and
+     nothing ever leaves [0, 1] without the clamp doing the work.
+
+4. PRE-REGISTER THE READING, then run the 2x2 battery. Copy
+   `scripts/investigate-c13-permanence-trajectory.ts`'s shape: its exactness controls (X1
+   against a prior run's checkpoint is nearly free and catches a perturbing change
+   immediately), its 5,000-character permanence trajectory, and its conjunction discipline.
+   MEASURE AT BOTH HORIZONS — decision 28 makes that the protocol, not a courtesy — and on
+   the official ten seeds (VAL-6). Fix in advance:
+   - The 15,000-character reading. This is the one that matters for the milestone: does
+     gating move VAL-4's pinned figure, up or down? State the bar (16.56%) and the threshold
+     for calling a change.
+   - The 200,000-character reading: peak-to-end drop, and the saturation trajectory.
+   - **State in advance what a WORSE 15,000-character number would mean.** Reinforcing
+     fewer synapses may simply slow learning. That is a real possible outcome and it must
+     not be re-framed after the fact.
+
+5. If anything is adopted it goes in `packages/io/src/canonicalBrain.ts` with its reasoning
+   beside it, and `B5_VALUES` is NOT changed without a decision — decision 28 pinned the
+   15,000-character figures and findings 7-22 depend on them.
+
+TRAPS.
+  - **Do not move or re-order the `last_active` write.** `ThreeFactorStdp::on_delivery`
+    reads it to compute the anti-causal dt and then writes it; `on_post_spike` reads it for
+    the causal dt. `Scheduler::deliver`'s unconditional write lands AFTER the rule chain has
+    run, which is what makes the two writes agree. Writing it earlier would give the rule
+    `dt = 0` and break bit-identity everywhere. Read only.
+  - A silent synapse is credited with a delivery (call (a)). Decide and PIN whether that
+    counts as contributing; do not leave it implicit.
+  - A synapse below `connection_threshold` never delivers, so it can never be a contributor,
+    so under a strict gate it can never be reinforced back above the gate. That is a
+    ONE-WAY DOOR the ungated rule does not have, and it is the most likely way this change
+    makes things worse. Measure `connected/occupied`'s trajectory specifically.
+  - `ticksPerInput` is 2, so a "window" of N ticks is N/2 characters. State windows in both
+    units or the next reader will misjudge them (fact 20's dopamine accumulation is the
+    precedent — a 1000-tick constant was a 500-CHARACTER one).
+  - Do not reuse any pre-2026-09-26 figure measured with reward on (finding 25(g)).
+
+DONE WHEN. Both mechanisms are built, independently switchable, off by default and proven
+bit-identical when off; the mechanism tests and the `non_contributor_fraction: 1.0`
+equivalence ablation pass; the 2x2 battery ran on ten seeds at BOTH horizons with its
+reading pre-registered; docs/findings.md carries the outcome including a negative, with raw
+data under docs/appendix/; and `.claude/HANDOFF.md` facts 20 and 22 are updated. Timestamps
+[YYYY-MM-DD HH:MM +ZZZZ] on every new entry.
+```
+
+---
+
 ### D1 — `polarity` in `NeuronLocal` + E/I-aware `rescale_one`
 
 ```
@@ -3360,6 +3503,7 @@ demonstrated and ablated, and docs/prior-art.md §13.13 records a new subsection
 | C11 | not started |  |  | **Was `G2` until 2026-09-20**; renamed to match its position (10th), same reasoning as C10. Scope unchanged. Moved ahead of D4 because its sweep wiring changes what a partitioned re-tune measures, and re-tuning is a 1–3 week item. |
 | C12 | not started |  |  | Scoped out of C1 (2026-09-19). **The one C1 follow-up whose negative result does not already apply**: C1 measured the _uniform_ downscale, which changes only scale and is therefore erased exactly by the online LRN-6 sweep (targets 6.0 and 3.0 bit-identical on all ten seeds). Selective downscaling changes ratios _within_ a neuron, which a total-renormalising sweep preserves — reasoning from that verified composition argument, not measured. docs/prior-art.md §13.13(h). |
 | C13 | done | 2026-09-28 01:03 +0100 | ~2 h 29 min (22:34 -> 01:03 +0100, both from `date`). Pieces: context reading and the harness change (`permanenceDistribution` + the new worker) by ~22:50, typechecked and smoke-tested against the real addon by 22:53; **32 trials 22:55-00:21 (87 min wall, 12 workers, 16 of them at 200,000 characters — A-b5 62-64 min each, `D-no-sprout` 37-46, `C-default` 24-31)**, with the horizon decision put to the user and recorded, plus docs/prior-art.md §13.13(k) and seven bib keys, all written **while the battery ran**; analysis and write-up 00:21-00:45; `test:fast` ~4 min and `test:slow` ~24 min to 01:03, overlapped with the doc corrections. The ten-seed trigram gap table was re-derived from this run's own data rather than carried over from the prompt's three-seed version. | **Two results, and neither is the one the prompt's leading hypothesis predicted. Nothing was built and no constant changed.** (1) **The horizon is settled, by the user: option (c), TWO horizons by definition** — 15,000 stays pinned and comparable (findings 7-22, `B5_VALUES` and its regression pin all untouched and un-re-derived), 200,000 is the stability horizon, a figure without its horizon is incomplete, and the bars do not transfer (16.56% vs 16.25%; trigram 28.40% vs 29.20%, moving the other way). Option (b) was refused on measured grounds: **VAL-4's milestone is the GAP to trigram and the gap is WORSE at length** (-7.87 at 15,000, -14.10 at 200,000), so lengthening buys ~1 point of level, largely baseline noise, for a re-derivation of findings 7-22. docs/decisions.md decision 28. (2) **The permanence distribution is a trajectory now** (`c5-observe.ts`'s `permanenceDistribution`, on the existing 5,000-character sparse cadence, plus a new `mid` band and a 20-bin histogram), **and the pre-registered lead/trail reading returned UNRESOLVED — because learning and saturation overlap BY CONSTRUCTION, not because the grid was too coarse.** `reinforceAmount` 0.08 against a 1.0 ceiling means nine reinforcements saturate a synapse and `adjust_segment` reinforces every synapse on a correctly-predicting segment, so by the accuracy peak ~73% of the saturation and ~55% of the graded-middle loss have already happened: "did it learn" and "did permanence polarise" are the same event over the same 20,000 characters. **Per the pre-registration, UNRESOLVED means NO REGULATOR IS BUILT**, and the four candidate families were therefore never put to the user — the design call was not earned. Three further results: **the `connected < 90%` landmark TRAILS the peak on 8 of 10 seeds** (45,000-65,000 against 20,000-25,000), so connectivity loss cannot cause the turnover; **`C-default` declines 4.3 points with a FROZEN distribution** (`atOne/occupied` moves 0.7 points over 200,000 characters) while `predictive.rs` classifies 17.7 M predictions there, so polarisation is not _necessary_ for a decline of this shape — a dissociation, not an ablation, since C-default differs in seven mechanisms; and **the histogram corrects the hypothesis's own prose** — [0.45, 0.90) already held 0.2% at 15,000 characters, so the upper-middle was never populated and cannot have hollowed out; what happens is the two low working modes eroding past the connection gate into a sub-threshold tail ([0.05, 0.30) 0.0% -> 30.2%) while the ceiling fills 35.9% -> 56.0%, `distinctPermanences` 15 -> 221. **The pre-registered conjunction is what saved this from a false positive:** three of four landmarks flip from SIMULTANEOUS under `T_peak` to a 5-7-seed LEADS lean under `T_decline`, so one accuracy definition alone would have produced a confident verdict in either direction. **All three exactness controls pass**, including X1 — 18 trials compared field-for-field against `corpus-horizon-v2-postfix`'s checkpointed rows, every `permanenceHash`/`weightHash`/`topologyHash` and both accuracies **identical**, which is what proves the new sampler read-only (RUN-3) at no extra trial cost. Ten seeds also confirm finding 26's block-level caveat: the peak 25,000-character block is 19.32%, **below** the 19.71% the same seeds read at 15,000. Evidence base added ahead of any design call: docs/prior-art.md §13.13(k) (Song/Miller/Abbott 2000, van Rossum/Bi/Turrigiano 2000, BCM 1982, Kirkwood/Rioult/Bear 1996, Royer & Paré 2003, Turrigiano 1998, Zenke/Gerstner/Ganguli 2017 as dissent) with the caveat that every one of those papers measures **efficacy**, not a structural variable, stated as an analogy rather than backing. **`docs/history.md` deliberately NOT updated:** no phase's status changed (C10-C12 remain open) and X1 proves no earlier figure moved, so there is nothing for its "fixes that change what earlier phases measured" section. Harness trap found and recorded: the 250-character progress cadence **cannot reach a run's end state** (the stream is `corpus.length - 1` steps, so the last grid sample of a 200,000-character run is at 195,000) — the final sample is taken in `inspect`, which is also what makes X3 possible. docs/findings.md finding 27, docs/appendix/find-27.md, docs/decisions.md decision 28, docs/open-questions.md item 7 (which now owns the unexplained decline, the two `C-default` puzzles and finding 25(f)'s reward runaway), `scripts/investigate-c13-permanence-trajectory.*`. -- earlier notes: Appended 2026-09-27. The first item to own corpus length, and the owner of the residual post-peak decline findings 25 and 26 left open. Two things were already ruled out before it started: structural plasticity does not cause the decline (finding 26), and the churn runaway plus cost superlinearity were the `target_index` bug (finding 25). |
+| C14 | in progress | started [2026-09-28 01:03 +0100] | — | Added 2026-09-28 after C13 measured the permanence trajectory and **declined** to build a regulator on it. Two arms of one battery, because C13 established they are cause and symptom of the same thing: **contributor-gated reinforcement** (`adjust_segment` adjusts every synapse on a segment, not the ones that delivered — the upstream cause of the pile-up, and its own doc comment's "built only if the B5 search shows it costs accuracy" could never have fired, because contributor gating was never in the B5 search space) and **soft-bound `apply_delta`** (C13's family (a), the symptom side). Three design calls decided with the user [2026-09-28 01:03 +0100]: a **new `last_delivered` field** written unconditionally in `Scheduler::deliver` rather than reusing `last_active`, which is written only by `ThreeFactorStdp::on_delivery` and would silently make LRN-8 inert in `DEFAULT_CONFIG`; a **strict gate with the non-contributor fraction as a parameter**, knowingly stricter than the measured biology (Engert & Bonhoeffer 1997, Harvey & Svoboda 2007 — specificity leaks locally); and **reinforcement gated, punishment not**, following the evidence asymmetry (heterosynaptic depression is measured, heterosynaptic potentiation is not). Evidence added ahead of the code: docs/prior-art.md §13.13(l), four new bib keys (Andersen 1977, Matsuzaki 2004, Engert & Bonhoeffer 1997, Harvey & Svoboda 2007). **Matsuzaki 2004 measures spine _structure_, which partly answers §13.13(k)'s honesty caveat** — specificity is evidence about the structural quantity directly, not by analogy from efficacy. **Call (a) was CORRECTED [2026-09-28 01:20 +0100] before any code was written:** `Scheduler::deliver` already writes `last_active` unconditionally (the write in `three_factor.rs` is a redundant second write of the same value), so the field is maintained in every configuration and is already snapshotted — **no new field, no +4 bytes/synapse and no snapshot format version bump**, which removes the largest risk this item was scoped around. |
 | D1 | not started |  |  |  |
 | D2 | not started |  |  |  |
 | D3 | not started |  |  | Split out of D2 on 2026-09-20 so every item fits one session; D2's prompt carries the shared context and this row's prompt states the sub-scope. The ablation needs a network that actually contains inhibitory neurons, plus a chosen measurable for "balance" (Vogels' asynchronous irregular state, or Beggs & Plenz avalanche exponents — docs/prior-art.md §13.13(a) names both) and multi-seed evidence per VAL-6. |

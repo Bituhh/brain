@@ -25,9 +25,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+  runCharPredictionTrial,
   runCharPredictionTrials,
   assessMilestone,
   DEFAULT_CONFIG,
+  type CharPredictionConfig,
   type TrialResult,
 } from '../src/milestone/charPrediction.ts';
 import type { StructuralPlasticityConfig } from '@brain/core';
@@ -252,5 +254,56 @@ test("condition C with B5's searched values reproduces the value search's own re
     Math.abs(assessment.meanNetworkAccuracy - SEARCH_RESULT) <= 0.005,
     `expected condition C to reproduce the value search's ${SEARCH_RESULT} within half a point, got ${assessment.meanNetworkAccuracy.toFixed(4)} -- ` +
       "a change to dendritic votes, structural plasticity, silent synapses, STDP or homeostatic scaling altered what B5's chosen configuration does",
+  );
+});
+
+/**
+ * PLAN.md C14, both arms, end to end through the real addon. Three properties,
+ * and the middle one is arm 1's VAL-9 ablation:
+ *   1. Omitting `predictiveUpdate`, or passing one that configures nothing, is
+ *      bit-identical to before C14 existed.
+ *   2. `nonContributorFraction: 1.0` reproduces the ungated rule exactly, so a
+ *      gated run's difference is attributable to the gating itself rather than
+ *      to anything else the option pulls in.
+ *   3. A strict gate and soft bounds each actually CHANGE the outcome. Without
+ *      this, 1 and 2 would both pass on a mechanism that never ran -- HANDOFF
+ *      fact 3's trap, where a bit-identity control compared two runs in which
+ *      nothing happened.
+ *
+ * 3,000 characters is a smoke length, deliberately: this asserts the wiring and
+ * the ablation, NOT whether either arm helps. That is the battery's job
+ * (`scripts/investigate-c14-*`), at the protocol's horizons and on ten seeds.
+ */
+test('predictiveUpdate: off is unchanged, fraction 1.0 is the ablation, and both C14 arms reach behaviour', () => {
+  const slice = fullCorpus.slice(0, 3_000);
+  const run = (predictiveUpdate?: CharPredictionConfig['predictiveUpdate']) =>
+    runCharPredictionTrial(
+      slice,
+      1n,
+      predictiveUpdate === undefined
+        ? { ...DEFAULT_CONFIG }
+        : { ...DEFAULT_CONFIG, predictiveUpdate },
+    ).networkAccuracy;
+
+  const ungated = run();
+  assert.equal(
+    run({ nonContributorFraction: 0.0 }),
+    ungated,
+    'a predictiveUpdate that sets no window and no bound mode must not reach the rule at all',
+  );
+  assert.equal(
+    run({ contributorWindowTicks: 4, nonContributorFraction: 1.0 }),
+    ungated,
+    'nonContributorFraction 1.0 must reproduce the ungated rule exactly -- arm 1 VAL-9 ablation',
+  );
+  assert.notEqual(
+    run({ contributorWindowTicks: 4 }),
+    ungated,
+    'a strict gate must change the outcome, or the controls above assert a dead mechanism',
+  );
+  assert.notEqual(
+    run({ boundMode: 'soft' }),
+    ungated,
+    'soft bounds must change the outcome, or the controls above assert a dead mechanism',
   );
 });

@@ -18,7 +18,7 @@ use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
 use brain_core::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
 use brain_core::plasticity::newborn::{NewbornMaturationParams, NewbornWiringParams};
-use brain_core::plasticity::predictive::{PredictiveLearningParams, SegmentLearningTarget};
+use brain_core::plasticity::predictive::{BoundMode, ContributorGate, PredictiveLearningParams, SegmentLearningTarget};
 use brain_core::plasticity::stdp::{LevelMap, StdpModulation, StdpModulationError, StdpParams};
 use brain_core::plasticity::structural::{SproutTimingWindow, StructuralPlasticity, StructuralPlasticityParams};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
@@ -365,10 +365,51 @@ pub struct PredictiveLearningConfig {
     /// disable this path entirely for a measured >400x cost -- a radius
     /// ignores `neighbourhoodSize` completely.
     pub sprout_reach_radius: Option<f64>,
+    /// PLAN.md C14 arm 1: restrict Requirement 12.3's reinforcement to the
+    /// synapses that actually *delivered* within this many **ticks**
+    /// (`ticksPerInput` of 2 makes a window of 4 ticks 2 characters). Omit --
+    /// every pre-C14 caller -- to reinforce the whole segment, bit-identical to
+    /// before this field existed.
+    ///
+    /// Punishment is deliberately NOT gated: heterosynaptic depression of
+    /// uninvolved inputs is measured (Royer & Paré 2003) while heterosynaptic
+    /// potentiation is not (docs/prior-art.md §13.13(k)/(l)).
+    pub contributor_window_ticks: Option<u32>,
+    /// What fraction of the reinforcement a NON-contributor receives when
+    /// `contributorWindowTicks` is set. Omit for `0.0`, the strict gate; `1.0`
+    /// is bit-identical to no gate and is arm 1's VAL-9 ablation. Values
+    /// between express the local, transient leak in synapse specificity that
+    /// Engert & Bonhoeffer (1997) and Harvey & Svoboda (2007) measured --
+    /// a strict gate is knowingly *stricter* than the biology.
+    ///
+    /// Ignored unless `contributorWindowTicks` is set.
+    pub non_contributor_fraction: Option<f64>,
+    /// PLAN.md C14 arm 2: `"hard"` (omit for this -- additive with a clamp,
+    /// every pre-C14 caller, and the condition Song, Miller & Abbott (2000)
+    /// showed produces a bimodal population) or `"soft"` (weight-dependent
+    /// after van Rossum, Bi & Turrigiano (2000): a potentiation scaled by
+    /// `1 - p` and a depression by `p`, so either bound is approached
+    /// asymptotically). Symmetric deliberately -- docs/findings.md finding 27
+    /// measured both ends of the range filling.
+    pub bound_mode: Option<String>,
 }
 
 impl PredictiveLearningConfig {
     fn validate(&self) -> Result<()> {
+        if let Some(m) = &self.bound_mode {
+            if !matches!(m.as_str(), "hard" | "soft") {
+                return Err(Error::from_reason(format!(
+                    "predictiveLearning.boundMode must be \"hard\" or \"soft\", got {m:?}"
+                )));
+            }
+        }
+        if let Some(f) = self.non_contributor_fraction {
+            if !(0.0..=1.0).contains(&f) {
+                return Err(Error::from_reason(format!(
+                    "predictiveLearning.nonContributorFraction must be in [0, 1], got {f}"
+                )));
+            }
+        }
         if let Some(t) = &self.learning_target {
             if !matches!(t.as_str(), "permanence" | "weight" | "both") {
                 return Err(Error::from_reason(format!(
@@ -385,6 +426,24 @@ impl PredictiveLearningConfig {
     /// at all. `validate()` must have run first.
     fn sprout_reach(&self) -> Option<SproutReach> {
         self.sprout_reach_radius.map(|r| SproutReach::spatial(r as f32))
+    }
+
+    /// PLAN.md C14 arm 1. `None` -- every pre-C14 caller -- leaves 12.3
+    /// reinforcing the whole segment. `validate()` must have run first.
+    fn contributor_gate(&self) -> Option<ContributorGate> {
+        self.contributor_window_ticks.map(|window_ticks| ContributorGate {
+            window_ticks,
+            non_contributor_fraction: self.non_contributor_fraction.unwrap_or(0.0) as f32,
+        })
+    }
+
+    /// PLAN.md C14 arm 2. `validate()` must have run first.
+    fn bound_mode(&self) -> BoundMode {
+        match self.bound_mode.as_deref() {
+            None | Some("hard") => BoundMode::Hard,
+            Some("soft") => BoundMode::Soft,
+            Some(other) => unreachable!("invalid boundMode {other:?} should have been rejected by validate()"),
+        }
     }
 
     fn to_params(&self) -> PredictiveLearningParams {
@@ -1518,6 +1577,15 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
         // `sproutReachRadius` never touches the reach at all.
         if let Some(reach) = cfg.sprout_reach() {
             scheduler = scheduler.with_predictive_learning_sprout_reach(reach);
+        }
+        // PLAN.md C14, both arms: applied only when the caller opted in, so an
+        // omitted `contributorWindowTicks`/`boundMode` never touches the rule
+        // and every pre-C14 configuration stays bit-identical.
+        if let Some(gate) = cfg.contributor_gate() {
+            scheduler = scheduler.with_predictive_learning_contributor_gate(gate);
+        }
+        if cfg.bound_mode() != BoundMode::Hard {
+            scheduler = scheduler.with_predictive_learning_bound_mode(cfg.bound_mode());
         }
     }
     if let Some(resolved) = &config.plasticity {
@@ -2973,6 +3041,17 @@ impl NativeSimulation {
             // untouched (RUN-9a).
             if let Some(reach) = cfg.sprout_reach() {
                 scheduler = scheduler.with_predictive_learning_sprout_reach(reach);
+            }
+            // PLAN.md C14, both arms -- and this branch is exactly why HANDOFF
+            // fact 14(a) exists: this is a hand-rolled duplicate of
+            // `build_scheduler`, so an option added there and missed here would
+            // make a RESTORED brain gate differently from a running one, which
+            // is a RUN-3/RUN-9a violation rather than a cosmetic gap.
+            if let Some(gate) = cfg.contributor_gate() {
+                scheduler = scheduler.with_predictive_learning_contributor_gate(gate);
+            }
+            if cfg.bound_mode() != BoundMode::Hard {
+                scheduler = scheduler.with_predictive_learning_bound_mode(cfg.bound_mode());
             }
         }
         if let Some(cfg) = &plasticity {

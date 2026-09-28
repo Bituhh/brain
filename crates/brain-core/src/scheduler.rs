@@ -847,6 +847,25 @@ impl Scheduler {
         self
     }
 
+    /// Restricts Requirement 12.3's reinforcement to the synapses that
+    /// delivered recently (PLAN.md C14 arm 1). Requires
+    /// [`Self::with_predictive_learning`] first, same precedent as
+    /// [`Self::with_predictive_learning_sprout_reach`] above.
+    pub fn with_predictive_learning_contributor_gate(mut self, gate: crate::plasticity::predictive::ContributorGate) -> Self {
+        let rule = self.predictive_learning.take().expect("with_predictive_learning_contributor_gate needs with_predictive_learning to have been called first");
+        self.predictive_learning = Some(rule.with_contributor_gate(gate));
+        self
+    }
+
+    /// Switches Requirement 12.2/12.3's arithmetic to weight-dependent (soft)
+    /// bounds (PLAN.md C14 arm 2). Requires [`Self::with_predictive_learning`]
+    /// first, same precedent as above.
+    pub fn with_predictive_learning_bound_mode(mut self, mode: crate::plasticity::predictive::BoundMode) -> Self {
+        let rule = self.predictive_learning.take().expect("with_predictive_learning_bound_mode needs with_predictive_learning to have been called first");
+        self.predictive_learning = Some(rule.with_bound_mode(mode));
+        self
+    }
+
     /// Whether Requirement 12.1's burst path is configured with a *spatial*
     /// sprout reach -- read by `PartitionRuntime::new` to refuse a
     /// combination it cannot keep bit-identical across partition counts.

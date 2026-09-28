@@ -75,6 +75,52 @@ import type { Sdr } from '../sdr.ts';
 export const NETWORK_WIDTH = 800;
 export const NETWORK_DENSITY = 0.08;
 
+/**
+ * PLAN.md C14's two arms (docs/prior-art.md §13.13(k) and §13.13(l)).
+ *
+ * **Arm 1, `contributorWindowTicks`.** `predictive.rs`'s `adjust_segment`
+ * reinforces *every* synapse on a correctly-predicting segment, contributor or
+ * not -- its own doc comment has said so since B4 and deferred the fix on a
+ * condition ("built only if the B5 search shows it costs accuracy") that could
+ * not fire, because contributor gating was never in the B5 search space.
+ * docs/findings.md finding 27 measured the consequence: a +0.08 step against a
+ * 1.0 ceiling, applied to whole segments with correct predictions outnumbering
+ * false positives ~4:1, pins ~56% of synapses at the ceiling.
+ *
+ * **Arm 2, `boundMode`.** `apply_delta` is additive with a hard clamp, the
+ * condition Song, Miller & Abbott (2000) showed produces a bimodal population;
+ * `"soft"` is van Rossum, Bi & Turrigiano (2000)'s weight-dependent form.
+ *
+ * Both omitted (the default) is the pre-C14 rule, bit-identical.
+ */
+export interface PredictiveUpdateConfig {
+  /**
+   * Restrict reinforcement to synapses that delivered within this many
+   * **ticks**. At `ticksPerInput` 2 a window of 4 ticks is 2 characters --
+   * state both units when quoting one (HANDOFF fact 20's 1000-tick/500-character
+   * dopamine constant is the precedent for why).
+   *
+   * Omit to reinforce the whole segment. **Punishment is never gated**, following
+   * the evidence asymmetry: heterosynaptic depression of uninvolved inputs is
+   * measured (Royer & Paré 2003), heterosynaptic potentiation is not.
+   */
+  readonly contributorWindowTicks?: number;
+  /**
+   * What fraction of the reinforcement a non-contributor gets. Omit for `0.0`
+   * (strict). `1.0` is bit-identical to no gate and is arm 1's VAL-9 ablation.
+   * Ignored unless `contributorWindowTicks` is set.
+   *
+   * A strict gate is knowingly **stricter than the biology**: Engert &
+   * Bonhoeffer (1997) measured LTP spreading within ~70 µm and Harvey & Svoboda
+   * (2007) measured one spine lowering its neighbours' threshold for ~10 min.
+   * This parameter is what makes that partial gate a configured value rather
+   * than a later rewrite.
+   */
+  readonly nonContributorFraction?: number;
+  /** `"hard"` (omit for this, pre-C14) or `"soft"` (weight-dependent bounds). */
+  readonly boundMode?: 'hard' | 'soft';
+}
+
 export interface CharPredictionConfig {
   readonly width: number;
   readonly density: number;
@@ -377,6 +423,19 @@ export interface CharPredictionConfig {
    */
   readonly predictiveLearningTarget?: 'permanence' | 'weight' | 'both';
   /**
+   * PLAN.md C14: how predictive learning's reinforce/punish is *applied* --
+   * which synapses it reaches (arm 1) and how it approaches `permanence`'s
+   * bounds (arm 2). `undefined` (default) is the pre-C14 rule, bit-identical:
+   * reinforcement reaches every synapse on the segment and the update is
+   * additive with a hard clamp.
+   *
+   * Grouped into one field because docs/findings.md finding 27 established the
+   * two are cause and symptom of the same thing -- whole-segment reinforcement
+   * is what drives the population into the bounds that hard clamping then pins
+   * it at -- so measuring either alone cannot say which is doing the work.
+   */
+  readonly predictiveUpdate?: PredictiveUpdateConfig;
+  /**
    * `SimulationOptions.homeostaticScaling` (LRN-6) -- never wired into this
    * harness before PLAN.md B5 (docs/decisions.md decision 13, requirements.md
    * Requirement 6): with weighted votes, a weight-renormalising sweep now
@@ -663,6 +722,14 @@ export function buildNetwork(
   transmissionModulation:
     | TransmissionModulationConfig
     | undefined = DEFAULT_CONFIG.transmissionModulation,
+  /**
+   * PLAN.md C14's two arms, grouped into one slot for the same reason `c2`
+   * above is grouped: they are separately switchable but are measured as arms
+   * of one battery, because docs/findings.md finding 27 established they are
+   * cause and symptom of the same thing.
+   */
+  predictiveUpdate:
+    PredictiveUpdateConfig | undefined = DEFAULT_CONFIG.predictiveUpdate,
 ): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = {
     tauMTicks: 5,
@@ -833,6 +900,20 @@ export function buildNetwork(
       ...(predictiveLearningTarget !== undefined && {
         learningTarget: predictiveLearningTarget,
       }),
+      // PLAN.md C14, both arms. Spread only if defined, the same
+      // `exactOptionalPropertyTypes` convention as every option above, so a
+      // configuration that omits `predictiveUpdate` never reaches
+      // `with_predictive_learning_contributor_gate` or
+      // `with_predictive_learning_bound_mode` at all and is bit-identical.
+      ...(predictiveUpdate?.contributorWindowTicks !== undefined && {
+        contributorWindowTicks: predictiveUpdate.contributorWindowTicks,
+      }),
+      ...(predictiveUpdate?.nonContributorFraction !== undefined && {
+        nonContributorFraction: predictiveUpdate.nonContributorFraction,
+      }),
+      ...(predictiveUpdate?.boundMode !== undefined && {
+        boundMode: predictiveUpdate.boundMode,
+      }),
     },
   };
   const sim = Simulation.create(lif, options);
@@ -985,6 +1066,7 @@ export function runCharPredictionTrial(
     },
     config.rewardPredictionError,
     config.transmissionModulation,
+    config.predictiveUpdate,
   );
   const collisionMargin = config.collisionMargin ?? DEFAULT_COLLISION_MARGIN;
   const trigram = new TrigramModel();
