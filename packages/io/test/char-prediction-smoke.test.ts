@@ -11,7 +11,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   runCharPredictionTrial,
+  B5_CONFIG,
   DEFAULT_CONFIG,
+  type CharPredictionConfig,
 } from '../src/milestone/charPrediction.ts';
 
 const corpusPath = fileURLToPath(
@@ -442,5 +444,94 @@ test('a consolidation cadence sleeps on schedule, replays real events, prunes re
     never.networkAccuracy,
     baseline.networkAccuracy,
     'a cadence that never fires must not change the run at all',
+  );
+});
+
+// docs/decisions.md decision 34 (HANDOFF fact 23, docs/findings.md finding
+// 31(g)): `buildNetwork` used to default `segmentThresholdHomeostasis` to
+// `DEFAULT_CONFIG`'s value, and a JavaScript default parameter also fires on
+// `undefined`, so a config that OMITTED the field silently got the mechanism
+// back and C15's `NOSTH` arm came out bit-identical to its base. Omitting it
+// must now mean off -- asserted both by the getter (no segment has a live
+// threshold) and by the run itself differing from the configured one.
+// 400 characters is too short for the two to diverge (both still read 0%),
+// so this one streams a longer slice.
+test('segmentThresholdHomeostasis omitted really switches the mechanism off (the fact-23 trap)', () => {
+  const longer = readFileSync(corpusPath, 'utf8').slice(0, 2_000);
+  const config = { ...B5_CONFIG, slidingWindow: 500 };
+  const { segmentThresholdHomeostasis: _sth, ...off } = config;
+  const statsOf = (c: CharPredictionConfig) => {
+    let stats: unknown = 'never inspected';
+    const result = runCharPredictionTrial(longer, 1n, c, undefined, (sim) => {
+      stats = sim.segmentThresholdStats();
+    });
+    return { result, stats };
+  };
+  const on = statsOf(config);
+  const offRun = statsOf(off);
+  assert.notEqual(
+    on.stats,
+    null,
+    'the configured run must have live segment thresholds',
+  );
+  assert.equal(
+    offRun.stats,
+    null,
+    'omitting segmentThresholdHomeostasis must leave no segment with a live threshold',
+  );
+  assert.notDeepEqual(
+    offRun.result,
+    on.result,
+    'switching segment-threshold homeostasis off must change the run',
+  );
+});
+
+// docs/decisions.md decision 34: `inhibitionK` replaces the scheduler k-WTA's
+// cap. Set to the value it already had (round(800 * 0.08) = 64) it must be
+// bit-identical to leaving it unset -- which proves the `densityTarget` it
+// also replaces is reproduced exactly -- and a smaller cap must change the run.
+test('inhibitionK at the shipped 64 is bit-identical to unset, and 32 measurably changes the run', () => {
+  const config = { ...B5_CONFIG, slidingWindow: 100 };
+  const unset = runCharPredictionTrial(corpus, 1n, config);
+  const same = runCharPredictionTrial(corpus, 1n, {
+    ...config,
+    inhibitionK: 64,
+  });
+  const smaller = runCharPredictionTrial(corpus, 1n, {
+    ...config,
+    inhibitionK: 32,
+  });
+  assert.deepEqual(same, unset, 'inhibitionK: 64 must reproduce the default');
+  assert.notDeepEqual(smaller, unset, 'inhibitionK: 32 must change the run');
+});
+
+// docs/decisions.md decision 35: `confirmation: 'any'` is the rule every
+// earlier configuration ran, so it must be bit-identical to leaving the field
+// out; `'feedforward'` must reach the scheduler and change the run.
+test("predictiveUpdate.confirmation 'any' is bit-identical to unset, and 'feedforward' measurably changes the run", () => {
+  const longer = readFileSync(corpusPath, 'utf8').slice(0, 2_000);
+  const config = { ...B5_CONFIG, slidingWindow: 500 };
+  const run = (c: CharPredictionConfig) => {
+    let outcomes: unknown;
+    const result = runCharPredictionTrial(longer, 1n, c, undefined, (sim) => {
+      outcomes = sim.predictionOutcomeTotals();
+    });
+    return { result, outcomes };
+  };
+  const unset = run(config);
+  const any = run({ ...config, predictiveUpdate: { confirmation: 'any' } });
+  const ff = run({
+    ...config,
+    predictiveUpdate: { confirmation: 'feedforward' },
+  });
+  assert.deepEqual(
+    any,
+    unset,
+    "confirmation: 'any' must reproduce the default",
+  );
+  assert.notDeepEqual(
+    ff.outcomes,
+    unset.outcomes,
+    "confirmation: 'feedforward' must change what predictive learning classifies",
   );
 });

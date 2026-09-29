@@ -18,7 +18,7 @@ use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
 use brain_core::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
 use brain_core::plasticity::newborn::{NewbornMaturationParams, NewbornWiringParams};
-use brain_core::plasticity::predictive::{BoundMode, ContributorGate, PredictiveLearningParams, SegmentLearningTarget, DEFAULT_CONTRIBUTOR_GATE};
+use brain_core::plasticity::predictive::{BoundMode, ConfirmationMode, ContributorGate, PredictiveLearningParams, SegmentLearningTarget, DEFAULT_CONTRIBUTOR_GATE};
 use brain_core::plasticity::stdp::{LevelMap, StdpModulation, StdpModulationError, StdpParams};
 use brain_core::plasticity::structural::{SproutTimingWindow, StructuralPlasticity, StructuralPlasticityParams};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
@@ -404,6 +404,13 @@ pub struct PredictiveLearningConfig {
     /// asymptotically). Symmetric deliberately -- docs/findings.md finding 27
     /// measured both ends of the range filling.
     pub bound_mode: Option<String>,
+    /// docs/decisions.md decision 35: `"any"` (omit for this -- every earlier
+    /// caller) judges a prediction by any committed spike or veto;
+    /// `"feedforward"` judges it only by a neuron that received external
+    /// stimulation this tick (Hawkins & Ahmad 2016's "became active via
+    /// feedforward input"), so a recurrently driven spike cannot confirm the
+    /// prediction that lowered its own threshold.
+    pub confirmation: Option<String>,
 }
 
 impl PredictiveLearningConfig {
@@ -412,6 +419,13 @@ impl PredictiveLearningConfig {
             if !matches!(m.as_str(), "hard" | "soft") {
                 return Err(Error::from_reason(format!(
                     "predictiveLearning.boundMode must be \"hard\" or \"soft\", got {m:?}"
+                )));
+            }
+        }
+        if let Some(c) = &self.confirmation {
+            if !matches!(c.as_str(), "any" | "feedforward") {
+                return Err(Error::from_reason(format!(
+                    "predictiveLearning.confirmation must be \"any\" or \"feedforward\", got {c:?}"
                 )));
             }
         }
@@ -453,6 +467,15 @@ impl PredictiveLearningConfig {
                 .map(|f| f as f32)
                 .unwrap_or(DEFAULT_CONTRIBUTOR_GATE.non_contributor_fraction),
         })
+    }
+
+    /// Decision 35. `validate()` must have run first.
+    fn confirmation(&self) -> ConfirmationMode {
+        match self.confirmation.as_deref() {
+            None | Some("any") => ConfirmationMode::AnySpike,
+            Some("feedforward") => ConfirmationMode::FeedforwardOnly,
+            Some(other) => unreachable!("invalid confirmation {other:?} should have been rejected by validate()"),
+        }
     }
 
     /// PLAN.md C14 arm 2. `validate()` must have run first.
@@ -1623,6 +1646,11 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
         }
         if cfg.bound_mode() != BoundMode::Hard {
             scheduler = scheduler.with_predictive_learning_bound_mode(cfg.bound_mode());
+        }
+        // Decision 35: applied only when opted in, so an omitted field never
+        // touches the rule (and the restore path must match, HANDOFF fact 14(a)).
+        if cfg.confirmation() != ConfirmationMode::AnySpike {
+            scheduler = scheduler.with_predictive_learning_confirmation(cfg.confirmation());
         }
     }
     if let Some(resolved) = &config.plasticity {
@@ -3137,6 +3165,11 @@ impl NativeSimulation {
             }
             if cfg.bound_mode() != BoundMode::Hard {
                 scheduler = scheduler.with_predictive_learning_bound_mode(cfg.bound_mode());
+            }
+            // Decision 35: applied only when opted in, so an omitted field never
+            // touches the rule (and the restore path must match, HANDOFF fact 14(a)).
+            if cfg.confirmation() != ConfirmationMode::AnySpike {
+                scheduler = scheduler.with_predictive_learning_confirmation(cfg.confirmation());
             }
         }
         if let Some(cfg) = &plasticity {

@@ -1,0 +1,124 @@
+[2026-09-29 13:31:05 +0000] phase 1: 90 trials, 0 reused, 90 to run on 12 workers.
+[2026-09-29 13:36:05 +0000] [heartbeat] 0/90 done, 5.0 min elapsed
+[2026-09-29 13:41:05 +0000] [heartbeat] 0/90 done, 10.0 min elapsed
+[2026-09-29 13:46:05 +0000] [heartbeat] 0/90 done, 15.0 min elapsed
+[2026-09-29 13:51:05 +0000] [heartbeat] 0/90 done, 20.0 min elapsed
+[2026-09-29 13:56:05 +0000] [heartbeat] 0/90 done, 25.0 min elapsed
+[2026-09-29 14:01:05 +0000] [heartbeat] 0/90 done, 30.0 min elapsed
+[2026-09-29 14:06:05 +0000] [heartbeat] 0/90 done, 35.0 min elapsed
+[2026-09-29 14:07:59 +0000]   [1/90] BASE seed=11 N=200000+suffix -> probe1=14.48% lms=18.10% pred=16.43% align=14.1% wall=2214.1s
+[2026-09-29 14:08:40 +0000]   [2/90] BASE seed=13 N=200000+suffix -> probe1=16.51% lms=17.23% pred=16.43% align=13.7% wall=2254.9s
+[2026-09-29 14:08:41 +0000]   [3/90] BASE seed=2 N=200000+suffix -> probe1=15.48% lms=19.30% pred=16.43% align=13.7% wall=2256.3s
+[2026-09-29 14:08:41 +0000]   [4/90] BASE seed=5 N=200000+suffix -> probe1=14.87% lms=17.00% pred=16.43% align=13.6% wall=2256.3s
+[2026-09-29 14:08:49 +0000]   [5/90] BASE seed=3 N=200000+suffix -> probe1=14.28% lms=17.93% pred=16.43% align=12.9% wall=2264.1s
+[2026-09-29 14:08:51 +0000]   [6/90] BASE seed=1 N=200000+suffix -> probe1=16.13% lms=18.50% pred=16.43% align=13.4% wall=2265.9s
+[2026-09-29 14:09:10 +0000]   [7/90] BASE seed=4 N=200000+suffix -> probe1=14.49% lms=17.40% pred=16.43% align=13.5% wall=2284.9s
+[2026-09-29 14:09:13 +0000]   [8/90] BASE seed=15 N=200000+suffix -> probe1=15.70% lms=18.47% pred=16.43% align=13.8% wall=2288.5s
+[2026-09-29 14:09:15 +0000]   [9/90] BASE seed=14 N=200000+suffix -> probe1=15.44% lms=16.80% pred=16.43% align=14.3% wall=2289.9s
+[2026-09-29 14:09:15 +0000]   [10/90] BASE seed=12 N=200000+suffix -> probe1=13.03% lms=17.63% pred=16.43% align=13.6% wall=2289.9s
+[2026-09-29 14:11:05 +0000] [heartbeat] 10/90 done, 40.0 min elapsed
+[2026-09-29 14:16:05 +0000] [heartbeat] 10/90 done, 45.0 min elapsed
+[2026-09-29 14:19:48 +0000]   [11/90] FFC seed=1 N=200000+suffix -> probe1=14.93% lms=17.20% pred=12.43% align=12.6% wall=2923.5s
+[2026-09-29 14:19:50 +0000]   [12/90] FFC seed=2 N=200000+suffix -> probe1=14.66% lms=18.43% pred=16.10% align=11.8% wall=2925.1s
+[2026-09-29 14:21:05 +0000] [heartbeat] 12/90 done, 50.0 min elapsed
+[2026-09-29 14:26:05 +0000] [heartbeat] 12/90 done, 55.0 min elapsed
+[2026-09-29 14:31:05 +0000] [heartbeat] 12/90 done, 60.0 min elapsed
+[2026-09-29 14:36:05 +0000] [heartbeat] 12/90 done, 65.0 min elapsed
+[2026-09-29 14:41:05 +0000] [heartbeat] 12/90 done, 70.0 min elapsed
+[2026-09-29 14:46:05 +0000] [heartbeat] 12/90 done, 75.0 min elapsed
+[2026-09-29 14:51:05 +0000] [heartbeat] 12/90 done, 80.0 min elapsed
+[2026-09-29 14:53:45 +0000]   [13/90] FFCSP84 seed=2 N=200000+suffix -> probe1=15.33% lms=19.13% pred=14.20% align=13.0% wall=2670.3s
+[2026-09-29 14:53:57 +0000]   [14/90] FFCSP84 seed=1 N=200000+suffix -> probe1=13.33% lms=18.07% pred=13.50% align=12.3% wall=2682.7s
+[2026-09-29 14:54:08 +0000]   [15/90] FFC seed=3 N=200000+suffix -> probe1=12.96% lms=17.07% pred=16.43% align=11.7% wall=2769.0s
+[2026-09-29 14:55:08 +0000]   [16/90] FFC seed=5 N=200000+suffix -> probe1=13.45% lms=16.93% pred=15.43% align=12.0% wall=2787.2s
+[2026-09-29 14:55:15 +0000]   [17/90] FFC seed=4 N=200000+suffix -> probe1=13.54% lms=18.53% pred=15.53% align=11.6% wall=2795.1s
+[2026-09-29 14:55:26 +0000]   [18/90] FFC seed=11 N=200000+suffix -> probe1=14.01% lms=17.00% pred=14.93% align=11.4% wall=2805.2s
+[2026-09-29 14:55:40 +0000]   [19/90] FFC seed=12 N=200000+suffix -> probe1=12.24% lms=19.83% pred=13.27% align=11.6% wall=2811.0s
+[2026-09-29 14:55:51 +0000]   [20/90] FFC seed=13 N=200000+suffix -> probe1=14.85% lms=18.30% pred=10.70% align=12.0% wall=2820.3s
+[2026-09-29 14:56:05 +0000] [heartbeat] 20/90 done, 85.0 min elapsed
+[2026-09-29 14:56:09 +0000]   [21/90] FFC seed=14 N=200000+suffix -> probe1=13.70% lms=18.30% pred=16.07% align=12.1% wall=2819.6s
+[2026-09-29 14:56:27 +0000]   [22/90] FFC seed=15 N=200000+suffix -> probe1=13.43% lms=18.57% pred=16.43% align=11.9% wall=2834.0s
+[2026-09-29 15:01:05 +0000] [heartbeat] 22/90 done, 90.0 min elapsed
+[2026-09-29 15:04:23 +0000]   [23/90] BASE seed=1 N=15000+suffix -> probe1=18.57% lms=17.23% pred=16.43% align=18.4% wall=523.1s
+[2026-09-29 15:04:30 +0000]   [24/90] BASE seed=2 N=15000+suffix -> probe1=19.77% lms=18.23% pred=16.43% align=19.0% wall=518.9s
+[2026-09-29 15:04:33 +0000]   [25/90] FFCSP84 seed=3 N=200000+suffix -> probe1=14.09% lms=16.83% pred=14.50% align=12.8% wall=2684.3s
+[2026-09-29 15:04:45 +0000]   [26/90] BASE seed=3 N=15000+suffix -> probe1=20.98% lms=17.33% pred=16.43% align=18.8% wall=516.1s
+[2026-09-29 15:05:04 +0000]   [27/90] BASE seed=4 N=15000+suffix -> probe1=19.45% lms=17.00% pred=16.43% align=18.6% wall=517.0s
+[2026-09-29 15:05:25 +0000]   [28/90] FFCSP84 seed=4 N=200000+suffix -> probe1=14.80% lms=19.57% pred=15.87% align=12.4% wall=2734.7s
+[2026-09-29 15:06:05 +0000] [heartbeat] 28/90 done, 95.0 min elapsed
+[2026-09-29 15:11:05 +0000] [heartbeat] 28/90 done, 100.0 min elapsed
+[2026-09-29 15:12:32 +0000]   [29/90] BASE seed=5 N=15000+suffix -> probe1=18.99% lms=18.23% pred=16.43% align=17.8% wall=489.2s
+[2026-09-29 15:12:43 +0000]   [30/90] BASE seed=11 N=15000+suffix -> probe1=19.79% lms=16.83% pred=16.43% align=18.6% wall=493.0s
+[2026-09-29 15:12:56 +0000]   [31/90] BASE seed=12 N=15000+suffix -> probe1=20.40% lms=17.20% pred=16.43% align=18.2% wall=503.2s
+[2026-09-29 15:13:05 +0000]   [32/90] BASE seed=13 N=15000+suffix -> probe1=20.50% lms=17.93% pred=16.43% align=18.6% wall=499.6s
+[2026-09-29 15:13:29 +0000]   [33/90] BASE seed=14 N=15000+suffix -> probe1=19.41% lms=18.53% pred=16.43% align=18.9% wall=504.7s
+[2026-09-29 15:13:48 +0000]   [34/90] BASE seed=15 N=15000+suffix -> probe1=19.18% lms=17.60% pred=15.17% align=18.4% wall=503.0s
+[2026-09-29 15:16:05 +0000] [heartbeat] 34/90 done, 105.0 min elapsed
+[2026-09-29 15:21:05 +0000] [heartbeat] 34/90 done, 110.0 min elapsed
+[2026-09-29 15:21:21 +0000]   [35/90] FFC seed=2 N=15000+suffix -> probe1=19.91% lms=18.83% pred=16.43% align=20.2% wall=518.4s
+[2026-09-29 15:21:25 +0000]   [36/90] FFC seed=1 N=15000+suffix -> probe1=18.15% lms=18.13% pred=16.43% align=18.7% wall=532.6s
+[2026-09-29 15:21:37 +0000]   [37/90] FFC seed=3 N=15000+suffix -> probe1=20.84% lms=18.63% pred=16.37% align=20.6% wall=521.2s
+[2026-09-29 15:21:56 +0000]   [38/90] FFC seed=4 N=15000+suffix -> probe1=19.23% lms=19.57% pred=16.43% align=19.5% wall=531.0s
+[2026-09-29 15:22:11 +0000]   [39/90] FFC seed=5 N=15000+suffix -> probe1=19.25% lms=18.53% pred=16.43% align=19.9% wall=522.3s
+[2026-09-29 15:22:38 +0000]   [40/90] FFC seed=11 N=15000+suffix -> probe1=17.55% lms=17.10% pred=16.43% align=19.3% wall=530.5s
+[2026-09-29 15:26:05 +0000] [heartbeat] 40/90 done, 115.0 min elapsed
+[2026-09-29 15:29:48 +0000]   [41/90] FFCSP84 seed=1 N=15000+suffix -> probe1=18.15% lms=18.43% pred=16.43% align=23.6% wall=456.3s
+[2026-09-29 15:30:01 +0000]   [42/90] FFC seed=13 N=15000+suffix -> probe1=20.44% lms=18.07% pred=16.43% align=20.0% wall=515.6s
+[2026-09-29 15:30:08 +0000]   [43/90] FFC seed=12 N=15000+suffix -> probe1=19.52% lms=18.77% pred=16.07% align=19.3% wall=526.3s
+[2026-09-29 15:30:09 +0000]   [44/90] FFCSP84 seed=2 N=15000+suffix -> probe1=19.34% lms=19.27% pred=16.43% align=24.4% wall=450.9s
+[2026-09-29 15:30:10 +0000]   [45/90] FFC seed=14 N=15000+suffix -> probe1=19.18% lms=19.57% pred=16.50% align=19.4% wall=513.1s
+[2026-09-29 15:30:32 +0000]   [46/90] FFC seed=15 N=15000+suffix -> probe1=17.73% lms=18.37% pred=9.83% align=19.2% wall=516.2s
+[2026-09-29 15:31:05 +0000] [heartbeat] 46/90 done, 120.0 min elapsed
+[2026-09-29 15:36:05 +0000] [heartbeat] 46/90 done, 125.0 min elapsed
+[2026-09-29 15:37:32 +0000]   [47/90] FFCSP84 seed=3 N=15000+suffix -> probe1=19.91% lms=18.57% pred=16.43% align=23.8% wall=464.1s
+[2026-09-29 15:37:44 +0000]   [48/90] FFCSP84 seed=4 N=15000+suffix -> probe1=18.71% lms=19.47% pred=16.43% align=23.1% wall=463.6s
+[2026-09-29 15:37:51 +0000]   [49/90] FFCSP84 seed=5 N=15000+suffix -> probe1=18.96% lms=20.17% pred=16.43% align=24.3% wall=463.7s
+[2026-09-29 15:37:57 +0000]   [50/90] FFCSP84 seed=11 N=15000+suffix -> probe1=18.29% lms=19.53% pred=16.43% align=23.2% wall=468.3s
+[2026-09-29 15:38:07 +0000]   [51/90] FFCSP84 seed=12 N=15000+suffix -> probe1=18.47% lms=19.77% pred=16.43% align=23.9% wall=477.2s
+[2026-09-29 15:38:21 +0000]   [52/90] FFCSP84 seed=13 N=15000+suffix -> probe1=19.65% lms=19.00% pred=16.43% align=24.9% wall=468.7s
+[2026-09-29 15:41:05 +0000] [heartbeat] 52/90 done, 130.0 min elapsed
+[2026-09-29 15:41:30 +0000]   [53/90] BASE seed=1 N=15000 -> accuracy=20.00% wall=218.8s
+[2026-09-29 15:41:34 +0000]   [54/90] BASE seed=2 N=15000 -> accuracy=20.55% wall=216.4s
+[2026-09-29 15:41:44 +0000]   [55/90] BASE seed=3 N=15000 -> accuracy=20.60% wall=216.4s
+[2026-09-29 15:41:59 +0000]   [56/90] BASE seed=4 N=15000 -> accuracy=20.40% wall=218.3s
+[2026-09-29 15:45:06 +0000]   [57/90] BASE seed=5 N=15000 -> accuracy=18.70% wall=215.5s
+[2026-09-29 15:45:11 +0000]   [58/90] BASE seed=11 N=15000 -> accuracy=19.35% wall=217.6s
+[2026-09-29 15:45:23 +0000]   [59/90] BASE seed=12 N=15000 -> accuracy=19.90% wall=218.7s
+[2026-09-29 15:45:30 +0000]   [60/90] FFCSP84 seed=14 N=15000+suffix -> probe1=18.42% lms=20.10% pred=16.43% align=23.1% wall=478.7s
+[2026-09-29 15:45:35 +0000]   [61/90] BASE seed=13 N=15000 -> accuracy=21.30% wall=215.3s
+[2026-09-29 15:45:41 +0000]   [62/90] FFCSP84 seed=15 N=15000+suffix -> probe1=19.07% lms=19.33% pred=13.47% align=23.3% wall=477.2s
+[2026-09-29 15:46:05 +0000] [heartbeat] 62/90 done, 135.0 min elapsed
+[2026-09-29 15:48:42 +0000]   [63/90] BASE seed=14 N=15000 -> accuracy=19.45% wall=216.5s
+[2026-09-29 15:48:46 +0000]   [64/90] BASE seed=15 N=15000 -> accuracy=18.35% wall=214.7s
+[2026-09-29 15:48:57 +0000]   [65/90] FFC seed=1 N=15000 -> accuracy=19.85% wall=214.7s
+[2026-09-29 15:49:03 +0000]   [66/90] FFC seed=2 N=15000 -> accuracy=20.50% wall=212.8s
+[2026-09-29 15:49:08 +0000]   [67/90] FFC seed=3 N=15000 -> accuracy=21.10% wall=213.1s
+[2026-09-29 15:49:16 +0000]   [68/90] FFC seed=4 N=15000 -> accuracy=21.15% wall=214.9s
+[2026-09-29 15:51:05 +0000] [heartbeat] 68/90 done, 140.0 min elapsed
+[2026-09-29 15:52:15 +0000]   [69/90] FFC seed=5 N=15000 -> accuracy=19.20% wall=213.0s
+[2026-09-29 15:52:22 +0000]   [70/90] FFC seed=11 N=15000 -> accuracy=18.95% wall=215.8s
+[2026-09-29 15:52:38 +0000]   [71/90] FFC seed=12 N=15000 -> accuracy=19.20% wall=220.3s
+[2026-09-29 15:52:42 +0000]   [72/90] FFC seed=13 N=15000 -> accuracy=21.45% wall=218.9s
+[2026-09-29 15:52:49 +0000]   [73/90] FFC seed=14 N=15000 -> accuracy=19.30% wall=221.1s
+[2026-09-29 15:52:56 +0000]   [74/90] FFC seed=15 N=15000 -> accuracy=17.35% wall=219.9s
+[2026-09-29 15:55:25 +0000]   [75/90] FFCSP84 seed=1 N=15000 -> accuracy=19.40% wall=189.3s
+[2026-09-29 15:55:27 +0000]   [76/90] FFCSP84 seed=2 N=15000 -> accuracy=19.70% wall=185.6s
+[2026-09-29 15:55:45 +0000]   [77/90] FFCSP84 seed=3 N=15000 -> accuracy=20.30% wall=187.2s
+[2026-09-29 15:55:50 +0000]   [78/90] FFCSP84 seed=4 N=15000 -> accuracy=19.65% wall=188.2s
+[2026-09-29 15:55:57 +0000]   [79/90] FFCSP84 seed=5 N=15000 -> accuracy=20.25% wall=188.3s
+[2026-09-29 15:56:03 +0000]   [80/90] FFCSP84 seed=11 N=15000 -> accuracy=19.30% wall=186.9s
+[2026-09-29 15:56:05 +0000] [heartbeat] 80/90 done, 145.0 min elapsed
+[2026-09-29 15:58:12 +0000]   [81/90] FFCSP84 seed=13 N=15000 -> accuracy=19.05% wall=164.5s
+[2026-09-29 15:58:12 +0000]   [82/90] FFCSP84 seed=12 N=15000 -> accuracy=20.15% wall=167.9s
+[2026-09-29 15:58:25 +0000]   [83/90] FFCSP84 seed=14 N=15000 -> accuracy=19.80% wall=159.9s
+[2026-09-29 15:58:25 +0000]   [84/90] FFCSP84 seed=15 N=15000 -> accuracy=21.00% wall=154.5s
+[2026-09-29 16:01:05 +0000] [heartbeat] 84/90 done, 150.0 min elapsed
+[2026-09-29 16:05:16 +0000]   [85/90] FFCSP84 seed=5 N=200000+suffix -> probe1=12.79% lms=17.63% pred=10.67% align=12.2% wall=4291.1s
+[2026-09-29 16:05:21 +0000]   [86/90] FFCSP84 seed=11 N=200000+suffix -> probe1=14.13% lms=17.97% pred=13.87% align=12.3% wall=4284.0s
+[2026-09-29 16:05:38 +0000]   [87/90] FFCSP84 seed=12 N=200000+suffix -> probe1=14.99% lms=17.20% pred=15.20% align=12.5% wall=4290.0s
+[2026-09-29 16:05:42 +0000]   [88/90] FFCSP84 seed=14 N=200000+suffix -> probe1=14.05% lms=18.47% pred=14.73% align=12.3% wall=4226.6s
+[2026-09-29 16:06:01 +0000]   [89/90] FFCSP84 seed=15 N=200000+suffix -> probe1=13.36% lms=18.70% pred=12.07% align=11.9% wall=4234.3s
+[2026-09-29 16:06:05 +0000] [heartbeat] 89/90 done, 155.0 min elapsed
+[2026-09-29 16:06:22 +0000]   [90/90] FFCSP84 seed=13 N=200000+suffix -> probe1=14.27% lms=18.27% pred=12.93% align=12.9% wall=4273.9s
+[2026-09-29 16:06:22 +0000] all trials finished; writing results
+[2026-09-29 16:06:31 +0000] wrote C:\projects\brain\scripts\investigate-c15-feedforward-confirmation.results.md; controls PASS; QS SPEAKER NOT SHOWN — no tested speaker-side intervention removes the decline; QL LISTENER ROUTE WORKS

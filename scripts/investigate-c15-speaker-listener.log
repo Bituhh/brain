@@ -1,0 +1,295 @@
+[2026-09-29 07:54:29 +0000] phase 1: 240 trials, 0 reused, 240 to run on 12 workers.
+[2026-09-29 07:59:29 +0000] [heartbeat] 0/240 done, 5.0 min elapsed
+[2026-09-29 08:04:29 +0000] [heartbeat] 0/240 done, 10.0 min elapsed
+[2026-09-29 08:09:29 +0000] [heartbeat] 0/240 done, 15.0 min elapsed
+[2026-09-29 08:14:29 +0000] [heartbeat] 0/240 done, 20.0 min elapsed
+[2026-09-29 08:18:06 +0000]   [1/240] STHOFF seed=1 N=200000+suffix -> probe1=14.55% lms=19.93% pred=9.67% align=23.4% wall=1416.7s
+[2026-09-29 08:18:21 +0000]   [2/240] STHOFF seed=2 N=200000+suffix -> probe1=15.67% lms=19.47% pred=9.67% align=24.9% wall=1432.3s
+[2026-09-29 08:19:29 +0000] [heartbeat] 2/240 done, 25.0 min elapsed
+[2026-09-29 08:24:29 +0000] [heartbeat] 2/240 done, 30.0 min elapsed
+[2026-09-29 08:25:55 +0000]   [3/240] BASE seed=11 N=200000+suffix -> probe1=14.48% lms=18.10% pred=16.43% align=14.1% wall=1885.8s
+[2026-09-29 08:26:16 +0000]   [4/240] BASE seed=3 N=200000+suffix -> probe1=14.28% lms=17.93% pred=16.43% align=12.9% wall=1906.8s
+[2026-09-29 08:26:17 +0000]   [5/240] BASE seed=5 N=200000+suffix -> probe1=14.87% lms=17.00% pred=16.43% align=13.6% wall=1907.5s
+[2026-09-29 08:26:18 +0000]   [6/240] BASE seed=2 N=200000+suffix -> probe1=15.48% lms=19.30% pred=16.43% align=13.7% wall=1909.3s
+[2026-09-29 08:26:23 +0000]   [7/240] BASE seed=4 N=200000+suffix -> probe1=14.49% lms=17.40% pred=16.43% align=13.5% wall=1914.0s
+[2026-09-29 08:26:25 +0000]   [8/240] BASE seed=13 N=200000+suffix -> probe1=16.51% lms=17.23% pred=16.43% align=13.7% wall=1915.9s
+[2026-09-29 08:26:32 +0000]   [9/240] BASE seed=12 N=200000+suffix -> probe1=13.03% lms=17.63% pred=16.43% align=13.6% wall=1923.1s
+[2026-09-29 08:26:33 +0000]   [10/240] BASE seed=14 N=200000+suffix -> probe1=15.44% lms=16.80% pred=16.43% align=14.3% wall=1924.3s
+[2026-09-29 08:26:50 +0000]   [11/240] BASE seed=1 N=200000+suffix -> probe1=16.13% lms=18.50% pred=16.43% align=13.4% wall=1940.5s
+[2026-09-29 08:26:55 +0000]   [12/240] BASE seed=15 N=200000+suffix -> probe1=15.70% lms=18.47% pred=16.43% align=13.8% wall=1945.7s
+[2026-09-29 08:29:29 +0000] [heartbeat] 12/240 done, 35.0 min elapsed
+[2026-09-29 08:34:29 +0000] [heartbeat] 12/240 done, 40.0 min elapsed
+[2026-09-29 08:39:29 +0000] [heartbeat] 12/240 done, 45.0 min elapsed
+[2026-09-29 08:41:56 +0000]   [13/240] STHOFF seed=3 N=200000+suffix -> probe1=14.15% lms=20.00% pred=9.67% align=24.4% wall=1429.8s
+[2026-09-29 08:42:27 +0000]   [14/240] STHOFF seed=4 N=200000+suffix -> probe1=13.30% lms=19.67% pred=9.67% align=21.9% wall=1445.6s
+[2026-09-29 08:44:29 +0000] [heartbeat] 14/240 done, 50.0 min elapsed
+[2026-09-29 08:49:29 +0000] [heartbeat] 14/240 done, 55.0 min elapsed
+[2026-09-29 08:51:30 +0000]   [15/240] STHOFF seed=5 N=200000+suffix -> probe1=11.88% lms=19.37% pred=9.67% align=24.0% wall=1534.8s
+[2026-09-29 08:52:19 +0000]   [16/240] STHOFF seed=11 N=200000+suffix -> probe1=12.59% lms=19.53% pred=9.67% align=23.7% wall=1563.5s
+[2026-09-29 08:52:41 +0000]   [17/240] STHOFF seed=14 N=200000+suffix -> probe1=15.15% lms=20.33% pred=9.67% align=24.3% wall=1577.4s
+[2026-09-29 08:52:42 +0000]   [18/240] STHOFF seed=12 N=200000+suffix -> probe1=12.97% lms=20.03% pred=9.67% align=22.3% wall=1585.9s
+[2026-09-29 08:52:47 +0000]   [19/240] STHOFF seed=13 N=200000+suffix -> probe1=14.83% lms=19.43% pred=9.67% align=22.9% wall=1588.3s
+[2026-09-29 08:52:58 +0000]   [20/240] STHOFF seed=15 N=200000+suffix -> probe1=13.88% lms=20.07% pred=9.67% align=23.0% wall=1592.5s
+[2026-09-29 08:54:29 +0000] [heartbeat] 20/240 done, 60.0 min elapsed
+[2026-09-29 08:55:54 +0000]   [21/240] STHT01 seed=1 N=200000+suffix -> probe1=10.48% lms=20.83% pred=0.37% align=17.5% wall=1762.1s
+[2026-09-29 08:56:04 +0000]   [22/240] STHT01 seed=2 N=200000+suffix -> probe1=9.80% lms=21.03% pred=0.43% align=18.0% wall=1770.4s
+[2026-09-29 08:56:43 +0000]   [23/240] STHT01 seed=3 N=200000+suffix -> probe1=8.23% lms=21.37% pred=0.07% align=17.1% wall=1792.9s
+[2026-09-29 08:57:15 +0000]   [24/240] STHT01 seed=4 N=200000+suffix -> probe1=11.69% lms=21.43% pred=0.53% align=18.8% wall=1820.4s
+[2026-09-29 08:59:29 +0000] [heartbeat] 24/240 done, 65.0 min elapsed
+[2026-09-29 09:04:29 +0000] [heartbeat] 24/240 done, 70.0 min elapsed
+[2026-09-29 09:09:29 +0000] [heartbeat] 24/240 done, 75.0 min elapsed
+[2026-09-29 09:14:29 +0000] [heartbeat] 24/240 done, 80.0 min elapsed
+[2026-09-29 09:18:17 +0000]   [25/240] STHT01 seed=5 N=200000+suffix -> probe1=8.91% lms=21.50% pred=0.70% align=16.4% wall=2181.0s
+[2026-09-29 09:18:54 +0000]   [26/240] STHT01 seed=11 N=200000+suffix -> probe1=9.78% lms=21.27% pred=0.67% align=17.0% wall=2187.3s
+[2026-09-29 09:19:29 +0000] [heartbeat] 26/240 done, 85.0 min elapsed
+[2026-09-29 09:24:29 +0000] [heartbeat] 26/240 done, 90.0 min elapsed
+[2026-09-29 09:27:57 +0000]   [27/240] STHT01 seed=12 N=200000+suffix -> probe1=10.05% lms=20.70% pred=0.07% align=17.8% wall=2187.3s
+[2026-09-29 09:28:18 +0000]   [28/240] STHT01 seed=13 N=200000+suffix -> probe1=10.13% lms=20.97% pred=0.23% align=18.1% wall=2158.5s
+[2026-09-29 09:28:35 +0000]   [29/240] STHT01 seed=14 N=200000+suffix -> probe1=9.86% lms=21.20% pred=0.53% align=17.8% wall=2154.8s
+[2026-09-29 09:28:36 +0000]   [30/240] STHT01 seed=15 N=200000+suffix -> probe1=9.39% lms=21.87% pred=0.27% align=17.9% wall=2153.0s
+[2026-09-29 09:29:29 +0000] [heartbeat] 30/240 done, 95.0 min elapsed
+[2026-09-29 09:34:20 +0000]   [31/240] STHT03 seed=1 N=200000+suffix -> probe1=13.69% lms=19.03% pred=1.13% align=17.0% wall=2493.3s
+[2026-09-29 09:34:29 +0000] [heartbeat] 31/240 done, 100.0 min elapsed
+[2026-09-29 09:34:40 +0000]   [32/240] STHT03 seed=2 N=200000+suffix -> probe1=13.46% lms=19.33% pred=0.67% align=17.1% wall=2502.3s
+[2026-09-29 09:37:43 +0000]   [33/240] STHT03 seed=3 N=200000+suffix -> probe1=12.88% lms=19.57% pred=0.33% align=15.8% wall=2508.7s
+[2026-09-29 09:38:02 +0000]   [34/240] STHT03 seed=4 N=200000+suffix -> probe1=14.01% lms=19.60% pred=0.63% align=16.7% wall=2517.8s
+[2026-09-29 09:38:34 +0000]   [35/240] STHT03 seed=5 N=200000+suffix -> probe1=13.55% lms=19.93% pred=0.60% align=16.8% wall=2511.7s
+[2026-09-29 09:39:29 +0000] [heartbeat] 35/240 done, 105.0 min elapsed
+[2026-09-29 09:39:39 +0000]   [36/240] STHT03 seed=11 N=200000+suffix -> probe1=13.47% lms=19.67% pred=0.77% align=16.8% wall=2543.9s
+[2026-09-29 09:44:29 +0000] [heartbeat] 36/240 done, 110.0 min elapsed
+[2026-09-29 09:49:29 +0000] [heartbeat] 36/240 done, 115.0 min elapsed
+[2026-09-29 09:54:29 +0000] [heartbeat] 36/240 done, 120.0 min elapsed
+[2026-09-29 09:59:29 +0000] [heartbeat] 36/240 done, 125.0 min elapsed
+[2026-09-29 10:04:29 +0000] [heartbeat] 36/240 done, 130.0 min elapsed
+[2026-09-29 10:09:29 +0000] [heartbeat] 36/240 done, 135.0 min elapsed
+[2026-09-29 10:11:39 +0000]   [37/240] STHT03 seed=12 N=200000+suffix -> probe1=14.47% lms=20.23% pred=1.00% align=16.4% wall=3201.9s
+[2026-09-29 10:12:33 +0000]   [38/240] STHT03 seed=13 N=200000+suffix -> probe1=13.92% lms=19.27% pred=0.63% align=17.4% wall=3219.1s
+[2026-09-29 10:14:29 +0000] [heartbeat] 38/240 done, 140.0 min elapsed
+[2026-09-29 10:19:29 +0000] [heartbeat] 38/240 done, 145.0 min elapsed
+[2026-09-29 10:20:57 +0000]   [39/240] STHT03 seed=14 N=200000+suffix -> probe1=14.89% lms=19.37% pred=0.50% align=16.6% wall=3179.8s
+[2026-09-29 10:21:15 +0000]   [40/240] STHT03 seed=15 N=200000+suffix -> probe1=14.32% lms=19.87% pred=0.23% align=17.1% wall=3176.7s
+[2026-09-29 10:23:41 +0000]   [41/240] STHT06 seed=2 N=200000+suffix -> probe1=15.78% lms=18.47% pred=2.00% align=15.8% wall=3305.3s
+[2026-09-29 10:23:51 +0000]   [42/240] STHT06 seed=1 N=200000+suffix -> probe1=15.43% lms=17.57% pred=1.37% align=15.9% wall=3315.9s
+[2026-09-29 10:24:29 +0000] [heartbeat] 42/240 done, 150.0 min elapsed
+[2026-09-29 10:26:56 +0000]   [43/240] STHT06 seed=3 N=200000+suffix -> probe1=15.25% lms=19.13% pred=1.90% align=15.2% wall=3155.7s
+[2026-09-29 10:27:03 +0000]   [44/240] STHT06 seed=4 N=200000+suffix -> probe1=14.79% lms=18.57% pred=1.50% align=15.8% wall=3142.7s
+[2026-09-29 10:28:41 +0000]   [45/240] STHT06 seed=5 N=200000+suffix -> probe1=15.55% lms=19.37% pred=2.17% align=15.1% wall=3058.5s
+[2026-09-29 10:28:54 +0000]   [46/240] STHT06 seed=12 N=200000+suffix -> probe1=15.90% lms=19.27% pred=1.40% align=16.2% wall=3019.9s
+[2026-09-29 10:28:55 +0000]   [47/240] STHT06 seed=11 N=200000+suffix -> probe1=15.65% lms=19.07% pred=2.47% align=15.6% wall=3053.2s
+[2026-09-29 10:29:29 +0000] [heartbeat] 47/240 done, 155.0 min elapsed
+[2026-09-29 10:29:36 +0000]   [48/240] STHT06 seed=13 N=200000+suffix -> probe1=16.26% lms=18.43% pred=1.33% align=15.8% wall=2996.8s
+[2026-09-29 10:34:29 +0000] [heartbeat] 48/240 done, 160.0 min elapsed
+[2026-09-29 10:39:29 +0000] [heartbeat] 48/240 done, 165.0 min elapsed
+[2026-09-29 10:44:29 +0000] [heartbeat] 48/240 done, 170.0 min elapsed
+[2026-09-29 10:45:05 +0000]   [49/240] STHT06 seed=14 N=200000+suffix -> probe1=14.97% lms=18.73% pred=1.60% align=15.8% wall=2006.8s
+[2026-09-29 10:45:50 +0000]   [50/240] K32 seed=1 N=200000+suffix -> probe1=2.58% lms=14.87% pred=3.97% align=10.0% wall=1493.6s
+[2026-09-29 10:45:53 +0000]   [51/240] STHT06 seed=15 N=200000+suffix -> probe1=16.44% lms=18.83% pred=3.20% align=15.8% wall=1999.9s
+[2026-09-29 10:46:20 +0000]   [52/240] K32 seed=2 N=200000+suffix -> probe1=2.58% lms=14.77% pred=6.37% align=9.6% wall=1505.5s
+[2026-09-29 10:49:01 +0000]   [53/240] K32 seed=3 N=200000+suffix -> probe1=2.58% lms=14.73% pred=2.07% align=10.1% wall=1520.1s
+[2026-09-29 10:49:12 +0000]   [54/240] K32 seed=4 N=200000+suffix -> probe1=2.58% lms=14.77% pred=2.53% align=10.0% wall=1520.8s
+[2026-09-29 10:49:29 +0000] [heartbeat] 54/240 done, 175.0 min elapsed
+[2026-09-29 10:52:35 +0000]   [55/240] K32 seed=11 N=200000+suffix -> probe1=2.58% lms=14.80% pred=0.93% align=9.9% wall=1532.0s
+[2026-09-29 10:52:37 +0000]   [56/240] K32 seed=5 N=200000+suffix -> probe1=2.58% lms=14.67% pred=3.53% align=10.2% wall=1541.8s
+[2026-09-29 10:54:02 +0000]   [57/240] K32 seed=12 N=200000+suffix -> probe1=2.58% lms=14.67% pred=3.63% align=9.4% wall=1520.3s
+[2026-09-29 10:54:14 +0000]   [58/240] K32 seed=14 N=200000+suffix -> probe1=2.58% lms=14.53% pred=12.23% align=9.9% wall=1519.0s
+[2026-09-29 10:54:20 +0000]   [59/240] K32 seed=13 N=200000+suffix -> probe1=2.58% lms=14.63% pred=4.33% align=9.9% wall=1525.8s
+[2026-09-29 10:54:29 +0000] [heartbeat] 59/240 done, 180.0 min elapsed
+[2026-09-29 10:54:59 +0000]   [60/240] K32 seed=15 N=200000+suffix -> probe1=2.58% lms=14.63% pred=3.93% align=10.0% wall=1523.5s
+[2026-09-29 10:59:29 +0000] [heartbeat] 60/240 done, 185.0 min elapsed
+[2026-09-29 11:04:29 +0000] [heartbeat] 60/240 done, 190.0 min elapsed
+[2026-09-29 11:09:29 +0000] [heartbeat] 60/240 done, 195.0 min elapsed
+[2026-09-29 11:14:21 +0000]   [61/240] K48 seed=1 N=200000+suffix -> probe1=5.84% lms=15.77% pred=9.67% align=13.9% wall=1756.0s
+[2026-09-29 11:14:29 +0000] [heartbeat] 61/240 done, 200.0 min elapsed
+[2026-09-29 11:14:51 +0000]   [62/240] K48 seed=3 N=200000+suffix -> probe1=4.13% lms=16.17% pred=16.20% align=13.8% wall=1737.8s
+[2026-09-29 11:14:53 +0000]   [63/240] K48 seed=2 N=200000+suffix -> probe1=4.53% lms=16.30% pred=16.43% align=13.9% wall=1742.9s
+[2026-09-29 11:15:11 +0000]   [64/240] K48 seed=4 N=200000+suffix -> probe1=5.42% lms=15.83% pred=16.43% align=13.6% wall=1730.5s
+[2026-09-29 11:17:48 +0000]   [65/240] K48 seed=5 N=200000+suffix -> probe1=5.07% lms=16.20% pred=16.43% align=14.7% wall=1726.9s
+[2026-09-29 11:18:12 +0000]   [66/240] K48 seed=11 N=200000+suffix -> probe1=4.73% lms=16.17% pred=16.43% align=14.1% wall=1739.6s
+[2026-09-29 11:19:29 +0000] [heartbeat] 66/240 done, 205.0 min elapsed
+[2026-09-29 11:21:20 +0000]   [67/240] K48 seed=12 N=200000+suffix -> probe1=2.98% lms=16.03% pred=13.43% align=13.3% wall=1725.6s
+[2026-09-29 11:21:32 +0000]   [68/240] K48 seed=13 N=200000+suffix -> probe1=5.25% lms=16.27% pred=16.43% align=13.9% wall=1735.0s
+[2026-09-29 11:22:45 +0000]   [69/240] K48 seed=14 N=200000+suffix -> probe1=4.81% lms=15.77% pred=16.43% align=13.3% wall=1723.2s
+[2026-09-29 11:23:04 +0000]   [70/240] K48 seed=15 N=200000+suffix -> probe1=4.88% lms=17.10% pred=16.43% align=14.2% wall=1729.7s
+[2026-09-29 11:24:29 +0000] [heartbeat] 70/240 done, 210.0 min elapsed
+[2026-09-29 11:24:38 +0000]   [71/240] SP84 seed=1 N=200000+suffix -> probe1=15.24% lms=18.53% pred=4.47% align=17.3% wall=1818.2s
+[2026-09-29 11:25:35 +0000]   [72/240] SP84 seed=2 N=200000+suffix -> probe1=16.35% lms=17.67% pred=6.80% align=18.4% wall=1835.4s
+[2026-09-29 11:26:45 +0000]   [73/240] BASE seed=1 N=15000+suffix -> probe1=18.57% lms=17.23% pred=16.43% align=18.4% wall=240.3s
+[2026-09-29 11:27:02 +0000]   [74/240] BASE seed=2 N=15000+suffix -> probe1=19.77% lms=18.23% pred=16.43% align=19.0% wall=238.6s
+[2026-09-29 11:28:36 +0000]   [75/240] BASE seed=3 N=15000+suffix -> probe1=20.98% lms=17.33% pred=16.43% align=18.8% wall=237.9s
+[2026-09-29 11:29:29 +0000] [heartbeat] 75/240 done, 215.0 min elapsed
+[2026-09-29 11:29:34 +0000]   [76/240] BASE seed=4 N=15000+suffix -> probe1=19.45% lms=17.00% pred=16.43% align=18.6% wall=238.7s
+[2026-09-29 11:30:42 +0000]   [77/240] BASE seed=5 N=15000+suffix -> probe1=18.99% lms=18.23% pred=16.43% align=17.8% wall=237.1s
+[2026-09-29 11:31:02 +0000]   [78/240] BASE seed=11 N=15000+suffix -> probe1=19.79% lms=16.83% pred=16.43% align=18.6% wall=239.7s
+[2026-09-29 11:32:33 +0000]   [79/240] BASE seed=12 N=15000+suffix -> probe1=20.40% lms=17.20% pred=16.43% align=18.2% wall=237.0s
+[2026-09-29 11:33:26 +0000]   [80/240] BASE seed=13 N=15000+suffix -> probe1=20.50% lms=17.93% pred=16.43% align=18.6% wall=232.9s
+[2026-09-29 11:34:29 +0000] [heartbeat] 80/240 done, 220.0 min elapsed
+[2026-09-29 11:34:36 +0000]   [81/240] BASE seed=14 N=15000+suffix -> probe1=19.41% lms=18.53% pred=16.43% align=18.9% wall=233.3s
+[2026-09-29 11:34:52 +0000]   [82/240] STHOFF seed=1 N=15000+suffix -> probe1=2.17% lms=18.60% pred=5.07% align=34.4% wall=139.0s
+[2026-09-29 11:34:54 +0000]   [83/240] BASE seed=15 N=15000+suffix -> probe1=19.18% lms=17.60% pred=15.17% align=18.4% wall=232.5s
+[2026-09-29 11:35:47 +0000]   [84/240] STHOFF seed=2 N=15000+suffix -> probe1=2.31% lms=17.97% pred=6.93% align=38.2% wall=140.7s
+[2026-09-29 11:36:56 +0000]   [85/240] STHOFF seed=3 N=15000+suffix -> probe1=1.33% lms=19.50% pred=1.27% align=37.8% wall=140.3s
+[2026-09-29 11:37:13 +0000]   [86/240] STHOFF seed=4 N=15000+suffix -> probe1=2.12% lms=18.37% pred=6.93% align=38.1% wall=141.0s
+[2026-09-29 11:37:16 +0000]   [87/240] STHOFF seed=5 N=15000+suffix -> probe1=2.20% lms=19.47% pred=6.93% align=39.0% wall=141.5s
+[2026-09-29 11:38:10 +0000]   [88/240] STHOFF seed=11 N=15000+suffix -> probe1=2.13% lms=18.90% pred=5.57% align=35.8% wall=142.6s
+[2026-09-29 11:39:18 +0000]   [89/240] STHOFF seed=12 N=15000+suffix -> probe1=3.11% lms=19.07% pred=6.93% align=40.2% wall=142.3s
+[2026-09-29 11:39:29 +0000] [heartbeat] 89/240 done, 225.0 min elapsed
+[2026-09-29 11:39:37 +0000]   [90/240] STHOFF seed=14 N=15000+suffix -> probe1=2.15% lms=19.50% pred=6.93% align=38.2% wall=141.1s
+[2026-09-29 11:39:39 +0000]   [91/240] STHOFF seed=13 N=15000+suffix -> probe1=3.13% lms=19.43% pred=6.97% align=38.3% wall=145.4s
+[2026-09-29 11:40:34 +0000]   [92/240] STHOFF seed=15 N=15000+suffix -> probe1=2.15% lms=19.50% pred=6.93% align=37.9% wall=144.0s
+[2026-09-29 11:42:11 +0000]   [93/240] STHT01 seed=1 N=15000+suffix -> probe1=15.07% lms=18.23% pred=8.87% align=24.1% wall=172.7s
+[2026-09-29 11:42:29 +0000]   [94/240] STHT01 seed=3 N=15000+suffix -> probe1=15.04% lms=17.77% pred=7.97% align=24.8% wall=170.0s
+[2026-09-29 11:42:30 +0000]   [95/240] STHT01 seed=2 N=15000+suffix -> probe1=15.36% lms=18.10% pred=9.53% align=25.1% wall=172.9s
+[2026-09-29 11:43:24 +0000]   [96/240] STHT01 seed=4 N=15000+suffix -> probe1=15.27% lms=18.67% pred=10.40% align=24.3% wall=170.6s
+[2026-09-29 11:44:13 +0000]   [97/240] SP84 seed=3 N=200000+suffix -> probe1=17.66% lms=18.93% pred=4.40% align=19.7% wall=1791.1s
+[2026-09-29 11:44:29 +0000] [heartbeat] 97/240 done, 230.0 min elapsed
+[2026-09-29 11:45:01 +0000]   [98/240] SP84 seed=4 N=200000+suffix -> probe1=17.86% lms=17.80% pred=16.43% align=17.9% wall=1809.8s
+[2026-09-29 11:45:03 +0000]   [99/240] SP84 seed=5 N=200000+suffix -> probe1=14.81% lms=18.37% pred=16.33% align=18.3% wall=1809.5s
+[2026-09-29 11:45:05 +0000]   [100/240] STHT01 seed=5 N=15000+suffix -> probe1=14.03% lms=18.37% pred=7.33% align=23.8% wall=174.2s
+[2026-09-29 11:45:17 +0000]   [101/240] SP84 seed=11 N=200000+suffix -> probe1=15.19% lms=18.47% pred=16.30% align=18.5% wall=1806.6s
+[2026-09-29 11:45:23 +0000]   [102/240] STHT01 seed=11 N=15000+suffix -> probe1=15.13% lms=18.67% pred=10.70% align=25.0% wall=174.2s
+[2026-09-29 11:45:23 +0000]   [103/240] STHT01 seed=12 N=15000+suffix -> probe1=15.11% lms=18.07% pred=8.40% align=24.6% wall=173.2s
+[2026-09-29 11:46:20 +0000]   [104/240] STHT01 seed=13 N=15000+suffix -> probe1=15.28% lms=18.07% pred=9.87% align=25.0% wall=176.1s
+[2026-09-29 11:47:09 +0000]   [105/240] STHT01 seed=14 N=15000+suffix -> probe1=15.35% lms=17.97% pred=6.63% align=24.4% wall=176.1s
+[2026-09-29 11:47:55 +0000]   [106/240] SP84 seed=12 N=200000+suffix -> probe1=16.11% lms=18.10% pred=15.00% align=18.4% wall=1807.7s
+[2026-09-29 11:47:56 +0000]   [107/240] STHT01 seed=15 N=15000+suffix -> probe1=14.95% lms=18.27% pred=7.53% align=24.0% wall=174.6s
+[2026-09-29 11:48:12 +0000]   [108/240] SP84 seed=13 N=200000+suffix -> probe1=18.67% lms=18.13% pred=16.27% align=17.7% wall=1800.6s
+[2026-09-29 11:48:23 +0000]   [109/240] STHT03 seed=1 N=15000+suffix -> probe1=15.90% lms=18.67% pred=9.43% align=22.8% wall=200.2s
+[2026-09-29 11:48:23 +0000]   [110/240] STHT03 seed=2 N=15000+suffix -> probe1=16.36% lms=18.43% pred=10.23% align=24.1% wall=198.2s
+[2026-09-29 11:48:35 +0000]   [111/240] STHT03 seed=3 N=15000+suffix -> probe1=13.78% lms=18.53% pred=9.40% align=22.1% wall=197.5s
+[2026-09-29 11:48:42 +0000]   [112/240] STHT03 seed=4 N=15000+suffix -> probe1=15.65% lms=19.10% pred=11.80% align=23.7% wall=199.1s
+[2026-09-29 11:48:44 +0000]   [113/240] STHT03 seed=5 N=15000+suffix -> probe1=16.42% lms=19.87% pred=7.40% align=21.6% wall=201.3s
+[2026-09-29 11:49:29 +0000] [heartbeat] 113/240 done, 235.0 min elapsed
+[2026-09-29 11:49:42 +0000]   [114/240] STHT03 seed=11 N=15000+suffix -> probe1=15.60% lms=19.80% pred=11.47% align=23.3% wall=201.5s
+[2026-09-29 11:50:30 +0000]   [115/240] STHT03 seed=12 N=15000+suffix -> probe1=14.43% lms=19.57% pred=10.27% align=23.5% wall=201.7s
+[2026-09-29 11:51:17 +0000]   [116/240] STHT03 seed=13 N=15000+suffix -> probe1=16.50% lms=19.57% pred=13.83% align=23.4% wall=201.5s
+[2026-09-29 11:51:18 +0000]   [117/240] SP84 seed=14 N=200000+suffix -> probe1=17.36% lms=18.60% pred=16.43% align=18.7% wall=1797.6s
+[2026-09-29 11:51:19 +0000]   [118/240] STHT03 seed=14 N=15000+suffix -> probe1=15.01% lms=19.93% pred=9.43% align=22.9% wall=203.3s
+[2026-09-29 11:51:19 +0000]   [119/240] SP84 seed=15 N=200000+suffix -> probe1=17.83% lms=17.93% pred=12.43% align=19.1% wall=1786.7s
+[2026-09-29 11:51:34 +0000]   [120/240] STHT03 seed=15 N=15000+suffix -> probe1=15.78% lms=20.20% pred=8.83% align=22.5% wall=202.1s
+[2026-09-29 11:52:01 +0000]   [121/240] STHT06 seed=2 N=15000+suffix -> probe1=17.79% lms=19.03% pred=14.60% align=22.3% wall=217.1s
+[2026-09-29 11:52:07 +0000]   [122/240] STHT06 seed=1 N=15000+suffix -> probe1=17.13% lms=18.43% pred=14.30% align=21.9% wall=223.8s
+[2026-09-29 11:52:12 +0000]   [123/240] STHT06 seed=3 N=15000+suffix -> probe1=16.69% lms=18.23% pred=14.43% align=21.3% wall=217.2s
+[2026-09-29 11:52:21 +0000]   [124/240] STHT06 seed=4 N=15000+suffix -> probe1=17.15% lms=18.30% pred=16.13% align=22.1% wall=219.1s
+[2026-09-29 11:52:25 +0000]   [125/240] STHT06 seed=5 N=15000+suffix -> probe1=17.23% lms=18.50% pred=13.90% align=21.2% wall=220.8s
+[2026-09-29 11:53:18 +0000]   [126/240] STHT06 seed=11 N=15000+suffix -> probe1=16.51% lms=17.80% pred=15.00% align=21.6% wall=216.6s
+[2026-09-29 11:54:04 +0000]   [127/240] STHT06 seed=12 N=15000+suffix -> probe1=16.22% lms=18.90% pred=13.67% align=20.7% wall=213.9s
+[2026-09-29 11:54:29 +0000] [heartbeat] 127/240 done, 240.0 min elapsed
+[2026-09-29 11:54:33 +0000]   [128/240] K32 seed=1 N=15000+suffix -> probe1=2.58% lms=14.53% pred=6.93% align=9.3% wall=193.6s
+[2026-09-29 11:54:48 +0000]   [129/240] STHT06 seed=13 N=15000+suffix -> probe1=16.27% lms=19.57% pred=16.07% align=21.8% wall=210.9s
+[2026-09-29 11:54:48 +0000]   [130/240] K32 seed=2 N=15000+suffix -> probe1=2.58% lms=14.57% pred=9.13% align=10.0% wall=194.2s
+[2026-09-29 11:54:51 +0000]   [131/240] STHT06 seed=15 N=15000+suffix -> probe1=16.32% lms=18.50% pred=11.43% align=22.5% wall=212.0s
+[2026-09-29 11:54:53 +0000]   [132/240] STHT06 seed=14 N=15000+suffix -> probe1=16.90% lms=19.20% pred=14.87% align=21.4% wall=215.2s
+[2026-09-29 11:55:14 +0000]   [133/240] K32 seed=3 N=15000+suffix -> probe1=2.58% lms=14.63% pred=5.60% align=9.9% wall=193.5s
+[2026-09-29 11:55:20 +0000]   [134/240] K32 seed=4 N=15000+suffix -> probe1=2.58% lms=14.43% pred=6.10% align=10.2% wall=193.2s
+[2026-09-29 11:55:26 +0000]   [135/240] K32 seed=5 N=15000+suffix -> probe1=2.58% lms=14.60% pred=12.50% align=9.9% wall=193.9s
+[2026-09-29 11:55:35 +0000]   [136/240] K32 seed=11 N=15000+suffix -> probe1=2.58% lms=14.57% pred=5.97% align=9.5% wall=194.0s
+[2026-09-29 11:55:37 +0000]   [137/240] K32 seed=12 N=15000+suffix -> probe1=2.58% lms=14.60% pred=7.93% align=10.0% wall=191.9s
+[2026-09-29 11:56:29 +0000]   [138/240] K32 seed=13 N=15000+suffix -> probe1=2.58% lms=14.63% pred=9.03% align=10.2% wall=190.4s
+[2026-09-29 11:57:15 +0000]   [139/240] K32 seed=14 N=15000+suffix -> probe1=2.58% lms=14.50% pred=5.00% align=9.6% wall=190.6s
+[2026-09-29 11:57:43 +0000]   [140/240] K32 seed=15 N=15000+suffix -> probe1=2.58% lms=14.60% pred=8.77% align=10.1% wall=190.4s
+[2026-09-29 11:58:25 +0000]   [141/240] K48 seed=1 N=15000+suffix -> probe1=9.77% lms=16.40% pred=16.43% align=15.3% wall=216.8s
+[2026-09-29 11:58:26 +0000]   [142/240] K48 seed=2 N=15000+suffix -> probe1=7.93% lms=16.27% pred=16.43% align=15.0% wall=217.8s
+[2026-09-29 11:58:28 +0000]   [143/240] K48 seed=3 N=15000+suffix -> probe1=8.95% lms=16.63% pred=16.43% align=15.7% wall=216.8s
+[2026-09-29 11:58:29 +0000]   [144/240] K48 seed=4 N=15000+suffix -> probe1=9.06% lms=16.60% pred=16.43% align=15.0% wall=216.5s
+[2026-09-29 11:58:50 +0000]   [145/240] K48 seed=5 N=15000+suffix -> probe1=10.40% lms=16.53% pred=16.43% align=15.7% wall=216.3s
+[2026-09-29 11:58:59 +0000]   [146/240] K48 seed=11 N=15000+suffix -> probe1=9.08% lms=16.73% pred=16.43% align=15.0% wall=218.6s
+[2026-09-29 11:59:04 +0000]   [147/240] K48 seed=12 N=15000+suffix -> probe1=8.89% lms=15.77% pred=16.53% align=15.7% wall=217.8s
+[2026-09-29 11:59:12 +0000]   [148/240] K48 seed=13 N=15000+suffix -> probe1=8.22% lms=16.40% pred=16.43% align=15.9% wall=217.3s
+[2026-09-29 11:59:15 +0000]   [149/240] K48 seed=14 N=15000+suffix -> probe1=9.68% lms=16.33% pred=16.43% align=16.0% wall=217.8s
+[2026-09-29 11:59:29 +0000] [heartbeat] 149/240 done, 245.0 min elapsed
+[2026-09-29 12:00:08 +0000]   [150/240] K48 seed=15 N=15000+suffix -> probe1=9.88% lms=15.83% pred=16.03% align=15.3% wall=218.7s
+[2026-09-29 12:00:37 +0000]   [151/240] SP84 seed=1 N=15000+suffix -> probe1=18.94% lms=18.60% pred=16.43% align=24.9% wall=202.6s
+[2026-09-29 12:00:51 +0000]   [152/240] BASE seed=1 N=15000 -> accuracy=20.00% wall=96.1s
+[2026-09-29 12:01:03 +0000]   [153/240] SP84 seed=2 N=15000+suffix -> probe1=20.40% lms=19.10% pred=16.43% align=27.2% wall=199.5s
+[2026-09-29 12:01:40 +0000]   [154/240] BASE seed=2 N=15000 -> accuracy=20.55% wall=92.5s
+[2026-09-29 12:01:43 +0000]   [155/240] SP84 seed=3 N=15000+suffix -> probe1=20.26% lms=18.20% pred=16.43% align=25.8% wall=198.5s
+[2026-09-29 12:01:44 +0000]   [156/240] SP84 seed=4 N=15000+suffix -> probe1=19.87% lms=18.23% pred=16.43% align=26.0% wall=198.1s
+[2026-09-29 12:01:47 +0000]   [157/240] SP84 seed=5 N=15000+suffix -> probe1=18.82% lms=18.10% pred=16.43% align=25.1% wall=199.5s
+[2026-09-29 12:01:48 +0000]   [158/240] SP84 seed=11 N=15000+suffix -> probe1=18.96% lms=18.43% pred=16.43% align=25.8% wall=198.3s
+[2026-09-29 12:02:09 +0000]   [159/240] SP84 seed=12 N=15000+suffix -> probe1=19.80% lms=17.97% pred=16.43% align=26.7% wall=199.0s
+[2026-09-29 12:02:11 +0000]   [160/240] BASE seed=3 N=15000 -> accuracy=20.60% wall=93.7s
+[2026-09-29 12:02:16 +0000]   [161/240] SP84 seed=13 N=15000+suffix -> probe1=19.13% lms=18.80% pred=16.43% align=26.6% wall=197.2s
+[2026-09-29 12:02:24 +0000]   [162/240] SP84 seed=14 N=15000+suffix -> probe1=19.35% lms=18.87% pred=16.43% align=25.2% wall=200.2s
+[2026-09-29 12:02:26 +0000]   [163/240] BASE seed=4 N=15000 -> accuracy=20.40% wall=95.5s
+[2026-09-29 12:02:29 +0000]   [164/240] SP84 seed=15 N=15000+suffix -> probe1=19.61% lms=17.47% pred=16.43% align=25.5% wall=196.7s
+[2026-09-29 12:02:39 +0000]   [165/240] BASE seed=5 N=15000 -> accuracy=18.70% wall=95.9s
+[2026-09-29 12:03:11 +0000]   [166/240] STHOFF seed=1 N=15000 -> accuracy=1.85% wall=61.4s
+[2026-09-29 12:03:11 +0000]   [167/240] STHOFF seed=2 N=15000 -> accuracy=0.35% wall=60.3s
+[2026-09-29 12:03:16 +0000]   [168/240] STHOFF seed=3 N=15000 -> accuracy=0.00% wall=60.1s
+[2026-09-29 12:03:16 +0000]   [169/240] BASE seed=11 N=15000 -> accuracy=19.35% wall=96.0s
+[2026-09-29 12:03:19 +0000]   [170/240] BASE seed=13 N=15000 -> accuracy=21.30% wall=94.4s
+[2026-09-29 12:03:19 +0000]   [171/240] BASE seed=12 N=15000 -> accuracy=19.90% wall=96.0s
+[2026-09-29 12:03:24 +0000]   [172/240] BASE seed=15 N=15000 -> accuracy=18.35% wall=96.0s
+[2026-09-29 12:03:24 +0000]   [173/240] STHOFF seed=4 N=15000 -> accuracy=0.00% wall=60.1s
+[2026-09-29 12:03:24 +0000]   [174/240] BASE seed=14 N=15000 -> accuracy=19.45% wall=96.8s
+[2026-09-29 12:03:27 +0000]   [175/240] STHOFF seed=5 N=15000 -> accuracy=0.30% wall=60.0s
+[2026-09-29 12:03:28 +0000]   [176/240] STHOFF seed=11 N=15000 -> accuracy=0.00% wall=59.3s
+[2026-09-29 12:03:37 +0000]   [177/240] STHOFF seed=12 N=15000 -> accuracy=0.00% wall=58.3s
+[2026-09-29 12:04:09 +0000]   [178/240] STHOFF seed=14 N=15000 -> accuracy=0.00% wall=57.4s
+[2026-09-29 12:04:12 +0000]   [179/240] STHOFF seed=13 N=15000 -> accuracy=0.00% wall=61.1s
+[2026-09-29 12:04:15 +0000]   [180/240] STHOFF seed=15 N=15000 -> accuracy=0.00% wall=59.2s
+[2026-09-29 12:04:21 +0000]   [181/240] STHT01 seed=1 N=15000 -> accuracy=12.05% wall=65.5s
+[2026-09-29 12:04:24 +0000]   [182/240] STHT01 seed=2 N=15000 -> accuracy=11.80% wall=65.6s
+[2026-09-29 12:04:25 +0000]   [183/240] STHT01 seed=3 N=15000 -> accuracy=9.85% wall=65.9s
+[2026-09-29 12:04:29 +0000]   [184/240] STHT01 seed=4 N=15000 -> accuracy=12.60% wall=65.2s
+[2026-09-29 12:04:29 +0000] [heartbeat] 184/240 done, 250.0 min elapsed
+[2026-09-29 12:04:29 +0000]   [185/240] STHT01 seed=5 N=15000 -> accuracy=8.15% wall=65.4s
+[2026-09-29 12:04:29 +0000]   [186/240] STHT01 seed=11 N=15000 -> accuracy=11.70% wall=65.4s
+[2026-09-29 12:04:32 +0000]   [187/240] STHT01 seed=12 N=15000 -> accuracy=13.15% wall=65.1s
+[2026-09-29 12:04:34 +0000]   [188/240] STHT01 seed=13 N=15000 -> accuracy=11.30% wall=65.8s
+[2026-09-29 12:04:42 +0000]   [189/240] STHT01 seed=14 N=15000 -> accuracy=11.10% wall=65.1s
+[2026-09-29 12:05:14 +0000]   [190/240] STHT01 seed=15 N=15000 -> accuracy=11.90% wall=65.5s
+[2026-09-29 12:05:35 +0000]   [191/240] STHT03 seed=1 N=15000 -> accuracy=16.55% wall=82.6s
+[2026-09-29 12:05:36 +0000]   [192/240] STHT03 seed=2 N=15000 -> accuracy=16.05% wall=81.4s
+[2026-09-29 12:05:44 +0000]   [193/240] STHT03 seed=3 N=15000 -> accuracy=15.70% wall=82.6s
+[2026-09-29 12:05:47 +0000]   [194/240] STHT03 seed=4 N=15000 -> accuracy=16.15% wall=82.3s
+[2026-09-29 12:05:48 +0000]   [195/240] STHT03 seed=5 N=15000 -> accuracy=17.70% wall=82.9s
+[2026-09-29 12:05:52 +0000]   [196/240] STHT03 seed=12 N=15000 -> accuracy=15.65% wall=82.4s
+[2026-09-29 12:05:52 +0000]   [197/240] STHT03 seed=11 N=15000 -> accuracy=15.25% wall=82.9s
+[2026-09-29 12:05:52 +0000]   [198/240] STHT03 seed=13 N=15000 -> accuracy=16.20% wall=82.6s
+[2026-09-29 12:05:54 +0000]   [199/240] STHT03 seed=14 N=15000 -> accuracy=15.40% wall=82.9s
+[2026-09-29 12:05:57 +0000]   [200/240] STHT03 seed=15 N=15000 -> accuracy=16.55% wall=82.6s
+[2026-09-29 12:06:14 +0000]   [201/240] STHT06 seed=1 N=15000 -> accuracy=17.55% wall=91.5s
+[2026-09-29 12:06:44 +0000]   [202/240] STHT06 seed=2 N=15000 -> accuracy=18.25% wall=89.4s
+[2026-09-29 12:07:04 +0000]   [203/240] STHT06 seed=3 N=15000 -> accuracy=18.20% wall=89.1s
+[2026-09-29 12:07:07 +0000]   [204/240] STHT06 seed=4 N=15000 -> accuracy=17.35% wall=90.1s
+[2026-09-29 12:07:14 +0000]   [205/240] STHT06 seed=5 N=15000 -> accuracy=16.55% wall=89.6s
+[2026-09-29 12:07:15 +0000]   [206/240] STHT06 seed=11 N=15000 -> accuracy=16.75% wall=88.7s
+[2026-09-29 12:07:18 +0000]   [207/240] STHT06 seed=12 N=15000 -> accuracy=17.50% wall=90.0s
+[2026-09-29 12:07:20 +0000]   [208/240] STHT06 seed=13 N=15000 -> accuracy=17.05% wall=88.5s
+[2026-09-29 12:07:21 +0000]   [209/240] STHT06 seed=15 N=15000 -> accuracy=16.30% wall=89.2s
+[2026-09-29 12:07:22 +0000]   [210/240] STHT06 seed=14 N=15000 -> accuracy=16.85% wall=89.9s
+[2026-09-29 12:07:22 +0000]   [211/240] K32 seed=1 N=15000 -> accuracy=1.80% wall=87.5s
+[2026-09-29 12:07:24 +0000]   [212/240] K32 seed=2 N=15000 -> accuracy=1.80% wall=87.6s
+[2026-09-29 12:07:41 +0000]   [213/240] K32 seed=3 N=15000 -> accuracy=1.80% wall=87.8s
+[2026-09-29 12:08:13 +0000]   [214/240] K32 seed=4 N=15000 -> accuracy=1.80% wall=89.1s
+[2026-09-29 12:08:34 +0000]   [215/240] K32 seed=5 N=15000 -> accuracy=1.80% wall=90.4s
+[2026-09-29 12:08:37 +0000]   [216/240] K32 seed=11 N=15000 -> accuracy=1.80% wall=90.3s
+[2026-09-29 12:08:44 +0000]   [217/240] K32 seed=12 N=15000 -> accuracy=1.80% wall=89.9s
+[2026-09-29 12:08:45 +0000]   [218/240] K32 seed=13 N=15000 -> accuracy=1.80% wall=90.1s
+[2026-09-29 12:08:48 +0000]   [219/240] K32 seed=14 N=15000 -> accuracy=1.80% wall=89.9s
+[2026-09-29 12:08:53 +0000]   [220/240] K32 seed=15 N=15000 -> accuracy=1.80% wall=92.7s
+[2026-09-29 12:09:00 +0000]   [221/240] K48 seed=3 N=15000 -> accuracy=5.90% wall=98.5s
+[2026-09-29 12:09:02 +0000]   [222/240] K48 seed=1 N=15000 -> accuracy=6.80% wall=100.6s
+[2026-09-29 12:09:03 +0000]   [223/240] K48 seed=2 N=15000 -> accuracy=6.95% wall=101.2s
+[2026-09-29 12:09:04 +0000]   [224/240] K48 seed=4 N=15000 -> accuracy=6.30% wall=99.3s
+[2026-09-29 12:09:20 +0000]   [225/240] K48 seed=5 N=15000 -> accuracy=5.95% wall=99.0s
+[2026-09-29 12:09:29 +0000] [heartbeat] 225/240 done, 255.0 min elapsed
+[2026-09-29 12:09:53 +0000]   [226/240] K48 seed=11 N=15000 -> accuracy=6.75% wall=100.2s
+[2026-09-29 12:10:13 +0000]   [227/240] SP84 seed=1 N=15000 -> accuracy=18.80% wall=84.6s
+[2026-09-29 12:10:13 +0000]   [228/240] K48 seed=12 N=15000 -> accuracy=5.50% wall=98.8s
+[2026-09-29 12:10:16 +0000]   [229/240] K48 seed=13 N=15000 -> accuracy=8.05% wall=98.9s
+[2026-09-29 12:10:16 +0000]   [230/240] SP84 seed=2 N=15000 -> accuracy=20.00% wall=83.2s
+[2026-09-29 12:10:21 +0000]   [231/240] K48 seed=14 N=15000 -> accuracy=7.60% wall=97.0s
+[2026-09-29 12:10:22 +0000]   [232/240] K48 seed=15 N=15000 -> accuracy=6.05% wall=97.0s
+[2026-09-29 12:10:24 +0000]   [233/240] SP84 seed=3 N=15000 -> accuracy=20.10% wall=83.3s
+[2026-09-29 12:10:25 +0000]   [234/240] SP84 seed=4 N=15000 -> accuracy=20.30% wall=83.4s
+[2026-09-29 12:10:26 +0000]   [235/240] SP84 seed=11 N=15000 -> accuracy=19.60% wall=82.2s
+[2026-09-29 12:10:26 +0000]   [236/240] SP84 seed=5 N=15000 -> accuracy=20.90% wall=83.2s
+[2026-09-29 12:10:38 +0000]   [237/240] SP84 seed=12 N=15000 -> accuracy=20.10% wall=78.0s
+[2026-09-29 12:10:58 +0000]   [238/240] SP84 seed=13 N=15000 -> accuracy=18.50% wall=64.7s
+[2026-09-29 12:11:10 +0000]   [239/240] SP84 seed=15 N=15000 -> accuracy=21.00% wall=57.0s
+[2026-09-29 12:11:11 +0000]   [240/240] SP84 seed=14 N=15000 -> accuracy=20.90% wall=58.0s
+[2026-09-29 12:11:11 +0000] COMBO selection: no single-variable speaker arm qualified; COMBO not run
+[2026-09-29 12:11:11 +0000] all trials finished; writing results
+[2026-09-29 12:11:12 +0000] wrote C:\projects\brain\scripts\investigate-c15-speaker-listener.results.md; controls PASS; QS SPEAKER NOT SHOWN — no tested speaker-side intervention removes the decline; QL LISTENER ROUTE WORKS

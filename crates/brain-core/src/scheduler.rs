@@ -240,6 +240,16 @@ pub struct Scheduler {
     ring: Vec<Vec<u32>>,
     dirty: DirtySet,
     input_accum: Vec<f32>,
+    /// Whether this tick's `input_accum` includes external stimulation
+    /// (`stimulate`), per neuron. Consumed with `input_accum` in `step`. Only
+    /// read by predictive learning under `ConfirmationMode::FeedforwardOnly`
+    /// (docs/decisions.md decision 35); like `input_accum`, never snapshotted,
+    /// because it never outlives the step that consumes it.
+    externally_driven: Vec<bool>,
+    /// `externally_driven` as it stood when this tick's integration consumed
+    /// it, for the commit/veto classification below it (the same shape as
+    /// `predictive_scratch`).
+    external_scratch: Vec<bool>,
     /// Permanence at or above this is functionally connected (SYN-3); below
     /// it, a synapse is a potential connection and does not transmit
     /// (Requirement 6.6).
@@ -555,6 +565,8 @@ impl Scheduler {
             ring: (0..ring_len).map(|_| Vec::new()).collect(),
             dirty: DirtySet::new(),
             input_accum: Vec::new(),
+            externally_driven: Vec::new(),
+            external_scratch: Vec::new(),
             connection_threshold,
             inhibition: None,
             candidates_scratch: Vec::new(),
@@ -872,6 +884,15 @@ impl Scheduler {
     pub fn with_predictive_learning_bound_mode(mut self, mode: crate::plasticity::predictive::BoundMode) -> Self {
         let rule = self.predictive_learning.take().expect("with_predictive_learning_bound_mode needs with_predictive_learning to have been called first");
         self.predictive_learning = Some(rule.with_bound_mode(mode));
+        self
+    }
+
+    /// Which spikes may judge a prediction (docs/decisions.md decision 35).
+    /// Requires [`Self::with_predictive_learning`] first, same precedent as
+    /// above.
+    pub fn with_predictive_learning_confirmation(mut self, mode: crate::plasticity::predictive::ConfirmationMode) -> Self {
+        let rule = self.predictive_learning.take().expect("with_predictive_learning_confirmation needs with_predictive_learning to have been called first");
+        self.predictive_learning = Some(rule.with_confirmation(mode));
         self
     }
 
@@ -1589,6 +1610,9 @@ impl Scheduler {
         if self.input_accum.len() < len {
             self.input_accum.resize(len, 0.0);
         }
+        if self.externally_driven.len() < len {
+            self.externally_driven.resize(len, false);
+        }
     }
 
     /// Delivers `current` directly to a neuron on the *next* call to
@@ -1598,6 +1622,7 @@ impl Scheduler {
     pub fn stimulate(&mut self, neurons: &NeuronArena, neuron_index: u32, current: f32) {
         self.ensure_input_capacity(neurons.capacity_len());
         self.input_accum[neuron_index as usize] += current;
+        self.externally_driven[neuron_index as usize] = true;
         self.dirty.insert(neuron_index);
     }
 
@@ -2197,6 +2222,7 @@ impl Scheduler {
         self.candidates_scratch.clear();
         if self.predictive_learning.is_some() && self.predictive_scratch.len() < neurons.capacity_len() {
             self.predictive_scratch.resize(neurons.capacity_len(), 0.0);
+            self.external_scratch.resize(neurons.capacity_len(), false);
         }
         let mut next_dirty = DirtySet::new();
         // PLAN.md C2: the three `resolve` calls below (one here for an
@@ -2213,9 +2239,11 @@ impl Scheduler {
         for idx in self.dirty.iter() {
             let i = idx as usize;
             let input = std::mem::replace(&mut self.input_accum[i], 0.0);
+            let external = self.externally_driven.get_mut(i).is_some_and(|e| std::mem::replace(e, false));
             let predictive_before = neurons.predictive[i];
             if self.predictive_learning.is_some() {
                 self.predictive_scratch[i] = predictive_before;
+                self.external_scratch[i] = external;
             }
             let state = NeuronStateMut {
                 membrane: &mut neurons.membrane[i],
@@ -2342,7 +2370,9 @@ impl Scheduler {
                 // whatever `predictive` was at the moment `integrate`
                 // decided this tick's outcome -- correct (12.3) if it was
                 // significant, unpredicted/burst (12.1) otherwise.
-                if let Some(pl) = &self.predictive_learning {
+                // Decision 35: under `FeedforwardOnly` a recurrently driven
+                // spike neither confirms nor refutes -- skipped entirely.
+                if let Some(pl) = self.predictive_learning.as_ref().filter(|pl| pl.judges(self.external_scratch[i])) {
                     let predictive_before = self.predictive_scratch[i];
                     let modulators = self.modulators.levels_at(self.tick);
                     let outcome =
@@ -2366,7 +2396,7 @@ impl Scheduler {
                 // literally -- no spike was emitted), not a pending one, so
                 // it is punished immediately rather than waiting for
                 // `predictive` to decay below significance.
-                if let Some(pl) = &self.predictive_learning {
+                if let Some(pl) = self.predictive_learning.as_ref().filter(|pl| pl.judges(self.external_scratch[i])) {
                     let predictive_before = self.predictive_scratch[i];
                     let modulators = self.modulators.levels_at(self.tick);
                     let outcome =
@@ -3374,6 +3404,65 @@ mod tests {
             );
             assert_eq!(synapses.weight[syn as usize], 0.5, "predictive learning must not touch weight -- see predictive.rs's adjust_segment_permanence doc comment");
         }
+    }
+
+    /// docs/decisions.md decision 35: a prediction lowers its neuron's
+    /// threshold, so recurrent drive that would NOT fire it alone does fire it
+    /// once predicted -- and under `AnySpike` that self-caused spike then
+    /// rewards the prediction. Under `FeedforwardOnly` it is not judged; the
+    /// same spike with external stimulation is.
+    fn self_fulfilled_prediction(mode: crate::plasticity::predictive::ConfirmationMode, stimulate_target: bool) -> (bool, Vec<f32>) {
+        let mut neurons = NeuronArena::new();
+        let mut synapses = SynapseArena::new(2);
+        let target = make_neuron(&mut neurons, 1.0, 1);
+        let driver = make_neuron(&mut neurons, 0.5, 1);
+        let mut segment_sources = Vec::new();
+        for _ in 0..5 {
+            segment_sources.push(make_neuron(&mut neurons, 0.5, 1));
+        }
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        let mut segment_synapses = Vec::new();
+        for &s in &segment_sources {
+            segment_synapses.push(synapses.insert(s, target, 0, 1, 0.5, 0.5).unwrap());
+        }
+        // Sub-threshold on its own (0.7 < 1.0), supra-threshold once the
+        // prediction takes 0.9 off the threshold.
+        synapses.insert(driver, target, crate::segment::FEEDFORWARD_SEGMENT, 1, 0.7, 0.9).unwrap();
+
+        let mut sched = Scheduler::new(4, 0.4)
+            .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 5 }))
+            .with_predictive_learning(predictive_learning_params(), FixedNeighbourhoods::new(10, 5))
+            .with_predictive_learning_confirmation(mode);
+        let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(1000.0, 0.9);
+
+        for &s in &segment_sources {
+            sched.stimulate(&neurons, s, 10.0);
+        }
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // sources spike
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // segment fires: target predicted
+        sched.stimulate(&neurons, driver, 10.0);
+        sched.step::<Lif>(&mut neurons, &mut synapses, &params); // driver spikes
+        if stimulate_target {
+            sched.stimulate(&neurons, target, 0.05);
+        }
+        let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params); // driver's current lands
+        let fired = report.spiked.contains(&target);
+        (fired, segment_synapses.iter().map(|&syn| synapses.permanence[syn as usize]).collect())
+    }
+
+    #[test]
+    fn under_feedforward_confirmation_a_self_fulfilled_prediction_is_not_rewarded() {
+        use crate::plasticity::predictive::ConfirmationMode;
+        let (fired_any, any) = self_fulfilled_prediction(ConfirmationMode::AnySpike, false);
+        let (fired_ff, ff) = self_fulfilled_prediction(ConfirmationMode::FeedforwardOnly, false);
+        assert!(fired_any && fired_ff, "the recurrent drive must fire the predicted neuron in both modes (the precondition)");
+        assert!(any.iter().all(|&p| p > 0.5), "AnySpike rewards the self-fulfilled prediction, got {any:?}");
+        assert!(ff.iter().all(|&p| p == 0.5), "FeedforwardOnly must leave it unjudged, got {ff:?}");
+
+        // The same spike WITH external stimulation is judged, and confirmed.
+        let (fired_ext, ext) = self_fulfilled_prediction(ConfirmationMode::FeedforwardOnly, true);
+        assert!(fired_ext);
+        assert!(ext.iter().all(|&p| p > 0.5), "an externally driven spike must still confirm, got {ext:?}");
     }
 
     #[test]

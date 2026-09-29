@@ -141,6 +141,15 @@ export interface PredictiveUpdateConfig {
   readonly reinforceAmount?: number;
   /** `PredictiveLearningParams::punish_amount`. Omit for the long-standing `0.05`. Same provenance as `reinforceAmount`. */
   readonly punishAmount?: number;
+  /**
+   * Which spikes may judge a prediction (docs/decisions.md decision 35).
+   * `"any"` (omit for this, every earlier configuration) or `"feedforward"`:
+   * only a neuron stimulated by the input this tick confirms or refutes, so
+   * tick 2's recurrent spikes -- which a prediction makes more likely by
+   * lowering the threshold -- can no longer reward the prediction that caused
+   * them (Hawkins & Ahmad 2016's "became active via feedforward input").
+   */
+  readonly confirmation?: 'any' | 'feedforward';
 }
 
 export interface CharPredictionConfig {
@@ -240,6 +249,18 @@ export interface CharPredictionConfig {
    * `round(width * density)` exactly as before this existed.
    */
   readonly inhibitionHomeostasis?: InhibitionHomeostasisConfig;
+  /**
+   * The scheduler k-WTA's winner cap per tick -- how many neurons may commit a
+   * spike -- in place of `round(width * NETWORK_DENSITY)` (64 at the shipped
+   * width). Exposed for PLAN.md C15's third follow-up (docs/decisions.md
+   * decision 34), which asks whether limiting tick-2 activity keeps it aligned
+   * with the readout's input templates. `undefined` (every configuration
+   * before it) leaves the inhibition exactly as it was. `columnConfig`'s own
+   * `k` follows it, because `buildColumns` refuses a column whose inhibition
+   * disagrees with the scheduler's. Not combined with `inhibitionHomeostasis`
+   * (that one adjusts `k` itself).
+   */
+  readonly inhibitionK?: number;
   /**
    * Saturation-driven growth (NET-10, invariant 10). `undefined` (default)
    * leaves population size fixed at `width` exactly as before this
@@ -695,11 +716,16 @@ export const B5_CONFIG: CharPredictionConfig = {
   homeostaticScaling: { targetTotalWeight: 6, intervalTicks: 200 },
 };
 
-function charEncoderConfig(width: number, density: number): CharEncoderConfig {
+export function charEncoderConfig(
+  width: number,
+  density: number,
+): CharEncoderConfig {
   return { width, density, seed: 'char-prediction' };
 }
 
-function buildCandidates(config: CharEncoderConfig): Candidate<string>[] {
+export function buildCandidates(
+  config: CharEncoderConfig,
+): Candidate<string>[] {
   return SUPPORTED_ALPHABET.map((char) => ({
     label: char,
     sdr: encodeChar(config, char),
@@ -712,9 +738,10 @@ const DEFAULT_COINCIDENCE_THRESHOLD = 3;
 export function columnConfig(
   width: number,
   segmentsPerNeuron: number = DEFAULT_SEGMENTS_PER_NEURON,
-  voteReferenceWeight: number | undefined = DEFAULT_CONFIG.voteReferenceWeight,
-  coincidenceThreshold: number = DEFAULT_CONFIG.coincidenceThreshold ??
-    DEFAULT_COINCIDENCE_THRESHOLD,
+  voteReferenceWeight?: number,
+  coincidenceThreshold: number = DEFAULT_COINCIDENCE_THRESHOLD,
+  /** `CharPredictionConfig.inhibitionK`; must match the scheduler's (`buildColumns` refuses a mismatch). */
+  inhibitionK?: number,
 ): ColumnConfig {
   return {
     neuronCount: width,
@@ -746,7 +773,7 @@ export function columnConfig(
       initialPermanence: 0.4,
     },
     neighbourhoodSize: width,
-    k: Math.max(1, Math.round(width * NETWORK_DENSITY)),
+    k: inhibitionK ?? Math.max(1, Math.round(width * NETWORK_DENSITY)),
     // PLAN.md B5: spread only if defined, `exactOptionalPropertyTypes`'s
     // convention -- `undefined` must omit the field entirely so this and
     // `buildNetwork`'s scheduler-wide `segments` (below) agree exactly on
@@ -761,39 +788,34 @@ export function columnConfig(
 }
 
 /**
- * `segmentThresholdHomeostasis` defaults to `DEFAULT_CONFIG`'s current
- * best-known value (docs/findings.md finding 7's tuning table) rather than being
- * hardcoded inline, so `scripts/tune-segment-threshold-homeostasis.ts` can
- * pass a different candidate per trial without rebuilding this function.
- * Pass `undefined` explicitly to disable the mechanism entirely.
+ * `segmentThresholdHomeostasis` is a parameter rather than hardcoded inline,
+ * so `scripts/tune-segment-threshold-homeostasis.ts` can pass a different
+ * candidate per trial without rebuilding this function. **It has no default,
+ * and `undefined` disables the mechanism.** It used to default to
+ * `DEFAULT_CONFIG.segmentThresholdHomeostasis`, and a JavaScript default
+ * parameter also fires on an explicit `undefined` -- so a config that omitted
+ * the field got `DEFAULT_CONFIG`'s homeostasis back, silently, and the
+ * mechanism could not be switched off through `CharPredictionConfig` at all
+ * (docs/findings.md finding 31(g), `.claude/HANDOFF.md` fact 23). No optional
+ * mechanism below defaults to a `DEFAULT_CONFIG` field any more, for the same
+ * reason: omitted means off, always (docs/decisions.md decision 34).
  */
 export function buildNetwork(
   seed: bigint,
   width: number,
-  segmentThresholdHomeostasis:
-    | SegmentThresholdHomeostasisConfig
-    | undefined = DEFAULT_CONFIG.segmentThresholdHomeostasis,
-  rewardSignal: CharPredictionConfig['rewardSignal'] = DEFAULT_CONFIG.rewardSignal,
-  inhibitionHomeostasis:
-    | InhibitionHomeostasisConfig
-    | undefined = DEFAULT_CONFIG.inhibitionHomeostasis,
-  growth: GrowthConfig | undefined = DEFAULT_CONFIG.growth,
-  structuralPlasticity:
-    | StructuralPlasticityConfig
-    | undefined = DEFAULT_CONFIG.structuralPlasticity,
-  segmentsPerNeuron: number = DEFAULT_CONFIG.segmentsPerNeuron ??
-    DEFAULT_SEGMENTS_PER_NEURON,
-  newbornMaturation:
-    NewbornMaturationConfig | undefined = DEFAULT_CONFIG.newbornMaturation,
-  silentSynapses:
-    SilentSynapsesConfig | undefined = DEFAULT_CONFIG.silentSynapses,
-  plasticity: PlasticityConfig | undefined = DEFAULT_CONFIG.plasticity,
-  voteReferenceWeight: number | undefined = DEFAULT_CONFIG.voteReferenceWeight,
-  predictiveLearningTarget: CharPredictionConfig['predictiveLearningTarget'] = DEFAULT_CONFIG.predictiveLearningTarget,
-  homeostaticScaling:
-    HomeostaticScalingConfig | undefined = DEFAULT_CONFIG.homeostaticScaling,
-  coincidenceThreshold: number = DEFAULT_CONFIG.coincidenceThreshold ??
-    DEFAULT_COINCIDENCE_THRESHOLD,
+  segmentThresholdHomeostasis: SegmentThresholdHomeostasisConfig | undefined,
+  rewardSignal?: CharPredictionConfig['rewardSignal'],
+  inhibitionHomeostasis?: InhibitionHomeostasisConfig,
+  growth?: GrowthConfig,
+  structuralPlasticity?: StructuralPlasticityConfig,
+  segmentsPerNeuron: number = DEFAULT_SEGMENTS_PER_NEURON,
+  newbornMaturation?: NewbornMaturationConfig,
+  silentSynapses?: SilentSynapsesConfig,
+  plasticity?: PlasticityConfig,
+  voteReferenceWeight?: number,
+  predictiveLearningTarget?: CharPredictionConfig['predictiveLearningTarget'],
+  homeostaticScaling?: HomeostaticScalingConfig,
+  coincidenceThreshold: number = DEFAULT_COINCIDENCE_THRESHOLD,
   /**
    * PLAN.md C2, grouped into one slot because the three move together: a
    * coupling with no consumer changes nothing, and a gain channel with no
@@ -814,21 +836,18 @@ export function buildNetwork(
    * path C3 replaced (kept, because it is the VAL-9 ablation control), and a
    * baseline with no `rewardSignal` is inert.
    */
-  rewardPredictionError:
-    | RewardPredictionErrorConfig
-    | undefined = DEFAULT_CONFIG.rewardPredictionError,
+  rewardPredictionError?: RewardPredictionErrorConfig,
   /** PLAN.md C9's transmission half -- see `CharPredictionConfig.transmissionModulation`. */
-  transmissionModulation:
-    | TransmissionModulationConfig
-    | undefined = DEFAULT_CONFIG.transmissionModulation,
+  transmissionModulation?: TransmissionModulationConfig,
   /**
    * PLAN.md C14's two arms, grouped into one slot for the same reason `c2`
    * above is grouped: they are separately switchable but are measured as arms
    * of one battery, because docs/findings.md finding 27 established they are
    * cause and symptom of the same thing.
    */
-  predictiveUpdate:
-    PredictiveUpdateConfig | undefined = DEFAULT_CONFIG.predictiveUpdate,
+  predictiveUpdate?: PredictiveUpdateConfig,
+  /** See `CharPredictionConfig.inhibitionK`. */
+  inhibitionK?: number,
 ): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = {
     tauMTicks: 5,
@@ -865,11 +884,23 @@ export function buildNetwork(
     // otherwise. NOTE: not combined with `inhibitionHomeostasis` below --
     // `InhibitionConfig`'s own doc comment records that combination as an
     // unfixed gap (a homeostasis sweep would silently drop this target).
-    inhibition: {
-      neighbourhoodSize: width,
-      k: Math.max(1, Math.round(width * NETWORK_DENSITY)),
-      densityTarget: NETWORK_DENSITY,
-    },
+    // `inhibitionK` (C15's third follow-up) replaces both `k` and the
+    // `densityTarget` that reproduces it, because with a density target set
+    // the core derives each neighbourhood's cap from the density, not `k`
+    // (`FixedNeighbourhoods::resolve_into_scaled`). Unset, the two lines are
+    // exactly what they always were.
+    inhibition:
+      inhibitionK === undefined
+        ? {
+            neighbourhoodSize: width,
+            k: Math.max(1, Math.round(width * NETWORK_DENSITY)),
+            densityTarget: NETWORK_DENSITY,
+          }
+        : {
+            neighbourhoodSize: width,
+            k: inhibitionK,
+            densityTarget: inhibitionK / width,
+          },
     // inhibition-homeostasis spec, Requirement 1: self-tunes the k above
     // toward a target population activity rate instead of it staying
     // fixed at `round(width * density)` for the network's whole lifetime
@@ -1016,6 +1047,9 @@ export function buildNetwork(
       ...(predictiveUpdate?.boundMode !== undefined && {
         boundMode: predictiveUpdate.boundMode,
       }),
+      ...(predictiveUpdate?.confirmation !== undefined && {
+        confirmation: predictiveUpdate.confirmation,
+      }),
     },
   };
   const sim = Simulation.create(lif, options);
@@ -1025,6 +1059,7 @@ export function buildNetwork(
       segmentsPerNeuron,
       voteReferenceWeight,
       coincidenceThreshold,
+      inhibitionK,
     ),
   ]);
   const [column] = wrapColumnHandles([handle!]);
@@ -1190,6 +1225,7 @@ export function runCharPredictionTrial(
     config.rewardPredictionError,
     config.transmissionModulation,
     config.predictiveUpdate,
+    config.inhibitionK,
   );
   const collisionMargin = config.collisionMargin ?? DEFAULT_COLLISION_MARGIN;
   const trigram = new TrigramModel();

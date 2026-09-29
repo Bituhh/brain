@@ -319,6 +319,28 @@ pub struct ContributorGate {
     pub non_contributor_fraction: f32,
 }
 
+/// Which committed spikes may JUDGE a pending prediction (PLAN.md C15's third
+/// follow-up, docs/decisions.md decision 35, docs/prior-art.md §13.13(n)).
+///
+/// Hawkins & Ahmad (2016), the model Requirement 12 is drawn from, reinforce a
+/// segment only when its cell "was previously in a depolarized state and
+/// subsequently became active via feedforward input". This engine's cells can
+/// also fire from recurrent drive alone, and a significant prediction LOWERS
+/// the threshold (`neuron.rs`), so under [`Self::AnySpike`] a prediction can
+/// cause the very spike that then rewards it.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub enum ConfirmationMode {
+    /// Every committed or vetoed candidate is judged, whatever drove it. Every
+    /// caller before decision 35.
+    #[default]
+    AnySpike,
+    /// Only a neuron that received EXTERNAL (feedforward) stimulation this tick
+    /// is judged, as confirmed or refuted. A recurrently driven spike or veto
+    /// is neither: its prediction stays pending until the input arrives, or
+    /// lapses through 12.2's expiry path exactly as before.
+    FeedforwardOnly,
+}
+
 /// How [`PredictiveLearning::apply_delta`] approaches `permanence`'s bounds
 /// (PLAN.md C14 arm 2, docs/prior-art.md §13.13(k)).
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
@@ -355,6 +377,8 @@ pub struct PredictiveLearning {
     contributor_gate: Option<ContributorGate>,
     /// PLAN.md C14 arm 2. [`BoundMode::Hard`] is every pre-C14 caller.
     bound_mode: BoundMode,
+    /// Decision 35. [`ConfirmationMode::AnySpike`] is every earlier caller.
+    confirmation: ConfirmationMode,
 }
 
 impl PredictiveLearning {
@@ -367,7 +391,7 @@ impl PredictiveLearning {
             params.gain_modulator_index.is_none_or(|i| i < crate::plasticity::NUM_MODULATORS),
             "gain_modulator_index must be a valid channel index"
         );
-        Self { params, neighbourhoods, reach: SproutReach::default(), contributor_gate: Some(DEFAULT_CONTRIBUTOR_GATE), bound_mode: BoundMode::default() }
+        Self { params, neighbourhoods, reach: SproutReach::default(), contributor_gate: Some(DEFAULT_CONTRIBUTOR_GATE), bound_mode: BoundMode::default(), confirmation: ConfirmationMode::default() }
     }
 
     /// Restricts 12.3's reinforcement to synapses that delivered inside
@@ -421,6 +445,28 @@ impl PredictiveLearning {
     /// What [`Self::with_bound_mode`] was given.
     pub fn bound_mode(&self) -> BoundMode {
         self.bound_mode
+    }
+
+    /// Which spikes may judge a prediction (decision 35). Without this call it
+    /// is [`ConfirmationMode::AnySpike`] and every decision is bit-identical to
+    /// before it existed.
+    pub fn with_confirmation(mut self, mode: ConfirmationMode) -> Self {
+        self.confirmation = mode;
+        self
+    }
+
+    pub fn confirmation(&self) -> ConfirmationMode {
+        self.confirmation
+    }
+
+    /// Whether a committed or vetoed candidate is judged at all this tick.
+    /// `externally_driven` is the neuron's own record of whether its input this
+    /// tick included external stimulation -- local to the neuron.
+    pub fn judges(&self, externally_driven: bool) -> bool {
+        match self.confirmation {
+            ConfirmationMode::AnySpike => true,
+            ConfirmationMode::FeedforwardOnly => externally_driven,
+        }
     }
 
     /// Opts 12.1's burst path into a different [`SproutReach`] (PLAN.md C4,

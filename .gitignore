@@ -22,6 +22,8 @@ scripts/tune-b5-values.smoke.*
 scripts/investigate-c15-held-out-probe.smoke.*
 scripts/investigate-c15-probe-battery.smoke.*
 scripts/investigate-c15-decline-cause.smoke.*
+scripts/investigate-c15-speaker-listener.smoke.*
+scripts/investigate-c15-feedforward-confirmation.smoke.*
 
 # Battery stdout redirects duplicate the run log the script writes itself
 scripts/*.stdout.log
