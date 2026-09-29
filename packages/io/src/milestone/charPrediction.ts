@@ -132,6 +132,15 @@ export interface PredictiveUpdateConfig {
   readonly nonContributorFraction?: number;
   /** `"hard"` (omit for this, pre-C14) or `"soft"` (weight-dependent bounds). */
   readonly boundMode?: 'hard' | 'soft';
+  /**
+   * `PredictiveLearningParams::reinforce_amount`. Omit for the long-standing
+   * `0.08`. Exposed for the C15 follow-up battery (docs/findings.md finding 30),
+   * which asks whether the post-peak decline scales with the size of the
+   * predictive update; an omitted value is bit-identical to before it existed.
+   */
+  readonly reinforceAmount?: number;
+  /** `PredictiveLearningParams::punish_amount`. Omit for the long-standing `0.05`. Same provenance as `reinforceAmount`. */
+  readonly punishAmount?: number;
 }
 
 export interface CharPredictionConfig {
@@ -578,6 +587,22 @@ const DEFAULT_COLLISION_MARGIN = 0.1;
 /** Below this, a tick's best-candidate overlap fraction is treated as "no real activity" rather than a collision, regardless of margin. */
 const MIN_ACTIVITY_FRACTION_FOR_COLLISION = 0.05;
 
+/**
+ * The mechanism-free BASE configuration: the encoder, the readout and
+ * per-segment threshold homeostasis, and nothing else. **Not the default a
+ * caller gets any more** -- that is `B5_CONFIG` below, since docs/decisions.md
+ * decision 32. It keeps this name and these exact contents because the B4/B5
+ * searches build every condition as `{ ...DEFAULT_CONFIG, ... }`, and every
+ * "C-default" control in docs/findings.md 23-30 is this object; changing it
+ * would silently change all of them.
+ *
+ * **Under the contributor gate (decision 30) this configuration collapses**,
+ * to 5.50% against 17.18% ungated (docs/findings.md finding 30(d)): only
+ * ~13.6% of its synapses start above `connectionThreshold`, and under a strict
+ * gate a synapse that never delivers can never be reinforced back above it.
+ * Spread `predictiveUpdate: { contributorGating: false }` onto it to reproduce
+ * any pre-C14 figure.
+ */
 export const DEFAULT_CONFIG: CharPredictionConfig = {
   width: NETWORK_WIDTH,
   density: NETWORK_DENSITY,
@@ -607,6 +632,67 @@ export const DEFAULT_CONFIG: CharPredictionConfig = {
     minThreshold: 1.0,
     intervalTicks: 200,
   },
+};
+
+/**
+ * **The default configuration** (docs/decisions.md decision 32): PLAN.md B5's
+ * value-search winner (docs/decisions.md decision 13), resolved to a plain
+ * object -- exactly what `scripts/b5-search/conditions.ts`'s
+ * `toConfig(searchCondition(winner))` produces from
+ * `scripts/tune-b5-values.chosen.json`, which
+ * `scripts/b5-search/b5-config.test.ts` asserts. It is the only
+ * configuration in this repository that clears the 16.56% "always guess
+ * space" bar at the pinned horizon (20.05% / 19.67%, contributor gating on).
+ *
+ * `runCharPredictionTrial(s)` use it when no config is passed. Every existing
+ * caller passes one, so the switch changed no measured figure.
+ */
+export const B5_CONFIG: CharPredictionConfig = {
+  width: NETWORK_WIDTH,
+  density: NETWORK_DENSITY,
+  ticksPerInput: 2,
+  minConfidence: 0.15,
+  stimulateCurrent: 10,
+  slidingWindow: 2000,
+  segmentThresholdHomeostasis: {
+    targetRate: 0.99,
+    smoothing: 0.9,
+    adjustmentRate: 0.1,
+    minThreshold: 1,
+    intervalTicks: 200,
+  },
+  structuralPlasticity: {
+    pruneFloor: 0.05,
+    sproutPermanence: 0.35,
+    sproutWeight: 0.05,
+    minActivityStreak: 3,
+    sweepIntervalTicks: 200,
+    unusedTicksBeforeReclaim: 10000000,
+    minCrossPartitionDelay: 1,
+    neighbourhoodSize: 100,
+    k: 10,
+    minTemporalGapTicks: 1,
+    maxTemporalGapTicks: 4,
+  },
+  silentSynapses: { unsilenceWeight: 0.3, silentTransmits: true },
+  plasticity: {
+    stdp: {
+      aPlus: 0.01,
+      aMinus: 0.02,
+      tauPlus: 4,
+      tauMinus: 4,
+      windowTicks: 20,
+    },
+    tauEligibilityTicks: 50,
+    learningRate: 0.02,
+    modulatorChannel: 1,
+    modulatorTauTicks: [1000, 1000, 1000, 1000],
+  },
+  tonicModulator: { channel: 1, level: 1 },
+  coincidenceThreshold: 3,
+  predictiveLearningTarget: 'permanence',
+  voteReferenceWeight: 1,
+  homeostaticScaling: { targetTotalWeight: 6, intervalTicks: 200 },
 };
 
 function charEncoderConfig(width: number, density: number): CharEncoderConfig {
@@ -866,8 +952,8 @@ export function buildNetwork(
     ...(homeostaticScaling !== undefined && { homeostaticScaling }),
     predictiveLearning: {
       significanceThreshold: 0.5,
-      reinforceAmount: 0.08,
-      punishAmount: 0.05,
+      reinforceAmount: predictiveUpdate?.reinforceAmount ?? 0.08,
+      punishAmount: predictiveUpdate?.punishAmount ?? 0.05,
       burstTargetSegment: 0,
       // docs/decisions.md's weight/permanence split (2026-09-13): permanence now
       // at/above connectionThreshold (structurally connected from birth),
@@ -1022,6 +1108,18 @@ export type TrialProgress = (
 /** How often `runCharPredictionTrial` reports progress, in characters. */
 export const PROGRESS_EVERY_CHARACTERS = 250;
 
+/** One scored character as the readout saw it -- see `runCharPredictionTrial`'s `onStep`. */
+export interface CharStepObservation {
+  readonly input: string;
+  readonly actual: string;
+  /** The decoded next character, or `undefined` below `minConfidence`. */
+  readonly predicted: string | undefined;
+  /** The winning candidate's raw shared-bit count, when there is a winner. */
+  readonly overlap: number | undefined;
+  /** The primary column's observed active neuron indices (its local bit positions). */
+  readonly observed: ReadonlyArray<number>;
+}
+
 /**
  * Streams `corpus` once through a freshly-built network (Requirement 9.1's
  * "learning continuously on") and, in lockstep on the same character
@@ -1032,7 +1130,7 @@ export const PROGRESS_EVERY_CHARACTERS = 250;
 export function runCharPredictionTrial(
   corpus: string,
   seed: bigint,
-  config: CharPredictionConfig = DEFAULT_CONFIG,
+  config: CharPredictionConfig = B5_CONFIG,
   onProgress?: TrialProgress,
   /**
    * Called once, after the last character, with the live simulation -- for a
@@ -1050,6 +1148,15 @@ export function runCharPredictionTrial(
    * `inspect`; `undefined` (every other caller) changes nothing.
    */
   onCharacter?: (sim: Simulation) => void,
+  /**
+   * Called once per scored character with what the readout saw: the input
+   * character, the actual next one, the decoded prediction (if any) and the
+   * primary column's observed activity. For a measurement of the readout
+   * itself (docs/findings.md finding 31) that needs more than the winning
+   * label. Read-only by convention, like `inspect`; `undefined` (every other
+   * caller) changes nothing.
+   */
+  onStep?: (step: CharStepObservation, sim: Simulation) => void,
 ): TrialResult {
   const encoderConfig = charEncoderConfig(config.width, config.density);
   const candidates = buildCandidates(encoderConfig);
@@ -1175,6 +1282,16 @@ export function runCharPredictionTrial(
   })) {
     const hit = step.predicted?.label === step.actual;
     networkAcc.record(hit);
+    onStep?.(
+      {
+        input: step.input.char,
+        actual: step.actual,
+        predicted: step.predicted?.label,
+        overlap: step.predicted?.overlap,
+        observed: step.observed?.activeBits ?? [],
+      },
+      sim,
+    );
     if (tonic !== undefined && tonicTopUp > 0) {
       sim.injectModulator(tonic.channel, tonicTopUp);
     }
@@ -1275,7 +1392,7 @@ export function runCharPredictionTrial(
 export function runCharPredictionTrials(
   corpus: string,
   seeds: readonly bigint[],
-  config: CharPredictionConfig = DEFAULT_CONFIG,
+  config: CharPredictionConfig = B5_CONFIG,
 ): TrialResult[] {
   return seeds.map((seed) => runCharPredictionTrial(corpus, seed, config));
 }

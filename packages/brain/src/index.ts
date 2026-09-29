@@ -45,6 +45,7 @@ import {
   type PredictionOutcomeTotalsFfi,
   type StdpModulationStatsFfi,
   type TransmissionModulationStatsFfi,
+  type SegmentThresholdStatsFfi,
   type StructuralStatsFfi,
 } from '@brain/napi';
 import {
@@ -116,6 +117,8 @@ export type StdpModulationStats = StdpModulationStatsFfi;
 /** What the transmission gate did over a run (PLAN.md C9) -- see `Simulation.transmissionModulationStats()`. */
 export type TransmissionModulationStats = TransmissionModulationStatsFfi;
 export type StructuralStats = StructuralStatsFfi;
+/** Per-segment threshold homeostasis's live thresholds, summarised -- see `Simulation.segmentThresholdStats()`. */
+export type SegmentThresholdStats = SegmentThresholdStatsFfi;
 
 /** What one consolidation pass did (Requirement 12). */
 export type ConsolidationReport = ConsolidationReportFfi;
@@ -1076,6 +1079,16 @@ export class Simulation {
    */
   transmissionModulationStats(): TransmissionModulationStats | null {
     return this.#native.transmissionModulationStats();
+  }
+
+  /**
+   * Per-segment threshold homeostasis's live thresholds (mean, extremes, a
+   * 33-bin histogram over [0, 8) plus overflow, and the mean rate estimate),
+   * merged over every partition. Read-only; `null` when no segment has a
+   * threshold yet. docs/decisions.md decision 33.
+   */
+  segmentThresholdStats(): SegmentThresholdStats | null {
+    return this.#native.segmentThresholdStats();
   }
 
   /**

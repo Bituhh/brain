@@ -185,33 +185,34 @@ graph TD
 | 12 | **C12** | Selective (replay-gated) downscaling, not uniform | C1 | 1 session | hours of runs |
 | 13 | **C13** | Corpus horizon: who owns length, and what causes the post-peak decline | — | 1 session | hours of runs |
 | 14 | **C14** | Contributor-gated reinforcement + soft-bound `apply_delta` | C13 | 1 session | hours of runs |
-| 15 | **D1** | `polarity` in `NeuronLocal` + E/I-aware `rescale_one` | B1 | 1 session | — |
-| 16 | **D2** | Inhibitory STDP rule (Vogels-style) + kernel tests | D1 | 1 session | — |
-| 17 | **D3** | Polarity dispatch + E/I-balance ablation test | D2 | 1 session | — |
-| 18 | **D4** | Turn on 80:20 and re-tune ⚠️ | B2, B5, C1, C2, D3, C10 | 1 session | **1-3 weeks tuning** |
-| 19 | **E1** | Named brain store + explicit lifecycle | B1 | 1 session | — |
-| 20 | **E2** | Cross-process resume + growth after restore | E1 | 1 session | — |
-| 21 | **F1** | Short-term plasticity: per-synapse state + delivery | B1 | 1 session | — |
-| 22 | **F2** | STP curve tests + VAL-4 measured both ways | F1 | 1 session | tuning |
-| 23 | **F3** | `cap_per_neuron`: the design call | B1 | 1 session | **1 design call** |
-| 24 | **F4** | `cap_per_neuron`: implement ⚠️ | F3 | 1 session | **heavy review** |
-| 25 | **F5** | `cap_per_neuron`: scale + footprint re-measure | F4 | 1 session | hours of runs |
-| 26 | **F6** | LRN-12 / BTSP one-shot binding + pattern separation | F4 | 1 session | — |
-| 27 | **F7** | `ReplaySource` for the fast store + VAL-4 measurement | F6 | 1 session | experiments |
-| 28 | **F8** | Consolidation in partitioned mode: cross-partition replay routing | C1 | 1 session | — |
-| 29 | **F9** | Replay bit-identity across thread counts + FFI surface | F8 | 1 session | — |
-| 30 | **F10** | NET-6: segment role tag | — | 1 session | — |
-| 31 | **F11** | Descending projections + distinct apical effect | F10 | 1 session | — |
-| 32 | **F12** | Top-down prediction changes what the lower population predicts | F11 | 1 session | experiments |
-| 33 | **F13** | Delay plasticity rule | F1 | 1 session | — |
-| 34 | **F14** | NET-8: does adaptive delay produce gamma/theta structure? | F13 | 1 session | experiments |
-| 35 | **F15** | Laminar columns: scope the redesign | — | 1 session | **1 design call** |
-| 36 | **F16** | Column internal populations with defined roles | F15 | 1 session | — |
-| 37 | **F17** | Per-column configuration made live | F16 | 1 session | — |
-| 38 | **F18** | Output-layer lateral voting + the NET-9 location decision | F17 | 1 session | experiments |
-| 39 | **F19** | Serotonin: LTP/LTD threshold bias — _deferred, see docs/prior-art.md §2_ | C5 | 1 session | — |
-| 40 | **F20** | Histamine: `NUM_MODULATORS` 4→5 + global excitability — _deferred_ | — | 1 session | — |
-| 41 | **F21** | Nitric oxide: spatial diffusion field — _deferred, needs a requirement first_ | — | 1 session | — |
+| 15 | **C15** | Is the post-peak decline the network, or the corpus? A fixed held-out probe | C14 | 1 session | hours of runs |
+| 16 | **D1** | `polarity` in `NeuronLocal` + E/I-aware `rescale_one` | B1 | 1 session | — |
+| 17 | **D2** | Inhibitory STDP rule (Vogels-style) + kernel tests | D1 | 1 session | — |
+| 18 | **D3** | Polarity dispatch + E/I-balance ablation test | D2 | 1 session | — |
+| 19 | **D4** | Turn on 80:20 and re-tune ⚠️ | B2, B5, C1, C2, D3, C10 | 1 session | **1-3 weeks tuning** |
+| 20 | **E1** | Named brain store + explicit lifecycle | B1 | 1 session | — |
+| 21 | **E2** | Cross-process resume + growth after restore | E1 | 1 session | — |
+| 22 | **F1** | Short-term plasticity: per-synapse state + delivery | B1 | 1 session | — |
+| 23 | **F2** | STP curve tests + VAL-4 measured both ways | F1 | 1 session | tuning |
+| 24 | **F3** | `cap_per_neuron`: the design call | B1 | 1 session | **1 design call** |
+| 25 | **F4** | `cap_per_neuron`: implement ⚠️ | F3 | 1 session | **heavy review** |
+| 26 | **F5** | `cap_per_neuron`: scale + footprint re-measure | F4 | 1 session | hours of runs |
+| 27 | **F6** | LRN-12 / BTSP one-shot binding + pattern separation | F4 | 1 session | — |
+| 28 | **F7** | `ReplaySource` for the fast store + VAL-4 measurement | F6 | 1 session | experiments |
+| 29 | **F8** | Consolidation in partitioned mode: cross-partition replay routing | C1 | 1 session | — |
+| 30 | **F9** | Replay bit-identity across thread counts + FFI surface | F8 | 1 session | — |
+| 31 | **F10** | NET-6: segment role tag | — | 1 session | — |
+| 32 | **F11** | Descending projections + distinct apical effect | F10 | 1 session | — |
+| 33 | **F12** | Top-down prediction changes what the lower population predicts | F11 | 1 session | experiments |
+| 34 | **F13** | Delay plasticity rule | F1 | 1 session | — |
+| 35 | **F14** | NET-8: does adaptive delay produce gamma/theta structure? | F13 | 1 session | experiments |
+| 36 | **F15** | Laminar columns: scope the redesign | — | 1 session | **1 design call** |
+| 37 | **F16** | Column internal populations with defined roles | F15 | 1 session | — |
+| 38 | **F17** | Per-column configuration made live | F16 | 1 session | — |
+| 39 | **F18** | Output-layer lateral voting + the NET-9 location decision | F17 | 1 session | experiments |
+| 40 | **F19** | Serotonin: LTP/LTD threshold bias — _deferred, see docs/prior-art.md §2_ | C5 | 1 session | — |
+| 41 | **F20** | Histamine: `NUM_MODULATORS` 4→5 + global excitability — _deferred_ | — | 1 session | — |
+| 42 | **F21** | Nitric oxide: spatial diffusion field — _deferred, needs a requirement first_ | — | 1 session | — |
 
 **Phase totals from here:** C ≈ 12-15 sessions + runs · D ≈ 4 sessions + 1-3 weeks tuning · E ≈ 2 · F ≈ 19 sessions + experiments. Every row is one session of coding by construction; the wall-clock column is where the real cost still lives (§1's own point — coding compresses with an LLM, experiments do not).
 
@@ -2316,6 +2317,116 @@ data under docs/appendix/; and `.claude/HANDOFF.md` facts 20 and 22 are updated.
 
 ---
 
+### C15 — Is the post-peak decline the network, or the corpus?
+
+```
+Read, in this order, before writing any code:
+  1. `.claude/HANDOFF.md` — facts 20 and 22, and the "Where things stand" block.
+  2. `docs/findings.md` findings 23, 26, 27 and 28 (the decline's whole history), and
+     `docs/open-questions.md` item 7, which this item is the next step of.
+  3. `docs/appendix/find-27.md` and `find-28.md`.
+  4. `docs/decisions.md` decisions 28 (two horizons), 29 and 30 (C14, and the default flip).
+  5. PLAN.md §4 and `scripts/CLAUDE.md`.
+
+WHAT THIS IS, AND WHY IT COMES BEFORE ANY NEW MECHANISM.
+
+Every "decline" figure in this repository — finding 23's collapse, finding 26's 8.67 points,
+finding 27's trajectory, finding 28's 6.32 — is measured on a **2,000-character sliding window
+over text the network is seeing for the first time**. That conflates two entirely different
+claims:
+
+    (a) the network degrades with training length, and
+    (b) the later parts of the corpus are harder to predict than the earlier parts.
+
+**Nothing in this repository has ever separated them.** "Held-out" appears throughout the docs
+and refers, every time, to held-out *seeds* — never to held-out *text*. So the project's central
+open question (open-questions item 7) rests on a measurement that has never been controlled.
+
+If it is (b), open-questions item 7 largely dissolves and findings 23, 26, 27 and 28 all need a
+caveat about what they were measuring. If it is (a), the most boring explanation is eliminated and
+every remaining hypothesis gets sharper. **Either outcome is worth more than another mechanism.**
+
+THE ONE PIECE OF COUNTER-EVIDENCE, so you weigh it rather than discover it: the trigram baseline
+*improves* over the same stream (28.35% at 15,000 → 29.60% at 200,000), which is some evidence the
+later text is not harder. It is not conclusive — trigram accumulates statistics throughout, so it
+can improve on harder text. Report it alongside the result either way.
+
+THE DESIGN, and it needs NO harness change.
+
+For each training length N, run a trial on `corpus[0..N] + PROBE`, where PROBE is the **same text
+in every condition**. Compare accuracy over the PROBE region across N.
+
+  - `PROBE = fullCorpus.slice(300_000, 305_000)` — 5,000 characters, taken from **beyond 200,000**
+    so it is unseen at every N tested. Check its space fraction against the prefix's and report
+    both; a probe with wildly different statistics is a confound, not a control.
+  - `N ∈ {15_000, 25_000, 50_000, 100_000, 200_000}`.
+  - Seeds: the official ten (1–5, 11–15). VAL-6.
+  - Configuration: **B5's winner at the current shipped default**, which since decision 30 means
+    contributor gating ON. State that explicitly in the write-up. C14 measured the decline both
+    gated (5.85 points) and ungated (6.32), so the phenomenon is not an artefact of that flip.
+
+Learning stays on throughout — the probe is simply more stream. **Do NOT freeze learning to
+"evaluate":** README invariant 7 forbids a train/infer split, and freezing would measure a
+different system from the one every other finding measured.
+
+PRE-REGISTER THE READING BEFORE RUNNING ANYTHING, in the script header, as C13 and C14 did.
+
+  POSITIVE CONTROL FIRST — `acc_at_N`, the sliding-window accuracy at the last sample before the
+  probe begins. **This must reproduce the known decline**: it should fall by ≥ 1.0 point between
+  its best N and N = 200,000. If it does not, the run has not reproduced the phenomenon and
+  NOTHING below can be read — stop and explain why, rather than reporting a flat probe as
+  evidence of anything.
+
+  THE MEASUREMENT — `acc_probe`, the mean of the 250-character sliding-window samples whose
+  character count lies in `(N + 2000, N + 5000]`. The +2000 offset is load-bearing: the window is
+  2,000 characters wide, so before that it still straddles the training text.
+
+  THE VERDICT, fixed now:
+    - "THE NETWORK DEGRADES" if `acc_probe` falls ≥ 1.0 point from its best N to N = 200,000 on
+      ≥ 8 of 10 seeds.
+    - "CORPUS DRIFT" if `acc_probe` stays within ±1.0 point across every N on ≥ 8 of 10 seeds,
+      while the positive control shows `acc_at_N` declining.
+    - Anything else is UNRESOLVED, and says so.
+
+  REPORT ALONGSIDE, no verdict: the trigram's own accuracy on the probe at each N. It trains on
+  the prefix too, so if trigram's probe accuracy rises with N while the network's falls, that is a
+  much stronger result than either number alone.
+
+EXACTNESS CONTROLS.
+  X1  THE PREFIX PROPERTY, and it is free. Trials at different N share the same corpus prefix,
+      so every 250-character sample below `min(N)` must be IDENTICAL across all five N values, for a
+      given seed. A failure means length is leaking into the trajectory and nothing is readable.
+  X2  Against `investigate-c14-credit-and-bounds`'s checkpointed rows if the configuration matches,
+      or `investigate-c13-permanence-trajectory`'s if you run ungated. Same idea as C14's X2 —
+      catches an accidental behaviour change at no extra trial cost.
+
+TRAPS.
+  - **The probe must come from beyond the largest N.** At N = 200,000 a probe drawn from, say,
+    150,000 is text the network has already been trained on, which inverts the whole experiment.
+  - **Do not average sliding windows that straddle the boundary** — see the +2000 offset above.
+  - **One discontinuity exists** where the prefix meets the probe. It is identical in every
+    condition, so it does not confound the comparison, but say so rather than leaving a reader to
+    wonder.
+  - `ticksPerInput` is 2. State windows in both ticks and characters (HANDOFF fact 20).
+  - Do not reuse any pre-2026-09-26 figure measured with reward on (finding 25(g)).
+  - Fold a protocol-version string into the checkpoint key (`scripts/CLAUDE.md`), and give the
+    script an env-gated smoke path before the real run.
+
+COST. Linear (0.95–0.98×). A 200,000-character trial is ~40 min at 12 concurrent workers; the five
+lengths sum to roughly 78 min of trial time per seed, so 50 trials is ~1.5 h wall clock on 12
+workers. Budget from concurrency, not from a per-trial figure.
+
+DONE WHEN. The positive control reproduced the decline (or the item stopped and said why); the
+probe reading has a measured answer against the pre-registered bars; `docs/findings.md` carries the
+outcome including a null, with raw data under `docs/appendix/`; **`docs/open-questions.md` item 7
+is updated either way** — dissolved-with-caveats, or narrowed with corpus drift eliminated; if it
+is corpus drift, findings 23, 26, 27 and 28 each get an amendment saying what they were measuring;
+`.claude/HANDOFF.md` fact 22 is updated; and PLAN.md gains this row as **C15** with a Status entry.
+Timestamps [YYYY-MM-DD HH:MM +ZZZZ] on every new entry.
+```
+
+---
+
 ### D1 — `polarity` in `NeuronLocal` + E/I-aware `rescale_one`
 
 ```
@@ -3504,6 +3615,7 @@ demonstrated and ablated, and docs/prior-art.md §13.13 records a new subsection
 | C12 | not started |  |  | Scoped out of C1 (2026-09-19). **The one C1 follow-up whose negative result does not already apply**: C1 measured the _uniform_ downscale, which changes only scale and is therefore erased exactly by the online LRN-6 sweep (targets 6.0 and 3.0 bit-identical on all ten seeds). Selective downscaling changes ratios _within_ a neuron, which a total-renormalising sweep preserves — reasoning from that verified composition argument, not measured. docs/prior-art.md §13.13(h). |
 | C13 | done | 2026-09-28 01:03 +0100 | ~2 h 29 min (22:34 -> 01:03 +0100, both from `date`). Pieces: context reading and the harness change (`permanenceDistribution` + the new worker) by ~22:50, typechecked and smoke-tested against the real addon by 22:53; **32 trials 22:55-00:21 (87 min wall, 12 workers, 16 of them at 200,000 characters — A-b5 62-64 min each, `D-no-sprout` 37-46, `C-default` 24-31)**, with the horizon decision put to the user and recorded, plus docs/prior-art.md §13.13(k) and seven bib keys, all written **while the battery ran**; analysis and write-up 00:21-00:45; `test:fast` ~4 min and `test:slow` ~24 min to 01:03, overlapped with the doc corrections. The ten-seed trigram gap table was re-derived from this run's own data rather than carried over from the prompt's three-seed version. | **Two results, and neither is the one the prompt's leading hypothesis predicted. Nothing was built and no constant changed.** (1) **The horizon is settled, by the user: option (c), TWO horizons by definition** — 15,000 stays pinned and comparable (findings 7-22, `B5_VALUES` and its regression pin all untouched and un-re-derived), 200,000 is the stability horizon, a figure without its horizon is incomplete, and the bars do not transfer (16.56% vs 16.25%; trigram 28.40% vs 29.20%, moving the other way). Option (b) was refused on measured grounds: **VAL-4's milestone is the GAP to trigram and the gap is WORSE at length** (-7.87 at 15,000, -14.10 at 200,000), so lengthening buys ~1 point of level, largely baseline noise, for a re-derivation of findings 7-22. docs/decisions.md decision 28. (2) **The permanence distribution is a trajectory now** (`c5-observe.ts`'s `permanenceDistribution`, on the existing 5,000-character sparse cadence, plus a new `mid` band and a 20-bin histogram), **and the pre-registered lead/trail reading returned UNRESOLVED — because learning and saturation overlap BY CONSTRUCTION, not because the grid was too coarse.** `reinforceAmount` 0.08 against a 1.0 ceiling means nine reinforcements saturate a synapse and `adjust_segment` reinforces every synapse on a correctly-predicting segment, so by the accuracy peak ~73% of the saturation and ~55% of the graded-middle loss have already happened: "did it learn" and "did permanence polarise" are the same event over the same 20,000 characters. **Per the pre-registration, UNRESOLVED means NO REGULATOR IS BUILT**, and the four candidate families were therefore never put to the user — the design call was not earned. Three further results: **the `connected < 90%` landmark TRAILS the peak on 8 of 10 seeds** (45,000-65,000 against 20,000-25,000), so connectivity loss cannot cause the turnover; **`C-default` declines 4.3 points with a FROZEN distribution** (`atOne/occupied` moves 0.7 points over 200,000 characters) while `predictive.rs` classifies 17.7 M predictions there, so polarisation is not _necessary_ for a decline of this shape — a dissociation, not an ablation, since C-default differs in seven mechanisms; and **the histogram corrects the hypothesis's own prose** — [0.45, 0.90) already held 0.2% at 15,000 characters, so the upper-middle was never populated and cannot have hollowed out; what happens is the two low working modes eroding past the connection gate into a sub-threshold tail ([0.05, 0.30) 0.0% -> 30.2%) while the ceiling fills 35.9% -> 56.0%, `distinctPermanences` 15 -> 221. **The pre-registered conjunction is what saved this from a false positive:** three of four landmarks flip from SIMULTANEOUS under `T_peak` to a 5-7-seed LEADS lean under `T_decline`, so one accuracy definition alone would have produced a confident verdict in either direction. **All three exactness controls pass**, including X1 — 18 trials compared field-for-field against `corpus-horizon-v2-postfix`'s checkpointed rows, every `permanenceHash`/`weightHash`/`topologyHash` and both accuracies **identical**, which is what proves the new sampler read-only (RUN-3) at no extra trial cost. Ten seeds also confirm finding 26's block-level caveat: the peak 25,000-character block is 19.32%, **below** the 19.71% the same seeds read at 15,000. Evidence base added ahead of any design call: docs/prior-art.md §13.13(k) (Song/Miller/Abbott 2000, van Rossum/Bi/Turrigiano 2000, BCM 1982, Kirkwood/Rioult/Bear 1996, Royer & Paré 2003, Turrigiano 1998, Zenke/Gerstner/Ganguli 2017 as dissent) with the caveat that every one of those papers measures **efficacy**, not a structural variable, stated as an analogy rather than backing. **`docs/history.md` deliberately NOT updated:** no phase's status changed (C10-C12 remain open) and X1 proves no earlier figure moved, so there is nothing for its "fixes that change what earlier phases measured" section. Harness trap found and recorded: the 250-character progress cadence **cannot reach a run's end state** (the stream is `corpus.length - 1` steps, so the last grid sample of a 200,000-character run is at 195,000) — the final sample is taken in `inspect`, which is also what makes X3 possible. docs/findings.md finding 27, docs/appendix/find-27.md, docs/decisions.md decision 28, docs/open-questions.md item 7 (which now owns the unexplained decline, the two `C-default` puzzles and finding 25(f)'s reward runaway), `scripts/investigate-c13-permanence-trajectory.*`. -- earlier notes: Appended 2026-09-27. The first item to own corpus length, and the owner of the residual post-peak decline findings 25 and 26 left open. Two things were already ruled out before it started: structural plasticity does not cause the decline (finding 26), and the churn runaway plus cost superlinearity were the `target_index` bug (finding 25). |
 | C14 | done | 2026-09-28 09:44 +0100 | ~3 h 10 min (01:03 -> 09:44 +0100, from `date`; the 61-minute battery and a long idle gap sit inside that span, so it is wall clock and not hands-on time). Pieces: the three design calls and docs/prior-art.md §13.13(l) + four bib keys before any code; call (a) corrected ~01:20 after reading `scheduler.rs`; core, FFI, TS surface and 12 tests by ~02:00; the battery written and pre-registered, smoke-tested at ~02:20, 112 trials 07:42-08:43 UTC (61 min, 12 workers). | **BOTH ARMS WORK AND VAL-4 DOES NOT MOVE — a clean, strong, pre-registered negative that FALSIFIES the hypothesis C13 left open. Nothing adopted.** (1) The mechanisms demonstrably did their job: at 200,000 characters soft bounds took ceiling saturation from A's **55.1% to 0.0%** and **nearly doubled the graded middle** (27.3% -> 51.1%), and contributor gating cut the ceiling to 45.5%, raised the middle to 37.4% and raised connectivity to 79.6%. (2) **And VAL-4 moved by at most +0.16 points** — paired, ten seeds, pinned horizon: gating +0.16 (6/10 seeds), soft bounds +0.10 (2/10), both +0.02 (5/10), all NULL by the pre-registered bars, interaction contrast -0.23 so the arms do not interact. (3) **The null is robust to the parameter**, which is what forecloses the obvious objection: the window was swept across a **32-fold range** (1 to 32 characters) and mean accuracy spans 0.23 points, every row within ±0.16 of ungated. There is no window at which gating helps. (4) The post-peak decline is unchanged (block-level drop A 6.32 / G 5.85 / S 7.06 / GS 6.53 points, against a per-seed spread of 4-10). **So permanence polarisation is a PASSENGER, not the cause** — finding 27 could not order saturation against the decline because they overlap by construction; this orders them by intervention. docs/open-questions.md item 7 loses its leading hypothesis. (5) **The pre-registered failure mode did not happen and its absence is informative:** the one-way door (a sub-threshold synapse can never deliver, so a strict gate can never lift it back) predicted a connectivity collapse, and connectivity went **UP** 9.4 points, because gating de-polarises BOTH ends at once. It does bite where the starting distribution is already sub-threshold — a dev smoke on `DEFAULT_CONFIG` (13.6% connected from construction) went 16.00% -> 4.70% — so the trapdoor is a property of the starting distribution, not of the gate. **Two process findings worth more than the result.** `adjust_segment`'s B4-era deferral ("built only if the B5 search shows it costs accuracy") **could never have fired** — contributor gating was never in the B5 search space, so an untested assumption had been wearing the clothes of a tested one. And **design call (a) was corrected before any code was written**: it was decided as a new `last_delivered` field on my incorrect claim that `last_active` is plasticity-only; `Scheduler::deliver` already writes it unconditionally and `snapshot.rs` already persists it, which removed the new field, the +4 bytes/synapse and **the snapshot format version bump** the item was scoped around. **All 23 exactness comparisons identical:** X1's pass-through ablation (`nonContributorFraction: 1.0` reproduces the ungated rule bit-for-bit on all ten seeds — free, and it proves the gate changes only which synapses it reaches) and X2 against C13's checkpointed rows (13 comparisons, catching any accidental behaviour change in the core edit). **Both mechanisms are KEPT in the tree behind default-off switches** (decision 29's reasoning): they are the only measured handle on the permanence distribution, and the next investigation of the decline will want to hold it fixed while varying something else. Not in `canonicalBrain.ts`, and for a different reason from C6/C7/C9's — those cannot be exercised there, these would work fine and simply have nothing measured to adopt. **REOPENED AND EXTENDED THE SAME DAY [2026-09-28 10:30 +0100] at the user's challenge, and the reversal is the most useful thing here.** Decision 29 recorded arm 1 as "not adopted" on this repo's habit that a null is not adopted. The user's argument: **contributor gating is a CORRECTION, not an addition** — reinforcing every synapse on a segment is not a modelling choice that measured flat, it is wrong about the biology — and a correct mechanism that costs nothing should be the default. Adopted, with a **standing rule** (decision 30): _default a mechanism on when it corrects a known biological inaccuracy AND measures within noise; never merely because it measures within noise._ Arm 2 stays off by the same rule. **The pinned figures are re-derived: 20.36% / 19.05% -> 20.05% / 19.67%**, reproducing this item's own `G` rows to the digit; the confirmation figure _improves_ 0.62 and still clears the bar by 3.11. No golden raster moved (`tests/golden.rs` configures no predictive learning — checked before the flip). **Seven Rust tests needed fixing and five were asserting something biologically wrong** (a synapse that never delivered being reinforced). **Two silent-failure traps closed rather than left:** the B5 regression test pins 20.36% within ±0.005 and the gated 20.05% sits INSIDE that band, so it would have passed while measuring a different configuration — it now sets `contributorGating: false` explicitly, which is what its stated job (reproducing a search that ran ungated) actually requires; and the battery's protocol is bumped to `v2-gated-default` because its condition `A` set no `predictiveUpdate` and would now silently compare the gate against itself. **A claim of mine the user correctly rejected, recorded because it changed the rule:** I argued a <1-point-loss policy would compound to −7 points over eight mechanisms. That is unevidenced — nothing here has been measured in combination — and C9's halves (−12.69 alone, null together) contradict additivity outright. New docs/open-questions.md item 8 owns that gap. docs/findings.md finding 28 + its amendment, docs/appendix/find-28.md, docs/decisions.md decisions 29 and 30, docs/prior-art.md §13.13(l), docs/open-questions.md items 7 and 8, `scripts/investigate-c14-credit-and-bounds.*` (v1 rows kept as `*.stale-v1.*`). |
+| C15 | done | 2026-09-28 17:22 +0100 | ~62 min (16:20 -> 17:22 +0100, both from `date`). **Follow-up battery (user request, folded into C15 rather than a new item): designed 17:30-18:00, 290 trials 18:01:04-22:02:23 +0100 (4 h 01 min, 12 workers), write-up to 22:05 (`date`).** Pieces: context reading, script and smoke path (seed 1, N in {5,000, 10,000}, ~1 min, X1/X2 plumbing identical against C14 `G`) by 16:26; **50-trial battery 16:26:41-17:19:34 (53 min wall, 12 workers; 205,000-character trials 30-31 min each, 105,000 ~15-16)**; write-up after | **The result: the post-peak decline is the NETWORK, not the corpus — pre-registered verdict THE NETWORK DEGRADES, 10/10 seeds.** `scripts/investigate-c15-held-out-probe.ts` (protocol `c15-held-out-probe-v1 | probe=300000+5000`) streams `corpus[0..N]`then the same 5,000-character probe`corpus[300,000..305,000)`for N = 15,000/25,000/50,000/100,000/200,000, learning on throughout, B5's winner at the shipped default (gating ON). No harness change: it drives C13's worker. Positive control PASS (fresh-text`acc_at_N`20.33% -> 15.46%, 4.87 points). Probe accuracy 19.75% -> 15.13% (4.62 points, smallest per-seed drop 2.81), 95% of the fresh-text decline; the trigram gains +2.08 on the identical probe (27.61% -> 29.69%). Probe space fraction 16.12% against 16.25% for the prefix. X1 (prefix property, 1,330 samples + 57 histograms per seed) and X2 (65 comparisons against C14's`G` rows, key-checked) all identical. Two definitional clarifications recorded in the header before the run (`acc_at_N`at N - 250; the ±1.0 band centred on each seed's own mean). Nothing adopted, no constant or pinned figure changed; findings 23, 26-28 need no amendment. Left open: learning-on probing cannot separate degraded stored predictions from lost adaptability. docs/findings.md finding 29, docs/appendix/find-29.md, docs/open-questions.md item 7,`.claude/HANDOFF.md` fact 22. **Follow-up battery** (`scripts/investigate-c15-probe-battery.ts`, protocol `c15-probe-battery-v1`, docs/findings.md finding 30, docs/appendix/find-30.md): prefix + probe ×2 + a familiar early passage, eight arms plus two control arms, ten seeds, all controls identical (X4 withdrawn before the run — C9's rows were pre-fix). The decline is **general competence loss** (familiar text never beats unseen; one reading teaches ~0). Update size and 2→4 segments are NULL, **punishment off makes it LARGER** (+1.99, 9/10), and `DEFAULT_CONFIG`ungated also degrades on the probe (9/10). **Decision 30 broke`DEFAULT_CONFIG`** (5.50% vs 17.18%, −11.69 on 10/10), left for the user as docs/open-questions.md item 9. Finding 22's pair null survives post-fix re-measurement (−0.29). First three-way combination adds (+0.34). Harness: optional `predictiveUpdate.reinforceAmount`/`punishAmount`(decision 31). **Second follow-up, decline cause:**`scripts/investigate-c15-decline-cause.ts`(protocol`c15-decline-cause-v1`, docs/findings.md finding 31, docs/appendix/find-31.md), 290 trials 23:24-03:54 +0100 (4 h 30 min, 12 workers), write-up to 03:58 (`date`). **The decline is a READOUT MISMATCH driven by exposure**: a learned decoder on the same activity holds flat 9/10 while the fixed readout falls 10/10, and looped text degrades on its 13th reading (20.76% → 15.45%). False positives, reinforce size and a partial gate are out; 8 segments trims ~1 point (the only lever by the bar); threshold-floor arms delay the curve. `NOSTH`is void: a`buildNetwork`default parameter refills the field (HANDOFF fact 23). Open: why the activity drifts (item 7), and whether the readout should learn (item 10). Built first:`B5_CONFIG`as the default (decision 32, the user's call on open question 9), plus two read-only instruments,`segmentThresholdStats()`and`onStep` (decision 33). |
 | D1 | not started |  |  |  |
 | D2 | not started |  |  |  |
 | D3 | not started |  |  | Split out of D2 on 2026-09-20 so every item fits one session; D2's prompt carries the shared context and this row's prompt states the sub-scope. The ablation needs a network that actually contains inhibitory neurons, plus a chosen measurable for "balance" (Vogels' asynchronous irregular state, or Beggs & Plenz avalanche exponents — docs/prior-art.md §13.13(a) names both) and multi-seed evidence per VAL-6. |

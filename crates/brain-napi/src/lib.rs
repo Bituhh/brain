@@ -1360,6 +1360,24 @@ pub struct StdpModulationStatsFfi {
     pub max_level: Vec<f64>,
 }
 
+/// Per-segment threshold homeostasis's live thresholds, summarised (OBS-2;
+/// docs/decisions.md decision 33). Read-only: a scan of
+/// `Scheduler::segment_threshold_raw_state`, merged over every partition.
+/// Exists because the thresholds drift for the whole run and nothing could
+/// see them without a snapshot (docs/findings.md finding 31).
+#[napi(object)]
+pub struct SegmentThresholdStatsFfi {
+    /// Composite segments with a live threshold (lazily sized, so only those touched so far).
+    pub count: f64,
+    pub mean: f64,
+    pub min: f64,
+    pub max: f64,
+    /// 33 bins: [0, 0.25), [0.25, 0.5), ... [7.75, 8.0), then everything >= 8.0.
+    pub histogram: Vec<f64>,
+    /// Mean of the per-segment depolarisation-rate estimates the homeostasis steers.
+    pub mean_rate_estimate: f64,
+}
+
 /// What `transmissionModulation` actually did (PLAN.md C9, OBS-2), merged
 /// over every partition. Counts are `f64` for the reason
 /// `PredictionOutcomeTotalsFfi`'s are; the extremes are NaN when nothing was
@@ -2857,6 +2875,53 @@ impl NativeSimulation {
             max_scale: f64::from(stats.max_scale),
             min_level: stats.min_level.iter().map(|&l| f64::from(l)).collect(),
             max_level: stats.max_level.iter().map(|&l| f64::from(l)).collect(),
+        })
+    }
+
+    /// Per-segment threshold homeostasis's live thresholds -- see
+    /// `SegmentThresholdStatsFfi`. `null` when no segment has a threshold yet
+    /// (the mechanism is unconfigured, or nothing has been evaluated).
+    #[napi]
+    pub fn segment_threshold_stats(&self) -> Option<SegmentThresholdStatsFfi> {
+        let mut thresholds: Vec<f32> = Vec::new();
+        let mut rates: Vec<f32> = Vec::new();
+        match &self.runtime {
+            Runtime::Single(scheduler) => {
+                let (t, r, _) = scheduler.segment_threshold_raw_state();
+                thresholds.extend_from_slice(t);
+                rates.extend_from_slice(r);
+            }
+            Runtime::Partitioned(state) => {
+                if let Some(pr) = &state.runtime {
+                    for p in 0..pr.partition_count() {
+                        let (t, r, _) = pr.scheduler(p).segment_threshold_raw_state();
+                        thresholds.extend_from_slice(t);
+                        rates.extend_from_slice(r);
+                    }
+                }
+            }
+        }
+        if thresholds.is_empty() {
+            return None;
+        }
+        let mut histogram = vec![0.0f64; 33];
+        let (mut sum, mut min, mut max) = (0.0f64, f64::INFINITY, f64::NEG_INFINITY);
+        for &t in &thresholds {
+            let t = f64::from(t);
+            sum += t;
+            min = min.min(t);
+            max = max.max(t);
+            let bin = if t >= 8.0 { 32 } else { (t.max(0.0) / 0.25) as usize };
+            histogram[bin.min(32)] += 1.0;
+        }
+        let rate_sum: f64 = rates.iter().map(|&r| f64::from(r)).sum();
+        Some(SegmentThresholdStatsFfi {
+            count: thresholds.len() as f64,
+            mean: sum / thresholds.len() as f64,
+            min,
+            max,
+            histogram,
+            mean_rate_estimate: if rates.is_empty() { f64::NAN } else { rate_sum / rates.len() as f64 },
         })
     }
 

@@ -1,0 +1,344 @@
+[2026-09-28 17:01:04 +0000] c15-probe-battery: 290 trials, 0 reused, 290 to run on 12 workers.
+[2026-09-28 17:06:04 +0000] [heartbeat] 0/290 done, 5.0 min elapsed
+[2026-09-28 17:11:04 +0000] [heartbeat] 0/290 done, 10.0 min elapsed
+[2026-09-28 17:16:04 +0000] [heartbeat] 0/290 done, 15.0 min elapsed
+[2026-09-28 17:21:04 +0000] [heartbeat] 0/290 done, 20.0 min elapsed
+[2026-09-28 17:26:04 +0000] [heartbeat] 0/290 done, 25.0 min elapsed
+[2026-09-28 17:29:48 +0000]   [1/290] BASE seed=11 N=200000+suffix -> probe1=14.48% probe2=12.24% familiar=12.90% wall=1723.7s
+[2026-09-28 17:29:56 +0000]   [2/290] BASE seed=13 N=200000+suffix -> probe1=16.51% probe2=15.95% familiar=16.09% wall=1731.5s
+[2026-09-28 17:29:56 +0000]   [3/290] BASE seed=5 N=200000+suffix -> probe1=14.87% probe2=16.42% familiar=15.78% wall=1731.8s
+[2026-09-28 17:30:00 +0000]   [4/290] BASE seed=3 N=200000+suffix -> probe1=14.28% probe2=13.18% familiar=12.44% wall=1735.4s
+[2026-09-28 17:30:02 +0000]   [5/290] BASE seed=2 N=200000+suffix -> probe1=15.48% probe2=15.56% familiar=15.96% wall=1737.7s
+[2026-09-28 17:30:02 +0000]   [6/290] BASE seed=4 N=200000+suffix -> probe1=14.49% probe2=14.97% familiar=14.34% wall=1738.1s
+[2026-09-28 17:30:08 +0000]   [7/290] BASE seed=14 N=200000+suffix -> probe1=15.44% probe2=14.44% familiar=12.89% wall=1743.7s
+[2026-09-28 17:30:16 +0000]   [8/290] BASE seed=15 N=200000+suffix -> probe1=15.70% probe2=16.50% familiar=15.40% wall=1752.1s
+[2026-09-28 17:30:20 +0000]   [9/290] BASE seed=12 N=200000+suffix -> probe1=13.03% probe2=13.14% familiar=12.16% wall=1755.8s
+[2026-09-28 17:30:24 +0000]   [10/290] BASE seed=1 N=200000+suffix -> probe1=16.13% probe2=14.98% familiar=14.15% wall=1759.8s
+[2026-09-28 17:30:38 +0000]   [11/290] SEG4 seed=1 N=200000+suffix -> probe1=14.81% probe2=15.25% familiar=15.76% wall=1773.9s
+[2026-09-28 17:30:46 +0000]   [12/290] SEG4 seed=2 N=200000+suffix -> probe1=12.67% probe2=14.91% familiar=14.82% wall=1781.7s
+[2026-09-28 17:31:04 +0000] [heartbeat] 12/290 done, 30.0 min elapsed
+[2026-09-28 17:36:04 +0000] [heartbeat] 12/290 done, 35.0 min elapsed
+[2026-09-28 17:41:04 +0000] [heartbeat] 12/290 done, 40.0 min elapsed
+[2026-09-28 17:46:04 +0000] [heartbeat] 12/290 done, 45.0 min elapsed
+[2026-09-28 17:51:04 +0000] [heartbeat] 12/290 done, 50.0 min elapsed
+[2026-09-28 17:56:04 +0000] [heartbeat] 12/290 done, 55.0 min elapsed
+[2026-09-28 17:58:16 +0000]   [13/290] SEG4 seed=3 N=200000+suffix -> probe1=17.52% probe2=17.43% familiar=16.74% wall=1708.4s
+[2026-09-28 17:58:29 +0000]   [14/290] SEG4 seed=13 N=200000+suffix -> probe1=16.62% probe2=16.13% familiar=17.91% wall=1706.6s
+[2026-09-28 17:58:35 +0000]   [15/290] SEG4 seed=4 N=200000+suffix -> probe1=13.55% probe2=14.25% familiar=12.49% wall=1718.8s
+[2026-09-28 17:58:40 +0000]   [16/290] SEG4 seed=5 N=200000+suffix -> probe1=14.43% probe2=12.83% familiar=13.80% wall=1723.8s
+[2026-09-28 17:58:48 +0000]   [17/290] SEG4 seed=11 N=200000+suffix -> probe1=16.32% probe2=15.34% familiar=15.06% wall=1728.8s
+[2026-09-28 17:58:50 +0000]   [18/290] SEG4 seed=12 N=200000+suffix -> probe1=16.23% probe2=15.86% familiar=14.70% wall=1728.4s
+[2026-09-28 17:58:51 +0000]   [19/290] SEG4 seed=15 N=200000+suffix -> probe1=16.05% probe2=16.07% familiar=14.91% wall=1714.4s
+[2026-09-28 17:58:52 +0000]   [20/290] HALF seed=1 N=200000+suffix -> probe1=13.58% probe2=13.05% familiar=12.79% wall=1711.9s
+[2026-09-28 17:58:53 +0000]   [21/290] SEG4 seed=14 N=200000+suffix -> probe1=15.80% probe2=15.78% familiar=14.67% wall=1725.1s
+[2026-09-28 17:59:01 +0000]   [22/290] HALF seed=2 N=200000+suffix -> probe1=15.04% probe2=15.70% familiar=15.01% wall=1716.8s
+[2026-09-28 17:59:14 +0000]   [23/290] HALF seed=3 N=200000+suffix -> probe1=14.66% probe2=15.65% familiar=14.91% wall=1716.2s
+[2026-09-28 17:59:25 +0000]   [24/290] HALF seed=4 N=200000+suffix -> probe1=13.12% probe2=13.82% familiar=14.77% wall=1718.9s
+[2026-09-28 18:01:04 +0000] [heartbeat] 24/290 done, 60.0 min elapsed
+[2026-09-28 18:06:04 +0000] [heartbeat] 24/290 done, 65.0 min elapsed
+[2026-09-28 18:11:04 +0000] [heartbeat] 24/290 done, 70.0 min elapsed
+[2026-09-28 18:16:04 +0000] [heartbeat] 24/290 done, 75.0 min elapsed
+[2026-09-28 18:21:04 +0000] [heartbeat] 24/290 done, 80.0 min elapsed
+[2026-09-28 18:26:04 +0000] [heartbeat] 24/290 done, 85.0 min elapsed
+[2026-09-28 18:26:23 +0000]   [25/290] HALF seed=5 N=200000+suffix -> probe1=15.24% probe2=15.08% familiar=13.97% wall=1686.4s
+[2026-09-28 18:26:29 +0000]   [26/290] HALF seed=11 N=200000+suffix -> probe1=11.77% probe2=10.55% familiar=11.01% wall=1680.4s
+[2026-09-28 18:26:41 +0000]   [27/290] HALF seed=13 N=200000+suffix -> probe1=15.15% probe2=14.31% familiar=14.91% wall=1680.7s
+[2026-09-28 18:26:49 +0000]   [28/290] HALF seed=12 N=200000+suffix -> probe1=16.79% probe2=17.09% familiar=16.54% wall=1694.8s
+[2026-09-28 18:26:58 +0000]   [29/290] HALF seed=15 N=200000+suffix -> probe1=14.47% probe2=14.45% familiar=14.29% wall=1688.0s
+[2026-09-28 18:27:13 +0000]   [30/290] HALF seed=14 N=200000+suffix -> probe1=15.48% probe2=15.72% familiar=15.73% wall=1704.8s
+[2026-09-28 18:31:04 +0000] [heartbeat] 30/290 done, 90.0 min elapsed
+[2026-09-28 18:35:22 +0000]   [31/290] NOPUN seed=3 N=200000+suffix -> probe1=12.75% probe2=12.73% familiar=12.93% wall=2188.5s
+[2026-09-28 18:35:37 +0000]   [32/290] NOPUN seed=2 N=200000+suffix -> probe1=13.40% probe2=13.72% familiar=13.60% wall=2204.7s
+[2026-09-28 18:35:49 +0000]   [33/290] NOPUN seed=1 N=200000+suffix -> probe1=12.10% probe2=12.45% familiar=12.02% wall=2217.9s
+[2026-09-28 18:36:04 +0000] [heartbeat] 33/290 done, 95.0 min elapsed
+[2026-09-28 18:36:08 +0000]   [34/290] NOPUN seed=4 N=200000+suffix -> probe1=11.90% probe2=11.81% familiar=12.02% wall=2227.4s
+[2026-09-28 18:36:12 +0000]   [35/290] NOPUN seed=11 N=200000+suffix -> probe1=13.68% probe2=13.86% familiar=13.19% wall=2206.9s
+[2026-09-28 18:36:12 +0000]   [36/290] NOPUN seed=5 N=200000+suffix -> probe1=12.72% probe2=12.48% familiar=12.81% wall=2218.0s
+[2026-09-28 18:41:04 +0000] [heartbeat] 36/290 done, 100.0 min elapsed
+[2026-09-28 18:43:19 +0000]   [37/290] CDEF seed=1 N=200000+suffix -> probe1=5.76% probe2=6.32% familiar=5.65% wall=980.6s
+[2026-09-28 18:43:44 +0000]   [38/290] CDEF seed=2 N=200000+suffix -> probe1=3.90% probe2=3.68% familiar=3.33% wall=990.8s
+[2026-09-28 18:46:04 +0000] [heartbeat] 38/290 done, 105.0 min elapsed
+[2026-09-28 18:51:04 +0000] [heartbeat] 38/290 done, 110.0 min elapsed
+[2026-09-28 18:52:41 +0000]   [39/290] CDEF seed=3 N=200000+suffix -> probe1=9.28% probe2=9.47% familiar=9.81% wall=1039.6s
+[2026-09-28 18:52:56 +0000]   [40/290] CDEF seed=4 N=200000+suffix -> probe1=4.20% probe2=4.42% familiar=4.10% wall=1039.1s
+[2026-09-28 18:53:15 +0000]   [41/290] CDEF seed=5 N=200000+suffix -> probe1=6.74% probe2=7.02% familiar=5.57% wall=1046.6s
+[2026-09-28 18:53:27 +0000]   [42/290] CDEF seed=11 N=200000+suffix -> probe1=4.20% probe2=4.21% familiar=3.35% wall=1039.1s
+[2026-09-28 18:53:33 +0000]   [43/290] CDEF seed=12 N=200000+suffix -> probe1=5.55% probe2=4.14% familiar=6.05% wall=1041.3s
+[2026-09-28 18:53:37 +0000]   [44/290] CDEF seed=13 N=200000+suffix -> probe1=5.13% probe2=5.98% familiar=5.07% wall=1044.6s
+[2026-09-28 18:56:04 +0000] [heartbeat] 44/290 done, 115.0 min elapsed
+[2026-09-28 19:00:40 +0000]   [45/290] CDEF seed=14 N=200000+suffix -> probe1=5.06% probe2=4.72% familiar=4.95% wall=1040.9s
+[2026-09-28 19:01:04 +0000] [heartbeat] 45/290 done, 120.0 min elapsed
+[2026-09-28 19:01:05 +0000]   [46/290] CDEF seed=15 N=200000+suffix -> probe1=8.29% probe2=8.30% familiar=7.10% wall=1041.4s
+[2026-09-28 19:05:30 +0000]   [47/290] NOPUN seed=13 N=200000+suffix -> probe1=12.28% probe2=12.88% familiar=13.75% wall=2341.1s
+[2026-09-28 19:06:04 +0000] [heartbeat] 47/290 done, 125.0 min elapsed
+[2026-09-28 19:06:15 +0000]   [48/290] NOPUN seed=14 N=200000+suffix -> probe1=12.60% probe2=12.67% familiar=12.75% wall=2374.3s
+[2026-09-28 19:06:22 +0000]   [49/290] NOPUN seed=12 N=200000+suffix -> probe1=10.63% probe2=10.47% familiar=12.11% wall=2399.0s
+[2026-09-28 19:06:49 +0000]   [50/290] NOPUN seed=15 N=200000+suffix -> probe1=13.17% probe2=13.43% familiar=12.24% wall=2399.6s
+[2026-09-28 19:10:01 +0000]   [51/290] CDEFU seed=1 N=200000+suffix -> probe1=14.45% probe2=14.49% familiar=13.31% wall=1039.7s
+[2026-09-28 19:10:16 +0000]   [52/290] CDEFU seed=2 N=200000+suffix -> probe1=11.14% probe2=12.47% familiar=9.50% wall=1040.0s
+[2026-09-28 19:10:38 +0000]   [53/290] CDEFU seed=3 N=200000+suffix -> probe1=15.90% probe2=15.56% familiar=16.94% wall=1042.4s
+[2026-09-28 19:10:51 +0000]   [54/290] CDEFU seed=4 N=200000+suffix -> probe1=14.61% probe2=15.16% familiar=13.80% wall=1044.1s
+[2026-09-28 19:10:58 +0000]   [55/290] CDEFU seed=5 N=200000+suffix -> probe1=11.95% probe2=11.69% familiar=11.42% wall=1044.5s
+[2026-09-28 19:11:03 +0000]   [56/290] CDEFU seed=11 N=200000+suffix -> probe1=15.84% probe2=16.12% familiar=14.63% wall=1045.9s
+[2026-09-28 19:11:04 +0000] [heartbeat] 56/290 done, 130.0 min elapsed
+[2026-09-28 19:16:04 +0000] [heartbeat] 56/290 done, 135.0 min elapsed
+[2026-09-28 19:17:36 +0000]   [57/290] CDEFU seed=12 N=200000+suffix -> probe1=12.93% probe2=13.35% familiar=12.56% wall=1016.5s
+[2026-09-28 19:17:51 +0000]   [58/290] CDEFU seed=13 N=200000+suffix -> probe1=14.91% probe2=16.01% familiar=16.13% wall=1005.2s
+[2026-09-28 19:21:04 +0000] [heartbeat] 58/290 done, 140.0 min elapsed
+[2026-09-28 19:21:41 +0000]   [59/290] CDEFU seed=14 N=200000+suffix -> probe1=13.74% probe2=14.01% familiar=13.40% wall=970.6s
+[2026-09-28 19:22:21 +0000]   [60/290] CDEFU seed=15 N=200000+suffix -> probe1=14.33% probe2=14.73% familiar=14.09% wall=966.4s
+[2026-09-28 19:26:04 +0000] [heartbeat] 60/290 done, 145.0 min elapsed
+[2026-09-28 19:31:04 +0000] [heartbeat] 60/290 done, 150.0 min elapsed
+[2026-09-28 19:36:04 +0000] [heartbeat] 60/290 done, 155.0 min elapsed
+[2026-09-28 19:37:42 +0000]   [61/290] TPG seed=1 N=200000+suffix -> probe1=15.61% probe2=16.13% familiar=14.60% wall=1879.8s
+[2026-09-28 19:37:59 +0000]   [62/290] TPG seed=2 N=200000+suffix -> probe1=16.38% probe2=15.78% familiar=14.99% wall=1869.8s
+[2026-09-28 19:40:49 +0000]   [63/290] TPG seed=3 N=200000+suffix -> probe1=14.44% probe2=15.94% familiar=16.25% wall=1847.8s
+[2026-09-28 19:41:04 +0000] [heartbeat] 63/290 done, 160.0 min elapsed
+[2026-09-28 19:41:06 +0000]   [64/290] TPG seed=11 N=200000+suffix -> probe1=13.32% probe2=13.08% familiar=13.89% wall=1814.4s
+[2026-09-28 19:41:31 +0000]   [65/290] TPG seed=4 N=200000+suffix -> probe1=13.15% probe2=12.52% familiar=15.68% wall=1875.4s
+[2026-09-28 19:41:40 +0000]   [66/290] TPG seed=5 N=200000+suffix -> probe1=12.46% probe2=12.75% familiar=15.11% wall=1862.6s
+[2026-09-28 19:41:46 +0000]   [67/290] TPG seed=13 N=200000+suffix -> probe1=15.19% probe2=15.72% familiar=17.78% wall=1843.2s
+[2026-09-28 19:41:50 +0000]   [68/290] TPG seed=12 N=200000+suffix -> probe1=16.79% probe2=15.98% familiar=16.40% wall=1852.4s
+[2026-09-28 19:46:04 +0000] [heartbeat] 68/290 done, 165.0 min elapsed
+[2026-09-28 19:48:20 +0000]   [69/290] TPG seed=14 N=200000+suffix -> probe1=13.08% probe2=12.91% familiar=12.05% wall=1843.3s
+[2026-09-28 19:48:20 +0000]   [70/290] TPG seed=15 N=200000+suffix -> probe1=14.96% probe2=14.45% familiar=12.28% wall=1829.2s
+[2026-09-28 19:51:04 +0000] [heartbeat] 70/290 done, 170.0 min elapsed
+[2026-09-28 19:53:06 +0000]   [71/290] COMBO seed=1 N=200000+suffix -> probe1=11.67% probe2=12.07% familiar=11.35% wall=1885.3s
+[2026-09-28 19:53:54 +0000]   [72/290] COMBO seed=2 N=200000+suffix -> probe1=15.94% probe2=15.61% familiar=14.34% wall=1892.6s
+[2026-09-28 19:56:04 +0000] [heartbeat] 72/290 done, 175.0 min elapsed
+[2026-09-28 20:01:04 +0000] [heartbeat] 72/290 done, 180.0 min elapsed
+[2026-09-28 20:02:39 +0000]   [73/290] BASE seed=2 N=100000+suffix -> probe1=16.14% probe2=15.10% familiar=15.86% wall=859.5s
+[2026-09-28 20:02:43 +0000]   [74/290] BASE seed=1 N=100000+suffix -> probe1=19.10% probe2=20.63% familiar=17.69% wall=863.3s
+[2026-09-28 20:06:04 +0000] [heartbeat] 74/290 done, 185.0 min elapsed
+[2026-09-28 20:07:28 +0000]   [75/290] BASE seed=3 N=100000+suffix -> probe1=16.45% probe2=16.15% familiar=17.44% wall=862.1s
+[2026-09-28 20:08:21 +0000]   [76/290] BASE seed=4 N=100000+suffix -> probe1=16.78% probe2=14.35% familiar=13.35% wall=867.3s
+[2026-09-28 20:08:32 +0000]   [77/290] COMBO seed=3 N=200000+suffix -> probe1=13.85% probe2=13.06% familiar=12.96% wall=1850.1s
+[2026-09-28 20:09:26 +0000]   [78/290] COMBO seed=4 N=200000+suffix -> probe1=12.05% probe2=12.47% familiar=12.97% wall=1887.4s
+[2026-09-28 20:11:04 +0000] [heartbeat] 78/290 done, 190.0 min elapsed
+[2026-09-28 20:12:04 +0000]   [79/290] COMBO seed=5 N=200000+suffix -> probe1=14.81% probe2=13.80% familiar=14.01% wall=1875.2s
+[2026-09-28 20:12:52 +0000]   [80/290] COMBO seed=11 N=200000+suffix -> probe1=13.98% probe2=14.71% familiar=16.13% wall=1905.9s
+[2026-09-28 20:12:59 +0000]   [81/290] COMBO seed=13 N=200000+suffix -> probe1=15.02% probe2=14.58% familiar=15.10% wall=1878.5s
+[2026-09-28 20:13:03 +0000]   [82/290] COMBO seed=14 N=200000+suffix -> probe1=15.71% probe2=15.51% familiar=16.07% wall=1876.7s
+[2026-09-28 20:13:08 +0000]   [83/290] COMBO seed=15 N=200000+suffix -> probe1=14.67% probe2=14.66% familiar=14.35% wall=1877.9s
+[2026-09-28 20:13:18 +0000]   [84/290] COMBO seed=12 N=200000+suffix -> probe1=17.18% probe2=15.97% familiar=15.67% wall=1906.4s
+[2026-09-28 20:16:04 +0000] [heartbeat] 84/290 done, 195.0 min elapsed
+[2026-09-28 20:17:12 +0000]   [85/290] BASE seed=11 N=100000+suffix -> probe1=16.07% probe2=15.64% familiar=14.93% wall=869.2s
+[2026-09-28 20:17:13 +0000]   [86/290] BASE seed=5 N=100000+suffix -> probe1=18.66% probe2=18.26% familiar=17.71% wall=874.1s
+[2026-09-28 20:20:15 +0000]   [87/290] BASE seed=1 N=50000+suffix -> probe1=17.72% probe2=18.60% familiar=19.50% wall=491.1s
+[2026-09-28 20:21:02 +0000]   [88/290] BASE seed=2 N=50000+suffix -> probe1=16.40% probe2=16.57% familiar=17.44% wall=490.3s
+[2026-09-28 20:21:04 +0000] [heartbeat] 88/290 done, 200.0 min elapsed
+[2026-09-28 20:21:06 +0000]   [89/290] BASE seed=3 N=50000+suffix -> probe1=15.92% probe2=16.63% familiar=15.44% wall=487.2s
+[2026-09-28 20:21:14 +0000]   [90/290] BASE seed=4 N=50000+suffix -> probe1=17.81% probe2=15.69% familiar=17.62% wall=491.3s
+[2026-09-28 20:21:19 +0000]   [91/290] BASE seed=5 N=50000+suffix -> probe1=16.28% probe2=16.69% familiar=17.73% wall=491.2s
+[2026-09-28 20:21:29 +0000]   [92/290] BASE seed=11 N=50000+suffix -> probe1=19.93% probe2=18.78% familiar=17.70% wall=491.1s
+[2026-09-28 20:22:33 +0000]   [93/290] BASE seed=12 N=100000+suffix -> probe1=16.52% probe2=17.20% familiar=16.08% wall=904.7s
+[2026-09-28 20:23:04 +0000]   [94/290] BASE seed=13 N=100000+suffix -> probe1=18.47% probe2=19.08% familiar=18.75% wall=883.2s
+[2026-09-28 20:23:17 +0000]   [95/290] BASE seed=14 N=100000+suffix -> probe1=14.41% probe2=16.11% familiar=17.17% wall=885.7s
+[2026-09-28 20:24:20 +0000]   [96/290] BASE seed=15 N=100000+suffix -> probe1=16.22% probe2=15.77% familiar=16.10% wall=894.0s
+[2026-09-28 20:25:19 +0000]   [97/290] BASE seed=13 N=50000+suffix -> probe1=20.40% probe2=20.30% familiar=19.15% wall=485.8s
+[2026-09-28 20:25:34 +0000]   [98/290] BASE seed=12 N=50000+suffix -> probe1=16.63% probe2=15.68% familiar=16.57% wall=502.1s
+[2026-09-28 20:25:57 +0000]   [99/290] BASE seed=1 N=25000+suffix -> probe1=19.00% probe2=18.59% familiar=18.65% wall=290.6s
+[2026-09-28 20:26:04 +0000]   [100/290] BASE seed=2 N=25000+suffix -> probe1=19.24% probe2=18.65% familiar=19.27% wall=289.6s
+[2026-09-28 20:26:04 +0000] [heartbeat] 100/290 done, 205.0 min elapsed
+[2026-09-28 20:26:06 +0000]   [101/290] BASE seed=3 N=25000+suffix -> probe1=19.92% probe2=21.02% familiar=19.72% wall=287.2s
+[2026-09-28 20:26:18 +0000]   [102/290] BASE seed=4 N=25000+suffix -> probe1=18.93% probe2=17.59% familiar=19.04% wall=289.3s
+[2026-09-28 20:27:21 +0000]   [103/290] BASE seed=5 N=25000+suffix -> probe1=18.33% probe2=17.98% familiar=17.91% wall=287.8s
+[2026-09-28 20:27:52 +0000]   [104/290] BASE seed=11 N=25000+suffix -> probe1=18.88% probe2=18.26% familiar=17.84% wall=287.9s
+[2026-09-28 20:28:10 +0000]   [105/290] BASE seed=12 N=25000+suffix -> probe1=19.98% probe2=18.87% familiar=19.14% wall=292.9s
+[2026-09-28 20:28:27 +0000]   [106/290] BASE seed=14 N=50000+suffix -> probe1=18.03% probe2=18.14% familiar=18.33% wall=492.3s
+[2026-09-28 20:29:09 +0000]   [107/290] BASE seed=13 N=25000+suffix -> probe1=19.76% probe2=19.85% familiar=20.69% wall=288.7s
+[2026-09-28 20:29:18 +0000]   [108/290] BASE seed=15 N=50000+suffix -> probe1=18.52% probe2=17.99% familiar=17.60% wall=496.0s
+[2026-09-28 20:29:25 +0000]   [109/290] BASE seed=1 N=15000+suffix -> probe1=18.57% probe2=19.79% familiar=19.74% wall=208.9s
+[2026-09-28 20:29:31 +0000]   [110/290] BASE seed=2 N=15000+suffix -> probe1=19.77% probe2=20.22% familiar=20.34% wall=207.7s
+[2026-09-28 20:29:34 +0000]   [111/290] BASE seed=3 N=15000+suffix -> probe1=20.98% probe2=21.29% familiar=20.51% wall=207.6s
+[2026-09-28 20:29:47 +0000]   [112/290] BASE seed=4 N=15000+suffix -> probe1=19.45% probe2=19.07% familiar=19.15% wall=209.4s
+[2026-09-28 20:30:10 +0000]   [113/290] BASE seed=14 N=25000+suffix -> probe1=18.90% probe2=18.36% familiar=19.30% wall=290.2s
+[2026-09-28 20:30:27 +0000]   [114/290] BASE seed=15 N=25000+suffix -> probe1=20.20% probe2=18.45% familiar=19.83% wall=292.2s
+[2026-09-28 20:30:49 +0000]   [115/290] BASE seed=5 N=15000+suffix -> probe1=18.99% probe2=19.50% familiar=17.65% wall=208.6s
+[2026-09-28 20:31:04 +0000] [heartbeat] 115/290 done, 210.0 min elapsed
+[2026-09-28 20:31:23 +0000]   [116/290] BASE seed=11 N=15000+suffix -> probe1=19.79% probe2=18.51% familiar=17.57% wall=210.4s
+[2026-09-28 20:31:41 +0000]   [117/290] BASE seed=12 N=15000+suffix -> probe1=20.40% probe2=20.47% familiar=19.32% wall=210.7s
+[2026-09-28 20:31:55 +0000]   [118/290] BASE seed=13 N=15000+suffix -> probe1=20.50% probe2=20.07% familiar=20.55% wall=207.7s
+[2026-09-28 20:32:39 +0000]   [119/290] BASE seed=14 N=15000+suffix -> probe1=19.41% probe2=19.18% familiar=17.45% wall=210.4s
+[2026-09-28 20:32:41 +0000]   [120/290] SEG4 seed=1 N=15000+suffix -> probe1=19.36% probe2=19.40% familiar=19.92% wall=196.0s
+[2026-09-28 20:32:47 +0000]   [121/290] BASE seed=15 N=15000+suffix -> probe1=19.18% probe2=20.74% familiar=19.33% wall=208.6s
+[2026-09-28 20:32:49 +0000]   [122/290] SEG4 seed=2 N=15000+suffix -> probe1=18.76% probe2=19.43% familiar=18.55% wall=197.1s
+[2026-09-28 20:32:49 +0000]   [123/290] SEG4 seed=3 N=15000+suffix -> probe1=20.10% probe2=19.95% familiar=20.65% wall=195.2s
+[2026-09-28 20:33:03 +0000]   [124/290] SEG4 seed=4 N=15000+suffix -> probe1=19.13% probe2=20.01% familiar=20.08% wall=196.0s
+[2026-09-28 20:33:26 +0000]   [125/290] SEG4 seed=5 N=15000+suffix -> probe1=19.06% probe2=19.84% familiar=19.44% wall=196.5s
+[2026-09-28 20:33:43 +0000]   [126/290] SEG4 seed=11 N=15000+suffix -> probe1=19.09% probe2=20.21% familiar=20.14% wall=196.6s
+[2026-09-28 20:34:10 +0000]   [127/290] SEG4 seed=12 N=15000+suffix -> probe1=19.34% probe2=20.15% familiar=20.30% wall=200.2s
+[2026-09-28 20:34:40 +0000]   [128/290] SEG4 seed=13 N=15000+suffix -> probe1=18.73% probe2=18.45% familiar=18.88% wall=196.8s
+[2026-09-28 20:35:02 +0000]   [129/290] SEG4 seed=14 N=15000+suffix -> probe1=18.20% probe2=19.41% familiar=18.48% wall=200.6s
+[2026-09-28 20:35:15 +0000]   [130/290] SEG4 seed=15 N=15000+suffix -> probe1=18.13% probe2=19.67% familiar=18.69% wall=199.8s
+[2026-09-28 20:36:04 +0000] [heartbeat] 130/290 done, 215.0 min elapsed
+[2026-09-28 20:36:14 +0000]   [131/290] HALF seed=1 N=15000+suffix -> probe1=18.71% probe2=19.49% familiar=19.32% wall=214.7s
+[2026-09-28 20:36:15 +0000]   [132/290] HALF seed=2 N=15000+suffix -> probe1=19.95% probe2=19.83% familiar=19.24% wall=213.4s
+[2026-09-28 20:36:18 +0000]   [133/290] HALF seed=3 N=15000+suffix -> probe1=21.27% probe2=21.00% familiar=21.08% wall=211.5s
+[2026-09-28 20:36:23 +0000]   [134/290] HALF seed=5 N=15000+suffix -> probe1=18.81% probe2=19.84% familiar=19.43% wall=213.9s
+[2026-09-28 20:36:30 +0000]   [135/290] HALF seed=4 N=15000+suffix -> probe1=20.01% probe2=19.82% familiar=20.15% wall=221.5s
+[2026-09-28 20:36:39 +0000]   [136/290] HALF seed=11 N=15000+suffix -> probe1=19.52% probe2=19.45% familiar=18.76% wall=215.7s
+[2026-09-28 20:37:01 +0000]   [137/290] HALF seed=12 N=15000+suffix -> probe1=19.87% probe2=20.10% familiar=20.02% wall=214.8s
+[2026-09-28 20:37:14 +0000]   [138/290] HALF seed=13 N=15000+suffix -> probe1=20.56% probe2=20.53% familiar=20.75% wall=211.3s
+[2026-09-28 20:37:43 +0000]   [139/290] HALF seed=14 N=15000+suffix -> probe1=19.17% probe2=18.26% familiar=18.55% wall=213.7s
+[2026-09-28 20:38:12 +0000]   [140/290] HALF seed=15 N=15000+suffix -> probe1=18.49% probe2=19.77% familiar=18.70% wall=212.3s
+[2026-09-28 20:38:48 +0000]   [141/290] NOPUN seed=1 N=15000+suffix -> probe1=18.15% probe2=19.46% familiar=19.65% wall=226.3s
+[2026-09-28 20:38:53 +0000]   [142/290] NOPUN seed=2 N=15000+suffix -> probe1=19.91% probe2=20.00% familiar=18.31% wall=218.4s
+[2026-09-28 20:39:51 +0000]   [143/290] CDEF seed=1 N=15000+suffix -> probe1=7.41% probe2=8.33% familiar=7.90% wall=128.0s
+[2026-09-28 20:39:55 +0000]   [144/290] NOPUN seed=3 N=15000+suffix -> probe1=20.84% probe2=20.91% familiar=20.91% wall=220.8s
+[2026-09-28 20:40:00 +0000]   [145/290] NOPUN seed=5 N=15000+suffix -> probe1=19.25% probe2=19.46% familiar=19.32% wall=222.0s
+[2026-09-28 20:40:01 +0000]   [146/290] NOPUN seed=4 N=15000+suffix -> probe1=19.23% probe2=20.05% familiar=18.72% wall=225.7s
+[2026-09-28 20:40:08 +0000]   [147/290] NOPUN seed=11 N=15000+suffix -> probe1=17.55% probe2=19.13% familiar=19.93% wall=225.2s
+[2026-09-28 20:40:18 +0000]   [148/290] NOPUN seed=12 N=15000+suffix -> probe1=19.52% probe2=20.74% familiar=20.53% wall=228.3s
+[2026-09-28 20:40:21 +0000]   [149/290] NOPUN seed=13 N=15000+suffix -> probe1=20.44% probe2=20.04% familiar=19.97% wall=222.0s
+[2026-09-28 20:40:22 +0000]   [150/290] CDEF seed=2 N=15000+suffix -> probe1=5.03% probe2=4.52% familiar=3.75% wall=130.4s
+[2026-09-28 20:40:50 +0000]   [151/290] NOPUN seed=14 N=15000+suffix -> probe1=19.18% probe2=19.31% familiar=18.28% wall=228.7s
+[2026-09-28 20:41:02 +0000]   [152/290] NOPUN seed=15 N=15000+suffix -> probe1=17.73% probe2=20.38% familiar=20.25% wall=228.0s
+[2026-09-28 20:41:03 +0000]   [153/290] CDEF seed=3 N=15000+suffix -> probe1=8.11% probe2=7.65% familiar=9.19% wall=134.7s
+[2026-09-28 20:41:04 +0000] [heartbeat] 153/290 done, 220.0 min elapsed
+[2026-09-28 20:41:08 +0000]   [154/290] CDEF seed=4 N=15000+suffix -> probe1=6.41% probe2=6.61% familiar=6.36% wall=134.5s
+[2026-09-28 20:42:15 +0000]   [155/290] CDEF seed=5 N=15000+suffix -> probe1=9.05% probe2=9.41% familiar=8.97% wall=143.3s
+[2026-09-28 20:42:18 +0000]   [156/290] CDEF seed=11 N=15000+suffix -> probe1=5.40% probe2=5.46% familiar=4.42% wall=143.5s
+[2026-09-28 20:42:23 +0000]   [157/290] CDEF seed=13 N=15000+suffix -> probe1=3.30% probe2=2.87% familiar=3.32% wall=142.7s
+[2026-09-28 20:42:25 +0000]   [158/290] CDEF seed=12 N=15000+suffix -> probe1=4.24% probe2=4.62% familiar=4.64% wall=144.9s
+[2026-09-28 20:42:32 +0000]   [159/290] CDEF seed=14 N=15000+suffix -> probe1=3.76% probe2=3.96% familiar=2.41% wall=144.1s
+[2026-09-28 20:42:43 +0000]   [160/290] CDEF seed=15 N=15000+suffix -> probe1=5.15% probe2=5.54% familiar=5.23% wall=145.0s
+[2026-09-28 20:42:49 +0000]   [161/290] CDEFU seed=1 N=15000+suffix -> probe1=15.73% probe2=15.73% familiar=16.16% wall=147.6s
+[2026-09-28 20:42:50 +0000]   [162/290] CDEFU seed=2 N=15000+suffix -> probe1=18.53% probe2=18.57% familiar=18.33% wall=147.9s
+[2026-09-28 20:43:17 +0000]   [163/290] CDEFU seed=3 N=15000+suffix -> probe1=18.38% probe2=18.46% familiar=18.41% wall=147.1s
+[2026-09-28 20:43:28 +0000]   [164/290] CDEFU seed=4 N=15000+suffix -> probe1=17.02% probe2=17.02% familiar=17.41% wall=145.4s
+[2026-09-28 20:43:28 +0000]   [165/290] CDEFU seed=5 N=15000+suffix -> probe1=16.32% probe2=16.33% familiar=16.70% wall=145.6s
+[2026-09-28 20:43:33 +0000]   [166/290] CDEFU seed=11 N=15000+suffix -> probe1=16.42% probe2=16.38% familiar=16.70% wall=145.7s
+[2026-09-28 20:44:32 +0000]   [167/290] CDEFU seed=12 N=15000+suffix -> probe1=16.34% probe2=16.26% familiar=16.67% wall=137.1s
+[2026-09-28 20:44:36 +0000]   [168/290] CDEFU seed=13 N=15000+suffix -> probe1=17.83% probe2=18.03% familiar=17.85% wall=137.7s
+[2026-09-28 20:44:39 +0000]   [169/290] CDEFU seed=14 N=15000+suffix -> probe1=16.32% probe2=16.40% familiar=16.78% wall=135.8s
+[2026-09-28 20:44:40 +0000]   [170/290] CDEFU seed=15 N=15000+suffix -> probe1=16.54% probe2=16.63% familiar=17.25% wall=135.1s
+[2026-09-28 20:46:04 +0000] [heartbeat] 170/290 done, 225.0 min elapsed
+[2026-09-28 20:46:26 +0000]   [171/290] TPG seed=1 N=15000+suffix -> probe1=19.96% probe2=17.57% familiar=16.63% wall=233.6s
+[2026-09-28 20:46:37 +0000]   [172/290] TPG seed=3 N=15000+suffix -> probe1=18.01% probe2=17.93% familiar=16.81% wall=228.6s
+[2026-09-28 20:46:38 +0000]   [173/290] TPG seed=2 N=15000+suffix -> probe1=19.17% probe2=19.45% familiar=19.94% wall=234.4s
+[2026-09-28 20:46:41 +0000]   [174/290] TPG seed=4 N=15000+suffix -> probe1=18.46% probe2=17.28% familiar=18.50% wall=231.2s
+[2026-09-28 20:47:04 +0000]   [175/290] TPG seed=5 N=15000+suffix -> probe1=19.09% probe2=18.90% familiar=19.28% wall=227.0s
+[2026-09-28 20:47:14 +0000]   [176/290] TPG seed=11 N=15000+suffix -> probe1=17.71% probe2=17.64% familiar=19.03% wall=226.7s
+[2026-09-28 20:47:15 +0000]   [177/290] TPG seed=12 N=15000+suffix -> probe1=17.57% probe2=17.08% familiar=18.21% wall=226.8s
+[2026-09-28 20:47:19 +0000]   [178/290] TPG seed=13 N=15000+suffix -> probe1=19.38% probe2=18.30% familiar=18.31% wall=225.2s
+[2026-09-28 20:48:15 +0000]   [179/290] TPG seed=14 N=15000+suffix -> probe1=19.25% probe2=17.16% familiar=17.91% wall=223.1s
+[2026-09-28 20:48:20 +0000]   [180/290] TPG seed=15 N=15000+suffix -> probe1=16.60% probe2=17.44% familiar=18.69% wall=223.7s
+[2026-09-28 20:48:29 +0000]   [181/290] COMBO seed=1 N=15000+suffix -> probe1=17.99% probe2=18.27% familiar=17.62% wall=229.5s
+[2026-09-28 20:48:43 +0000]   [182/290] COMBO seed=2 N=15000+suffix -> probe1=19.20% probe2=18.39% familiar=17.58% wall=242.8s
+[2026-09-28 20:49:39 +0000]   [183/290] BASE seed=1 N=15000 -> accuracy=20.00% wall=83.9s
+[2026-09-28 20:49:43 +0000]   [184/290] BASE seed=2 N=15000 -> accuracy=20.55% wall=83.3s
+[2026-09-28 20:49:52 +0000]   [185/290] BASE seed=3 N=15000 -> accuracy=20.60% wall=83.1s
+[2026-09-28 20:50:07 +0000]   [186/290] BASE seed=4 N=15000 -> accuracy=20.40% wall=84.5s
+[2026-09-28 20:50:25 +0000]   [187/290] COMBO seed=5 N=15000+suffix -> probe1=18.49% probe2=18.76% familiar=17.91% wall=226.9s
+[2026-09-28 20:50:29 +0000]   [188/290] COMBO seed=4 N=15000+suffix -> probe1=19.11% probe2=18.18% familiar=17.36% wall=231.4s
+[2026-09-28 20:50:30 +0000]   [189/290] COMBO seed=3 N=15000+suffix -> probe1=18.75% probe2=17.31% familiar=17.85% wall=243.9s
+[2026-09-28 20:50:34 +0000]   [190/290] COMBO seed=11 N=15000+suffix -> probe1=18.70% probe2=18.84% familiar=17.09% wall=232.4s
+[2026-09-28 20:50:58 +0000]   [191/290] COMBO seed=12 N=15000+suffix -> probe1=18.38% probe2=18.03% familiar=18.81% wall=234.0s
+[2026-09-28 20:51:04 +0000] [heartbeat] 191/290 done, 230.0 min elapsed
+[2026-09-28 20:51:04 +0000]   [192/290] BASE seed=5 N=15000 -> accuracy=18.70% wall=85.6s
+[2026-09-28 20:51:07 +0000]   [193/290] COMBO seed=13 N=15000+suffix -> probe1=18.64% probe2=17.78% familiar=17.73% wall=232.1s
+[2026-09-28 20:51:10 +0000]   [194/290] BASE seed=11 N=15000 -> accuracy=19.35% wall=86.4s
+[2026-09-28 20:51:10 +0000]   [195/290] COMBO seed=14 N=15000+suffix -> probe1=17.97% probe2=17.88% familiar=17.95% wall=234.5s
+[2026-09-28 20:51:11 +0000]   [196/290] COMBO seed=15 N=15000+suffix -> probe1=16.70% probe2=17.87% familiar=18.42% wall=232.8s
+[2026-09-28 20:51:19 +0000]   [197/290] BASE seed=12 N=15000 -> accuracy=19.90% wall=87.2s
+[2026-09-28 20:51:33 +0000]   [198/290] BASE seed=13 N=15000 -> accuracy=21.30% wall=85.6s
+[2026-09-28 20:51:51 +0000]   [199/290] SEG4 seed=1 N=15000 -> accuracy=19.20% wall=81.3s
+[2026-09-28 20:51:52 +0000]   [200/290] BASE seed=14 N=15000 -> accuracy=19.45% wall=87.4s
+[2026-09-28 20:51:54 +0000]   [201/290] SEG4 seed=2 N=15000 -> accuracy=20.30% wall=80.3s
+[2026-09-28 20:51:56 +0000]   [202/290] BASE seed=15 N=15000 -> accuracy=18.35% wall=87.0s
+[2026-09-28 20:52:18 +0000]   [203/290] SEG4 seed=3 N=15000 -> accuracy=20.35% wall=80.0s
+[2026-09-28 20:52:25 +0000]   [204/290] SEG4 seed=4 N=15000 -> accuracy=19.95% wall=80.7s
+[2026-09-28 20:52:28 +0000]   [205/290] SEG4 seed=5 N=15000 -> accuracy=18.95% wall=81.1s
+[2026-09-28 20:52:30 +0000]   [206/290] SEG4 seed=11 N=15000 -> accuracy=18.85% wall=80.4s
+[2026-09-28 20:52:32 +0000]   [207/290] SEG4 seed=13 N=15000 -> accuracy=19.70% wall=80.5s
+[2026-09-28 20:52:33 +0000]   [208/290] SEG4 seed=12 N=15000 -> accuracy=19.60% wall=83.5s
+[2026-09-28 20:52:40 +0000]   [209/290] SEG4 seed=14 N=15000 -> accuracy=18.60% wall=81.1s
+[2026-09-28 20:52:55 +0000]   [210/290] SEG4 seed=15 N=15000 -> accuracy=20.15% wall=81.5s
+[2026-09-28 20:53:20 +0000]   [211/290] HALF seed=1 N=15000 -> accuracy=19.75% wall=89.2s
+[2026-09-28 20:53:21 +0000]   [212/290] HALF seed=2 N=15000 -> accuracy=20.15% wall=88.5s
+[2026-09-28 20:53:23 +0000]   [213/290] HALF seed=3 N=15000 -> accuracy=21.15% wall=89.0s
+[2026-09-28 20:53:25 +0000]   [214/290] HALF seed=4 N=15000 -> accuracy=21.10% wall=89.1s
+[2026-09-28 20:53:46 +0000]   [215/290] HALF seed=5 N=15000 -> accuracy=19.15% wall=88.7s
+[2026-09-28 20:53:55 +0000]   [216/290] HALF seed=11 N=15000 -> accuracy=18.95% wall=89.6s
+[2026-09-28 20:53:57 +0000]   [217/290] HALF seed=13 N=15000 -> accuracy=21.00% wall=87.4s
+[2026-09-28 20:53:58 +0000]   [218/290] HALF seed=12 N=15000 -> accuracy=19.75% wall=89.9s
+[2026-09-28 20:54:01 +0000]   [219/290] HALF seed=14 N=15000 -> accuracy=18.55% wall=88.6s
+[2026-09-28 20:54:01 +0000]   [220/290] HALF seed=15 N=15000 -> accuracy=17.80% wall=87.9s
+[2026-09-28 20:54:09 +0000]   [221/290] NOPUN seed=1 N=15000 -> accuracy=19.85% wall=89.0s
+[2026-09-28 20:54:23 +0000]   [222/290] NOPUN seed=2 N=15000 -> accuracy=20.50% wall=88.2s
+[2026-09-28 20:54:51 +0000]   [223/290] NOPUN seed=3 N=15000 -> accuracy=21.10% wall=90.2s
+[2026-09-28 20:54:51 +0000]   [224/290] NOPUN seed=4 N=15000 -> accuracy=21.15% wall=90.5s
+[2026-09-28 20:54:53 +0000]   [225/290] NOPUN seed=5 N=15000 -> accuracy=19.20% wall=89.5s
+[2026-09-28 20:54:56 +0000]   [226/290] NOPUN seed=11 N=15000 -> accuracy=18.95% wall=90.6s
+[2026-09-28 20:55:05 +0000]   [227/290] CDEF seed=1 N=15000 -> accuracy=7.25% wall=64.5s
+[2026-09-28 20:55:06 +0000]   [228/290] CDEF seed=2 N=15000 -> accuracy=5.20% wall=64.6s
+[2026-09-28 20:55:14 +0000]   [229/290] CDEF seed=3 N=15000 -> accuracy=8.85% wall=64.9s
+[2026-09-28 20:55:20 +0000]   [230/290] NOPUN seed=12 N=15000 -> accuracy=19.20% wall=93.4s
+[2026-09-28 20:55:27 +0000]   [231/290] NOPUN seed=13 N=15000 -> accuracy=21.45% wall=92.4s
+[2026-09-28 20:55:28 +0000]   [232/290] CDEF seed=4 N=15000 -> accuracy=6.65% wall=64.7s
+[2026-09-28 20:55:31 +0000]   [233/290] NOPUN seed=14 N=15000 -> accuracy=19.30% wall=93.5s
+[2026-09-28 20:55:31 +0000]   [234/290] NOPUN seed=15 N=15000 -> accuracy=17.35% wall=93.8s
+[2026-09-28 20:55:59 +0000]   [235/290] CDEF seed=11 N=15000 -> accuracy=4.05% wall=67.7s
+[2026-09-28 20:56:00 +0000]   [236/290] CDEF seed=5 N=15000 -> accuracy=9.15% wall=69.1s
+[2026-09-28 20:56:01 +0000]   [237/290] CDEF seed=12 N=15000 -> accuracy=3.95% wall=68.5s
+[2026-09-28 20:56:04 +0000]   [238/290] CDEF seed=13 N=15000 -> accuracy=2.50% wall=68.7s
+[2026-09-28 20:56:04 +0000] [heartbeat] 238/290 done, 235.0 min elapsed
+[2026-09-28 20:56:14 +0000]   [239/290] CDEF seed=14 N=15000 -> accuracy=2.60% wall=68.5s
+[2026-09-28 20:56:15 +0000]   [240/290] CDEF seed=15 N=15000 -> accuracy=4.75% wall=69.2s
+[2026-09-28 20:56:24 +0000]   [241/290] CDEFU seed=1 N=15000 -> accuracy=15.75% wall=70.5s
+[2026-09-28 20:56:30 +0000]   [242/290] CDEFU seed=2 N=15000 -> accuracy=18.55% wall=70.4s
+[2026-09-28 20:56:38 +0000]   [243/290] CDEFU seed=3 N=15000 -> accuracy=18.50% wall=70.6s
+[2026-09-28 20:56:39 +0000]   [244/290] CDEFU seed=4 N=15000 -> accuracy=17.40% wall=71.1s
+[2026-09-28 20:56:41 +0000]   [245/290] CDEFU seed=5 N=15000 -> accuracy=16.65% wall=70.1s
+[2026-09-28 20:56:42 +0000]   [246/290] CDEFU seed=11 N=15000 -> accuracy=16.65% wall=70.3s
+[2026-09-28 20:57:05 +0000]   [247/290] CDEFU seed=12 N=15000 -> accuracy=16.75% wall=66.1s
+[2026-09-28 20:57:05 +0000]   [248/290] CDEFU seed=13 N=15000 -> accuracy=18.15% wall=65.7s
+[2026-09-28 20:57:06 +0000]   [249/290] CDEFU seed=14 N=15000 -> accuracy=16.70% wall=65.0s
+[2026-09-28 20:57:09 +0000]   [250/290] CDEFU seed=15 N=15000 -> accuracy=16.70% wall=64.9s
+[2026-09-28 20:57:53 +0000]   [251/290] TPG seed=2 N=15000 -> accuracy=19.25% wall=97.8s
+[2026-09-28 20:57:53 +0000]   [252/290] TPG seed=1 N=15000 -> accuracy=20.00% wall=99.1s
+[2026-09-28 20:58:01 +0000]   [253/290] TPG seed=3 N=15000 -> accuracy=19.80% wall=96.5s
+[2026-09-28 20:58:06 +0000]   [254/290] TPG seed=4 N=15000 -> accuracy=20.80% wall=95.8s
+[2026-09-28 20:58:11 +0000]   [255/290] TPG seed=5 N=15000 -> accuracy=19.75% wall=93.5s
+[2026-09-28 20:58:13 +0000]   [256/290] TPG seed=11 N=15000 -> accuracy=19.75% wall=94.8s
+[2026-09-28 20:58:16 +0000]   [257/290] TPG seed=13 N=15000 -> accuracy=18.30% wall=94.0s
+[2026-09-28 20:58:16 +0000]   [258/290] TPG seed=12 N=15000 -> accuracy=19.35% wall=95.1s
+[2026-09-28 20:58:39 +0000]   [259/290] TPG seed=14 N=15000 -> accuracy=19.45% wall=94.3s
+[2026-09-28 20:58:40 +0000]   [260/290] TPG seed=15 N=15000 -> accuracy=19.15% wall=94.3s
+[2026-09-28 20:58:42 +0000]   [261/290] COMBO seed=1 N=15000 -> accuracy=19.25% wall=96.0s
+[2026-09-28 20:58:44 +0000]   [262/290] COMBO seed=2 N=15000 -> accuracy=20.45% wall=95.3s
+[2026-09-28 20:59:28 +0000]   [263/290] COMBO seed=3 N=15000 -> accuracy=19.40% wall=95.2s
+[2026-09-28 20:59:37 +0000]   [264/290] COMBO seed=4 N=15000 -> accuracy=19.95% wall=103.9s
+[2026-09-28 20:59:39 +0000]   [265/290] COMBO seed=11 N=15000 -> accuracy=20.25% wall=93.6s
+[2026-09-28 20:59:40 +0000]   [266/290] COMBO seed=5 N=15000 -> accuracy=20.15% wall=98.9s
+[2026-09-28 20:59:47 +0000]   [267/290] COMBO seed=12 N=15000 -> accuracy=20.45% wall=96.2s
+[2026-09-28 20:59:48 +0000]   [268/290] COMBO seed=13 N=15000 -> accuracy=19.35% wall=94.3s
+[2026-09-28 20:59:51 +0000]   [269/290] COMBO seed=15 N=15000 -> accuracy=18.00% wall=94.9s
+[2026-09-28 20:59:52 +0000]   [270/290] COMBO seed=14 N=15000 -> accuracy=20.40% wall=96.3s
+[2026-09-28 21:00:21 +0000]   [271/290] TPU seed=1 N=15000 -> accuracy=19.70% wall=101.5s
+[2026-09-28 21:00:21 +0000]   [272/290] TPU seed=2 N=15000 -> accuracy=18.65% wall=101.3s
+[2026-09-28 21:00:23 +0000]   [273/290] TPU seed=3 N=15000 -> accuracy=18.10% wall=100.9s
+[2026-09-28 21:00:26 +0000]   [274/290] TPU seed=4 N=15000 -> accuracy=18.70% wall=101.7s
+[2026-09-28 21:01:04 +0000] [heartbeat] 274/290 done, 240.0 min elapsed
+[2026-09-28 21:01:10 +0000]   [275/290] TPU seed=5 N=15000 -> accuracy=20.55% wall=102.0s
+[2026-09-28 21:01:16 +0000]   [276/290] PASS seed=1 N=15000 -> accuracy=20.00% wall=85.0s
+[2026-09-28 21:01:16 +0000]   [277/290] PASS seed=2 N=15000 -> accuracy=20.55% wall=84.4s
+[2026-09-28 21:01:19 +0000]   [278/290] TPU seed=11 N=15000 -> accuracy=21.30% wall=102.0s
+[2026-09-28 21:01:22 +0000]   [279/290] TPU seed=13 N=15000 -> accuracy=18.45% wall=102.4s
+[2026-09-28 21:01:24 +0000]   [280/290] TPU seed=12 N=15000 -> accuracy=19.40% wall=104.3s
+[2026-09-28 21:01:30 +0000]   [281/290] TPU seed=15 N=15000 -> accuracy=20.30% wall=102.7s
+[2026-09-28 21:01:31 +0000]   [282/290] TPU seed=14 N=15000 -> accuracy=18.95% wall=103.5s
+[2026-09-28 21:01:43 +0000]   [283/290] PASS seed=3 N=15000 -> accuracy=20.60% wall=82.0s
+[2026-09-28 21:01:44 +0000]   [284/290] PASS seed=4 N=15000 -> accuracy=20.40% wall=82.6s
+[2026-09-28 21:01:45 +0000]   [285/290] PASS seed=5 N=15000 -> accuracy=18.70% wall=81.9s
+[2026-09-28 21:01:47 +0000]   [286/290] PASS seed=11 N=15000 -> accuracy=19.35% wall=81.2s
+[2026-09-28 21:02:18 +0000]   [287/290] PASS seed=12 N=15000 -> accuracy=19.90% wall=68.0s
+[2026-09-28 21:02:22 +0000]   [288/290] PASS seed=13 N=15000 -> accuracy=21.30% wall=65.8s
+[2026-09-28 21:02:22 +0000]   [289/290] PASS seed=14 N=15000 -> accuracy=19.45% wall=65.6s
+[2026-09-28 21:02:23 +0000]   [290/290] PASS seed=15 N=15000 -> accuracy=18.35% wall=64.9s
+[2026-09-28 21:02:23 +0000] all trials finished; writing results
+[2026-09-28 21:02:24 +0000] wrote C:\projects\brain\scripts\investigate-c15-probe-battery.results.md; controls PASS
+[2026-09-28 21:03:00 +0000] c15-probe-battery: 290 trials, 290 reused, 0 to run on 12 workers.
+[2026-09-28 21:03:00 +0000] all trials finished; writing results
+[2026-09-28 21:03:01 +0000] wrote C:\projects\brain\scripts\investigate-c15-probe-battery.results.md; controls PASS

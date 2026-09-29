@@ -1,0 +1,106 @@
+[2026-09-28 15:26:41 +0000] c15-held-out-probe: 50 trials total, 0 reused, 50 to run on 12 workers. Probe = corpus[300000..305000).
+[2026-09-28 15:27:41 +0000] [heartbeat] 0/50 done, 1.0 min elapsed
+[2026-09-28 15:28:41 +0000] [heartbeat] 0/50 done, 2.0 min elapsed
+[2026-09-28 15:29:41 +0000] [heartbeat] 0/50 done, 3.0 min elapsed
+[2026-09-28 15:30:41 +0000] [heartbeat] 0/50 done, 4.0 min elapsed
+[2026-09-28 15:31:41 +0000] [heartbeat] 0/50 done, 5.0 min elapsed
+[2026-09-28 15:32:41 +0000] [heartbeat] 0/50 done, 6.0 min elapsed
+[2026-09-28 15:33:41 +0000] [heartbeat] 0/50 done, 7.0 min elapsed
+[2026-09-28 15:34:41 +0000] [heartbeat] 0/50 done, 8.0 min elapsed
+[2026-09-28 15:35:41 +0000] [heartbeat] 0/50 done, 9.0 min elapsed
+[2026-09-28 15:36:41 +0000] [heartbeat] 0/50 done, 10.0 min elapsed
+[2026-09-28 15:37:41 +0000] [heartbeat] 0/50 done, 11.0 min elapsed
+[2026-09-28 15:38:41 +0000] [heartbeat] 0/50 done, 12.0 min elapsed
+[2026-09-28 15:39:41 +0000] [heartbeat] 0/50 done, 13.0 min elapsed
+[2026-09-28 15:40:41 +0000] [heartbeat] 0/50 done, 14.0 min elapsed
+[2026-09-28 15:41:41 +0000] [heartbeat] 0/50 done, 15.0 min elapsed
+[2026-09-28 15:41:53 +0000]   [1/50] seed=2 N=100000 -> acc_at_N=16.90% acc_probe=16.07% trigram_probe=29.10% wall=911.8s
+[2026-09-28 15:41:55 +0000]   [2/50] seed=1 N=100000 -> acc_at_N=18.85% acc_probe=19.06% trigram_probe=29.10% wall=914.0s
+[2026-09-28 15:42:41 +0000] [heartbeat] 2/50 done, 16.0 min elapsed
+[2026-09-28 15:43:41 +0000] [heartbeat] 2/50 done, 17.0 min elapsed
+[2026-09-28 15:44:41 +0000] [heartbeat] 2/50 done, 18.0 min elapsed
+[2026-09-28 15:45:41 +0000] [heartbeat] 2/50 done, 19.0 min elapsed
+[2026-09-28 15:46:41 +0000] [heartbeat] 2/50 done, 20.0 min elapsed
+[2026-09-28 15:47:41 +0000] [heartbeat] 2/50 done, 21.0 min elapsed
+[2026-09-28 15:48:41 +0000] [heartbeat] 2/50 done, 22.0 min elapsed
+[2026-09-28 15:49:41 +0000] [heartbeat] 2/50 done, 23.0 min elapsed
+[2026-09-28 15:50:41 +0000] [heartbeat] 2/50 done, 24.0 min elapsed
+[2026-09-28 15:51:41 +0000] [heartbeat] 2/50 done, 25.0 min elapsed
+[2026-09-28 15:52:41 +0000] [heartbeat] 2/50 done, 26.0 min elapsed
+[2026-09-28 15:53:41 +0000] [heartbeat] 2/50 done, 27.0 min elapsed
+[2026-09-28 15:54:41 +0000] [heartbeat] 2/50 done, 28.0 min elapsed
+[2026-09-28 15:55:41 +0000] [heartbeat] 2/50 done, 29.0 min elapsed
+[2026-09-28 15:56:41 +0000] [heartbeat] 2/50 done, 30.0 min elapsed
+[2026-09-28 15:56:53 +0000]   [3/50] seed=11 N=200000 -> acc_at_N=16.25% acc_probe=14.56% trigram_probe=29.69% wall=1812.2s
+[2026-09-28 15:57:04 +0000]   [4/50] seed=3 N=200000 -> acc_at_N=14.20% acc_probe=14.39% trigram_probe=29.69% wall=1823.1s
+[2026-09-28 15:57:08 +0000]   [5/50] seed=13 N=200000 -> acc_at_N=17.15% acc_probe=16.67% trigram_probe=29.69% wall=1826.5s
+[2026-09-28 15:57:09 +0000]   [6/50] seed=2 N=200000 -> acc_at_N=18.10% acc_probe=15.57% trigram_probe=29.69% wall=1828.1s
+[2026-09-28 15:57:15 +0000]   [7/50] seed=5 N=200000 -> acc_at_N=14.90% acc_probe=14.98% trigram_probe=29.69% wall=1834.4s
+[2026-09-28 15:57:18 +0000]   [8/50] seed=14 N=200000 -> acc_at_N=14.90% acc_probe=15.58% trigram_probe=29.69% wall=1837.2s
+[2026-09-28 15:57:20 +0000]   [9/50] seed=4 N=200000 -> acc_at_N=15.60% acc_probe=14.47% trigram_probe=29.69% wall=1838.8s
+[2026-09-28 15:57:29 +0000]   [10/50] seed=1 N=200000 -> acc_at_N=15.25% acc_probe=16.25% trigram_probe=29.69% wall=1848.1s
+[2026-09-28 15:57:36 +0000]   [11/50] seed=15 N=200000 -> acc_at_N=16.65% acc_probe=15.80% trigram_probe=29.69% wall=1854.9s
+[2026-09-28 15:57:37 +0000]   [12/50] seed=12 N=200000 -> acc_at_N=11.60% acc_probe=13.05% trigram_probe=29.69% wall=1856.3s
+[2026-09-28 15:57:41 +0000] [heartbeat] 12/50 done, 31.0 min elapsed
+[2026-09-28 15:57:48 +0000]   [13/50] seed=3 N=100000 -> acc_at_N=16.95% acc_probe=16.54% trigram_probe=29.10% wall=954.9s
+[2026-09-28 15:57:59 +0000]   [14/50] seed=4 N=100000 -> acc_at_N=17.45% acc_probe=16.88% trigram_probe=29.10% wall=963.8s
+[2026-09-28 15:58:41 +0000] [heartbeat] 14/50 done, 32.0 min elapsed
+[2026-09-28 15:59:41 +0000] [heartbeat] 14/50 done, 33.0 min elapsed
+[2026-09-28 16:00:41 +0000] [heartbeat] 14/50 done, 34.0 min elapsed
+[2026-09-28 16:01:41 +0000] [heartbeat] 14/50 done, 35.0 min elapsed
+[2026-09-28 16:02:41 +0000] [heartbeat] 14/50 done, 36.0 min elapsed
+[2026-09-28 16:03:41 +0000] [heartbeat] 14/50 done, 37.0 min elapsed
+[2026-09-28 16:04:41 +0000] [heartbeat] 14/50 done, 38.0 min elapsed
+[2026-09-28 16:05:16 +0000]   [15/50] seed=1 N=50000 -> acc_at_N=18.10% acc_probe=17.80% trigram_probe=28.63% wall=476.1s
+[2026-09-28 16:05:25 +0000]   [16/50] seed=3 N=50000 -> acc_at_N=17.90% acc_probe=15.84% trigram_probe=28.63% wall=469.4s
+[2026-09-28 16:05:27 +0000]   [17/50] seed=2 N=50000 -> acc_at_N=17.45% acc_probe=16.40% trigram_probe=28.63% wall=477.5s
+[2026-09-28 16:05:40 +0000]   [18/50] seed=4 N=50000 -> acc_at_N=18.60% acc_probe=17.80% trigram_probe=28.63% wall=482.9s
+[2026-09-28 16:05:41 +0000] [heartbeat] 18/50 done, 39.0 min elapsed
+[2026-09-28 16:05:47 +0000]   [19/50] seed=5 N=50000 -> acc_at_N=17.10% acc_probe=16.27% trigram_probe=28.63% wall=478.8s
+[2026-09-28 16:06:01 +0000]   [20/50] seed=11 N=50000 -> acc_at_N=20.05% acc_probe=20.07% trigram_probe=28.63% wall=481.6s
+[2026-09-28 16:06:41 +0000] [heartbeat] 20/50 done, 40.0 min elapsed
+[2026-09-28 16:07:41 +0000] [heartbeat] 20/50 done, 41.0 min elapsed
+[2026-09-28 16:08:41 +0000] [heartbeat] 20/50 done, 42.0 min elapsed
+[2026-09-28 16:09:41 +0000] [heartbeat] 20/50 done, 43.0 min elapsed
+[2026-09-28 16:10:11 +0000]   [21/50] seed=1 N=25000 -> acc_at_N=19.00% acc_probe=19.05% trigram_probe=27.50% wall=264.8s
+[2026-09-28 16:10:25 +0000]   [22/50] seed=2 N=25000 -> acc_at_N=20.90% acc_probe=19.30% trigram_probe=27.50% wall=264.3s
+[2026-09-28 16:10:41 +0000] [heartbeat] 22/50 done, 44.0 min elapsed
+[2026-09-28 16:11:41 +0000] [heartbeat] 22/50 done, 45.0 min elapsed
+[2026-09-28 16:12:41 +0000] [heartbeat] 22/50 done, 46.0 min elapsed
+[2026-09-28 16:13:21 +0000]   [23/50] seed=5 N=100000 -> acc_at_N=19.20% acc_probe=18.68% trigram_probe=29.10% wall=987.8s
+[2026-09-28 16:13:31 +0000]   [24/50] seed=11 N=100000 -> acc_at_N=18.00% acc_probe=16.11% trigram_probe=29.10% wall=986.7s
+[2026-09-28 16:13:41 +0000] [heartbeat] 24/50 done, 47.0 min elapsed
+[2026-09-28 16:13:50 +0000]   [25/50] seed=13 N=100000 -> acc_at_N=19.05% acc_probe=18.64% trigram_probe=29.10% wall=1000.9s
+[2026-09-28 16:13:54 +0000]   [26/50] seed=12 N=100000 -> acc_at_N=17.40% acc_probe=16.55% trigram_probe=29.10% wall=1006.7s
+[2026-09-28 16:13:55 +0000]   [27/50] seed=14 N=100000 -> acc_at_N=17.15% acc_probe=14.34% trigram_probe=29.10% wall=999.7s
+[2026-09-28 16:14:06 +0000]   [28/50] seed=15 N=100000 -> acc_at_N=16.05% acc_probe=16.25% trigram_probe=29.10% wall=1007.5s
+[2026-09-28 16:14:12 +0000]   [29/50] seed=12 N=50000 -> acc_at_N=19.00% acc_probe=16.65% trigram_probe=28.63% wall=535.6s
+[2026-09-28 16:14:12 +0000]   [30/50] seed=13 N=50000 -> acc_at_N=20.90% acc_probe=20.57% trigram_probe=28.63% wall=527.0s
+[2026-09-28 16:14:17 +0000]   [31/50] seed=14 N=50000 -> acc_at_N=18.85% acc_probe=18.03% trigram_probe=28.63% wall=530.1s
+[2026-09-28 16:14:34 +0000]   [32/50] seed=15 N=50000 -> acc_at_N=18.10% acc_probe=18.58% trigram_probe=28.63% wall=533.7s
+[2026-09-28 16:14:40 +0000]   [33/50] seed=3 N=25000 -> acc_at_N=20.15% acc_probe=19.94% trigram_probe=27.50% wall=268.8s
+[2026-09-28 16:14:41 +0000] [heartbeat] 33/50 done, 48.0 min elapsed
+[2026-09-28 16:14:56 +0000]   [34/50] seed=4 N=25000 -> acc_at_N=18.95% acc_probe=19.09% trigram_probe=27.50% wall=271.4s
+[2026-09-28 16:15:41 +0000] [heartbeat] 34/50 done, 49.0 min elapsed
+[2026-09-28 16:16:41 +0000] [heartbeat] 34/50 done, 50.0 min elapsed
+[2026-09-28 16:17:00 +0000]   [35/50] seed=2 N=15000 -> acc_at_N=20.90% acc_probe=19.82% trigram_probe=27.61% wall=167.3s
+[2026-09-28 16:17:01 +0000]   [36/50] seed=1 N=15000 -> acc_at_N=20.35% acc_probe=18.60% trigram_probe=27.61% wall=169.7s
+[2026-09-28 16:17:04 +0000]   [37/50] seed=3 N=15000 -> acc_at_N=20.95% acc_probe=21.04% trigram_probe=27.61% wall=166.7s
+[2026-09-28 16:17:24 +0000]   [38/50] seed=4 N=15000 -> acc_at_N=21.20% acc_probe=19.50% trigram_probe=27.61% wall=169.7s
+[2026-09-28 16:17:27 +0000]   [39/50] seed=5 N=15000 -> acc_at_N=19.00% acc_probe=19.03% trigram_probe=27.61% wall=166.7s
+[2026-09-28 16:17:41 +0000] [heartbeat] 39/50 done, 51.0 min elapsed
+[2026-09-28 16:17:44 +0000]   [40/50] seed=11 N=15000 -> acc_at_N=19.80% acc_probe=19.86% trigram_probe=27.61% wall=168.2s
+[2026-09-28 16:17:51 +0000]   [41/50] seed=5 N=25000 -> acc_at_N=18.10% acc_probe=18.35% trigram_probe=27.50% wall=270.1s
+[2026-09-28 16:18:00 +0000]   [42/50] seed=11 N=25000 -> acc_at_N=18.30% acc_probe=18.94% trigram_probe=27.50% wall=269.1s
+[2026-09-28 16:18:20 +0000]   [43/50] seed=12 N=25000 -> acc_at_N=20.15% acc_probe=20.01% trigram_probe=27.50% wall=270.4s
+[2026-09-28 16:18:21 +0000]   [44/50] seed=13 N=25000 -> acc_at_N=19.70% acc_probe=19.82% trigram_probe=27.50% wall=266.7s
+[2026-09-28 16:18:25 +0000]   [45/50] seed=14 N=25000 -> acc_at_N=20.90% acc_probe=18.97% trigram_probe=27.50% wall=270.3s
+[2026-09-28 16:18:33 +0000]   [46/50] seed=15 N=25000 -> acc_at_N=19.60% acc_probe=20.23% trigram_probe=27.50% wall=267.0s
+[2026-09-28 16:18:41 +0000] [heartbeat] 46/50 done, 52.0 min elapsed
+[2026-09-28 16:19:20 +0000]   [47/50] seed=13 N=15000 -> acc_at_N=21.95% acc_probe=20.60% trigram_probe=27.61% wall=138.7s
+[2026-09-28 16:19:21 +0000]   [48/50] seed=12 N=15000 -> acc_at_N=20.30% acc_probe=20.48% trigram_probe=27.61% wall=141.4s
+[2026-09-28 16:19:23 +0000]   [49/50] seed=14 N=15000 -> acc_at_N=19.90% acc_probe=19.45% trigram_probe=27.61% wall=139.5s
+[2026-09-28 16:19:34 +0000]   [50/50] seed=15 N=15000 -> acc_at_N=18.90% acc_probe=19.18% trigram_probe=27.61% wall=130.6s
+[2026-09-28 16:19:34 +0000] all trials finished; writing results
+[2026-09-28 16:19:34 +0000] wrote C:\projects\brain\scripts\investigate-c15-held-out-probe.results.md
+[2026-09-28 16:19:34 +0000] controls PASS; positive control PASS; verdict: THE NETWORK DEGRADES
