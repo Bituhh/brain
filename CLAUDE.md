@@ -59,6 +59,20 @@ Every new entry added to any file under `docs/`, to `PLAN.md`'s Status table, or
 - `npm run test:slow` — release `--ignored`, golden rasters, TS slow tier, traceability. Run before declaring an item done. Takes ~20 minutes; the two char-prediction tests alone are ~10 of it.
 - Golden rasters regenerate with `npm run test:golden:regen` — **only** when you can explain why the behaviour legitimately changed.
 
+## Citing spec acceptance criteria (VAL-10 traceability)
+
+`npm run check:traceability` (slow tier) maps every acceptance criterion in every `.claude/scratch/*/requirements.md` to a citing test. It only works if citations are unambiguous. See `docs/decisions.md` decisions 38–39.
+
+- **Cite a criterion as one token, `<PREFIX>-N.M`** — e.g. `P6-7.3` is Phase 6's Requirement 7, criterion 3. The prefix is declared on a `**Citation prefix:**` line at the top of each spec; the full table is in `scripts/check-traceability.mjs`'s header. Several criteria: `(P03-7.1, P03-7.2)`.
+- **Never write `Requirement N.M`, `Requirement N AC M` or `Acceptance Criterion M`.** Every spec numbers from 1, so these can't say which spec they mean. The checker fails on them. README ids (`ENG-5`, `VAL-10`) are a separate id space and are unaffected.
+- **Only a test credits a criterion.** Put the id in the test's doc comment or title — a whole-file test (`tests/`, `test/`, `*.test.ts`) or a Rust `#[cfg(test)]` block. An id in a production doc comment or a bench says what the code is for, not that anything checks it.
+- **Cite only what the test actually demonstrates.** Read the criterion's text and the test before adding an id; the number alone is not evidence.
+- **Write id ranges out in full** in tests (`P5-10.1, P5-10.2, P5-10.3`): a range like `P5-10.1 to P5-10.3` credits only its endpoints.
+- **A convention is not a citation.** "Bit-identical when unset" is a rule, not WADV-5.2 — write it as prose so no criterion gets credit it hasn't earned.
+- **A new spec must declare its prefix** (short, unused, not colliding with README's `NEU/SYN/LRN/NET/RUN/IO/ENG/OBS/VAL/VIZ`), or the check fails.
+- **Every uncited criterion needs a decision**: cite the real test that demonstrates it, write the test, or add it to `DEFERRED` in `scripts/check-traceability.mjs` with a comment saying why (unmet, built-but-untested, true by construction, or discharged by a named document). When a test starts exercising a deferred criterion, the checker says so — remove it from `DEFERRED`.
+- **Don't name a deferred README id in a test comment** just to explain why it stays deferred; `check-requirement-coverage.mjs` will then report it as covered. Describe it in words.
+
 ## Finishing an item
 
 Update `docs/decisions.md` and/or `docs/findings.md` (per the routing table above), then `docs/history.md` if a phase's status changed, then PLAN.md's Status row for the item, then `.claude/HANDOFF.md`. PLAN.md §4 has the detail, including logging the Status row _as you go_ rather than reconstructing timings afterwards.
