@@ -1385,7 +1385,11 @@ pub struct WeightSampleFfi {
 pub struct SegmentSampleFfi {
     pub tick: u32,
     pub segment: u32,
-    pub active: u32,
+    /// The segment's coincidence count, signed and fractional (`brain_core::
+    /// probe::SegmentSample::active`): negative is a veto by inhibitory
+    /// deliveries. Was a `u32` fed by a `u16` that saturated vetoes to 0
+    /// (PLAN.md C10).
+    pub active: f64,
     pub depolarisation: f64,
 }
 
@@ -2993,7 +2997,7 @@ impl NativeSimulation {
             }),
             segment_samples: probe.segment_history().map(|h| {
                 h.iter()
-                    .map(|s| SegmentSampleFfi { tick: s.tick, segment: s.segment, active: s.active as u32, depolarisation: s.depolarisation as f64 })
+                    .map(|s| SegmentSampleFfi { tick: s.tick, segment: s.segment, active: s.active as f64, depolarisation: s.depolarisation as f64 })
                     .collect()
             }),
         })

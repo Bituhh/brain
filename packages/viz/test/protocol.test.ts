@@ -173,6 +173,34 @@ test('probeData round-trips membrane trace and segment samples together', () => 
   assert.deepEqual(decoded.segmentSamples, message.segmentSamples);
 });
 
+test('probeData round-trips a vetoed (negative) and a fractional segment count (VIZ-3, PLAN.md C10)', () => {
+  // Since A2 an inhibitory delivery subtracts from a segment's count, and
+  // weighted votes (B5) make it fractional. The old u32 encoding wrapped -2
+  // to 4294967294 on the wire, and the Rust side had already saturated it to
+  // 0 before it got here.
+  const message: ServerMessage = {
+    type: 'probeData',
+    neuron: 7,
+    spikeTimes: new Uint32Array([]),
+    membraneTrace: undefined,
+    segmentSamples: [
+      { tick: 5, segment: 0, active: -2, depolarisation: 0 },
+      { tick: 5, segment: 1, active: 0.375, depolarisation: 0 },
+      { tick: 6, segment: 0, active: -0.75, depolarisation: 0 },
+      { tick: 6, segment: 1, active: 0, depolarisation: 0 },
+    ],
+  };
+  const decoded = roundTrip(message) as typeof message;
+  assert.deepEqual(decoded.segmentSamples, message.segmentSamples);
+  // A value f32 cannot hold exactly arrives as its f32 rounding, which is
+  // the value the Rust scheduler held in the first place.
+  const inexact = roundTrip({
+    ...message,
+    segmentSamples: [{ tick: 1, segment: 0, active: -0.45, depolarisation: 0 }],
+  }) as typeof message;
+  assert.equal(inexact.segmentSamples![0]!.active, Math.fround(-0.45));
+});
+
 test('rasterExport round-trips opaque bytes verbatim, including the RASTER magic', () => {
   const bytes = new Uint8Array([
     ...new TextEncoder().encode('RASTER'),

@@ -100,7 +100,15 @@ pub struct WeightSample {
 pub struct SegmentSample {
     pub tick: u32,
     pub segment: u32,
-    pub active: u16,
+    /// The segment's coincidence count exactly as the scheduler holds it,
+    /// signed and fractional. Negative means inhibitory deliveries
+    /// outweighed excitatory ones (a veto -- docs/findings.md finding
+    /// 11(a)'s sign fix, PLAN.md A2), and fractional values come from
+    /// weighted votes and the decaying accumulator (docs/decisions.md
+    /// decision 22). Until PLAN.md C10 this was `active.round() as u16`,
+    /// which saturated every veto to 0 and so made a vetoed segment look
+    /// identical to an untouched one in VIZ-3's drill-down.
+    pub active: f32,
     pub depolarisation: f32,
     /// This segment's coincidence threshold as of this tick (dendritic-
     /// threshold-homeostasis spec, Requirement 8): `SegmentConfig::params.
@@ -179,7 +187,7 @@ impl Probe {
     /// 6). Called by the scheduler's `segment_touched` evaluation loop, once
     /// per touched segment belonging to this probe's neuron -- a no-op if
     /// `record_segments` was not enabled for this probe.
-    pub fn observe_segment(&mut self, tick: u32, segment: u32, active: u16, depolarisation: f32, threshold: f32) {
+    pub fn observe_segment(&mut self, tick: u32, segment: u32, active: f32, depolarisation: f32, threshold: f32) {
         if let Some(s) = &mut self.segments {
             s.push(SegmentSample { tick, segment, active, depolarisation, threshold });
         }
@@ -388,14 +396,14 @@ mod tests {
         // Requirement 6.1, 6.4
         let options = ProbeOptions { capacity: 5, record_membrane: false, weight_synapses: Vec::new(), record_segments: true };
         let mut probe = Probe::new(0, options);
-        probe.observe_segment(3, 1, 7, 0.0, 10.0);
-        probe.observe_segment(3, 2, 15, 1.0, 10.0);
+        probe.observe_segment(3, 1, 7.0, 0.0, 10.0);
+        probe.observe_segment(3, 2, 15.0, 1.0, 10.0);
         let history = probe.segment_history().unwrap();
         assert_eq!(
             history.iter().copied().collect::<Vec<_>>(),
             vec![
-                SegmentSample { tick: 3, segment: 1, active: 7, depolarisation: 0.0, threshold: 10.0 },
-                SegmentSample { tick: 3, segment: 2, active: 15, depolarisation: 1.0, threshold: 10.0 },
+                SegmentSample { tick: 3, segment: 1, active: 7.0, depolarisation: 0.0, threshold: 10.0 },
+                SegmentSample { tick: 3, segment: 2, active: 15.0, depolarisation: 1.0, threshold: 10.0 },
             ]
         );
     }
@@ -406,7 +414,7 @@ mod tests {
         let options = ProbeOptions { capacity: 4, record_membrane: false, weight_synapses: Vec::new(), record_segments: true };
         let mut probe = Probe::new(0, options);
         for tick in 0..1000u32 {
-            probe.observe_segment(tick, 0, 20, 1.0, 10.0);
+            probe.observe_segment(tick, 0, 20.0, 1.0, 10.0);
         }
         assert_eq!(probe.segment_history().unwrap().len(), 4, "Requirement 13.2/6.1: memory must stay bounded");
     }

@@ -19,8 +19,26 @@ export interface SegmentMember {
 export interface SegmentActivitySample {
   readonly tick: number;
   readonly segment: number;
+  /** Signed and fractional: negative is a veto by inhibitory deliveries (see `SegmentSampleWire.active`). */
   readonly active: number;
   readonly depolarisation: number;
+}
+
+/**
+ * One drill-down line. A negative count is labelled VETOED so it cannot be
+ * mistaken for an untouched segment (PLAN.md C10). Counts print to two
+ * decimals, because weighted votes (B5) make them fractional. Exported for
+ * `segment-panel.test.ts`: the rest of this panel is DOM code with no test
+ * harness (VIZ-3's deferral in `check-requirement-coverage.mjs`), but this
+ * part is a pure function.
+ */
+export function formatSegmentActivity(s: SegmentActivitySample): string {
+  const count = Number.isInteger(s.active)
+    ? String(s.active)
+    : s.active.toFixed(2);
+  const state =
+    s.active < 0 ? '  VETOED' : s.depolarisation > 0 ? '  FIRED' : '';
+  return `tick ${s.tick}  segment ${s.segment}  active=${count}${state}`;
 }
 
 export interface SegmentPanelCallbacks {
@@ -79,12 +97,7 @@ export class SegmentPanel {
       activityEl.textContent = '(no segment activity recorded yet)';
       return;
     }
-    const lines = samples
-      .slice(-20)
-      .map(
-        (s) =>
-          `tick ${s.tick}  segment ${s.segment}  active=${s.active}${s.depolarisation > 0 ? '  FIRED' : ''}`,
-      );
+    const lines = samples.slice(-20).map(formatSegmentActivity);
     activityEl.textContent = lines.join('\n');
   }
 

@@ -1,6 +1,6 @@
 # Finding 35 — raw data: the nine "stale" traceability deferrals, audited citation by citation (PLAN.md C10)
 
-[2026-09-30 08:10 +0100]. Source: every match of `check-traceability.mjs`'s own `CITATION_PATTERN` for the nine ids across its seven `TEST_DIRS`, listed by a throwaway scan with the same regex and directories, then each citing site read by hand. The abstract is docs/findings.md finding 35.
+[2026-09-30 07:38 +0100]. Source: every match of `check-traceability.mjs`'s own `CITATION_PATTERN` for the nine ids across its seven `TEST_DIRS`, listed by a throwaway scan with the same regex and directories, then each citing site read by hand. The abstract is docs/findings.md finding 35.
 
 `check-traceability.mjs` parses four specs: Phase 0-3 (`brain-engine`), Phase 5, Phase 5.5 and Phase 6. **All nine ids exist in all four**, so each deferral string hides four criteria, not one.
 
@@ -75,9 +75,9 @@ Twins with no citing test, found while reading the above. Since the deferral str
 
 Same seven directories, same regex, plus an optional `Phase <n>` prefix:
 
-| citation form | count |
-| --- | --- |
-| bare `Requirement N.M` / `Req N.M` | 506, in 83 files |
-| already phase-qualified (`Phase 6 Requirement 7.5`) | 65 |
+| citation form                                       | count            |
+| --------------------------------------------------- | ---------------- |
+| bare `Requirement N.M` / `Req N.M`                  | 506, in 83 files |
+| already phase-qualified (`Phase 6 Requirement 7.5`) | 65               |
 
 Specs under `.claude/scratch/` with `### Requirement N:` headings: **12** (`brain-engine`, `brain-engine-phase4`, `-phase5`, `-phase5-5`, `-phase6`, `-phase7`, `-phase8`, `dendritic-threshold-homeostasis`, `inhibition-homeostasis`, `predictive-learning-neuromodulation`, `saturation-driven-growth`, `weight-aware-dendritic-votes`). The checker parses four of them. Citations of the other eight still go into its one flat pool of cited ids.

@@ -157,6 +157,12 @@ const DEFERRED = new Set([
   // built browser client code (`graph-view.ts`/`spike-flash.ts`, `scrubber.ts`/`segment-panel.ts`)
   // with no browser/DOM test harness in this zero-runtime-dependency shell (ENG-5/6) to assert
   // rendered output against -- exercised manually, not by `node:test`.
+  //
+  // 2026-09-30 (PLAN.md C10): this checker now reports VIZ-3 as "covered", because the signed
+  // segment-count fix added tests that cite it: `segment-panel.test.ts` (the drill-down's pure
+  // line formatter, which labels a veto) and a `boundary.test.ts` probe test. VIZ-3 stays deferred,
+  // for RUN-6's reason: those tests pin what a sample *says*. The panel's rendering and the
+  // time-scrubber are still exercised by nothing.
   'VIZ-1',
   'VIZ-3',
   // RUN-10 (WASM build) and RUN-11 (WebGPU): both are README's own explicit non-goals for now --

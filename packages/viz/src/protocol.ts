@@ -74,6 +74,12 @@ export interface MetricsSnapshotMessage {
 export interface SegmentSampleWire {
   readonly tick: number;
   readonly segment: number;
+  /**
+   * The segment's coincidence count, signed and fractional, carried as f32
+   * (the width Rust stores it in). Negative means inhibitory deliveries
+   * outweighed excitatory ones: a veto. Was a u32 until PLAN.md C10, so a
+   * veto arrived as 0, identical to an untouched segment.
+   */
   readonly active: number;
   readonly depolarisation: number;
 }
@@ -383,7 +389,7 @@ export function encode(message: ServerMessage | ClientMessage): Uint8Array {
       if (message.segmentSamples) {
         w.u8(1).u32(message.segmentSamples.length);
         for (const s of message.segmentSamples) {
-          w.u32(s.tick).u32(s.segment).u32(s.active).f64(s.depolarisation);
+          w.u32(s.tick).u32(s.segment).f32(s.active).f64(s.depolarisation);
         }
       } else {
         w.u8(0);
@@ -541,7 +547,7 @@ export function decode(bytes: Uint8Array): ServerMessage | ClientMessage {
         for (let i = 0; i < n; i++) {
           const stick = r.u32();
           const segment = r.u32();
-          const active = r.u32();
+          const active = r.f32();
           const depolarisation = r.f64();
           segmentSamples.push({ tick: stick, segment, active, depolarisation });
         }

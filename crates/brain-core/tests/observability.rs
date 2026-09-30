@@ -139,10 +139,10 @@ fn attached_probes_record_only_their_own_neurons_dendritic_segment_activity() {
     let target_history: Vec<_> = sched.probe(target).unwrap().segment_history().unwrap().iter().copied().collect();
     assert_eq!(target_history.len(), 2, "both of target's segments were touched this tick, hit-threshold or not");
     assert_eq!(target_history[0].segment, 0);
-    assert_eq!(target_history[0].active, 5);
+    assert_eq!(target_history[0].active, 5.0);
     assert!(target_history[0].depolarisation > 0.0, "segment 0 reached its threshold (5 of 5)");
     assert_eq!(target_history[1].segment, 1);
-    assert_eq!(target_history[1].active, 2);
+    assert_eq!(target_history[1].active, 2.0);
     assert_eq!(target_history[1].depolarisation, 0.0, "segment 1 never reached its threshold (2 of 5)");
 
     let other_history = sched.probe(other).unwrap().segment_history().unwrap();
@@ -151,4 +151,69 @@ fn attached_probes_record_only_their_own_neurons_dendritic_segment_activity() {
     // Requirement 4.4: detaching removes the probe entirely.
     sched.detach_probe(target);
     assert!(sched.probe(target).is_none());
+}
+
+/// Builds `target` with one excitatory and three inhibitory sources onto
+/// segment 0, and one excitatory source alone onto segment 1, fires every
+/// source once, and returns the target probe's segment samples.
+fn vetoed_segment_samples(config: SegmentConfig) -> Vec<brain_core::probe::SegmentSample> {
+    let mut neurons = NeuronArena::new();
+    let target = neurons.allocate(NeuronSpec { threshold: 100.0, polarity: 1, coords: [0.0; 3] }).index;
+    let excitatory = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
+    let inhibitory: Vec<u32> = (0..3).map(|_| neurons.allocate(NeuronSpec { threshold: 0.5, polarity: -1, coords: [0.0; 3] }).index).collect();
+    let lone = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
+
+    let mut synapses = SynapseArena::new(1);
+    synapses.reserve_for_neurons(neurons.capacity_len());
+    synapses.insert(excitatory, target, 0, 1, 0.9, 0.9).unwrap();
+    for &s in &inhibitory {
+        synapses.insert(s, target, 0, 1, 0.9, 0.9).unwrap();
+    }
+    synapses.insert(lone, target, 1, 1, 0.9, 0.9).unwrap();
+
+    let mut sched = Scheduler::new(4, 0.5).with_segments(config);
+    let params = LifParams::new(5.0, 0.0, 0.0, 0);
+    sched.attach_probe(target, Probe::new(target, ProbeOptions { capacity: 10, record_membrane: false, weight_synapses: Vec::new(), record_segments: true }));
+    for &s in [excitatory, lone].iter().chain(inhibitory.iter()) {
+        sched.stimulate(&neurons, s, 10.0);
+    }
+    sched.step::<Lif>(&mut neurons, &mut synapses, &params); // all sources spike
+    sched.step::<Lif>(&mut neurons, &mut synapses, &params); // deliveries land, segments evaluated, probe fed
+    sched.probe(target).unwrap().segment_history().unwrap().iter().copied().collect()
+}
+
+/// VIZ-3 / Phase 6 Requirement 6 (PLAN.md C10): a vetoed segment must be
+/// visible as a veto in probe data, not as zero. Since A2 an inhibitory
+/// delivery subtracts from the coincidence count; the probe used to record
+/// `active.round() as u16`, which saturated this segment's -2 to 0 -- the
+/// same reading as a segment nothing reached.
+#[test]
+fn a_vetoed_segment_records_its_negative_coincidence_count() {
+    let samples = vetoed_segment_samples(SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 1 }));
+    assert_eq!(samples.len(), 2, "both touched segments are recorded: {samples:?}");
+    let vetoed = samples.iter().find(|s| s.segment == 0).unwrap();
+    assert_eq!(vetoed.active, -2.0, "Count mode: one excitatory minus three inhibitory deliveries");
+    assert_eq!(vetoed.depolarisation, 0.0, "a vetoed segment does not depolarise");
+    let lone = samples.iter().find(|s| s.segment == 1).unwrap();
+    assert_eq!(lone.active, 1.0, "the unvetoed control segment still reads its positive count");
+    assert!(lone.depolarisation > 0.0, "and reaches threshold 1");
+}
+
+/// Same scenario under weighted votes (PLAN.md B5): a delivery casts a
+/// fractional vote, so the old `round()` also erased sub-unit counts. The
+/// probe must carry the value the scheduler actually compared against the
+/// threshold.
+#[test]
+fn weighted_vote_segment_samples_keep_their_fractional_signed_count() {
+    let reference_weight = 1.0; // above every synapse's 0.9 weight, so each vote is a fraction
+    let samples = vetoed_segment_samples(SegmentConfig::weighted(2, BinaryCoincidenceParams { threshold: 1 }, reference_weight));
+    let vetoed = samples.iter().find(|s| s.segment == 0).unwrap();
+    let lone = samples.iter().find(|s| s.segment == 1).unwrap();
+    assert!(lone.active > 0.0 && lone.active < 1.0, "one sub-reference vote is a fraction of one, not rounded: {}", lone.active);
+    assert!(
+        (vetoed.active - (-2.0 * lone.active)).abs() < 1e-6,
+        "one excitatory minus three equal inhibitory votes is -2 votes: vetoed {} vs one vote {}",
+        vetoed.active,
+        lone.active
+    );
 }

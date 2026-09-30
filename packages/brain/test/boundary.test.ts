@@ -1871,6 +1871,45 @@ test('Simulation attachProbe with recordSegments records real per-tick segment a
   );
 });
 
+test('Simulation readProbe reports a vetoed segment as a negative count, not 0 (VIZ-3, PLAN.md C10)', () => {
+  // One excitatory and three inhibitory deliveries onto the same segment:
+  // since A2 the count is 1 - 3 = -2. The probe path used to saturate that
+  // to 0, the same reading an untouched segment gives.
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    {
+      maxDelay: 1,
+      connectionThreshold: 0.5,
+      synapseCapPerNeuron: 4,
+      segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1 },
+    },
+  );
+  const excitatory = sim.allocateNeuron(0.5, 1);
+  const inhibitory = [0, 1, 2].map(() => sim.allocateNeuron(0.5, -1));
+  const target = sim.allocateNeuron(100.0, 1);
+  for (const source of [excitatory, ...inhibitory]) {
+    sim.connect(source, target, 0, 1, 0.9);
+    sim.stimulate(source, 10.0);
+  }
+  sim.attachProbe(target, {
+    capacity: 10,
+    recordMembrane: false,
+    recordSegments: true,
+    weightSynapses: [],
+  });
+  sim.step(); // all four sources spike
+  sim.step(); // deliveries land on segment 0
+
+  const samples = sim.readProbe(target)!.segmentSamples!;
+  assert.equal(samples.length, 1);
+  assert.equal(samples[0]!.active, -2);
+  assert.equal(
+    samples[0]!.depolarisation,
+    0,
+    'a vetoed segment must not depolarise',
+  );
+});
+
 // -- Phase 6 Requirement 5: metrics FFI (OBS-2).
 
 test('Simulation firingRate/predictionAccuracy/metricsSnapshot report real values through the addon (OBS-2, Requirement 5)', () => {

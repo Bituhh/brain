@@ -2279,10 +2279,12 @@ impl Scheduler {
                 // composites already being visited because they had real
                 // synaptic delivery this tick (RUN-1) -- an unwatched
                 // neuron's segments never add a lookup that wasn't already
-                // happening. Rounded for the probe's own `u16` record --
-                // observational only, not part of any behavioural decision.
+                // happening. Passed through unrounded and signed, so a
+                // vetoed (negative) segment stays distinguishable from an
+                // untouched one (PLAN.md C10) -- observational only, not
+                // part of any behavioural decision.
                 if let Some(probe) = self.probes.get_mut(&neuron) {
-                    probe.observe_segment(self.tick, segment, active.round() as u16, depolarisation.0, effective_threshold);
+                    probe.observe_segment(self.tick, segment, active, depolarisation.0, effective_threshold);
                 }
                 if depolarisation.0 > 0.0 {
                     let slot = &mut neurons.predictive[neuron as usize];
