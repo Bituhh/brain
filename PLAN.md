@@ -2535,17 +2535,29 @@ THE PROBLEM (measured by C10, 2026-09-30). check-traceability.mjs parses 4 specs
 Its OK therefore means "every N.M string appears somewhere", not "every criterion has a test".
 
 DO, in this order. One commit per step.
-1. CITATION FORM. Settle one qualified form and write it into the checker's header: "Phase <n>
-   Requirement N.M" for the phase specs (65 citations already use it), and a slug form for the
-   non-phase specs (for example "[weight-aware-dendritic-votes] Requirement 5.2"). Keep the existing
-   CITATION_PATTERN tolerance for a line-wrapped citation.
-2. CHECKER. Parse all 12 specs, keyed (spec, N.M). Credit a qualified citation to its spec only.
-   Report bare citations as a separate "ambiguous" count, credited to nothing. Make DEFERRED
+1. CITATION FORM: per-spec ID tags, decided by the user [2026-09-30]. A criterion is cited as one
+   token, <PREFIX>-N.M, e.g. P6-7.3. This is the same shape as README's own ids (ENG-5), chosen over
+   the long "Phase 6 Requirement 7.3" form and over a .bib-style registry, for three reasons: the id
+   lives next to the criterion's text (no second file to drift); a single token cannot be split
+   across lines by rustfmt; and it greps. Each spec declares its prefix ONCE, as a line near the
+   top of its requirements.md ("**Citation prefix:** `P6`"). The checker reads the prefix from there,
+   so the criteria themselves need no per-line edits, and a spec without a declared prefix is a
+   checker FAIL, so a new spec cannot join silently. Prefixes (checked unused in the codebase by
+   C10, and none collides with README's NEU/SYN/LRN/NET/RUN/IO/ENG/OBS/VAL/VIZ):
+     brain-engine P03 · brain-engine-phase4 P4 · -phase5 P5 · -phase5-5 P55 · -phase6 P6 ·
+     -phase7 P7 · -phase8 P8 · dendritic-threshold-homeostasis DTH · inhibition-homeostasis INH ·
+     predictive-learning-neuromodulation PLN · saturation-driven-growth SDG ·
+     weight-aware-dendritic-votes WADV
+   Write the form and the table into check-traceability.mjs's header. A citation may name several
+   ids (P03-7.1, P03-7.2). The old "Requirement N.M" form is retired: after step 2 it credits
+   nothing and is only counted as ambiguous.
+2. CHECKER. Parse all 12 specs, keyed by <PREFIX>-N.M. Credit an id only to its own spec. Report
+   bare "Requirement N.M" citations as a separate "ambiguous" count, credited to nothing. Make DEFERRED
    per-spec, so KNOWN_COLLISIONS disappears. Reuse check-requirement-coverage.mjs's cfg(test) split
    so a doc comment in src/ is no longer a test. Expect many new gaps. That is the point: record
    them, do not suppress them.
-3. RETROFIT. 506 bare citations in 83 files (C10's count). Each needs the judgment C10 made by hand
-   for nine ids: which spec was the author reading? Use the file's own phase, the test's subject,
+3. RETROFIT. 506 bare citations in 83 files, plus the 65 already phase-qualified (C10's count), all
+   become <PREFIX>-N.M ids. Each bare one needs the judgment C10 made by hand for nine ids: which spec was the author reading? Use the file's own phase, the test's subject,
    and the spec text, never the number alone. Where it cannot be decided, leave it bare and list it.
    A regex rewrite is not acceptable.
 4. GAPS. For every criterion now reported uncited, decide: a real test exists but cites it wrongly
@@ -2557,8 +2569,8 @@ CONSTRAINTS. No behavioural change: tests and comments only. Fast and slow tiers
 rasters byte-for-byte unchanged. workspace_policy.rs's the_traceability_checker_itself_runs test
 must still pass (it matches on "acceptance criteria found across").
 
-DONE WHEN. The checker keys criteria by spec and parses all 12 specs. The ambiguous-citation count
-is zero, or every remaining bare citation is listed with a reason. KNOWN_COLLISIONS is gone. Every
+DONE WHEN. Every spec declares its prefix, and the checker keys criteria by <PREFIX>-N.M across
+all 12 specs. The ambiguous-citation count is zero, or every remaining bare citation is listed with a reason. KNOWN_COLLISIONS is gone. Every
 newly surfaced gap is covered, fixed or deferred with a reason. docs/findings.md finding 35 has a
 dated follow-up with before/after counts (raw per-spec numbers go in docs/appendix/).
 ```
