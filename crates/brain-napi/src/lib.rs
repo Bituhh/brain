@@ -818,6 +818,10 @@ pub struct StructuralPlasticityConfig {
     pub min_activity_streak: u32,
     pub sweep_interval_ticks: u32,
     pub unused_ticks_before_reclaim: u32,
+    /// The delay a sprout between two partitions gets. Only 1 is accepted
+    /// with `threadCount > 1` (PLAN.md C11, docs/decisions.md decision 40):
+    /// anything longer makes results depend on the partition layout. At one
+    /// thread there is one partition and it is never read.
     pub min_cross_partition_delay: u32,
     /// Neighbourhood `size`/`k` for the sprout-candidate pool -- independent
     /// of the scheduler's own `InhibitionConfig`, same rationale as
@@ -1760,28 +1764,10 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
     if let Some(modulation) = &config.transmission_modulation {
         scheduler = scheduler.with_transmission_modulation(*modulation);
     }
-    if let Some(cfg) = &config.homeostatic_scaling {
-        scheduler = scheduler.with_homeostatic_scaling(HomeostaticScaling::new(cfg.target_total_weight as f32, cfg.interval_ticks.max(1)));
-    }
-    if let Some(cfg) = &config.structural_plasticity {
-        let params = cfg.to_params(config.segments.as_ref().map_or(1, |s| s.segments_per_neuron));
-        let mut sweep = StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k));
-        // PLAN.md C4: only when the caller opted in -- see
-        // `StructuralPlasticityConfig::sprout_reach_radius`.
-        if let Some(reach) = cfg.sprout_reach() {
-            sweep = sweep.with_sprout_reach(reach);
-        }
-        scheduler = scheduler.with_structural_plasticity(sweep);
-    }
-    if let Some(cfg) = &config.intrinsic_homeostasis {
-        scheduler = scheduler.with_intrinsic_homeostasis(IntrinsicHomeostasis::new(
-            cfg.target_rate as f32,
-            cfg.smoothing as f32,
-            cfg.adjustment_rate as f32,
-            cfg.min_threshold as f32,
-            cfg.interval_ticks.max(1),
-        ));
-    }
+    // PLAN.md C11: segment-threshold homeostasis is the one periodic sweep
+    // applied here, per scheduler, because its state is per composite and
+    // runs per partition. The four whole-network sweeps are NOT applied here
+    // -- see `WholeNetworkSweepConfigs`.
     if let Some(cfg) = &config.segment_threshold_homeostasis {
         scheduler = scheduler.with_segment_threshold_homeostasis(SegmentThresholdHomeostasis::new(
             cfg.target_rate as f32,
@@ -1789,19 +1775,6 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
             cfg.adjustment_rate as f32,
             cfg.min_threshold as f32,
             cfg.interval_ticks.max(1),
-        ));
-    }
-    // Requires `config.inhibition` too (there is no `k` to adjust otherwise)
-    // -- `initial_k` is read from it rather than duplicated onto
-    // `InhibitionHomeostasisConfig`, see that type's own doc comment.
-    if let (Some(cfg), Some(inhibition)) = (&config.inhibition_homeostasis, &config.inhibition) {
-        scheduler = scheduler.with_inhibition_homeostasis(InhibitionHomeostasis::new(
-            cfg.target_rate as f32,
-            cfg.smoothing as f32,
-            cfg.adjustment_rate as f32,
-            cfg.min_k as f32,
-            cfg.interval_ticks.max(1),
-            inhibition.k as f32,
         ));
     }
     if let Some(cfg) = &config.growth {
@@ -1819,6 +1792,87 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
         scheduler = scheduler.with_newborn_maturation(wiring, maturation);
     }
     scheduler
+}
+
+/// PLAN.md C11: the four whole-network periodic sweeps, built from one
+/// configuration and attached at the two construction sites -- to the one
+/// `Scheduler` in `Runtime::Single`, to the `PartitionRuntime` in
+/// partitioned mode. Before C11 `build_scheduler` attached them to every
+/// partition's scheduler, where only `Scheduler::step` ran them, and a
+/// partitioned runtime never calls that: at `threadCount > 1` all four were
+/// accepted and never ran. `PartitionRuntime::new` now refuses a scheduler
+/// carrying one, so that shape cannot come back silently.
+struct WholeNetworkSweepConfigs {
+    homeostatic_scaling: Option<HomeostaticScaling>,
+    structural_plasticity: Option<StructuralPlasticity>,
+    intrinsic_homeostasis: Option<IntrinsicHomeostasis>,
+    inhibition_homeostasis: Option<InhibitionHomeostasis>,
+}
+
+impl WholeNetworkSweepConfigs {
+    fn build(config: &SchedulerConfig) -> Self {
+        let homeostatic_scaling = config.homeostatic_scaling.as_ref().map(|cfg| HomeostaticScaling::new(cfg.target_total_weight as f32, cfg.interval_ticks.max(1)));
+        let structural_plasticity = config.structural_plasticity.as_ref().map(|cfg| {
+            let params = cfg.to_params(config.segments.as_ref().map_or(1, |s| s.segments_per_neuron));
+            let sweep = StructuralPlasticity::new(params, FixedNeighbourhoods::new(cfg.neighbourhood_size, cfg.k));
+            // PLAN.md C4: only when the caller opted in -- see
+            // `StructuralPlasticityConfig::sprout_reach_radius`.
+            match cfg.sprout_reach() {
+                Some(reach) => sweep.with_sprout_reach(reach),
+                None => sweep,
+            }
+        });
+        let intrinsic_homeostasis = config.intrinsic_homeostasis.as_ref().map(|cfg| {
+            IntrinsicHomeostasis::new(cfg.target_rate as f32, cfg.smoothing as f32, cfg.adjustment_rate as f32, cfg.min_threshold as f32, cfg.interval_ticks.max(1))
+        });
+        // `initial_k` is read from `inhibition` rather than duplicated onto
+        // `InhibitionHomeostasisConfig` (see that type's own doc comment).
+        // `NativeSimulation::new` has already refused this without one.
+        let inhibition_homeostasis = match (&config.inhibition_homeostasis, &config.inhibition) {
+            (Some(cfg), Some(inhibition)) => Some(InhibitionHomeostasis::new(
+                cfg.target_rate as f32,
+                cfg.smoothing as f32,
+                cfg.adjustment_rate as f32,
+                cfg.min_k as f32,
+                cfg.interval_ticks.max(1),
+                inhibition.k as f32,
+            )),
+            _ => None,
+        };
+        Self { homeostatic_scaling, structural_plasticity, intrinsic_homeostasis, inhibition_homeostasis }
+    }
+
+    fn attach_to_scheduler(self, mut scheduler: Scheduler) -> Scheduler {
+        if let Some(sweep) = self.homeostatic_scaling {
+            scheduler = scheduler.with_homeostatic_scaling(sweep);
+        }
+        if let Some(sweep) = self.structural_plasticity {
+            scheduler = scheduler.with_structural_plasticity(sweep);
+        }
+        if let Some(sweep) = self.intrinsic_homeostasis {
+            scheduler = scheduler.with_intrinsic_homeostasis(sweep);
+        }
+        if let Some(sweep) = self.inhibition_homeostasis {
+            scheduler = scheduler.with_inhibition_homeostasis(sweep);
+        }
+        scheduler
+    }
+
+    fn attach_to_runtime(self, mut runtime: PartitionRuntime) -> PartitionRuntime {
+        if let Some(sweep) = self.homeostatic_scaling {
+            runtime = runtime.with_homeostatic_scaling(sweep);
+        }
+        if let Some(sweep) = self.structural_plasticity {
+            runtime = runtime.with_structural_plasticity(sweep);
+        }
+        if let Some(sweep) = self.intrinsic_homeostasis {
+            runtime = runtime.with_intrinsic_homeostasis(sweep);
+        }
+        if let Some(sweep) = self.inhibition_homeostasis {
+            runtime = runtime.with_inhibition_homeostasis(sweep);
+        }
+        runtime
+    }
 }
 
 /// `NativeSimulation`'s execution mode (P4-7.1: `threadCount`
@@ -2073,6 +2127,24 @@ impl NativeSimulation {
                 "predictiveLearning.sproutReachRadius is not supported together with threadCount > 1 (partitioned mode): the burst path's candidate set would be clipped to each partition's own range, so results would depend on the partition count (PLAN.md C4, RUN-3). structuralPlasticity.sproutReachRadius has no such restriction",
             ));
         }
+        // PLAN.md C11: refused here, as a clean `Error`, rather than letting
+        // `PartitionRuntime::with_structural_plasticity`'s own assert panic
+        // across the FFI when the runtime is lazily built. The reason is that
+        // assert's (docs/decisions.md decision 40): a longer delay for a
+        // sprout between partitions makes the network depend on where the
+        // partition boundary falls (RUN-3), and the merge barrier needs 1.
+        if let Some(cfg) = structural_plasticity.as_ref().filter(|cfg| cfg.min_cross_partition_delay > 1 && thread_count > 1) {
+            return Err(Error::from_reason(format!(
+                "structuralPlasticity.minCrossPartitionDelay {} is not supported together with threadCount > 1 (partitioned mode): a sprout between two partitions would get a longer delay than the same sprout single-threaded, so results would depend on the partition layout (PLAN.md C11, RUN-3). Use 1; the partitioned runtime's per-tick merge needs no more",
+                cfg.min_cross_partition_delay
+            )));
+        }
+        // PLAN.md C11: an inhibition homeostasis with no inhibition scheme
+        // has no `k` to adjust. It used to be dropped silently, at every
+        // thread count.
+        if inhibition_homeostasis.is_some() && inhibition.is_none() {
+            return Err(Error::from_reason("inhibitionHomeostasis requires inhibition: it adjusts the inhibition scheme's k, and without one it would silently do nothing (PLAN.md C11)"));
+        }
         let plasticity = plasticity.map(|cfg| cfg.resolve()).transpose()?;
         // PLAN.md C9: resolved (and so validated) once here, not per
         // partition -- `build_scheduler` runs once per partition.
@@ -2113,7 +2185,7 @@ impl NativeSimulation {
             Runtime::Partitioned(Box::new(PartitionedState { thread_count, total_neurons, config, runtime: None }))
         } else {
             Runtime::Single(Box::new({
-                let mut scheduler = build_scheduler(&config);
+                let mut scheduler = WholeNetworkSweepConfigs::build(&config).attach_to_scheduler(build_scheduler(&config));
                 // PLAN.md C2: applied here rather than in `build_scheduler`,
                 // because the partitioned path needs it on the runtime and
                 // `PartitionRuntime::new` refuses a scheduler carrying one.
@@ -2168,7 +2240,10 @@ impl NativeSimulation {
                 let schedulers: Vec<Scheduler> = (0..plan.partition_count()).map(|_| build_scheduler(&state.config)).collect();
                 state.runtime =
                     Some({
-                        let mut rt = PartitionRuntime::new(plan, schedulers, &self.synapses, state.total_neurons).with_thread_count(state.thread_count);
+                        let rt = PartitionRuntime::new(plan, schedulers, &self.synapses, state.total_neurons).with_thread_count(state.thread_count);
+                        // PLAN.md C11: one instance of each whole-network
+                        // sweep, over the whole network.
+                        let mut rt = WholeNetworkSweepConfigs::build(&state.config).attach_to_runtime(rt);
                         // PLAN.md C2, RUN-6: the coupling lives on the runtime
                         // so one estimator is advanced from the merged,
                         // network-wide tally and every partition's field is
@@ -3090,12 +3165,20 @@ impl NativeSimulation {
                 thresholds.extend_from_slice(t);
                 rates.extend_from_slice(r);
             }
+            // PLAN.md C11: each composite from the partition that owns its
+            // neuron. Every partition tracks every composite (see
+            // `Scheduler::grow_segment_threshold_state`) but only the owner's
+            // entry is ever read, so concatenating the partitions' vectors, as
+            // this did before, counted each composite once per partition.
             Runtime::Partitioned(state) => {
                 if let Some(pr) = &state.runtime {
-                    for p in 0..pr.partition_count() {
-                        let (t, r, _) = pr.scheduler(p).segment_threshold_raw_state();
-                        thresholds.extend_from_slice(t);
-                        rates.extend_from_slice(r);
+                    let segments_per_neuron = self.scheduler_segments.segments_per_neuron.max(1) as usize;
+                    let len = (0..pr.partition_count()).map(|p| pr.scheduler(p).segment_threshold_len()).max().unwrap_or(0);
+                    for composite in 0..len {
+                        let owner = pr.plan().partition_of((composite / segments_per_neuron) as u32);
+                        let (t, r, _) = pr.scheduler(owner).segment_threshold_raw_state();
+                        thresholds.push(t[composite]);
+                        rates.push(r[composite]);
                     }
                 }
             }
@@ -3234,8 +3317,8 @@ impl NativeSimulation {
     /// dependency for something outside the hot path.
     /// Errors in partitioned mode (`threadCount > 1`): Step 21's snapshot
     /// format has no section for `PartitionRuntime`'s own state (per-
-    /// partition tick/ring/dirty-set, boundary table, pending cross-
-    /// partition messages) -- serialising only the shared arenas would
+    /// partition tick/ring/dirty-set, boundary table) -- serialising only
+    /// the shared arenas would
     /// silently drop that state rather than round-trip it. Restricting to
     /// `Single` mode here keeps the existing guarantee (Requirement 16)
     /// exact rather than quietly weakening it.
@@ -3302,6 +3385,10 @@ impl NativeSimulation {
         let restored = brain_core::snapshot::read(bytes.as_ref(), hash).map_err(|e| {
             Error::from_reason(format!("{e:?}"))
         })?;
+        // PLAN.md C11: the same refusal as `new`'s.
+        if inhibition_homeostasis.is_some() && inhibition.is_none() {
+            return Err(Error::from_reason("inhibitionHomeostasis requires inhibition: it adjusts the inhibition scheme's k, and without one it would silently do nothing (PLAN.md C11)"));
+        }
 
         let mut scheduler = Scheduler::new(max_delay.min(u16::MAX as u32) as u16, connection_threshold as f32);
         if let Some(cfg) = &inhibition {

@@ -40,6 +40,7 @@ use crate::plasticity::{LocalContext, Modulators, NeuronLocal, RuleChain, Synaps
 use crate::probe::Probe;
 use crate::segment::{segment_role, BinaryCoincidence, Depolarisation, SegmentConfig, SegmentModel, SegmentRole, SegmentState};
 use crate::synapse::{SynapseArena, SynapseArenaViewMut, NOT_SILENT};
+use crate::sweeps::WholeNetworkSweeps;
 use crate::transmission::{TransmissionModulation, TransmissionModulationStats};
 
 /// Always-on metrics window (P6-5.1): OBS-2 frames the
@@ -399,39 +400,15 @@ pub struct Scheduler {
     /// against the value that actually decided this tick's outcome, not a
     /// value already decayed by the time resolution happens.
     predictive_scratch: Vec<f32>,
-    /// `None` means homeostatic synaptic scaling (LRN-6) never runs inside
-    /// `step()` -- the pre-Phase-5 behaviour, and still the default. When
-    /// configured (P5-9.2/P5-9.6), `step()` drives its
-    /// `maybe_apply` itself every tick, at whatever interval the instance
-    /// was constructed with; this is what makes "learning is always on"
-    /// (IO-4, invariant 7) true for a caller that only ever calls `step()`,
-    /// rather than something only a hand-rolled Rust test loop could
-    /// provide (see this module's -- and `homeostatic.rs`'s -- docs).
-    homeostatic_scaling: Option<HomeostaticScaling>,
-    /// `None` means structural plasticity (LRN-7) never runs inside
-    /// `step()` -- same rationale and default as `homeostatic_scaling`
-    /// above. Uses plain `maybe_sweep` (every neuron in the one partition
-    /// this `Scheduler` owns), matching `StructuralPlasticity::maybe_sweep`'s
-    /// own "every neuron treated as belonging to the same one partition"
-    /// framing -- `PartitionScheduler`'s equivalent field uses
-    /// `maybe_sweep_partitioned` instead (`partition.rs`).
-    structural_plasticity: Option<StructuralPlasticity>,
-    /// `None` means per-neuron intrinsic homeostasis (NEU-7) never runs
-    /// inside `step()` -- the default, and zero extra cost when never
-    /// configured, same shape as `homeostatic_scaling`/`structural_plasticity`
-    /// above. Built and unit-tested since Phase 0-3 (`homeostatic.rs`'s
-    /// `IntrinsicHomeostasis`) but never wired to a caller until the
-    /// canonical-brain-constructor review found it sitting alongside
-    /// `HomeostaticScaling`/`StructuralPlasticity` with the identical
-    /// "built, tested, reachable from no caller" shape docs/findings.md finding 13
-    /// already names for consolidation and three neuromodulator channels.
-    /// When attached via [`Self::with_intrinsic_homeostasis`], `step()`
-    /// drives `maybe_apply` directly against `neurons` every tick, at
-    /// whatever interval the instance was constructed with -- this is what
-    /// makes NEU-7's "threshold drifts to hold a long-run target firing
-    /// rate" true for a caller that only ever calls `step()`, mirroring
-    /// `homeostatic_scaling`'s own rationale exactly.
-    intrinsic_homeostasis: Option<IntrinsicHomeostasis>,
+    /// Homeostatic scaling (LRN-6), structural plasticity (LRN-7), intrinsic
+    /// homeostasis (NEU-7) and inhibition homeostasis, each `None` -- and never
+    /// run -- unless attached through its own `with_*` method. When configured
+    /// (P5-9.2/P5-9.6), `step()` drives them itself every tick, which is what
+    /// makes "learning is always on" (IO-4, invariant 7) true for a caller that
+    /// only ever calls `step()`. Grouped since PLAN.md C11 so that
+    /// `PartitionRuntime::step` runs the identical code, and refuses a
+    /// scheduler carrying its own copy: see `sweeps.rs`.
+    sweeps: WholeNetworkSweeps,
     /// PLAN.md C2: drives the noradrenaline and acetylcholine channels from
     /// this tick's own prediction-outcome tally, once per tick, at the end
     /// of `step()`.
@@ -484,13 +461,6 @@ pub struct Scheduler {
     firing_rate: FiringRateMeter,
     /// Always-on prediction accuracy (OBS-2, P6-5.1).
     prediction_accuracy: PredictionAccuracyMeter,
-    /// `None` means `inhibition`'s `k` never adjusts itself (docs/decisions.md
-    /// decision 10) -- the default, and zero extra cost when never
-    /// configured, same shape as `segment_threshold_homeostasis`. When
-    /// attached via [`Self::with_inhibition_homeostasis`], `step()` nudges
-    /// `inhibition`'s `k` toward a target population activity rate instead
-    /// of it staying whatever a human picked at construction time.
-    inhibition_homeostasis: Option<InhibitionHomeostasis>,
     /// `None` means saturation-driven growth (NET-10, invariant 10) never
     /// runs inside `step()` -- the default, and zero extra cost when never
     /// configured, same shape as every other always-on/opt-in sweep above.
@@ -607,16 +577,13 @@ impl Scheduler {
             predictive_learning: None,
             predicting_segment: PredictingSegmentTracker::new(),
             predictive_scratch: Vec::new(),
-            homeostatic_scaling: None,
-            structural_plasticity: None,
-            intrinsic_homeostasis: None,
+            sweeps: WholeNetworkSweeps::default(),
             prediction_error_coupling: None,
             reward_prediction_error: None,
             readouts: Vec::new(),
             probes: HashMap::new(),
             firing_rate: FiringRateMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
             prediction_accuracy: PredictionAccuracyMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
-            inhibition_homeostasis: None,
             growth: None,
             newborn_maturation: None,
         }
@@ -772,7 +739,7 @@ impl Scheduler {
 
     /// The attached `StructuralPlasticity`'s running totals, if any.
     pub fn structural_plasticity_totals(&self) -> Option<StructuralTotals> {
-        self.structural_plasticity.as_ref().map(StructuralPlasticity::totals)
+        self.sweeps.structural_plasticity.as_ref().map(StructuralPlasticity::totals)
     }
 
     /// What the STDP modulation hook did, if a rule observes it (PLAN.md C6,
@@ -1045,7 +1012,7 @@ impl Scheduler {
     /// still the default a caller must opt into, not out of
     /// (P5-9.6's "opt-in configuration... rather than an unconditional change").
     pub fn with_homeostatic_scaling(mut self, scaling: HomeostaticScaling) -> Self {
-        self.homeostatic_scaling = Some(scaling);
+        self.sweeps.homeostatic_scaling = Some(scaling);
         self
     }
 
@@ -1070,7 +1037,7 @@ impl Scheduler {
     /// counterpart to [`Self::with_homeostatic_scaling`] above -- same
     /// opt-in default, same "unchanged unless configured" guarantee.
     pub fn with_structural_plasticity(mut self, plasticity: StructuralPlasticity) -> Self {
-        self.structural_plasticity = Some(plasticity);
+        self.sweeps.structural_plasticity = Some(plasticity);
         self
     }
 
@@ -1083,7 +1050,7 @@ impl Scheduler {
     /// pre-existing behaviour, and still the default a caller must opt into,
     /// not out of.
     pub fn with_intrinsic_homeostasis(mut self, homeostasis: IntrinsicHomeostasis) -> Self {
-        self.intrinsic_homeostasis = Some(homeostasis);
+        self.sweeps.intrinsic_homeostasis = Some(homeostasis);
         self
     }
 
@@ -1178,7 +1145,7 @@ impl Scheduler {
     /// `k` to adjust), but this does not enforce that ordering, matching
     /// `with_segment_threshold_homeostasis`'s own stated precedent.
     pub fn with_inhibition_homeostasis(mut self, ih: InhibitionHomeostasis) -> Self {
-        self.inhibition_homeostasis = Some(ih);
+        self.sweeps.inhibition_homeostasis = Some(ih);
         self
     }
 
@@ -1422,12 +1389,12 @@ impl Scheduler {
     /// closes.
     pub fn sweep_scheduling_raw_state(&self) -> SweepSchedulingRawState {
         SweepSchedulingRawState {
-            homeostatic_scaling_last_applied_at: self.homeostatic_scaling.as_ref().map(|s| s.last_applied_at()),
-            intrinsic_homeostasis_last_applied_at: self.intrinsic_homeostasis.as_ref().map(|s| s.last_applied_at()),
+            homeostatic_scaling_last_applied_at: self.sweeps.homeostatic_scaling.as_ref().map(|s| s.last_applied_at()),
+            intrinsic_homeostasis_last_applied_at: self.sweeps.intrinsic_homeostasis.as_ref().map(|s| s.last_applied_at()),
             segment_threshold_homeostasis_last_applied_at: self.segment_threshold_homeostasis.as_ref().map(|s| s.last_applied_at()),
-            inhibition_homeostasis: self.inhibition_homeostasis.as_ref().map(|s| s.raw_state()),
-            structural_plasticity_last_swept_at: self.structural_plasticity.as_ref().map(|s| s.last_swept_at()),
-            structural_plasticity_activity_streak: self.structural_plasticity.as_ref().map(|s| s.activity_streak().to_vec()).unwrap_or_default(),
+            inhibition_homeostasis: self.sweeps.inhibition_homeostasis.as_ref().map(|s| s.raw_state()),
+            structural_plasticity_last_swept_at: self.sweeps.structural_plasticity.as_ref().map(|s| s.last_swept_at()),
+            structural_plasticity_activity_streak: self.sweeps.structural_plasticity.as_ref().map(|s| s.activity_streak().to_vec()).unwrap_or_default(),
         }
     }
 
@@ -1465,31 +1432,31 @@ impl Scheduler {
     pub fn restore_sweep_scheduling_state(&mut self, state: Option<SweepSchedulingRawState>, tick: u32) {
         match state {
             Some(s) => {
-                if let (Some(scaling), Some(v)) = (&mut self.homeostatic_scaling, s.homeostatic_scaling_last_applied_at) {
+                if let (Some(scaling), Some(v)) = (&mut self.sweeps.homeostatic_scaling, s.homeostatic_scaling_last_applied_at) {
                     scaling.restore_last_applied_at(v);
                 }
-                if let (Some(ih), Some(v)) = (&mut self.intrinsic_homeostasis, s.intrinsic_homeostasis_last_applied_at) {
+                if let (Some(ih), Some(v)) = (&mut self.sweeps.intrinsic_homeostasis, s.intrinsic_homeostasis_last_applied_at) {
                     ih.restore_last_applied_at(v);
                 }
                 if let (Some(sth), Some(v)) = (&mut self.segment_threshold_homeostasis, s.segment_threshold_homeostasis_last_applied_at) {
                     sth.restore_last_applied_at(v);
                 }
-                if let (Some(ihom), Some((last, rate, k))) = (&mut self.inhibition_homeostasis, s.inhibition_homeostasis) {
+                if let (Some(ihom), Some((last, rate, k))) = (&mut self.sweeps.inhibition_homeostasis, s.inhibition_homeostasis) {
                     ihom.restore_raw_state(last, rate, k);
                 }
-                if let (Some(_), Some((_, _, k))) = (&self.inhibition_homeostasis, s.inhibition_homeostasis) {
+                if let (Some(_), Some((_, _, k))) = (&self.sweeps.inhibition_homeostasis, s.inhibition_homeostasis) {
                     Self::resync_inhibition_k(&mut self.inhibition, k);
                 }
-                if let (Some(sp), Some(v)) = (&mut self.structural_plasticity, s.structural_plasticity_last_swept_at) {
+                if let (Some(sp), Some(v)) = (&mut self.sweeps.structural_plasticity, s.structural_plasticity_last_swept_at) {
                     sp.restore_sweep_state(v, s.structural_plasticity_activity_streak);
                 }
             }
             None => {
-                if let Some(scaling) = &mut self.homeostatic_scaling {
+                if let Some(scaling) = &mut self.sweeps.homeostatic_scaling {
                     let interval = scaling.interval_ticks.max(1);
                     scaling.restore_last_applied_at((tick / interval) * interval);
                 }
-                if let Some(ih) = &mut self.intrinsic_homeostasis {
+                if let Some(ih) = &mut self.sweeps.intrinsic_homeostasis {
                     let interval = ih.interval_ticks.max(1);
                     ih.restore_last_applied_at((tick / interval) * interval);
                 }
@@ -1497,11 +1464,11 @@ impl Scheduler {
                     let interval = sth.interval_ticks.max(1);
                     sth.restore_last_applied_at((tick / interval) * interval);
                 }
-                if let Some(ihom) = &mut self.inhibition_homeostasis {
+                if let Some(ihom) = &mut self.sweeps.inhibition_homeostasis {
                     let interval = ihom.interval_ticks.max(1);
                     ihom.restore_last_applied_at((tick / interval) * interval);
                 }
-                if let Some(sp) = &mut self.structural_plasticity {
+                if let Some(sp) = &mut self.sweeps.structural_plasticity {
                     let interval = sp.sweep_interval_ticks().max(1);
                     sp.restore_sweep_state((tick / interval) * interval, Vec::new());
                 }
@@ -1968,8 +1935,8 @@ impl Scheduler {
     /// `ThreeFactorStdp` (the one plasticity rule that exists) never reads
     /// `ctx.pre` at all; a future rule wanting true same-tick
     /// cross-partition freshness for `ctx.pre` is the one documented,
-    /// narrow case this deferred-by-one-tick delivery does not cover
-    /// exactly (see `partition.rs`'s module docs).
+    /// narrow case this deferred-to-the-end-of-stage-3 delivery does not
+    /// cover exactly (see `partition.rs`'s module docs).
     pub fn apply_remote_post_spikes(&mut self, neurons: &NeuronArenaViewMut, synapses: &mut SynapseArenaViewMut, messages: &[CrossPartitionPostSpike]) {
         if !self.has_any_plasticity() {
             return;
@@ -2022,6 +1989,81 @@ impl Scheduler {
                 });
             }
         }
+    }
+
+    /// The periodic sweeps whose state lives on this scheduler and covers only
+    /// the composites it evaluates: today, segment-threshold homeostasis
+    /// (dendritic-threshold-homeostasis spec, Requirements 1, 2 and 6). Like
+    /// [`Self::record_tick_observables`], this is the one method both step
+    /// paths call -- [`Self::step`], and `PartitionRuntime::step` once per
+    /// partition (PLAN.md C11). A partitioned caller must first bring every
+    /// partition's composite state to one length
+    /// ([`Self::grow_segment_threshold_state`]).
+    ///
+    /// `0..segment_threshold.len()` is exactly the set of composites this
+    /// scheduler has ever resized into existence -- `segment_touched` (used by
+    /// `evaluate_and_resolve`) is cleared every tick and so cannot serve as
+    /// this sweep's touched-composite list; no separate list needs to be
+    /// retained across ticks just for this.
+    pub fn run_local_sweeps(&mut self, tick: u32) {
+        if let Some(homeostasis) = &mut self.segment_threshold_homeostasis {
+            let touched: Vec<u32> = (0..self.segment_threshold.len() as u32).collect();
+            homeostasis.maybe_apply(&mut self.segment_threshold, &mut self.segment_rate_estimate, &self.segment_last_depolarised_tick, &touched, tick);
+        }
+    }
+
+    /// How many composites segment-threshold homeostasis currently tracks
+    /// (0 when it is not configured).
+    pub fn segment_threshold_len(&self) -> usize {
+        self.segment_threshold.len()
+    }
+
+    /// Grows segment-threshold homeostasis's per-composite state to `len`,
+    /// seeding new entries exactly as a touch in `apply_local_effect` would.
+    /// A no-op when not configured or already that long.
+    ///
+    /// Why a partitioned runtime needs this (PLAN.md C11, docs/decisions.md
+    /// decision 40): single-threaded, touching composite `c` resizes the state
+    /// to `c + 1`, so every lower composite starts drifting from that sweep on,
+    /// whichever neuron `c` belongs to. A partition's scheduler only sees its
+    /// own touches, so without this its untouched composites would start
+    /// drifting at a different tick than they do single-threaded.
+    pub fn grow_segment_threshold_state(&mut self, len: usize) {
+        if self.segment_threshold_homeostasis.is_none() || self.segment_threshold.len() >= len {
+            return;
+        }
+        let initial_threshold = self.segments.as_ref().expect("segment-threshold state exists only for a scheduler with segments").params.threshold as f32;
+        self.segment_threshold.resize(len, initial_threshold);
+        self.segment_rate_estimate.resize(len, 0.0);
+        self.segment_last_depolarised_tick.resize(len, u32::MAX);
+    }
+
+    /// Sets the live inhibition `k` to inhibition homeostasis's latest value,
+    /// clamped to the scheme's size. The one formula both step paths use; a
+    /// no-op without an inhibition scheme.
+    pub fn apply_inhibition_k(&mut self, k: u32) {
+        if let Some(old) = &self.inhibition {
+            let clamped_k = k.min(old.size()).max(1);
+            self.inhibition = Some(FixedNeighbourhoods::with_base(old.base(), old.size(), clamped_k));
+        }
+    }
+
+    /// Whether an inhibition scheme is configured.
+    pub fn has_inhibition(&self) -> bool {
+        self.inhibition.is_some()
+    }
+
+    /// The whole-network sweeps configured on this scheduler, by name --
+    /// `PartitionRuntime::new` refuses a scheduler for which this is not empty
+    /// (PLAN.md C11).
+    pub fn whole_network_sweeps_configured(&self) -> Vec<&'static str> {
+        self.sweeps.configured()
+    }
+
+    /// Whether growth (NET-10) or newborn maturation is configured. Both run
+    /// only inside [`Self::step`], and growth has no partitioned form.
+    pub fn has_growth_or_newborn_maturation(&self) -> bool {
+        self.growth.is_some() || self.newborn_maturation.is_some()
     }
 
     /// Advances the simulation by exactly one tick:
@@ -2080,30 +2122,20 @@ impl Scheduler {
 
         self.record_tick_observables(&report, &neuron_view, &synapse_view);
 
-        // P5-9.2/P5-9.6: always-on homeostasis/structural
-        // plasticity, opt-in via with_homeostatic_scaling/
-        // with_structural_plasticity above. `neuron_view`/`synapse_view`'s
+        // P5-9.2/P5-9.6: the always-on, opt-in whole-network sweeps (LRN-6,
+        // LRN-7, NEU-7, inhibition homeostasis). `neuron_view`/`synapse_view`'s
         // borrows of `neurons`/`synapses` have already ended (their last use
-        // was the `evaluate_and_resolve` call above), so the concrete arenas
-        // are free to use directly here -- both mechanisms operate on whole
-        // arenas (`neurons.capacity_len()`-driven sweeps), not on views.
-        // `report.tick` (the tick just processed, before `evaluate_and_
-        // resolve`'s own `self.tick += 1`) is used rather than `self.tick`,
-        // matching the convention every existing hand-rolled test loop
-        // already uses when driving `maybe_apply`/`maybe_sweep` alongside
-        // `step()` (e.g. `tests/homeostasis.rs`'s `run` function).
-        if let Some(scaling) = &mut self.homeostatic_scaling {
-            scaling.maybe_apply(neurons, synapses, report.tick);
-        }
-        if let Some(sp) = &mut self.structural_plasticity {
-            sp.maybe_sweep(neurons, synapses, report.tick);
-        }
-        // NEU-7: per-neuron intrinsic homeostasis, the somatic-threshold
-        // counterpart to `homeostatic_scaling`/`structural_plasticity` above
-        // -- same "reads `neurons` directly, borrow through `neuron_view`
-        // already ended" reasoning.
-        if let Some(homeostasis) = &mut self.intrinsic_homeostasis {
-            homeostasis.maybe_apply(neurons, report.tick);
+        // was `record_tick_observables` above), so the concrete arenas are
+        // free to use directly here -- these mechanisms operate on whole
+        // arenas, not on views. `report.tick` (the tick just processed,
+        // before `evaluate_and_resolve`'s own `self.tick += 1`) is used rather
+        // than `self.tick`, matching the convention every existing hand-rolled
+        // test loop already uses when driving `maybe_apply`/`maybe_sweep`
+        // alongside `step()` (e.g. `tests/homeostasis.rs`'s `run` function).
+        // PLAN.md C11: `PartitionRuntime::step` calls this same `run`.
+        let swept = self.sweeps.run(neurons, synapses, report.tick, report.spiked.len(), self.inhibition.is_some(), |_| 0);
+        if let Some(k) = swept.inhibition_k {
+            self.apply_inhibition_k(k);
         }
         // PLAN.md C2: drive noradrenaline (unexpected uncertainty) and
         // acetylcholine (expected uncertainty) from this tick's own
@@ -2118,38 +2150,7 @@ impl Scheduler {
             coupling.drive(&mut self.modulators, report.tick);
             self.prediction_error_coupling = Some(coupling);
         }
-        // dendritic-threshold-homeostasis spec, Requirement 1/2/6: a fifth
-        // always-on, opt-in sweep alongside homeostatic_scaling/
-        // structural_plasticity above. `0..segment_threshold.len()` is
-        // exactly the set of composites this scheduler has ever resized
-        // into existence -- `segment_touched` (used by `evaluate_and_resolve`
-        // above) is cleared every tick and so cannot serve as this sweep's
-        // touched-composite list; no separate list needs to be retained
-        // across ticks just for this.
-        if let Some(homeostasis) = &mut self.segment_threshold_homeostasis {
-            let touched: Vec<u32> = (0..self.segment_threshold.len() as u32).collect();
-            homeostasis.maybe_apply(&mut self.segment_threshold, &mut self.segment_rate_estimate, &self.segment_last_depolarised_tick, &touched, report.tick);
-        }
-        // inhibition-homeostasis spec, Requirement 1: a sixth always-on,
-        // opt-in sweep alongside the five above. Gated on `self.inhibition`
-        // also being `Some` -- if inhibition was never configured there is
-        // no `k` to adjust, and feeding a bogus `observed = 0` (since
-        // nothing ever competes without a scheme) into the EMA for that
-        // degenerate combination would be meaningless. Reads `neurons`
-        // directly (the owning arena, not a view) for the same reason
-        // `homeostatic_scaling`/`structural_plasticity` do above: their
-        // borrow through `neuron_view`/`synapse_view` has already ended.
-        if let Some(ih) = &mut self.inhibition_homeostasis {
-            if let Some(old) = &self.inhibition {
-                let live_count = neurons.live_count();
-                let observed = if live_count == 0 { 0.0 } else { report.spiked.len() as f32 / live_count as f32 };
-                ih.record_activity(observed);
-                if let Some(new_k) = ih.maybe_apply(report.tick) {
-                    let clamped_k = new_k.min(old.size()).max(1);
-                    self.inhibition = Some(FixedNeighbourhoods::with_base(old.base(), old.size(), clamped_k));
-                }
-            }
-        }
+        self.run_local_sweeps(report.tick);
 
         // PLAN.md B3: an eighth always-on, opt-in sweep, relaxing/reclaiming
         // newborns from *earlier* growth events at this tick, before growth
@@ -2434,7 +2435,7 @@ impl Scheduler {
                             // deferred to the owning partition via
                             // `apply_remote_post_spikes` (see that method's
                             // doc comment for why `ctx.pre` sourced live,
-                            // one tick later, is exact for every plasticity
+                            // after stage 3, is exact for every plasticity
                             // rule that exists today).
                             post_spike_outbox.push(CrossPartitionPostSpike { synapse_id, tick: self.tick, post: post_local, modulators });
                             continue;
@@ -2644,27 +2645,27 @@ mod tests {
 
         sched.restore_sweep_scheduling_state(None, 137);
 
-        assert_eq!(sched.homeostatic_scaling.as_ref().unwrap().last_applied_at(), 100, "137 / 50 * 50 = 100");
-        assert_eq!(sched.intrinsic_homeostasis.as_ref().unwrap().last_applied_at(), 120, "137 / 30 * 30 = 120");
+        assert_eq!(sched.sweeps.homeostatic_scaling.as_ref().unwrap().last_applied_at(), 100, "137 / 50 * 50 = 100");
+        assert_eq!(sched.sweeps.intrinsic_homeostasis.as_ref().unwrap().last_applied_at(), 120, "137 / 30 * 30 = 120");
         assert_eq!(sched.segment_threshold_homeostasis.as_ref().unwrap().last_applied_at(), 120, "137 / 40 * 40 = 120");
-        assert_eq!(sched.structural_plasticity.as_ref().unwrap().last_swept_at(), 125, "137 / 25 * 25 = 125");
+        assert_eq!(sched.sweeps.structural_plasticity.as_ref().unwrap().last_swept_at(), 125, "137 / 25 * 25 = 125");
 
         let mut neurons = NeuronArena::new();
         neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] });
         let mut synapses = SynapseArena::new(2);
         synapses.reserve_for_neurons(neurons.capacity_len());
 
-        assert!(!sched.homeostatic_scaling.as_mut().unwrap().maybe_apply(&neurons, &mut synapses, 149), "gate must still be closed one tick before 100+50");
-        assert!(sched.homeostatic_scaling.as_mut().unwrap().maybe_apply(&neurons, &mut synapses, 150), "gate must open exactly at 100+50");
+        assert!(!sched.sweeps.homeostatic_scaling.as_mut().unwrap().maybe_apply(&neurons, &mut synapses, 149), "gate must still be closed one tick before 100+50");
+        assert!(sched.sweeps.homeostatic_scaling.as_mut().unwrap().maybe_apply(&neurons, &mut synapses, 150), "gate must open exactly at 100+50");
 
-        assert!(!sched.intrinsic_homeostasis.as_mut().unwrap().maybe_apply(&mut neurons, 149), "gate must still be closed one tick before 120+30");
-        assert!(sched.intrinsic_homeostasis.as_mut().unwrap().maybe_apply(&mut neurons, 150), "gate must open exactly at 120+30");
+        assert!(!sched.sweeps.intrinsic_homeostasis.as_mut().unwrap().maybe_apply(&mut neurons, 149), "gate must still be closed one tick before 120+30");
+        assert!(sched.sweeps.intrinsic_homeostasis.as_mut().unwrap().maybe_apply(&mut neurons, 150), "gate must open exactly at 120+30");
 
         assert!(!sched.segment_threshold_homeostasis.as_mut().unwrap().maybe_apply(&mut [], &mut [], &[], &[], 159), "gate must still be closed one tick before 120+40");
         assert!(sched.segment_threshold_homeostasis.as_mut().unwrap().maybe_apply(&mut [], &mut [], &[], &[], 160), "gate must open exactly at 120+40");
 
-        assert!(sched.structural_plasticity.as_mut().unwrap().maybe_sweep(&mut neurons, &mut synapses, 149).is_none(), "gate must still be closed one tick before 125+25");
-        assert!(sched.structural_plasticity.as_mut().unwrap().maybe_sweep(&mut neurons, &mut synapses, 150).is_some(), "gate must open exactly at 125+25");
+        assert!(sched.sweeps.structural_plasticity.as_mut().unwrap().maybe_sweep(&mut neurons, &mut synapses, 149).is_none(), "gate must still be closed one tick before 125+25");
+        assert!(sched.sweeps.structural_plasticity.as_mut().unwrap().maybe_sweep(&mut neurons, &mut synapses, 150).is_some(), "gate must open exactly at 125+25");
     }
 
     /// The version-8 (real-section) restore path: every mechanism's
@@ -2686,7 +2687,7 @@ mod tests {
         };
         sched.restore_sweep_scheduling_state(Some(state), 137);
 
-        assert_eq!(sched.inhibition_homeostasis.as_ref().unwrap().raw_state(), (80, 0.4, 3.0));
+        assert_eq!(sched.sweeps.inhibition_homeostasis.as_ref().unwrap().raw_state(), (80, 0.4, 3.0));
         assert_eq!(sched.inhibition_k(), Some(3), "inhibition's live k must resync to the restored k_estimate, not stay at the caller's fresh with_inhibition(..., 5) value");
     }
 

@@ -57,16 +57,26 @@
 //!    evaluation, integration, inhibition, commit/veto, outgoing-delivery
 //!    scheduling) independently.
 //!
+//! After stage 3 comes a sequential tail: cross-partition `on_post_spike`
+//! (below), per-partition observables, then the periodic sweeps. The
+//! whole-network ones run once over the whole arena
+//! ([`crate::sweeps::WholeNetworkSweeps::run`], the same method
+//! `Scheduler::step` calls), and the per-partition one runs on each scheduler
+//! (`Scheduler::run_local_sweeps`). The boundary table is published last, so
+//! it carries whatever a sweep wrote (PLAN.md C11).
+//!
 //! `on_post_spike` (triggered in stage 3, when a neuron commits) is the
 //! mirror-image problem: `SynapseArena` is source-major, so a
 //! cross-partition synapse's mutable fields belong to the *source*
 //! partition, but the commit that should trigger `on_post_spike` happens on
-//! the *target*'s. There is no data dependency forcing this into the same
-//! tick, so it is deliberately deferred one tick: stage 3 collects these
-//! into a per-owning-partition outbox, and the owning partition applies
-//! them via [`crate::scheduler::Scheduler::apply_remote_post_spikes`] at
-//! the very start of *its own* next tick (before this module's own stage
-//! 1). `ctx.pre` for that call is read live, one tick later, from the
+//! the *target*'s. So it is deferred to the end of stage 3: stage 3 collects
+//! these into a per-owning-partition outbox, and once every partition has
+//! finished, the owning partition applies them in canonical order via
+//! [`crate::scheduler::Scheduler::apply_remote_post_spikes`], in the same
+//! tick. (Until PLAN.md C11 they waited for the start of the next tick. That
+//! was exact for the next tick's deliveries but not for a periodic sweep
+//! running at the end of this one: `step`'s own comment has the measured
+//! case.) `ctx.pre` for that call is read live, after stage 3, from the
 //! owning partition's own arena -- exact for `ThreeFactorStdp` (the one
 //! plasticity rule that exists today; it never reads `ctx.pre` at all), and
 //! documented here as the one narrow case where a future rule wanting
@@ -132,10 +142,11 @@ use crate::arena::{NeuronArena, NeuronArenaViewMut};
 use crate::column::ColumnRegistry;
 use crate::neuron::NeuronDynamics;
 use crate::neuromodulator::{PredictionErrorCoupling, RewardPredictionError};
-use crate::plasticity::homeostatic::HomeostaticScaling;
+use crate::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis};
 use crate::plasticity::structural::StructuralPlasticity;
 use crate::plasticity::{Modulators, NeuronLocal};
 use crate::scheduler::{CrossPartitionPostSpike, DeliveryEffect, Scheduler, StepReport};
+use crate::sweeps::WholeNetworkSweeps;
 use crate::synapse::{SynapseArena, SynapseArenaViewMut};
 use std::collections::HashMap;
 use std::ops::Range;
@@ -389,30 +400,17 @@ pub struct PartitionRuntime {
     schedulers: Vec<Scheduler>,
     boundary_table: BoundaryNeuronLocalTable,
     boundary_neurons: Vec<u32>,
-    /// `on_post_spike` messages owed to partition `p`'s synapses, generated
-    /// during the *previous* tick's stage 3 and applied at the very start
-    /// of this tick, before stage 1.
-    pending_post_spike: Vec<Vec<CrossPartitionPostSpike>>,
     executor: Executor,
-    /// `None` means homeostatic synaptic scaling (LRN-6) never runs
-    /// (P5-9.2/P5-9.6) -- pre-Phase-5 behaviour, still the default.
-    /// Deliberately **one** instance shared across every partition, not one
-    /// per `Scheduler`: unlike stage 1/3's per-tick pipeline, this mechanism
-    /// needs the *whole* arena (`HomeostaticScaling::maybe_apply` iterates
-    /// `0..neurons.capacity_len()`), which `step`'s `split_views_mut`
-    /// partition-scoped views cannot provide -- it runs after stage 3, once
-    /// those views' borrows of `neurons`/`synapses` have ended and the
-    /// caller-supplied whole arenas are addressable directly again, exactly
-    /// how `StructuralPlasticity::maybe_sweep_partitioned`'s own doc comment
-    /// already describes running "between `PartitionRuntime::step` calls".
-    homeostatic_scaling: Option<HomeostaticScaling>,
-    /// `None` means structural plasticity (LRN-7) never runs -- same
-    /// rationale, same one-shared-instance shape, as `homeostatic_scaling`
-    /// above. Uses `maybe_sweep_partitioned(..., |n| plan.partition_of(n))`
-    /// so cross-partition sprouts still get the correct minimum delay
-    /// (P4-4.2), exactly as the pre-existing
-    /// `maybe_sweep_partitioned` was built for in Phase 4 Step 19.
-    structural_plasticity: Option<StructuralPlasticity>,
+    /// The whole-network periodic sweeps -- homeostatic scaling (LRN-6),
+    /// structural plasticity (LRN-7), intrinsic homeostasis (NEU-7) and
+    /// inhibition homeostasis -- as **one** instance for the whole runtime,
+    /// never one per partition. Each needs the whole arena or one
+    /// network-wide estimate, which `step`'s partition-scoped views cannot
+    /// provide, so they run after stage 3, once those views' borrows of
+    /// `neurons`/`synapses` have ended. [`crate::sweeps::WholeNetworkSweeps::run`]
+    /// is the same method `Scheduler::step` calls (PLAN.md C11), and
+    /// [`Self::new`] refuses a scheduler carrying its own copy.
+    sweeps: WholeNetworkSweeps,
     /// `None` means PLAN.md C2's prediction-error coupling never runs --
     /// every pre-C2 behaviour.
     ///
@@ -503,17 +501,33 @@ impl PartitionRuntime {
             !schedulers.iter().any(Scheduler::has_readout),
             "a Scheduler's own readout population is inert inside a PartitionRuntime (it is fed by Scheduler::step, which this runtime never calls) -- configure it with PartitionRuntime::with_readout (PLAN.md C17)"
         );
+        // PLAN.md C11: the same refusal for every whole-network sweep. Before
+        // C11 the FFI attached each one to every partition's scheduler, where
+        // `Scheduler::step` -- never called here -- was the only thing that
+        // ran them, so each was accepted and then silently did nothing.
+        for (p, scheduler) in schedulers.iter().enumerate() {
+            let configured = scheduler.whole_network_sweeps_configured();
+            assert!(
+                configured.is_empty(),
+                "partition {p}'s Scheduler carries its own {} -- inert inside a PartitionRuntime (it is run by Scheduler::step, which this runtime never calls). Attach it to the runtime instead (PartitionRuntime::with_homeostatic_scaling / with_structural_plasticity / with_intrinsic_homeostasis / with_inhibition_homeostasis), which runs one instance over the whole network (PLAN.md C11, RUN-3)",
+                configured.join(", ")
+            );
+        }
+        // Growth and newborn maturation run only in `Scheduler::step` too, and
+        // growth has no partitioned form (`PartitionPlan::extend_last`); the FFI
+        // already refuses both above one thread.
+        assert!(
+            !schedulers.iter().any(Scheduler::has_growth_or_newborn_maturation),
+            "growth and newborn maturation are inert inside a PartitionRuntime (they are run by Scheduler::step, which this runtime never calls) and have no partitioned form (PLAN.md C11)"
+        );
         let boundary_neurons = boundary_neurons(&plan, synapses, neuron_count);
-        let pending_post_spike = (0..schedulers.len()).map(|_| Vec::new()).collect();
         Self {
             plan,
             schedulers,
             boundary_table: BoundaryNeuronLocalTable::default(),
             boundary_neurons,
-            pending_post_spike,
             executor: Executor::Sequential,
-            homeostatic_scaling: None,
-            structural_plasticity: None,
+            sweeps: WholeNetworkSweeps::default(),
             prediction_error_coupling: None,
             reward_prediction_error: None,
             readouts: Vec::new(),
@@ -540,20 +554,66 @@ impl PartitionRuntime {
     }
 
     /// Enables homeostatic synaptic scaling (LRN-6) as an always-on, opt-in
-    /// part of `step()` (P5-9.2/P5-9.6) -- see the field's own
-    /// doc comment for why this is one shared instance, not one per
-    /// partition. Without this call, `step()` never touches homeostasis at
-    /// all, unchanged from every pre-Phase-5 behaviour.
+    /// part of `step()` (P5-9.2/P5-9.6) -- see the `sweeps` field's doc
+    /// comment for why this is one shared instance, not one per partition.
+    /// Without this call, `step()` never touches homeostasis at all, unchanged
+    /// from every pre-Phase-5 behaviour.
     pub fn with_homeostatic_scaling(mut self, scaling: HomeostaticScaling) -> Self {
-        self.homeostatic_scaling = Some(scaling);
+        self.sweeps.homeostatic_scaling = Some(scaling);
         self
     }
 
     /// Enables structural plasticity (LRN-7) as an always-on, opt-in part of
-    /// `step()` (P5-9.2/P5-9.6), the structural-plasticity
-    /// counterpart to [`Self::with_homeostatic_scaling`] above.
+    /// `step()` (P5-9.2/P5-9.6), the structural-plasticity counterpart to
+    /// [`Self::with_homeostatic_scaling`] above.
+    ///
+    /// **Refuses a `min_cross_partition_delay` above 1 at more than one
+    /// partition** (PLAN.md C11, docs/decisions.md decision 40). That
+    /// parameter gives a sprout between two partitions a longer delay than
+    /// the same sprout gets single-threaded, so the network would depend on
+    /// where the partition boundary falls -- RUN-3's "or in how the graph is
+    /// partitioned" clause. It buys nothing here: the stage-2 merge barrier
+    /// delivers a cross-partition spike within the tick, so the minimum delay
+    /// this scheme requires (P4-4.2's own wording) is 1.
     pub fn with_structural_plasticity(mut self, plasticity: StructuralPlasticity) -> Self {
-        self.structural_plasticity = Some(plasticity);
+        assert!(
+            self.plan.partition_count() <= 1 || plasticity.min_cross_partition_delay() <= 1,
+            "structural plasticity's min_cross_partition_delay is {} and is refused above one partition: a cross-partition sprout would get a different delay than the same sprout single-threaded, so results would depend on the partition layout (PLAN.md C11, RUN-3). The stage-2 merge barrier needs no more than 1",
+            plasticity.min_cross_partition_delay()
+        );
+        self.sweeps.structural_plasticity = Some(plasticity);
+        self
+    }
+
+    /// Enables intrinsic homeostasis (NEU-7) as an always-on, opt-in part of
+    /// `step()`, the partitioned counterpart to
+    /// [`Scheduler::with_intrinsic_homeostasis`] (PLAN.md C11). One instance
+    /// over the whole arena: its per-neuron state is in `NeuronArena`, so
+    /// nothing about it depends on the partitioning.
+    pub fn with_intrinsic_homeostasis(mut self, homeostasis: IntrinsicHomeostasis) -> Self {
+        self.sweeps.intrinsic_homeostasis = Some(homeostasis);
+        self
+    }
+
+    /// Enables inhibition homeostasis as an always-on, opt-in part of
+    /// `step()`, the partitioned counterpart to
+    /// [`Scheduler::with_inhibition_homeostasis`] (PLAN.md C11).
+    ///
+    /// **One estimator and one `k` for the whole network**, as
+    /// single-threaded. The observed rate is the merged spike count over the
+    /// whole arena's live count, and each new `k` is applied to every
+    /// partition's scheme. Per-partition estimators would each see a
+    /// different rate and move their own `k`, so the network would compete
+    /// under as many `k`s as it has partitions.
+    ///
+    /// Every partition's scheduler must carry an inhibition scheme, since
+    /// that scheme is what a new `k` is applied to.
+    pub fn with_inhibition_homeostasis(mut self, homeostasis: InhibitionHomeostasis) -> Self {
+        assert!(
+            self.schedulers.iter().all(Scheduler::has_inhibition),
+            "inhibition homeostasis needs every partition's Scheduler to carry an inhibition scheme: it adjusts that scheme's k (PLAN.md C11)"
+        );
+        self.sweeps.inhibition_homeostasis = Some(homeostasis);
         self
     }
 
@@ -616,7 +676,7 @@ impl PartitionRuntime {
     /// The shared `StructuralPlasticity`'s running totals, if attached
     /// (PLAN.md B4, reporting only).
     pub fn structural_plasticity_totals(&self) -> Option<crate::plasticity::structural::StructuralTotals> {
-        self.structural_plasticity.as_ref().map(StructuralPlasticity::totals)
+        self.sweeps.structural_plasticity.as_ref().map(StructuralPlasticity::totals)
     }
 
     /// Every partition's [`Scheduler::stdp_modulation_stats`], merged (PLAN.md
@@ -776,11 +836,6 @@ impl PartitionRuntime {
         self.schedulers[0].modulator_levels()
     }
 
-    fn local(neurons: &NeuronArenaViewMut, index: u32) -> NeuronLocal {
-        let i = index as usize;
-        NeuronLocal { last_spike: neurons.last_spike[i], trace: neurons.trace[i], rate_estimate: neurons.rate_estimate[i] }
-    }
-
     /// Advances every partition by exactly one tick, returning each
     /// partition's own [`StepReport`] in partition-id order. See this
     /// module's doc comment for the three-stage pipeline this method
@@ -801,18 +856,6 @@ impl PartitionRuntime {
         let mut neuron_views = neurons.split_views_mut(&ranges);
         let mut synapse_views = synapses.split_views_mut(&ranges);
         let cap_per_neuron = synapse_views[0].cap_per_neuron();
-
-        // Stage 0: apply on_post_spike messages this partition was owed
-        // from the previous tick's stage 3, before touching its own ring.
-        // Cheap and inherently per-partition-independent; not worth
-        // parallelising on its own (most ticks, most partitions have
-        // nothing pending).
-        for p in 0..self.schedulers.len() {
-            let messages = std::mem::take(&mut self.pending_post_spike[p]);
-            if !messages.is_empty() {
-                self.schedulers[p].apply_remote_post_spikes(&neuron_views[p], &mut synapse_views[p], &messages);
-            }
-        }
 
         // Stage 1: deliver. Every partition's `deliver` call returns *all*
         // of its own effects (P4-8.3 -- see scheduler.rs's
@@ -989,21 +1032,32 @@ impl PartitionRuntime {
         let mut post_spike_by_owner: Vec<CrossPartitionPostSpike> = post_spike_by_owner.into_iter().flatten().collect();
 
         // Route each on_post_spike message to its owning (synapse-source)
-        // partition, in canonical order, to be applied at the start of
-        // that partition's next tick. `source_of` is pure arithmetic (no
-        // arena access), so it needs no particular view.
+        // partition, in canonical order, and apply it now -- after stage 3,
+        // in this tick's sequential section. `source_of` is pure arithmetic
+        // (no arena access), so it needs no particular view.
+        //
+        // PLAN.md C11: these used to wait for the start of the *next* tick.
+        // That was equivalent for everything the next tick's stage 1 reads,
+        // but not for a periodic sweep: on a tick where a neuron spiked and
+        // homeostatic scaling ran, single-threaded updated the weight and then
+        // rescaled it, while the partitioned run rescaled first and applied
+        // the STDP update to the rescaled weight a tick later. An additive
+        // update and a multiplicative rescale do not commute, so the weights
+        // diverged (measured: `always_on_homeostasis_and_structural_plasticity_are_identical_across_partitioning_and_threading`,
+        // once it compared weights rather than counts). Applying them here,
+        // before the sweeps and before `record_tick_observables`, is the
+        // order `Scheduler::step` has always used.
         let source_of = |synapse_id: u32| synapse_id / cap_per_neuron;
         post_spike_by_owner.sort_by_key(|m| (source_of(m.synapse_id), m.synapse_id));
+        let mut owed: Vec<Vec<CrossPartitionPostSpike>> = (0..self.schedulers.len()).map(|_| Vec::new()).collect();
         for msg in post_spike_by_owner {
             let owner = self.plan.partition_of(source_of(msg.synapse_id));
-            self.pending_post_spike[owner].push(msg);
+            owed[owner].push(msg);
         }
-
-        // Publish this tick's final NeuronLocal for every boundary neuron,
-        // for other partitions' stage 1 to read next tick.
-        for &idx in &self.boundary_neurons {
-            let owner = self.plan.partition_of(idx);
-            self.boundary_table.set(idx, Self::local(&neuron_views[owner], idx));
+        for (p, messages) in owed.iter().enumerate() {
+            if !messages.is_empty() {
+                self.schedulers[p].apply_remote_post_spikes(&neuron_views[p], &mut synapse_views[p], messages);
+            }
         }
 
         // Phase 7 Requirement 1(d): feed each partition's own probes/
@@ -1012,19 +1066,16 @@ impl PartitionRuntime {
         // why this call did not exist before Phase 7 (this method calls
         // `deliver`/`evaluate_and_resolve` directly, never `Scheduler::step`
         // itself, so nothing here ever fed them). Last use of
-        // `neuron_views`/`synapse_views` in this method, same as the
-        // boundary-table loop just above -- homeostasis/structural
-        // plasticity below still get clean whole-arena access afterward.
+        // `neuron_views`/`synapse_views` in this method -- the sweeps below
+        // still get clean whole-arena access afterward.
         for p in 0..self.schedulers.len() {
             self.schedulers[p].record_tick_observables(&reports[p], &neuron_views[p], &synapse_views[p]);
         }
 
-        // P5-9.2/P5-9.6: always-on homeostasis/structural
-        // plasticity, opt-in via with_homeostatic_scaling/
-        // with_structural_plasticity above. `neuron_views`/`synapse_views`
-        // are not referenced again after the boundary-table publish loop
-        // just above, so their borrows of `neurons`/`synapses` have ended by
-        // here -- the whole, unpartitioned arenas this field's doc comment
+        // P5-9.2/P5-9.6: the always-on, opt-in sweeps. `neuron_views`/
+        // `synapse_views` are not referenced again after the loop just above,
+        // so their borrows of `neurons`/`synapses` have ended by here -- the
+        // whole, unpartitioned arenas the `sweeps` field's doc comment
         // explains these mechanisms need are addressable again. `report.tick`
         // (any partition's -- they all advance in lockstep) is used rather
         // than `self.tick()`, matching the convention `Scheduler::step`'s own
@@ -1055,12 +1106,44 @@ impl PartitionRuntime {
             }
             self.prediction_error_coupling = Some(coupling);
         }
-        if let Some(scaling) = &mut self.homeostatic_scaling {
-            scaling.maybe_apply(neurons, synapses, tick);
+        // PLAN.md C11: the same `run` `Scheduler::step` calls, over the whole
+        // network. Integer spike counts summed in partition order, so the
+        // rate inhibition homeostasis observes is the single-threaded one.
+        let spiked_count: usize = reports.iter().map(|r| r.spiked.len()).sum();
+        let has_inhibition = self.schedulers[0].has_inhibition();
+        let plan = &self.plan;
+        let swept = self.sweeps.run(neurons, synapses, tick, spiked_count, has_inhibition, |n| plan.partition_of(n));
+        if let Some(k) = swept.inhibition_k {
+            for scheduler in &mut self.schedulers {
+                scheduler.apply_inhibition_k(k);
+            }
         }
-        if let Some(sp) = &mut self.structural_plasticity {
-            let plan = &self.plan;
-            sp.maybe_sweep_partitioned(neurons, synapses, tick, |n| plan.partition_of(n));
+        // A sprout can join two partitions that no edge joined before, and
+        // the boundary set was computed at construction. Without this, a new
+        // cross-partition synapse's delivery reads `never_spiked` for its
+        // target's `NeuronLocal` and its STDP diverges from single-threaded
+        // (measured while building C11: 30 synapses in the spatial-sweep
+        // scenario). Pruning needs no refresh -- a stale entry is only
+        // published, never read.
+        if swept.structural.is_some_and(|r| r.sprouted > 0) {
+            self.boundary_neurons = boundary_neurons(&self.plan, synapses, neurons.capacity_len() as u32);
+        }
+        // Segment-threshold homeostasis: per-partition state, one length for
+        // all of it first -- see `Scheduler::grow_segment_threshold_state`.
+        let segment_len = self.schedulers.iter().map(Scheduler::segment_threshold_len).max().unwrap_or(0);
+        for scheduler in &mut self.schedulers {
+            scheduler.grow_segment_threshold_state(segment_len);
+            scheduler.run_local_sweeps(tick);
+        }
+
+        // Publish this tick's final NeuronLocal for every boundary neuron,
+        // for other partitions' stage 1 to read next tick. After the sweeps,
+        // because intrinsic homeostasis writes `rate_estimate`, which is part
+        // of `NeuronLocal`: single-threaded, the next tick's delivery reads
+        // the post-sweep value live.
+        for &idx in &self.boundary_neurons {
+            let i = idx as usize;
+            self.boundary_table.set(idx, NeuronLocal { last_spike: neurons.last_spike[i], trace: neurons.trace[i], rate_estimate: neurons.rate_estimate[i] });
         }
         // PLAN.md C17: last, as in `Scheduler::step`.
         if !self.readouts.is_empty() {

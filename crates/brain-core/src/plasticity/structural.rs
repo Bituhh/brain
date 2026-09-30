@@ -534,6 +534,12 @@ impl StructuralPlasticity {
         self.params.sweep_interval_ticks
     }
 
+    /// The delay a sprout between two partitions gets, exposed so
+    /// `PartitionRuntime` can refuse one above 1 (PLAN.md C11).
+    pub fn min_cross_partition_delay(&self) -> u16 {
+        self.params.min_cross_partition_delay
+    }
+
     /// Each live neuron's current consecutive-sweep activity streak (RUN-9a,
     /// PLAN.md item A4) -- the other half of this sweep's genuinely
     /// cross-tick state, addressed by neuron index exactly like

@@ -22,6 +22,8 @@ import {
   type VotingGroupConfig,
   type GatingGroupConfig,
   type ConsolidationConfig,
+  type SegmentThresholdStats,
+  type StructuralStats,
 } from '../src/index.ts';
 
 test('a view reflects Rust-side mutation with no copy (P03-2.1, P03-2.3)', () => {
@@ -2601,4 +2603,266 @@ test('PredictiveLearningConfig.nonContributorFraction: a value outside [0, 1] is
       ),
     /nonContributorFraction/,
   );
+});
+
+// -- PLAN.md C11: periodic sweeps in partitioned mode, through the real addon.
+//
+// Before C11 every sweep below was accepted at `threadCount > 1` and then
+// never ran: the FFI attached each one to every partition's scheduler, and only
+// `Scheduler::step` ran them, which a partitioned runtime never calls.
+// `crates/brain-core/tests/partitioning_reference.rs` proves bit-identity
+// inside the core. This is the same check through the napi boundary, where
+// the wiring that was actually wrong lives.
+
+const C11_NEURONS = 16;
+const C11_FEEDFORWARD = 4294967295; // FEEDFORWARD_SEGMENT (u32::MAX)
+
+interface C11Sweeps {
+  scaling: boolean;
+  structural: boolean;
+  intrinsic: boolean;
+  segmentThreshold: boolean;
+  inhibition: boolean;
+}
+
+const C11_ALL: C11Sweeps = {
+  scaling: true,
+  structural: true,
+  intrinsic: true,
+  segmentThreshold: true,
+  inhibition: true,
+};
+const C11_NONE: C11Sweeps = {
+  scaling: false,
+  structural: false,
+  intrinsic: false,
+  segmentThreshold: false,
+  inhibition: false,
+};
+
+function c11Options(sweeps: C11Sweeps, threadCount: number): SimulationOptions {
+  return {
+    maxDelay: 4,
+    connectionThreshold: 0.3,
+    synapseCapPerNeuron: 24,
+    // Neighbourhoods of 4 over 16 neurons: aligned with both the 2- and the
+    // 4-partition split, so no neighbourhood straddles a partition boundary.
+    inhibition: { neighbourhoodSize: 4, k: 2 },
+    segments: { segmentsPerNeuron: 1, coincidenceThreshold: 1 },
+    plasticity: plasticityConfig(),
+    ...(sweeps.scaling && {
+      homeostaticScaling: { targetTotalWeight: 1.0, intervalTicks: 20 },
+    }),
+    ...(sweeps.structural && {
+      structuralPlasticity: {
+        pruneFloor: 0.05,
+        sproutPermanence: 0.6,
+        sproutWeight: 0.05,
+        minActivityStreak: 1,
+        sweepIntervalTicks: 50,
+        unusedTicksBeforeReclaim: 1_000_000,
+        minCrossPartitionDelay: 1,
+        neighbourhoodSize: 4,
+        k: 1,
+        // Every neuron sits at the origin, so this reaches across every
+        // partition boundary -- the case a partitioned sweep can get wrong.
+        sproutReachRadius: 4,
+      },
+    }),
+    ...(sweeps.intrinsic && {
+      intrinsicHomeostasis: {
+        targetRate: 0.2,
+        smoothing: 0.5,
+        adjustmentRate: 0.3,
+        minThreshold: 0.3,
+        intervalTicks: 10,
+      },
+    }),
+    ...(sweeps.segmentThreshold && {
+      segmentThresholdHomeostasis: {
+        targetRate: 0.2,
+        smoothing: 0.5,
+        adjustmentRate: 1.0,
+        minThreshold: 0.5,
+        intervalTicks: 10,
+      },
+    }),
+    ...(sweeps.inhibition && {
+      inhibitionHomeostasis: {
+        targetRate: 0.02,
+        smoothing: 0.5,
+        adjustmentRate: 20,
+        minK: 1,
+        intervalTicks: 10,
+      },
+    }),
+    ...(threadCount > 1 && { threadCount, totalNeurons: C11_NEURONS }),
+  };
+}
+
+interface C11Run {
+  spikes: number[][];
+  thresholds: number[];
+  weights: number[];
+  permanences: number[];
+  delays: number[];
+  targets: number[];
+  occupied: number[];
+  segmentThresholds: SegmentThresholdStats | null;
+  structural: StructuralStats;
+}
+
+function runC11(sweeps: C11Sweeps, threadCount: number): C11Run {
+  const lif: LifConfig = {
+    tauMTicks: 5,
+    vRest: 0,
+    vReset: 0,
+    refractoryTicks: 1,
+  };
+  const sim = Simulation.create(lif, c11Options(sweeps, threadCount));
+  const neurons = Array.from({ length: C11_NEURONS }, () =>
+    sim.allocateNeuron(1.0, 1),
+  );
+  for (let i = 0; i < C11_NEURONS; i++) {
+    // A feedforward ring, crossing both halves' boundary...
+    sim.connect(
+      neurons[i]!,
+      neurons[(i + 1) % C11_NEURONS]!,
+      C11_FEEDFORWARD,
+      1,
+      0.9,
+    );
+    // ...and dendritic synapses onto the other half, so a touch in one
+    // partition resizes composite state covering the other.
+    sim.connect(
+      neurons[i]!,
+      neurons[(i + C11_NEURONS / 2) % C11_NEURONS]!,
+      0,
+      2,
+      0.9,
+    );
+  }
+  const spikes: number[][] = [];
+  for (let tick = 0; tick < 200; tick++) {
+    sim.injectModulator(0, 1.0);
+    // Three candidates in one inhibition neighbourhood each tick, so `k`
+    // decides how many win -- otherwise inhibition homeostasis has nothing
+    // to change (measured while building this: one candidate per
+    // neighbourhood made it a no-op).
+    const base = ((tick * 5 + 3) % C11_NEURONS) & ~3;
+    sim.stimulate(neurons[base]!, 8.0);
+    sim.stimulate(neurons[base + 1]!, 6.0);
+    sim.stimulate(neurons[base + 2]!, 4.0);
+    spikes.push([...sim.step()].sort((a, b) => a - b));
+  }
+  return {
+    spikes,
+    thresholds: Array.from(sim.thresholdView()),
+    weights: Array.from(sim.synapseWeightView()),
+    permanences: Array.from(sim.synapsePermanenceView()),
+    delays: Array.from(sim.synapseDelayView()),
+    targets: Array.from(sim.synapseTargetNeuronView()),
+    occupied: Array.from(sim.synapseOccupiedView()),
+    segmentThresholds: sim.segmentThresholdStats(),
+    structural: sim.structuralStats(),
+  };
+}
+
+// P4-11.4, DTH-3.3: sprouted synapses and segment thresholds are identical at any partition count, through the FFI.
+test('Simulation: every periodic sweep reproduces threadCount 1 exactly at threadCount 2 and 4, through the real FFI boundary (PLAN.md C11)', () => {
+  const configurations: [string, C11Sweeps][] = [
+    ['homeostaticScaling', { ...C11_NONE, scaling: true }],
+    ['structuralPlasticity', { ...C11_NONE, structural: true }],
+    ['intrinsicHomeostasis', { ...C11_NONE, intrinsic: true }],
+    ['segmentThresholdHomeostasis', { ...C11_NONE, segmentThreshold: true }],
+    ['inhibitionHomeostasis', { ...C11_NONE, inhibition: true }],
+    ['all five', C11_ALL],
+  ];
+  for (const [name, sweeps] of configurations) {
+    const single = runC11(sweeps, 1);
+    for (const threadCount of [2, 4]) {
+      assert.deepEqual(
+        runC11(sweeps, threadCount),
+        single,
+        `${name}: threadCount ${threadCount} must reproduce threadCount 1 exactly -- every tick's spikes, every threshold, every synapse, and the sweep counters`,
+      );
+    }
+  }
+});
+
+// VAL-9 shape: at threadCount 2, switching off any one sweep changes the run.
+// Before C11 this failed for all five: none of them ran partitioned.
+test('Simulation: at threadCount 2, every periodic sweep actually acts -- switching off any one changes the run (PLAN.md C11)', () => {
+  const all = runC11(C11_ALL, 2);
+  for (const off of [
+    'scaling',
+    'structural',
+    'intrinsic',
+    'segmentThreshold',
+    'inhibition',
+  ] as const) {
+    assert.notDeepEqual(
+      runC11({ ...C11_ALL, [off]: false }, 2),
+      all,
+      `switching off ${off} at threadCount 2 must change the run -- if it does not, the sweep is inert in partitioned mode`,
+    );
+  }
+  assert.ok(
+    all.structural.sproutedTotal > 0,
+    'the structural sweep must sprout at threadCount 2',
+  );
+  const cap = 24;
+  const half = C11_NEURONS / 2;
+  const crossing = all.occupied.filter(
+    (occupied, id) =>
+      occupied === 1 && Math.floor(id / cap) < half !== all.targets[id]! < half,
+  ).length;
+  assert.ok(
+    crossing > C11_NEURONS * 2,
+    `sprouts must cross the partition boundary (constructed: ${C11_NEURONS * 2} crossing synapses, now ${crossing})`,
+  );
+});
+
+test('Simulation.create refuses structuralPlasticity.minCrossPartitionDelay above 1 at threadCount > 1, and accepts it at 1 (PLAN.md C11, decision 40)', () => {
+  const lif: LifConfig = {
+    tauMTicks: 5,
+    vRest: 0,
+    vReset: 0,
+    refractoryTicks: 1,
+  };
+  const withDelay = (threadCount: number): SimulationOptions => {
+    const options = c11Options({ ...C11_NONE, structural: true }, threadCount);
+    return {
+      ...options,
+      structuralPlasticity: {
+        ...options.structuralPlasticity!,
+        minCrossPartitionDelay: 2,
+      },
+    };
+  };
+  assert.throws(
+    () => Simulation.create(lif, withDelay(2)),
+    /minCrossPartitionDelay 2 is not supported together with threadCount > 1/,
+  );
+  assert.doesNotThrow(() => Simulation.create(lif, withDelay(1)));
+});
+
+test('Simulation.create refuses inhibitionHomeostasis without inhibition, at any thread count, instead of silently dropping it (PLAN.md C11)', () => {
+  const lif: LifConfig = {
+    tauMTicks: 5,
+    vRest: 0,
+    vReset: 0,
+    refractoryTicks: 1,
+  };
+  for (const threadCount of [1, 2]) {
+    const { inhibition: _dropped, ...options } = c11Options(
+      { ...C11_NONE, inhibition: true },
+      threadCount,
+    );
+    assert.throws(
+      () => Simulation.create(lif, options),
+      /inhibitionHomeostasis requires inhibition/,
+      `threadCount ${threadCount}`,
+    );
+  }
 });

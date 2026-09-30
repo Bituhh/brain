@@ -39,7 +39,7 @@ use brain_core::neuromodulator::{ChannelDrive, PredictionErrorCoupling};
 use brain_core::plasticity::predictive::{PredictiveLearningParams, SegmentLearningTarget};
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::partition::{PartitionPlan, PartitionRuntime};
-use brain_core::plasticity::homeostatic::HomeostaticScaling;
+use brain_core::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
 use brain_core::plasticity::stdp::{LevelMap, StdpModulation, StdpParams};
 use brain_core::plasticity::structural::{StructuralPlasticity, StructuralPlasticityParams};
 use brain_core::plasticity::three_factor::{ThreeFactorParams, ThreeFactorStdp};
@@ -238,6 +238,9 @@ fn assert_identical_synapses(a: &SynapseArena, b: &SynapseArena, neuron_count: u
         assert_eq!(a_ids, b_ids, "{label}: neuron {source}'s occupied synapse ids must match exactly");
         for &id in &a_ids {
             let i = id as usize;
+            assert_eq!(a.target_neuron[i], b.target_neuron[i], "{label}: synapse {id} target must match exactly");
+            assert_eq!(a.target_segment[i], b.target_segment[i], "{label}: synapse {id} target segment must match exactly");
+            assert_eq!(a.delay[i], b.delay[i], "{label}: synapse {id} delay must match exactly");
             assert_eq!(a.permanence[i], b.permanence[i], "{label}: synapse {id} permanence must match exactly");
             assert_eq!(a.weight[i], b.weight[i], "{label}: synapse {id} weight must match exactly");
             assert_eq!(a.eligibility[i], b.eligibility[i], "{label}: synapse {id} eligibility must match exactly");
@@ -607,7 +610,10 @@ fn structural_plasticity() -> StructuralPlasticity {
         min_activity_streak: 2,
         sweep_interval_ticks: 20,
         unused_ticks_before_reclaim: 10_000,
-        min_cross_partition_delay: 2,
+        // PLAN.md C11: 1, because `PartitionRuntime` now refuses more above one
+        // partition -- a longer cross-partition delay makes the network depend
+        // on where the boundary falls (RUN-3; docs/decisions.md decision 40).
+        min_cross_partition_delay: 1,
         max_sprout_source_index: None,
         sprout_timing: None,
         seed: 0,
@@ -730,17 +736,12 @@ fn always_on_homeostasis_and_structural_plasticity_are_identical_across_partitio
         assert_eq!(plain.spiked_per_tick, outcome.spiked_per_tick, "{label}: spiked sets must match every tick");
         assert_eq!(plain.vetoed_per_tick, outcome.vetoed_per_tick, "{label}: vetoed sets must match every tick");
         assert_identical_arenas(&plain.neurons, &outcome.neurons, label);
-        // Not assert_identical_synapses: structural plasticity may have
-        // pruned/sprouted synapses at different *ids* across runs (ids are
-        // allocation-order-dependent, and sprouting order can legitimately
-        // differ in which free slot a new synapse lands in across identical
-        // but separately-constructed arenas) -- occupied *count* and total
-        // permanence are the meaningful invariants here, not id-for-id
-        // identity, unlike the plasticity-only tests above which never
-        // create or destroy a synapse.
-        let plain_occupied: u32 = (0..TOTAL_NEURONS).map(|s| plain.synapses.occupied_in_block(s).count() as u32).sum();
-        let outcome_occupied: u32 = (0..TOTAL_NEURONS).map(|s| outcome.synapses.occupied_in_block(s).count() as u32).sum();
-        assert_eq!(plain_occupied, outcome_occupied, "{label}: total occupied synapse count must match");
+        // PLAN.md C11: every synapse, field for field. This used to compare
+        // only the occupied *count*, on the reasoning that sprouting might put
+        // a synapse in a different free slot. It does not: the sweep runs once
+        // over the whole arena, so the slots match. Comparing the count hid
+        // real divergence in the spatial-sweep test below.
+        assert_identical_synapses(&plain.synapses, &outcome.synapses, TOTAL_NEURONS, label);
     }
 }
 
@@ -1150,7 +1151,8 @@ fn structural_plasticity_with_reach(reach: SproutReach) -> StructuralPlasticity 
         min_activity_streak: 1,
         sweep_interval_ticks: 50,
         unused_ticks_before_reclaim: 10_000,
-        min_cross_partition_delay: 2,
+        // 1 since PLAN.md C11 (was 2): see `structural_plasticity()` above.
+        min_cross_partition_delay: 1,
         max_sprout_source_index: None,
         sprout_timing: None,
         seed: 0,
@@ -1254,12 +1256,15 @@ fn a_spatial_sprout_sweep_is_identical_across_partitioning_and_threading() {
         assert_eq!(plain.spiked_per_tick, outcome.spiked_per_tick, "{label}: spiked sets must match every tick");
         assert_eq!(plain.vetoed_per_tick, outcome.vetoed_per_tick, "{label}: vetoed sets must match every tick");
         assert_identical_arenas(&plain.neurons, &outcome.neurons, label);
-        // Not assert_identical_synapses, for the same reason the always-on
-        // test above gives: synapse ids are allocation-order-dependent, so
-        // occupied count is the meaningful invariant here.
-        let plain_occupied: u32 = (0..TOTAL_NEURONS).map(|s| plain.synapses.occupied_in_block(s).count() as u32).sum();
-        let outcome_occupied: u32 = (0..TOTAL_NEURONS).map(|s| outcome.synapses.occupied_in_block(s).count() as u32).sum();
-        assert_eq!(plain_occupied, outcome_occupied, "{label}: total occupied synapse count must match");
+        // PLAN.md C11: every synapse, field for field. Measured while building
+        // C11, the count-only comparison this replaced was hiding 102 synapses
+        // whose weight, eligibility or delay differed from single-threaded at
+        // `min_cross_partition_delay: 2` (now refused). With the delay set to
+        // 1, 30 still differed, all from a boundary set computed once at
+        // construction that a cross-partition sprout made stale (now
+        // refreshed after every sprouting sweep), and none after that. Spikes
+        // matched throughout, because 200 ticks was too short for it to show.
+        assert_identical_synapses(&plain.synapses, &outcome.synapses, TOTAL_NEURONS, label);
     }
 }
 
@@ -1438,4 +1443,355 @@ fn the_spatial_burst_scenario_actually_sprouts_differently_from_index_blocks() {
         total_occupied(Some(SproutReach::spatial(SPATIAL_REACH_RADIUS))),
         "a spatial burst reach must change what 12.1 sprouts on this network, or the bit-identity test above proves nothing"
     );
+}
+
+// ---------------------------------------------------------------------------
+// PLAN.md C11 (docs/decisions.md decision 40): every periodic sweep, at every
+// partition count and executor, against the plain `Scheduler`.
+//
+// Before C11 the FFI attached each sweep to every partition's scheduler, where
+// only `Scheduler::step` ran it, and `PartitionRuntime::step` never calls that.
+// So at `threadCount > 1` all five were accepted and then did nothing. The four
+// whole-network sweeps now share one `WholeNetworkSweeps::run` that both step
+// paths call. Segment-threshold homeostasis runs per partition through
+// `Scheduler::run_local_sweeps`.
+//
+// The scenario is built so each sweep has something to get wrong at a
+// partition boundary. The spatial sprout reach sprouts across the column (and
+// so the partition) boundary. The network's cross-column dendritic synapses
+// mean a touch in one column resizes composite state that covers the other.
+// And inhibition homeostasis sees half the network's spikes in each partition
+// unless the tally is merged.
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug)]
+struct C11Sweeps {
+    scaling: bool,
+    structural: bool,
+    intrinsic: bool,
+    segment_threshold: bool,
+    inhibition: bool,
+}
+
+const C11_NONE: C11Sweeps = C11Sweeps { scaling: false, structural: false, intrinsic: false, segment_threshold: false, inhibition: false };
+const C11_ALL: C11Sweeps = C11Sweeps { scaling: true, structural: true, intrinsic: true, segment_threshold: true, inhibition: true };
+
+/// Each sweep alone, then all five together.
+fn c11_configurations() -> Vec<(&'static str, C11Sweeps)> {
+    vec![
+        ("homeostatic scaling", C11Sweeps { scaling: true, ..C11_NONE }),
+        ("structural plasticity", C11Sweeps { structural: true, ..C11_NONE }),
+        ("intrinsic homeostasis", C11Sweeps { intrinsic: true, ..C11_NONE }),
+        ("segment-threshold homeostasis", C11Sweeps { segment_threshold: true, ..C11_NONE }),
+        ("inhibition homeostasis", C11Sweeps { inhibition: true, ..C11_NONE }),
+        ("all five", C11_ALL),
+    ]
+}
+
+fn c11_intrinsic() -> IntrinsicHomeostasis {
+    IntrinsicHomeostasis::new(0.2, 0.5, 0.3, 0.3, 10)
+}
+
+fn c11_segment_threshold() -> SegmentThresholdHomeostasis {
+    SegmentThresholdHomeostasis::new(0.2, 0.5, 1.0, 0.5, 10)
+}
+
+/// Starts at `k = 2` (the scheme's own) with a target well below this
+/// network's activity, so `k` has to move.
+fn c11_inhibition() -> InhibitionHomeostasis {
+    InhibitionHomeostasis::new(0.02, 0.5, 20.0, 1.0, 10, 2.0)
+}
+
+fn c11_structural_params() -> StructuralPlasticityParams {
+    StructuralPlasticityParams {
+        prune_floor: 0.05,
+        sprout_permanence: 0.4,
+        sprout_weight: 0.05,
+        min_activity_streak: 1,
+        sweep_interval_ticks: 50,
+        unused_ticks_before_reclaim: 10_000,
+        min_cross_partition_delay: 1,
+        max_sprout_source_index: None,
+        sprout_timing: None,
+        seed: 0,
+        segments_per_neuron: 1,
+        spread_sprout_segments: false,
+        silent_elimination_ticks: None,
+    }
+}
+
+fn c11_structural() -> StructuralPlasticity {
+    structural_plasticity_with_reach(SproutReach::spatial(SPATIAL_REACH_RADIUS))
+}
+
+struct C11Outcome {
+    run: RunOutcome,
+    /// Every scheduler's live inhibition `k`, every tick (one entry for the
+    /// plain scheduler, one per partition otherwise).
+    k_per_tick: Vec<Vec<Option<u32>>>,
+    /// Segment-threshold homeostasis's state per composite, each read from
+    /// the scheduler that owns the composite's neuron.
+    segment_threshold: Vec<f32>,
+    segment_rate_estimate: Vec<f32>,
+    segment_last_depolarised_tick: Vec<u32>,
+}
+
+fn c11_scheduler(inhibition: FixedNeighbourhoods, sweeps: C11Sweeps) -> Scheduler {
+    let sched = Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD).with_inhibition(inhibition).with_segments(segments()).with_plasticity(plasticity(), [500.0; NUM_MODULATORS]);
+    if sweeps.segment_threshold {
+        sched.with_segment_threshold_homeostasis(c11_segment_threshold())
+    } else {
+        sched
+    }
+}
+
+fn run_c11_plain(seed: u64, sweeps: C11Sweeps) -> C11Outcome {
+    let (mut neurons, mut synapses, _columns, _a, _b) = build_network_with_prune_canary(seed);
+    let mut sched = c11_scheduler(FixedNeighbourhoods::new(COLUMN_SIZE, 2), sweeps);
+    if sweeps.scaling {
+        sched = sched.with_homeostatic_scaling(homeostatic_scaling());
+    }
+    if sweeps.structural {
+        sched = sched.with_structural_plasticity(c11_structural());
+    }
+    if sweeps.intrinsic {
+        sched = sched.with_intrinsic_homeostasis(c11_intrinsic());
+    }
+    if sweeps.inhibition {
+        sched = sched.with_inhibition_homeostasis(c11_inhibition());
+    }
+    let params = lif_params();
+
+    let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
+    let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
+    let mut k_per_tick = Vec::with_capacity(TICKS as usize);
+    for tick in 0..TICKS {
+        sched.inject_modulator(DOPAMINE, 1.0);
+        let (neuron, current) = stimulate_tick(tick);
+        sched.stimulate(&neurons, neuron, current);
+        let report = sched.step::<Lif>(&mut neurons, &mut synapses, &params);
+        let mut spiked = report.spiked;
+        spiked.sort_unstable();
+        let mut vetoed = report.vetoed;
+        vetoed.sort_unstable();
+        spiked_per_tick.push(spiked);
+        vetoed_per_tick.push(vetoed);
+        k_per_tick.push(vec![sched.inhibition_k()]);
+    }
+    let (threshold, rate, last) = sched.segment_threshold_raw_state();
+    C11Outcome {
+        segment_threshold: threshold.to_vec(),
+        segment_rate_estimate: rate.to_vec(),
+        segment_last_depolarised_tick: last.to_vec(),
+        run: RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick },
+        k_per_tick,
+    }
+}
+
+fn run_c11_partitioned(seed: u64, sweeps: C11Sweeps, partition_count: usize, executor: ExecutorChoice) -> C11Outcome {
+    let (mut neurons, mut synapses, columns, _a, _b) = build_network_with_prune_canary(seed);
+    let plan = if partition_count == 1 { PartitionPlan::single(TOTAL_NEURONS) } else { PartitionPlan::contiguous(&columns, partition_count) };
+    let schedulers: Vec<Scheduler> = (0..plan.partition_count())
+        .map(|p| {
+            let range = plan.range_of(p);
+            c11_scheduler(FixedNeighbourhoods::with_base(range.start, COLUMN_SIZE.min(range.end - range.start), 2), sweeps)
+        })
+        .collect();
+    let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS);
+    if sweeps.scaling {
+        runtime = runtime.with_homeostatic_scaling(homeostatic_scaling());
+    }
+    if sweeps.structural {
+        runtime = runtime.with_structural_plasticity(c11_structural());
+    }
+    if sweeps.intrinsic {
+        runtime = runtime.with_intrinsic_homeostasis(c11_intrinsic());
+    }
+    if sweeps.inhibition {
+        runtime = runtime.with_inhibition_homeostasis(c11_inhibition());
+    }
+    runtime = match executor {
+        ExecutorChoice::Sequential => runtime.with_thread_count(1),
+        ExecutorChoice::Rayon(n) => runtime.with_thread_count(n),
+        ExecutorChoice::Pinned(n) => runtime.with_pinned_thread_count(n),
+    };
+    let params = lif_params();
+
+    let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
+    let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
+    let mut k_per_tick = Vec::with_capacity(TICKS as usize);
+    for tick in 0..TICKS {
+        runtime.inject_modulator(DOPAMINE, 1.0);
+        let (neuron, current) = stimulate_tick(tick);
+        runtime.stimulate(&neurons, neuron, current);
+        let reports = runtime.step::<Lif>(&mut neurons, &mut synapses, &params);
+        let mut spiked: Vec<u32> = reports.iter().flat_map(|r| r.spiked.iter().copied()).collect();
+        spiked.sort_unstable();
+        let mut vetoed: Vec<u32> = reports.iter().flat_map(|r| r.vetoed.iter().copied()).collect();
+        vetoed.sort_unstable();
+        spiked_per_tick.push(spiked);
+        vetoed_per_tick.push(vetoed);
+        k_per_tick.push((0..runtime.partition_count()).map(|p| runtime.scheduler(p).inhibition_k()).collect());
+    }
+
+    // Every partition must track the same number of composites -- that is what
+    // makes an untouched composite start drifting at the single-threaded
+    // tick -- and each composite is read from its owner.
+    let len = runtime.scheduler(0).segment_threshold_len();
+    for p in 0..runtime.partition_count() {
+        assert_eq!(runtime.scheduler(p).segment_threshold_len(), len, "every partition must track the same number of composites");
+    }
+    let mut segment_threshold = Vec::with_capacity(len);
+    let mut segment_rate_estimate = Vec::with_capacity(len);
+    let mut segment_last_depolarised_tick = Vec::with_capacity(len);
+    for composite in 0..len {
+        // `segments()` has one segment per neuron, so a composite is its neuron.
+        let owner = runtime.plan().partition_of(composite as u32);
+        let (threshold, rate, last) = runtime.scheduler(owner).segment_threshold_raw_state();
+        segment_threshold.push(threshold[composite]);
+        segment_rate_estimate.push(rate[composite]);
+        segment_last_depolarised_tick.push(last[composite]);
+    }
+    C11Outcome { run: RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick }, k_per_tick, segment_threshold, segment_rate_estimate, segment_last_depolarised_tick }
+}
+
+fn assert_c11_identical(plain: &C11Outcome, outcome: &C11Outcome, label: &str) {
+    assert_eq!(plain.run.spiked_per_tick, outcome.run.spiked_per_tick, "{label}: spiked sets must match every tick");
+    assert_eq!(plain.run.vetoed_per_tick, outcome.run.vetoed_per_tick, "{label}: vetoed sets must match every tick");
+    for (tick, (reference, ks)) in plain.k_per_tick.iter().zip(&outcome.k_per_tick).enumerate() {
+        for k in ks {
+            assert_eq!(k, &reference[0], "{label}: every partition's inhibition k must equal the single-threaded k at tick {tick}");
+        }
+    }
+    assert_identical_arenas(&plain.run.neurons, &outcome.run.neurons, label);
+    assert_identical_synapses(&plain.run.synapses, &outcome.run.synapses, TOTAL_NEURONS, label);
+    assert_eq!(plain.segment_threshold, outcome.segment_threshold, "{label}: segment thresholds must match exactly");
+    assert_eq!(plain.segment_rate_estimate, outcome.segment_rate_estimate, "{label}: segment rate estimates must match exactly");
+    assert_eq!(plain.segment_last_depolarised_tick, outcome.segment_last_depolarised_tick, "{label}: segment depolarisation ticks must match exactly");
+}
+
+/// PLAN.md C11's proof, and RUN-3's full clause (identical across a change in
+/// the number of threads or in how the graph is partitioned) for every
+/// periodic sweep: each alone and all five together, at one and two
+/// partitions, sequential, rayon and pinned. Every tick's spike and veto sets
+/// and every partition's inhibition `k`, then every neuron, every synapse
+/// field for field, and every composite's segment-threshold state.
+/// DTH-3.3: segment thresholds are identical independent of thread count or partitioning.
+/// P4-11.4: synapses sprouted across a partition boundary are delivered through the messaging path from the moment they are connected, with the same plasticity as unpartitioned.
+#[test]
+fn every_periodic_sweep_is_bit_identical_across_partitioning_and_threading() {
+    let seed = 7;
+    for (name, sweeps) in c11_configurations() {
+        let plain = run_c11_plain(seed, sweeps);
+        for (layout, outcome) in [
+            ("1 partition", run_c11_partitioned(seed, sweeps, 1, ExecutorChoice::Sequential)),
+            ("2 partitions sequential", run_c11_partitioned(seed, sweeps, 2, ExecutorChoice::Sequential)),
+            ("2 partitions, rayon thread_count=4", run_c11_partitioned(seed, sweeps, 2, ExecutorChoice::Rayon(4))),
+            ("2 partitions, pinned thread_count=4", run_c11_partitioned(seed, sweeps, 2, ExecutorChoice::Pinned(4))),
+        ] {
+            assert_c11_identical(&plain, &outcome, &format!("{name}, {layout}"));
+        }
+    }
+}
+
+/// The test above is evidence only if every sweep actually acts in this
+/// scenario (docs/findings.md finding 13's counter-instead-of-mechanism trap).
+/// VAL-9's shape: with all five on, switching off any ONE must change the run.
+/// Plus the three things that made the scenario worth building: `k` moves,
+/// thresholds drift in both columns, and sprouts cross the partition boundary.
+#[test]
+fn the_c11_scenario_exercises_every_sweep() {
+    let seed = 7;
+    let all = run_c11_plain(seed, C11_ALL);
+    let fingerprint = |o: &C11Outcome| {
+        let weights: Vec<u32> = o.run.synapses.weight.iter().map(|w| w.to_bits()).collect();
+        let thresholds: Vec<u32> = o.run.neurons.threshold.iter().map(|t| t.to_bits()).collect();
+        let segment: Vec<u32> = o.segment_threshold.iter().map(|t| t.to_bits()).collect();
+        (o.run.spiked_per_tick.clone(), weights, thresholds, segment, o.k_per_tick.clone())
+    };
+    let reference = fingerprint(&all);
+    for (name, without) in [
+        ("homeostatic scaling", C11Sweeps { scaling: false, ..C11_ALL }),
+        ("structural plasticity", C11Sweeps { structural: false, ..C11_ALL }),
+        ("intrinsic homeostasis", C11Sweeps { intrinsic: false, ..C11_ALL }),
+        ("segment-threshold homeostasis", C11Sweeps { segment_threshold: false, ..C11_ALL }),
+        ("inhibition homeostasis", C11Sweeps { inhibition: false, ..C11_ALL }),
+    ] {
+        assert_ne!(fingerprint(&run_c11_plain(seed, without)), reference, "switching off {name} must change the run, or the bit-identity test proves nothing about it");
+    }
+
+    assert!(all.k_per_tick.iter().any(|k| k[0] != Some(2)), "inhibition homeostasis must move k away from its starting 2");
+    let initial_segment_threshold = 2.0;
+    let drifted = |range: Range<usize>| all.segment_threshold.get(range).is_some_and(|t| t.iter().any(|&v| v != initial_segment_threshold));
+    assert!(drifted(0..COLUMN_SIZE as usize), "some column-A segment threshold must drift");
+    assert!(drifted(COLUMN_SIZE as usize..TOTAL_NEURONS as usize), "some column-B segment threshold must drift");
+
+    let columns_cross = |synapses: &SynapseArena| -> u32 {
+        (0..TOTAL_NEURONS).map(|s| synapses.occupied_in_block(s).filter(|&id| (s < COLUMN_SIZE) != (synapses.target_neuron[id as usize] < COLUMN_SIZE)).count() as u32).sum()
+    };
+    let (_n, constructed, _c, _a, _b) = build_network_with_prune_canary(seed);
+    assert!(columns_cross(&all.run.synapses) > columns_cross(&constructed), "the structural sweep must sprout synapses across the partition boundary");
+}
+
+/// Adds one mechanism to a partition's scheduler.
+type C11Configure = fn(Scheduler) -> Scheduler;
+
+fn c11_two_partition_runtime(configure: C11Configure) -> PartitionRuntime {
+    let (_neurons, synapses, columns, _a, _b) = build_network(7, segments());
+    let plan = PartitionPlan::contiguous(&columns, 2);
+    let schedulers: Vec<Scheduler> = (0..2)
+        .map(|p| {
+            let range = plan.range_of(p);
+            configure(Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD).with_inhibition(FixedNeighbourhoods::with_base(range.start, COLUMN_SIZE, 2)).with_segments(segments()))
+        })
+        .collect();
+    PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS)
+}
+
+/// The structural guard: a scheduler carrying any whole-network sweep of its
+/// own is refused, for each of the four, rather than accepted and never run --
+/// the exact defect PLAN.md C11 fixed at the FFI.
+#[test]
+fn a_partition_runtime_refuses_a_scheduler_carrying_any_whole_network_sweep() {
+    let cases: Vec<(&str, C11Configure)> = vec![
+        ("homeostatic scaling", |s| s.with_homeostatic_scaling(homeostatic_scaling())),
+        ("structural plasticity", |s| s.with_structural_plasticity(structural_plasticity())),
+        ("intrinsic homeostasis", |s| s.with_intrinsic_homeostasis(c11_intrinsic())),
+        ("inhibition homeostasis", |s| s.with_inhibition_homeostasis(c11_inhibition())),
+    ];
+    for (name, configure) in cases {
+        let refused = std::panic::catch_unwind(|| c11_two_partition_runtime(configure));
+        let message = refused.err().and_then(|e| e.downcast::<String>().ok()).unwrap_or_else(|| panic!("{name}: a scheduler carrying its own copy must be refused"));
+        assert!(message.contains("inert inside a PartitionRuntime") && message.contains(name), "{name}: the refusal must name the sweep and say why, got: {message}");
+    }
+}
+
+/// Decision 40: a cross-partition sprout delay above 1 makes the network
+/// depend on where the partition boundary falls, so it is refused above one
+/// partition.
+#[test]
+#[should_panic(expected = "min_cross_partition_delay is 2 and is refused above one partition")]
+fn a_cross_partition_sprout_delay_above_one_is_refused_above_one_partition() {
+    let params = StructuralPlasticityParams { min_cross_partition_delay: 2, ..c11_structural_params() };
+    let _ = c11_two_partition_runtime(|s| s).with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(COLUMN_SIZE, 2)));
+}
+
+/// ...and accepted at one partition, where no sprout can cross a boundary.
+#[test]
+fn a_cross_partition_sprout_delay_above_one_is_accepted_at_one_partition() {
+    let (_neurons, synapses, _columns, _a, _b) = build_network(7, segments());
+    let scheduler = Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD).with_segments(segments());
+    let params = StructuralPlasticityParams { min_cross_partition_delay: 2, ..c11_structural_params() };
+    let _ = PartitionRuntime::new(PartitionPlan::single(TOTAL_NEURONS), vec![scheduler], &synapses, TOTAL_NEURONS).with_structural_plasticity(StructuralPlasticity::new(params, FixedNeighbourhoods::new(COLUMN_SIZE, 2)));
+}
+
+/// Inhibition homeostasis adjusts each partition's inhibition scheme, so a
+/// partition without one is refused rather than silently left at its own `k`.
+#[test]
+#[should_panic(expected = "needs every partition's Scheduler to carry an inhibition scheme")]
+fn inhibition_homeostasis_is_refused_when_a_partition_has_no_inhibition_scheme() {
+    let (_neurons, synapses, columns, _a, _b) = build_network(7, segments());
+    let plan = PartitionPlan::contiguous(&columns, 2);
+    let schedulers = vec![Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD), Scheduler::new(MAX_DELAY, CONNECTION_THRESHOLD)];
+    let _ = PartitionRuntime::new(plan, schedulers, &synapses, TOTAL_NEURONS).with_inhibition_homeostasis(c11_inhibition());
 }

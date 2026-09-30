@@ -543,6 +543,11 @@ test('a spatial burst-sprout reach is refused in partitioned mode, and a spatial
     structuralPlasticity: {
       ...base.structuralPlasticity!,
       sproutReachRadius: SPROUT_REACH_RADIUS,
+      // PLAN.md C11 (docs/decisions.md decision 40): the canonical brain's 2
+      // is refused above one partition, where it would make results depend
+      // on the layout. It is never read single-threaded, which is how the
+      // canonical brain runs.
+      minCrossPartitionDelay: 1,
     },
   });
   assert.ok(
