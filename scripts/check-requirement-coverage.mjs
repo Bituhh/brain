@@ -20,9 +20,10 @@
 // is slow-tier cost, not inner-loop cost. Pass `--list` for the full per-id membership of all
 // three buckets; the default output is counts plus (on failure) the gap list only.
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { testAndCodeText, walkSources } from './source-regions.mjs';
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -184,36 +185,6 @@ const SCAN_ROOTS = [
   path.join(repoRoot, 'scripts'),
   path.join(repoRoot, 'examples'),
 ];
-const SKIP_DIRS = new Set([
-  'node_modules',
-  'target',
-  'dist',
-  '.git',
-  'coverage',
-  'build',
-]);
-const SOURCE_EXTENSIONS = new Set(['.rs', '.ts', '.mjs']);
-
-function walk(dir, out = []) {
-  let entries;
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return out; // a listed root that doesn't exist yet is not an error here
-  }
-  for (const entry of entries) {
-    const full = path.join(dir, entry);
-    const stats = statSync(full);
-    if (stats.isDirectory()) {
-      if (SKIP_DIRS.has(entry)) continue;
-      walk(full, out);
-    } else if (SOURCE_EXTENSIONS.has(path.extname(full))) {
-      out.push(full);
-    }
-  }
-  return out;
-}
-
 // README's requirement tables (§3-9) format every row as "| ID | Pri | prose |", ID looking like
 // NEU-4, RUN-9b, NEU-6a. Parsed straight from the tables rather than hardcoded so this script
 // cannot drift from README as requirements are added, split or reprioritised.
@@ -234,54 +205,6 @@ function parseReadmeIds(markdown) {
   return ids;
 }
 
-// A Rust source file under */src/ interleaves production code with `#[cfg(test)] mod ... { }`
-// blocks. Splitting them apart -- rather than treating the whole file as one bucket, the way
-// check-traceability.mjs's TEST_DIRS coarsely does for its own narrower purpose -- is what lets
-// this script tell "a doc comment mentions this id" apart from "a test asserts this id". Brace
-// matching is naive (it does not understand strings, chars or nested comments) but every cfg(test)
-// block in this codebase is a plain `mod name { ... }`, so it holds in practice.
-function splitTestAndCodeRegions(text) {
-  const cfgTestLine = /^[ \t]*#\[cfg\(test\)\]/gm;
-  const testChunks = [];
-  const codeChunks = [];
-  let lastEnd = 0;
-  let match;
-  while ((match = cfgTestLine.exec(text))) {
-    const attrStart = match.index;
-    codeChunks.push(text.slice(lastEnd, attrStart));
-    const braceStart = text.indexOf('{', attrStart);
-    if (braceStart === -1) {
-      lastEnd = attrStart;
-      continue;
-    }
-    let depth = 0;
-    let i = braceStart;
-    for (; i < text.length; i += 1) {
-      if (text[i] === '{') depth += 1;
-      else if (text[i] === '}') {
-        depth -= 1;
-        if (depth === 0) {
-          i += 1;
-          break;
-        }
-      }
-    }
-    testChunks.push(text.slice(attrStart, i));
-    lastEnd = i;
-    cfgTestLine.lastIndex = i;
-  }
-  codeChunks.push(text.slice(lastEnd));
-  return { testText: testChunks.join('\n'), codeText: codeChunks.join('\n') };
-}
-
-function isWholeFileTest(filePath) {
-  const normalised = filePath.split(path.sep).join('/');
-  if (normalised.includes('/tests/')) return true; // Rust integration test crates
-  if (normalised.includes('/test/')) return true; // TS test/ directories
-  if (normalised.endsWith('.test.ts')) return true;
-  return false;
-}
-
 const ID_PATTERN = /\b(?:NEU|SYN|LRN|NET|RUN|IO|ENG|OBS|VAL|VIZ)-\d+[a-z]?\b/g;
 
 function scanCitations(files) {
@@ -289,18 +212,12 @@ function scanCitations(files) {
   const citedInCode = new Set();
   for (const file of files) {
     if (path.resolve(file) === path.resolve(thisFile)) continue; // no self-citation credit
-    const text = readFileSync(file, 'utf8');
-    if (isWholeFileTest(file)) {
-      for (const m of text.matchAll(ID_PATTERN)) citedInTest.add(m[0]);
-      continue;
-    }
-    if (path.extname(file) === '.rs') {
-      const { testText, codeText } = splitTestAndCodeRegions(text);
-      for (const m of testText.matchAll(ID_PATTERN)) citedInTest.add(m[0]);
-      for (const m of codeText.matchAll(ID_PATTERN)) citedInCode.add(m[0]);
-    } else {
-      for (const m of text.matchAll(ID_PATTERN)) citedInCode.add(m[0]);
-    }
+    const { testText, codeText } = testAndCodeText(
+      file,
+      readFileSync(file, 'utf8'),
+    );
+    for (const m of testText.matchAll(ID_PATTERN)) citedInTest.add(m[0]);
+    for (const m of codeText.matchAll(ID_PATTERN)) citedInCode.add(m[0]);
   }
   return { citedInTest, citedInCode };
 }
@@ -308,7 +225,7 @@ function scanCitations(files) {
 function main() {
   const listAll = process.argv.includes('--list');
   const readmeIds = parseReadmeIds(readFileSync(README_PATH, 'utf8'));
-  const files = SCAN_ROOTS.flatMap((dir) => walk(dir));
+  const files = SCAN_ROOTS.flatMap((dir) => walkSources(dir));
   const { citedInTest, citedInCode } = scanCitations(files);
 
   const citedByTest = [];

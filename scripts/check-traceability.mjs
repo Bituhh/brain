@@ -1,24 +1,30 @@
 #!/usr/bin/env node
-// Traceability checker (Requirement 15.9, VAL-10, design.md's "small script
+// Traceability checker (P03-15.9, VAL-10, design.md's "small script
 // asserts every numbered criterion... maps to at least one test").
 //
-// Parses every "N. WHEN/IF ..." acceptance criterion out of
-// requirements.md, then searches the test surface (Rust unit tests, Rust
-// integration tests, TypeScript boundary tests) for a citation of that
-// criterion's id ("Requirement N.M" or "Req N.M", the two forms already in
-// use across the codebase). Anything uncited is a gap -- unless it is on
-// the explicit deferral list below, which exists so a *deliberate* gap
-// (Requirement 15.11's CI, per the user's explicit "we don't need CI for
-// now" decision) stays visible and reviewed rather than silently masked.
+// Parses every "N. WHEN/IF ..." acceptance criterion out of every slice
+// spec's requirements.md under .claude/scratch/, then searches the test
+// surface (Rust integration tests, Rust #[cfg(test)] blocks, TypeScript
+// tests) for a citation of that criterion's id. Anything uncited is a gap --
+// unless it is on the explicit deferral list below, which exists so a
+// *deliberate* gap (P03-15.11's CI, per the user's explicit "we don't need CI
+// for now" decision) stays visible and reviewed rather than silently masked.
+//
+// Only TEST regions credit a criterion (scripts/source-regions.mjs, shared
+// with check-requirement-coverage.mjs). A citation in production code -- a
+// doc comment in crates/*/src, packages/*/src or scripts/ -- says the code
+// was written for a criterion, not that anything checks it. Such criteria
+// are reported as "code only", and they are still gaps.
 //
 // No dependency: only Node's built-in `fs`/`path`, matching ENG-6's
 // zero-runtime-dependency rule for the shell.
 //
-// This script is itself half of Requirement 15.10's fast/slow tier split:
-// it is wired as `npm run check:traceability`, invoked only from the slow
-// tier (`npm run test:slow`) -- the fast tier (`npm run test:fast`) never
-// runs it, since a full-repo scan on every change is exactly the kind of
-// cost the split exists to keep out of the inner loop.
+// This script is itself half of P03-15.10's fast/slow tier split: it is
+// wired as `npm run check:traceability`, invoked only from the slow tier
+// (`npm run test:slow`) -- the fast tier (`npm run test:fast`) never runs it,
+// since a full-repo scan on every change is exactly the kind of cost the
+// split exists to keep out of the inner loop. `--list` also prints every
+// ambiguous citation's site.
 //
 // CITATION FORM (docs/decisions.md decision 38, decided by the user 2026-09-30; PLAN.md C18).
 // Every slice spec numbers its requirements from 1, so a bare "Requirement 7.1" cannot say which
@@ -47,302 +53,275 @@
 //   weight-aware-dendritic-votes                   WADV
 //
 // None collides with README's NEU/SYN/LRN/NET/RUN/IO/ENG/OBS/VAL/VIZ. The old "Requirement N.M" /
-// "Req N.M" form is RETIRED: it credits nothing, and is counted only as "ambiguous".
+// "Req N.M" form is RETIRED: it credits nothing, and each use is reported as "ambiguous" and fails.
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { testAndCodeText, walkSources } from './source-regions.mjs';
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',
 );
-// Two requirements docs, Phase 0-3 and Phase 5 (Phase 4 never got its own --
-// it extended Phase 0-3's numbering by amendment instead). Both are parsed
-// into the *same* flat id space below ("N.M", no phase prefix), which is a
-// known, deliberate limitation, not an oversight: Phase 0-3 has its own
-// Requirements 1-16, and Phase 5 also numbers its requirements 1-17 from
-// scratch, so e.g. "Requirement 9.2" is Phase 0-3's homeostatic-stabilisation
-// AC2 *and* Phase 5's streaming-harness AC2 -- two unrelated criteria that
-// collide under one citation string. A citing test only ever means "I cite
-// Phase X's N.M" in its own context, but this checker cannot tell which
-// phase a bare "Requirement 9.2" in some test file was written against, so
-// it can only ask "does *some* test, somewhere, cite N.M" -- which means a
-// citation intended for one phase's criterion can silently paper over the
-// other phase's identically-numbered, uncited one. A real fix means
-// namespacing every citation retroactively across three phases' already-
-// committed tests (Phase 0-4 alone is dozens of files); flagged here rather
-// than done as a side effect of Phase 5's own traceability extension.
-const REQUIREMENTS_PATHS = [
-  path.join(repoRoot, '.claude', 'scratch', 'brain-engine', 'requirements.md'),
-  path.join(
-    repoRoot,
-    '.claude',
-    'scratch',
-    'brain-engine-phase5',
-    'requirements.md',
-  ),
-  // Phase 5.5 joins the same known id-collision limitation documented above
-  // (its own Requirements 1-9 restart from scratch too) -- accepted rather
-  // than fixed here, following Phase 5's own precedent for joining this list.
-  path.join(
-    repoRoot,
-    '.claude',
-    'scratch',
-    'brain-engine-phase5-5',
-    'requirements.md',
-  ),
-  // Phase 6 (browser visualiser) joins the same list, same known
-  // id-collision limitation, same precedent.
-  path.join(
-    repoRoot,
-    '.claude',
-    'scratch',
-    'brain-engine-phase6',
-    'requirements.md',
-  ),
-];
+const thisFile = fileURLToPath(import.meta.url);
 
-// Deliberate, reviewed gaps -- add to this list only with a comment
-// explaining why, exactly like this one.
+// Every spec is discovered, not listed: any .claude/scratch/<dir>/requirements.md with a
+// "### Requirement N:" heading is a spec, and must declare a prefix or the check fails. Until
+// PLAN.md C18 this was a hand-written list of four, and eight more specs' citations landed in one
+// flat, unprefixed id pool (docs/findings.md finding 35).
+const SPECS_ROOT = path.join(repoRoot, '.claude', 'scratch');
+const PREFIX_DECLARATION = /^\*\*Citation prefix:\*\*\s*`([A-Z][A-Z0-9]*)`/m;
+
+// Deliberate, reviewed gaps -- add to this list only with a comment explaining why, exactly like
+// these. Ids are per-spec, so a deferral hides one criterion in one spec and nothing else. (Before
+// C18 a deferral was a bare "N.M" and hid that number in every spec at once: Phase 5.5's '7.x'
+// deferrals hid Phase 6's uncited 7.1 and 7.3 -- finding 35.)
 const DEFERRED = new Set([
-  '15.11', // No CI in this slice, by explicit user decision (see Step 1/12's plan notes). Both test tiers remain locally invocable.
+  'P03-15.11', // No CI in this slice, by explicit user decision (see Step 1/12's plan notes). Both test tiers remain locally invocable.
   // Ticks are deliberately unit-agnostic in brain-core (see neuron.rs's LifParams docs): dt_ms
   // is a caller-side interpretation with no BrainConfig type yet to hold it. Revisit once a real
   // config object exists (Phase 4+ per design.md's Out of Scope), rather than inventing one
-  // prematurely just to satisfy this criterion. NOTE (the id-collision limitation documented at
-  // REQUIREMENTS_PATHS above, caught concretely here): once Phase 5's doc joined the scan, this
-  // id started showing as "now covered" -- but that citation is Phase 5's own unrelated
-  // Requirement 5.2 (the text encoder's tokenizeWords criterion, genuinely covered in
-  // text.test.ts), not Phase 0-3's dt_ms gap, which is still real and still uncited. Left
-  // deferred on purpose; do not remove just because the checker says otherwise.
-  '5.2',
+  // prematurely just to satisfy this criterion. README's RUN-1a is deferred in
+  // check-requirement-coverage.mjs for the same reason.
+  'P03-5.2',
   // Phase 5 Requirement 17 (LRN-12 fast-binding): a design-only requirement
   // (requirements.md's own text: "satisfied by a written, reviewed decision
   // -- not by code"). Satisfied by docs/decisions.md decision 8, not by a citing
   // test -- there is deliberately no fast-binding code in this phase to
-  // cite it (17.5 requires exactly that). See requirements.md's Requirement
+  // cite it (P5-17.5 requires exactly that). See requirements.md's Requirement
   // 17 for the full acceptance criteria this decision discharges.
-  '17.1',
-  '17.2',
-  '17.3',
-  '17.4',
-  '17.5',
-  '17.6',
+  'P5-17.1',
+  'P5-17.2',
+  'P5-17.3',
+  'P5-17.4',
+  'P5-17.5',
+  'P5-17.6',
   // Phase 5.5 Requirement 7 (LRN-12 build/no-build decision): the same
   // shape as Phase 5's Requirement 17 above. Satisfied by docs/decisions.md
-  // decision 9 ("not built" -- see requirements.md's Requirement 7,
-  // Acceptance Criterion 2), not by a citing test; ACs 3-5 describe the
-  // conditional-build branch, which this decision did not take, so there is
-  // deliberately no fast-binding code in this phase to cite them either.
-  '7.1',
-  '7.2',
-  '7.3',
-  '7.4',
-  '7.5',
+  // decision 9 ("not built" -- see P55-7.2), not by a citing test; P55-7.3 to
+  // P55-7.5 describe the conditional-build branch, which this decision did not
+  // take, so there is deliberately no fast-binding code in this phase to cite
+  // them either.
+  'P55-7.1',
+  'P55-7.2',
+  'P55-7.3',
+  'P55-7.4',
+  'P55-7.5',
   // Phase 5.5 Requirement 8 (honest reporting of empirical results): a
-  // process/documentation requirement discharged by README §11's Phase 5.5
+  // process/documentation requirement discharged by docs/history.md's Phase 5.5
   // status block, not by a citing test -- there is nothing in these three
   // acceptance criteria for a unit/integration test to assert beyond what
   // the emergent-behaviour tests (NET-12/13/9) already do, which are
-  // themselves cited elsewhere under Requirements 1/3-5/6.
-  '8.1',
-  '8.2',
-  '8.3',
+  // themselves cited under Requirements 1/3-5/6.
+  'P55-8.1',
+  'P55-8.2',
+  'P55-8.3',
 ]);
 
-// Deferred ids that this checker reports as "now covered" when they are not -- the id-collision
-// limitation documented at REQUIREMENTS_PATHS, audited id by id in PLAN.md C10 (2026-09-30;
-// docs/findings.md finding 35 and docs/appendix/find-35.md have the per-citation evidence). Each
-// deferral above was written for ONE phase's criterion; every citation the checker finds belongs to
-// a DIFFERENT phase's identically-numbered one. None of the nine is satisfied by those citations,
-// so none is removed -- they are listed here only so the checker stops telling the next session to
-// remove them. Must be a subset of DEFERRED (checked below).
-//
-// - 5.2: deferred for Phase 0-3's "tick defaults to 0.1 ms" (RUN-1a, still unmet). Cited by
-//   Phase 5's tokenizeWords test (text.test.ts), by a brain-napi doc comment for Phase 6's metrics
-//   accessor, and by a "bit-identical when unset" convention borrowed from
-//   weight-aware-dendritic-votes' Requirement 5.2, a spec this checker does not even parse.
-// - 7.1-7.5: deferred for Phase 5.5's LRN-12 build/no-build decision (docs/decisions.md decision
-//   9, a written decision by design). Cited by Phase 0-3's inhibition/sparsity tests
-//   (sparsity.rs, invariants.rs, emergent.rs), Phase 5's decoder tests (decoder.test.ts,
-//   columns.test.ts) and Phase 6's server/protocol tests.
-// - 8.1-8.3: deferred for Phase 5.5's honest-reporting process requirement (discharged in
-//   docs/history.md's Phase 5.5 status). Cited by Phase 0-3's plasticity-locality test, Phase 5's
-//   buildColumns tests (boundary.test.ts) and Phase 6's control-channel tests (server.slow.test.ts).
-//
-// The cost runs the other way too: while '7.1'..'8.3' are deferred, *no* phase's 7.1-8.3 can ever
-// be reported missing, since a deferral hides the id for every phase at once. The C10 audit found
-// two such criteria with no citing test at all -- Phase 6's 7.1 and 7.3. The real fix is a
-// phase-qualified citation form, scoped (not built) in finding 35.
-const KNOWN_COLLISIONS = new Set([
-  '5.2',
-  '7.1',
-  '7.2',
-  '7.3',
-  '7.4',
-  '7.5',
-  '8.1',
-  '8.2',
-  '8.3',
-]);
+const SCAN_ROOTS = ['crates', 'packages', 'scripts', 'examples'].map((dir) =>
+  path.join(repoRoot, dir),
+);
 
-const TEST_DIRS = [
-  path.join(repoRoot, 'crates', 'brain-core', 'src'), // #[cfg(test)] mod tests blocks live alongside the code
-  path.join(repoRoot, 'crates', 'brain-core', 'tests'),
-  path.join(repoRoot, 'crates', 'brain-napi', 'src'),
-  path.join(repoRoot, 'packages', 'brain', 'test'),
-  path.join(repoRoot, 'packages', 'io', 'test'),
-  path.join(repoRoot, 'packages', 'viz', 'test'),
-  path.join(repoRoot, 'scripts'), // this checker itself cites 15.9/15.10 in its own header
-];
-const TEST_FILE_EXTENSIONS = new Set(['.rs', '.ts', '.mjs']);
+// The retired form. Tolerates a doc-comment line break between the word and the number (rustfmt
+// used to split "Requirement\n//! 15.2"), bounded to 10 characters so it cannot drift onto an
+// unrelated later number. A "Phase N " qualifier in front is still the retired form.
+const RETIRED_CITATION = /\b(?:Requirements?|Reqs?\.?)[\s/!*]{1,10}(\d+\.\d+)/g;
 
-function walk(dir, out = []) {
-  let entries;
+function parseSpec(dir) {
+  const file = path.join(SPECS_ROOT, dir, 'requirements.md');
+  let markdown;
   try {
-    entries = readdirSync(dir);
+    markdown = readFileSync(file, 'utf8');
   } catch {
-    return out; // a listed directory that doesn't exist yet is not an error here
+    return null;
   }
-  for (const entry of entries) {
-    const full = path.join(dir, entry);
-    const stats = statSync(full);
-    if (stats.isDirectory()) {
-      if (entry === 'node_modules' || entry === 'target') continue;
-      walk(full, out);
-    } else if (TEST_FILE_EXTENSIONS.has(path.extname(full))) {
-      out.push(full);
-    }
-  }
-  return out;
-}
-
-function parseRequiredCriteria(markdown) {
-  // Split on requirement headings, keeping the heading with its body so
-  // each chunk's own criteria numbering is unambiguous.
+  // Split on requirement headings, keeping the heading with its body so each chunk's own criteria
+  // numbering is unambiguous.
   const sections = markdown.split(/^### Requirement (\d+):/m).slice(1);
-  const ids = [];
+  if (sections.length === 0) return null;
+  const criteria = new Map(); // "N.M" -> the criterion's text
   for (let i = 0; i < sections.length; i += 2) {
     const requirementNumber = sections[i];
     const body = sections[i + 1];
-    // A criterion line starts at column 0 with "<digits>. " -- continuation
-    // lines in this document are always indented, so this alone
-    // disambiguates a new item from a wrapped one.
-    const criterionNumbers = [...body.matchAll(/^(\d+)\.\s/gm)].map((m) =>
-      Number(m[1]),
-    );
-    if (criterionNumbers.length === 0) continue;
-    const max = Math.max(...criterionNumbers);
-    for (let n = 1; n <= max; n += 1) {
-      ids.push(`${requirementNumber}.${n}`);
+    // A criterion line starts at column 0 with "<digits>. " -- continuation lines in these
+    // documents are always indented, so this alone disambiguates a new item from a wrapped one.
+    for (const m of body.matchAll(/^(\d+)\.\s+(.*)$/gm)) {
+      criteria.set(`${requirementNumber}.${m[1]}`, m[2].trim());
     }
   }
-  return ids;
+  const prefix = markdown.match(PREFIX_DECLARATION)?.[1] ?? null;
+  return { dir, file, prefix, criteria };
 }
 
-// Allows the citation to wrap across a doc-comment line break -- e.g.
-// Rust's `//!`/`///` or a `*` continuation in a block comment -- so a
-// citation split as "...(Requirement\n//! 15.2)..." by rustfmt still
-// counts. Bounded to 10 characters so it cannot drift onto some unrelated
-// later number in the file.
-const CITATION_PATTERN = /\b(?:Requirement|Req)[\s/!*]{1,10}(\d+\.\d+)/g;
+function relative(file) {
+  return path.relative(repoRoot, file).split(path.sep).join('/');
+}
 
-function findCitedCriteria(files) {
-  const cited = new Set();
+function lineOf(text, index) {
+  let line = 1;
+  for (let i = 0; i < index; i += 1) if (text.charCodeAt(i) === 10) line += 1;
+  return line;
+}
+
+function scan(files, prefixes) {
+  const idPattern = new RegExp(
+    String.raw`\b(?:${prefixes.join('|')})-\d+\.\d+\b`,
+    'g',
+  );
+  const citedInTest = new Set();
+  const citedInCode = new Set();
+  const sitesById = new Map(); // id -> ["file:line", ...], for the unknown-id report
+  const ambiguous = []; // { site, text }
   for (const file of files) {
-    // This checker cites requirement ids in its own explanatory comments
-    // (about itself and about the deferral list) -- excluding it from the
-    // scan is what keeps that self-description from being read back as
-    // coverage evidence.
-    if (path.resolve(file) === path.resolve(fileURLToPath(import.meta.url)))
-      continue;
+    // This checker names ids in its own comments (the deferral list, the form's examples);
+    // excluding it keeps that self-description from being read back as evidence.
+    if (path.resolve(file) === path.resolve(thisFile)) continue;
     const text = readFileSync(file, 'utf8');
-    for (const match of text.matchAll(CITATION_PATTERN)) {
-      cited.add(match[1]);
+    const rel = relative(file);
+    const { testText, codeText } = testAndCodeText(file, text);
+    for (const m of testText.matchAll(idPattern)) citedInTest.add(m[0]);
+    for (const m of codeText.matchAll(idPattern)) citedInCode.add(m[0]);
+    for (const m of text.matchAll(idPattern)) {
+      const sites = sitesById.get(m[0]) ?? [];
+      sites.push(`${rel}:${lineOf(text, m.index)}`);
+      sitesById.set(m[0], sites);
+    }
+    for (const m of text.matchAll(RETIRED_CITATION)) {
+      ambiguous.push({
+        site: `${rel}:${lineOf(text, m.index)}`,
+        text: m[0].replace(/\s+/g, ' '),
+      });
     }
   }
-  return cited;
+  return { citedInTest, citedInCode, sitesById, ambiguous };
 }
 
 function main() {
-  // Each doc's own ids are parsed independently, then unioned into one flat
-  // id space (deduped: "9.2" parsed from both docs collapses to a single
-  // entry, since this checker cannot distinguish which phase a citation was
-  // written against -- see REQUIREMENTS_PATHS's comment above for why that
-  // is a documented limitation rather than a bug).
-  const idsPerDoc = REQUIREMENTS_PATHS.map((p) =>
-    parseRequiredCriteria(readFileSync(p, 'utf8')),
-  );
-  const totalCriteriaAcrossDocs = idsPerDoc.reduce(
-    (sum, ids) => sum + ids.length,
-    0,
-  );
-  const allIds = [...new Set(idsPerDoc.flat())];
-  const testFiles = TEST_DIRS.flatMap((dir) => walk(dir));
-  const cited = findCitedCriteria(testFiles);
-
-  const missing = allIds.filter((id) => !cited.has(id) && !DEFERRED.has(id));
-  const staleDeferrals = [...DEFERRED].filter((id) => !allIds.includes(id));
-  const nowCovered = [...DEFERRED].filter(
-    (id) => cited.has(id) && !KNOWN_COLLISIONS.has(id),
-  );
-  const collisionsCited = [...KNOWN_COLLISIONS].filter((id) => cited.has(id));
-
-  console.log(
-    `Traceability: ${totalCriteriaAcrossDocs} acceptance criteria found across ${REQUIREMENTS_PATHS.length} requirements docs (${allIds.length} distinct ids -- see the id-collision note above).`,
-  );
-  console.log(
-    `Scanned ${testFiles.length} test files across ${TEST_DIRS.length} directories.`,
-  );
-  console.log(
-    `${cited.size} distinct criterion ids cited in tests. ${DEFERRED.size} deliberately deferred.`,
-  );
-
+  const listAll = process.argv.includes('--list');
   let ok = true;
+  const fail = (message) => {
+    ok = false;
+    console.error(`\nFAIL: ${message}`);
+  };
 
-  const strayCollisions = [...KNOWN_COLLISIONS].filter(
-    (id) => !DEFERRED.has(id),
+  const specs = readdirSync(SPECS_ROOT).sort().map(parseSpec).filter(Boolean);
+  for (const s of specs.filter((spec) => spec.prefix === null)) {
+    fail(
+      `${relative(s.file)} declares no citation prefix (add "**Citation prefix:** \`<PREFIX>\`" under its title; docs/decisions.md decision 38).`,
+    );
+  }
+  const prefixed = specs.filter((s) => s.prefix !== null);
+  const byPrefix = new Map();
+  for (const s of prefixed) {
+    if (byPrefix.has(s.prefix)) {
+      fail(
+        `prefix ${s.prefix} is declared by both ${byPrefix.get(s.prefix).dir} and ${s.dir}.`,
+      );
+    }
+    byPrefix.set(s.prefix, s);
+  }
+
+  const allIds = new Map(); // "P6-7.3" -> the criterion's text
+  for (const s of prefixed) {
+    for (const [nm, text] of s.criteria) allIds.set(`${s.prefix}-${nm}`, text);
+  }
+  const files = SCAN_ROOTS.flatMap((dir) => walkSources(dir));
+  const { citedInTest, citedInCode, sitesById, ambiguous } = scan(files, [
+    ...byPrefix.keys(),
+  ]);
+
+  const totalCriteria = specs.reduce((sum, s) => sum + s.criteria.size, 0);
+  console.log(
+    `Traceability: ${totalCriteria} acceptance criteria found across ${specs.length} requirements docs, keyed by <PREFIX>-N.M.`,
   );
-  if (strayCollisions.length > 0) {
-    ok = false;
-    console.error(
-      `\nFAIL: KNOWN_COLLISIONS names ids that are not deferred: ${strayCollisions.join(', ')}`,
-    );
-  }
+  console.log(
+    `Scanned ${files.length} source files under crates/, packages/, scripts/, examples/. Only test regions credit a criterion.`,
+  );
 
-  if (staleDeferrals.length > 0) {
-    ok = false;
-    console.error(
-      `\nFAIL: deferral list names criteria that no longer exist in requirements.md: ${staleDeferrals.join(', ')}`,
-    );
-  }
-
-  if (collisionsCited.length > 0) {
+  const missing = [];
+  console.log(
+    `\n  ${'prefix'.padEnd(6)}  ${'spec'.padEnd(36)}  criteria  tested  deferred  code-only  uncited`,
+  );
+  for (const s of prefixed) {
+    const counts = { tested: 0, deferred: 0, codeOnly: 0, uncited: 0 };
+    for (const nm of s.criteria.keys()) {
+      const id = `${s.prefix}-${nm}`;
+      if (citedInTest.has(id)) counts.tested += 1;
+      else if (DEFERRED.has(id)) counts.deferred += 1;
+      else {
+        if (citedInCode.has(id)) counts.codeOnly += 1;
+        else counts.uncited += 1;
+        missing.push(id);
+      }
+    }
+    const cells = [
+      [s.criteria.size, 8],
+      [counts.tested, 6],
+      [counts.deferred, 8],
+      [counts.codeOnly, 9],
+      [counts.uncited, 7],
+    ].map(([n, width]) => String(n).padStart(width));
     console.log(
-      `${collisionsCited.length} deferred ids are cited only by *another* phase's identically-numbered criterion (KNOWN_COLLISIONS) -- kept deferred: ${collisionsCited.join(', ')}`,
+      `  ${s.prefix.padEnd(6)}  ${s.dir.padEnd(36)}  ${cells.join('  ')}`,
     );
   }
 
+  const unknownIds = [...sitesById.keys()].filter((id) => !allIds.has(id));
+  if (unknownIds.length > 0) {
+    fail(
+      `${unknownIds.length} cited ids name no criterion in their spec (a typo, or a renumbered spec):`,
+    );
+    for (const id of unknownIds) {
+      console.error(`  - ${id} at ${sitesById.get(id).join(', ')}`);
+    }
+  }
+
+  const staleDeferrals = [...DEFERRED].filter((id) => !allIds.has(id));
+  if (staleDeferrals.length > 0) {
+    fail(
+      `deferral list names criteria that no longer exist in any spec: ${staleDeferrals.join(', ')}`,
+    );
+  }
+
+  const nowCovered = [...DEFERRED].filter((id) => citedInTest.has(id));
   if (nowCovered.length > 0) {
     console.warn(
-      `\nNote: deferred criteria now have a citing test -- remove from DEFERRED: ${nowCovered.join(', ')}`,
+      `\nNote: deferred criteria now have a citing test -- check that the test really demonstrates the criterion, then remove it from DEFERRED: ${nowCovered.join(', ')}`,
     );
+  }
+
+  // The retired "Requirement N.M" form credits nothing: which spec it means is exactly what it
+  // cannot say. Every one fails until it is rewritten as an id.
+  const ambiguousFiles = new Set(ambiguous.map((a) => a.site.split(':')[0]));
+  console.log(
+    `\n${ambiguous.length} ambiguous citations in the retired "Requirement N.M" form, in ${ambiguousFiles.size} files -- credited to nothing.`,
+  );
+  if (ambiguous.length > 0) {
+    fail(
+      `${ambiguous.length} citations use the retired "Requirement N.M" form. Rewrite each as <PREFIX>-N.M for the spec its author was reading${listAll ? ':' : ' (--list shows each site).'}`,
+    );
+    if (listAll) {
+      for (const a of ambiguous) console.error(`  - ${a.site}  "${a.text}"`);
+    }
   }
 
   if (missing.length > 0) {
-    ok = false;
-    console.error(
-      `\nFAIL: ${missing.length} acceptance criteria have no citing test and are not on the deferral list:`,
+    fail(
+      `${missing.length} acceptance criteria have no citing test and are not on the deferral list:`,
     );
     for (const id of missing) {
-      console.error(`  - Requirement ${id}`);
+      const where = citedInCode.has(id) ? ' [code only]' : '';
+      const text = allIds.get(id);
+      console.error(
+        `  - ${id}${where}: ${text.length > 100 ? `${text.slice(0, 97)}...` : text}`,
+      );
     }
   }
 
   if (ok) {
     console.log(
-      '\nOK: every acceptance criterion is covered or deliberately deferred.',
+      '\nOK: every acceptance criterion in every spec is cited by a test or deliberately deferred.',
     );
   }
   process.exit(ok ? 0 : 1);
