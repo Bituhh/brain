@@ -6,14 +6,8 @@
 //! `cargo test` regardless of which other file someone happened to touch.
 
 const BRAIN_CORE_CARGO_TOML: &str = include_str!("../Cargo.toml");
-const BRAIN_NAPI_CARGO_TOML: &str = include_str!("../../brain-napi/Cargo.toml");
-const ROOT_CARGO_TOML: &str = include_str!("../../../Cargo.toml");
 const ROOT_PACKAGE_JSON: &str = include_str!("../../../package.json");
 const RUST_TOOLCHAIN_TOML: &str = include_str!("../../../rust-toolchain.toml");
-/// Phase 5 Requirement 1.2: `packages/io` is new this phase and was never
-/// covered by this check before -- without this, a tokenizer or embedding
-/// dependency could land in its `package.json` with nothing to catch it.
-const PACKAGES_IO_PACKAGE_JSON: &str = include_str!("../../../packages/io/package.json");
 
 /// Requirement 1.2 (`brain-core` has no dependency on any binding crate,
 /// on `napi`, or on `wasm-bindgen`) and half of Requirement 1.4 (dev-only
@@ -64,25 +58,78 @@ fn brain_core_manifest_carries_no_runtime_dependency_beyond_rayon() {
     );
 }
 
-/// Requirement 1.3: no manifest in the workspace may name a
-/// neural-network, tensor, autodiff, ONNX, embedding, or LLM dependency.
-/// Checked as substring absence across every manifest, including
-/// `brain-napi`'s (the FFI boundary is not exempt just because it is
-/// allowed a real dependency on `napi` itself).
+/// Every file this repo uses to declare or pin a dependency, in both
+/// ecosystems. Lockfiles are included deliberately: ENG-5 forbids anything
+/// "from crates.io or npm", and a forbidden package arriving transitively
+/// is still arriving.
+const MANIFEST_FILE_NAMES: [&str; 4] = ["Cargo.toml", "Cargo.lock", "package.json", "package-lock.json"];
+
+/// Walks the repo for manifests rather than listing them, so a new crate or
+/// package is covered the moment it exists. Skips vendored/build trees and
+/// every dot-directory (`.git`, `.claude`'s scratch and any worktree under
+/// it -- another checkout's manifests are that checkout's business).
+fn walk_manifests(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if path.is_dir() {
+            if name == "node_modules" || name == "target" || name.starts_with('.') {
+                continue;
+            }
+            walk_manifests(&path, out);
+        } else if MANIFEST_FILE_NAMES.contains(&name.as_ref()) {
+            out.push(path);
+        }
+    }
+}
+
+/// ENG-5 (Phase 0-3 Requirement 1.3): no manifest in the workspace may name
+/// a neural-network, tensor, autodiff, ONNX, embedding, or LLM dependency.
+/// Checked as substring absence across every manifest and lockfile found by
+/// walking the tree, including `brain-napi`'s (the FFI boundary is not
+/// exempt just because it is allowed a real dependency on `napi` itself).
+///
+/// Until PLAN.md C10 this listed five manifests by hand and so missed
+/// `packages/brain`, `packages/viz` and `crates/brain-napi`'s
+/// `package.json` -- exactly the hole a listed set leaves for the next
+/// package too.
+///
+/// A blocklist, not an allowlist: it catches the named families, not every
+/// possible AI/ML package under some other name. That is why it is cited
+/// for ENG-5 only and not for README's encoder-purity requirement, even
+/// though "tokenizer" and "embedding-model" overlap it (the id is left
+/// unwritten here on purpose: `scripts/check-requirement-coverage.mjs`
+/// would read a mention in a test file as a citation -- its DEFERRED list
+/// has the reasoning).
 #[test]
 fn no_manifest_names_a_forbidden_ai_ml_dependency() {
     let forbidden = ["tensorflow", "pytorch", "onnx", "autodiff", "embedding-model", "llm", "gguf", "candle", "ndarray", "burn", "tokenizer"];
-    let manifests = [
-        ("brain-core/Cargo.toml", BRAIN_CORE_CARGO_TOML),
-        ("brain-napi/Cargo.toml", BRAIN_NAPI_CARGO_TOML),
-        ("Cargo.toml (workspace root)", ROOT_CARGO_TOML),
-        ("package.json (workspace root)", ROOT_PACKAGE_JSON),
-        ("packages/io/package.json", PACKAGES_IO_PACKAGE_JSON),
-    ];
-    for (name, contents) in manifests {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut manifests = Vec::new();
+    walk_manifests(&repo_root, &mut manifests);
+
+    // The walk must at least reach every manifest the hand-listed version
+    // did, or it could pass vacuously by finding nothing.
+    for expected in ["Cargo.toml", "crates/brain-core/Cargo.toml", "crates/brain-napi/Cargo.toml", "package.json", "packages/io/package.json"] {
+        let expected = repo_root.join(expected);
+        assert!(
+            manifests.iter().any(|m| std::fs::canonicalize(m).ok() == std::fs::canonicalize(&expected).ok()),
+            "the manifest walk must find {} -- found: {manifests:?}",
+            expected.display()
+        );
+    }
+
+    for path in &manifests {
+        let contents = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: unreadable manifest: {e}", path.display()));
         let lower = contents.to_lowercase();
         for term in forbidden {
-            assert!(!lower.contains(term), "{name} must not name a forbidden AI/ML dependency (Requirement 1.3), found '{term}'");
+            assert!(
+                !lower.contains(term),
+                "{} must not name a forbidden AI/ML dependency (ENG-5, Requirement 1.3), found '{term}'",
+                path.display()
+            );
         }
     }
 }

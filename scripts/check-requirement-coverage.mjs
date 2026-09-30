@@ -107,11 +107,23 @@ const DEFERRED = new Set([
   // and `saturation_driven_growth.rs` round-trip snapshots after growth/pruning but never assert
   // on their size.
   'RUN-9c',
-  // IO-2 (encoders pure/library-free) and ENG-5 (zero AI/ML dependencies): true today by
-  // omission -- neither package.json nor Cargo.toml lists a forbidden package -- but no test
-  // asserts it, so a future dependency add would not be caught here.
+  // ENG-5 (zero AI/ML dependencies) used to sit here as "no test asserts it". That was wrong
+  // from the start (PLAN.md C10, 2026-09-30): `tests/workspace_policy.rs`'s
+  // `no_manifest_names_a_forbidden_ai_ml_dependency` asserts exactly ENG-5, but cited only the
+  // Phase 0-3 criterion "Requirement 1.3", which this script's id space cannot see. It now cites
+  // ENG-5 and walks the tree for manifests and lockfiles instead of listing five by hand (the list
+  // had missed packages/brain, packages/viz and crates/brain-napi's package.json).
+  //
+  // IO-2 (encoders pure and library-free: no tokenizer package, no embedding model) stays
+  // deferred, and the reason is that test's shape, not an oversight. Its forbidden list does name
+  // "tokenizer" and "embedding-model", but it is a keyword blocklist: `tiktoken`, `sentencepiece`,
+  // `@xenova/transformers` or `word2vec` would all pass it. It also says nothing about the other
+  // two words in IO-2 -- "pure" (an encoder is a deterministic function of its input) and
+  // "library-free" (encoder source imports only this repo's own modules). Citing it would claim
+  // more than it checks. What would close IO-2 honestly: an allowlist on packages/io's runtime
+  // `dependencies` (workspace `@brain/*` packages only), a scan asserting encoder files import
+  // only relative paths or `node:` builtins, and a same-input-same-output assertion per encoder.
   'IO-2',
-  'ENG-5',
   // ENG-1 (two languages, one boundary rule), ENG-4 (napi-rs is the build target), ENG-7 (repo
   // layout), ENG-10 (public API small and stable): architecture-level facts about the shape of
   // the repo itself, true by inspection, not the kind of runtime behaviour a named test asserts.
