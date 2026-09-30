@@ -85,6 +85,7 @@ pub mod partition;
 pub mod plasticity;
 pub mod probe;
 pub mod reach;
+pub mod readout;
 pub mod rng;
 pub mod scheduler;
 pub mod segment;

@@ -435,6 +435,12 @@ pub struct PartitionRuntime {
     /// split (RUN-6). [`Self::reward`] advances this **one** baseline and then
     /// sets every partition's field to the single level it produced.
     reward_prediction_error: Option<RewardPredictionError>,
+    /// PLAN.md C17's learning readouts, shared for the same reason as the
+    /// coupling: each reads the whole network's spikes. [`Self::step`] feeds it
+    /// the tick's merged spike list, which the population sorts before
+    /// summing anything, so its state is independent of how neurons were
+    /// split (RUN-3, RUN-6).
+    readouts: Vec<crate::readout::ReadoutPopulation>,
 }
 
 impl PartitionRuntime {
@@ -491,6 +497,12 @@ impl PartitionRuntime {
             plan.partition_count() <= 1 || !schedulers.iter().any(Scheduler::has_spatial_burst_sprout_reach),
             "a spatial burst-sprout reach (predictive learning, Requirement 12.1) is refused above one partition: the candidate set would be clipped to each partition's own range, so results would depend on the partition count (PLAN.md C4, RUN-3). Use it single-partition, or give only StructuralPlasticity::with_sprout_reach a spatial reach -- that sweep runs once globally and is partition-safe"
         );
+        // PLAN.md C17: a scheduler's own readout is fed by `Scheduler::step`,
+        // which this runtime never calls. Refused, not silently inert.
+        assert!(
+            !schedulers.iter().any(Scheduler::has_readout),
+            "a Scheduler's own readout population is inert inside a PartitionRuntime (it is fed by Scheduler::step, which this runtime never calls) -- configure it with PartitionRuntime::with_readout (PLAN.md C17)"
+        );
         let boundary_neurons = boundary_neurons(&plan, synapses, neuron_count);
         let pending_post_spike = (0..schedulers.len()).map(|_| Vec::new()).collect();
         Self {
@@ -504,6 +516,26 @@ impl PartitionRuntime {
             structural_plasticity: None,
             prediction_error_coupling: None,
             reward_prediction_error: None,
+            readouts: Vec::new(),
+        }
+    }
+
+    /// Attaches PLAN.md C17's learning readout, the partitioned counterpart
+    /// to [`Scheduler::with_readout`].
+    pub fn with_readout(mut self, config: crate::readout::ReadoutConfig) -> Self {
+        self.readouts.push(crate::readout::ReadoutPopulation::new(config));
+        self
+    }
+
+    pub fn readout(&self, index: usize) -> Option<&crate::readout::ReadoutPopulation> {
+        self.readouts.get(index)
+    }
+
+    /// See [`Scheduler::stimulate_readout`].
+    pub fn stimulate_readout(&mut self, readout: usize, neuron: u32) -> Result<(), String> {
+        match self.readouts.get_mut(readout) {
+            Some(r) => r.stimulate_teacher(neuron),
+            None => Err(format!("no readout population {readout} is configured")),
         }
     }
 
@@ -1029,6 +1061,13 @@ impl PartitionRuntime {
         if let Some(sp) = &mut self.structural_plasticity {
             let plan = &self.plan;
             sp.maybe_sweep_partitioned(neurons, synapses, tick, |n| plan.partition_of(n));
+        }
+        // PLAN.md C17: last, as in `Scheduler::step`.
+        if !self.readouts.is_empty() {
+            let spiked: Vec<u32> = reports.iter().flat_map(|r| r.spiked.iter().copied()).collect();
+            for readout in &mut self.readouts {
+                readout.observe_tick(&spiked, &neurons.polarity);
+            }
         }
 
         reports

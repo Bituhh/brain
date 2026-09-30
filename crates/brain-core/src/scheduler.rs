@@ -29,6 +29,7 @@ use crate::arena::{NeuronArena, NeuronArenaViewMut, NeuronSpec};
 use crate::growth::{apply_growth, GrowthPolicy, GrowthRawState, PopulationStats};
 use crate::inhibition::FixedNeighbourhoods;
 use crate::metrics::{FiringRateMeter, PredictionAccuracyMeter};
+use crate::readout::{ReadoutConfig, ReadoutPopulation, ReadoutRawState};
 use crate::neuromodulator::{NeuromodulatorField, PredictionErrorCoupling, PredictionErrorRawState, RewardBaselineRawState, RewardPredictionError};
 use crate::neuron::{NeuronDynamics, NeuronStateMut};
 use crate::plasticity::homeostatic::{HomeostaticScaling, InhibitionHomeostasis, IntrinsicHomeostasis, SegmentThresholdHomeostasis};
@@ -460,6 +461,17 @@ pub struct Scheduler {
     /// is the partitioned spelling -- it advances a single baseline and then
     /// sets every partition's field to the one level that produced.
     reward_prediction_error: Option<RewardPredictionError>,
+    /// PLAN.md C17 (docs/decisions.md decision 36): learning readout
+    /// populations, each fed this tick's committed spikes at the very end of
+    /// [`Self::step`]. Empty -- every caller before C17 -- runs nothing. A
+    /// list, not one slot, so F16 can host one per column. Each is a
+    /// **sink**: it reads `StepReport::spiked` and writes only its own
+    /// state, so nothing the network does can differ with it attached
+    /// (`tests/readout.rs`). Inert inside a `PartitionRuntime` for the
+    /// coupling's reason (this method never runs there), so
+    /// `PartitionRuntime::new` refuses a scheduler carrying one and
+    /// `PartitionRuntime::with_readout` is the partitioned spelling.
+    readouts: Vec<ReadoutPopulation>,
     /// Interactive observability (Requirement 4/6, Phase 6): keyed by
     /// neuron index, matching `Probe::new(neuron, options)`'s existing
     /// one-probe-per-neuron shape -- attaching a second probe to the same
@@ -600,6 +612,7 @@ impl Scheduler {
             intrinsic_homeostasis: None,
             prediction_error_coupling: None,
             reward_prediction_error: None,
+            readouts: Vec::new(),
             probes: HashMap::new(),
             firing_rate: FiringRateMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
             prediction_accuracy: PredictionAccuracyMeter::new(DEFAULT_METRICS_WINDOW_TICKS),
@@ -1615,6 +1628,66 @@ impl Scheduler {
         }
     }
 
+    /// Attaches a learning readout population (PLAN.md C17, see the field's
+    /// doc comment and `readout.rs`). May be called more than once: each call
+    /// appends one population, addressed by its position (0 for the first).
+    /// Configuration, not state: a restore makes the same calls in the same
+    /// order and then [`Self::restore_readouts_raw_state`].
+    pub fn with_readout(mut self, config: ReadoutConfig) -> Self {
+        self.readouts.push(ReadoutPopulation::new(config));
+        self
+    }
+
+    /// Whether any readout is attached -- read by `PartitionRuntime::new` to
+    /// refuse one it would never feed.
+    pub fn has_readout(&self) -> bool {
+        !self.readouts.is_empty()
+    }
+
+    /// Every attached readout, in attachment order.
+    pub fn readouts(&self) -> &[ReadoutPopulation] {
+        &self.readouts
+    }
+
+    /// Readout `index`, if attached.
+    pub fn readout(&self, index: usize) -> Option<&ReadoutPopulation> {
+        self.readouts.get(index)
+    }
+
+    /// Delivers direct (teacher) input to neuron `neuron` of readout
+    /// `readout`, read by the next [`Self::step`]'s learning update.
+    pub fn stimulate_readout(&mut self, readout: usize, neuron: u32) -> Result<(), String> {
+        match self.readouts.get_mut(readout) {
+            Some(r) => r.stimulate_teacher(neuron),
+            None => Err(format!("no readout population {readout} is configured")),
+        }
+    }
+
+    /// Every readout's evolving state, for `snapshot.rs` (RUN-9a), in
+    /// attachment order. Empty when none is attached.
+    pub fn readouts_raw_state(&self) -> Vec<ReadoutRawState> {
+        self.readouts.iter().map(ReadoutPopulation::raw_state).collect()
+    }
+
+    /// Overlays snapshotted readout state onto the freshly-configured
+    /// populations, position by position. State for a scheduler built with no
+    /// readout is ignored (the `restore_reward_baseline_raw_state`
+    /// convention); a scheduler built with readouts must receive exactly one
+    /// state per readout, or none at all (a pre-version-15 snapshot, which
+    /// restores fresh, silent readouts).
+    pub fn restore_readouts_raw_state(&mut self, states: Vec<ReadoutRawState>) -> Result<(), String> {
+        if self.readouts.is_empty() || states.is_empty() {
+            return Ok(());
+        }
+        if states.len() != self.readouts.len() {
+            return Err(format!("snapshot carries {} readout(s) but {} are configured", states.len(), self.readouts.len()));
+        }
+        for (r, state) in self.readouts.iter_mut().zip(states) {
+            r.restore_raw_state(state)?;
+        }
+        Ok(())
+    }
+
     /// Delivers `current` directly to a neuron on the *next* call to
     /// [`Scheduler::step`], as if it had arrived via a synapse, without
     /// needing one. Used by tests and by direct-stimulation callers before
@@ -2107,6 +2180,7 @@ impl Scheduler {
                     // which is only safe because it runs once, at
                     // construction, over a whole population in one call.
                     let base_index = neurons.capacity_len() as u32;
+                    let grown_from = base_index;
                     let threshold = growth.threshold;
                     let excitatory_fraction = growth.excitatory_fraction;
                     let coords_origin = growth.coords_origin;
@@ -2125,8 +2199,19 @@ impl Scheduler {
                         newborn_maturation.wire_and_place_newborns(neurons, synapses, &added, report.tick, seed);
                     }
                     report.grown = added.into_iter().map(|id| id.index).collect();
+                    // PLAN.md C17: a readout reading the trailing range sees
+                    // its new neurons (NET-10, invariant 10).
+                    for readout in &mut self.readouts {
+                        readout.extend_trailing_sources(grown_from, report.grown.len() as u32);
+                    }
                 }
             }
+        }
+
+        // PLAN.md C17: last, and reading only `report.spiked`, so the readout
+        // cannot influence anything above it this tick or any later one.
+        for readout in &mut self.readouts {
+            readout.observe_tick(&report.spiked, &neurons.polarity);
         }
 
         report

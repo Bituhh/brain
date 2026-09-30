@@ -55,6 +55,14 @@ export interface StreamThroughOptions<T, L> {
   readonly stimulateCurrent?: number;
   /** Passed straight to `decode` (Requirement 7.2's confidence threshold). Defaults to 0.3. */
   readonly minConfidence?: number;
+  /**
+   * Called once per input, after it is stimulated onto every column and
+   * before the first tick -- the moment the input "arrives". PLAN.md C17
+   * uses it to deliver the same SDR to a learning readout as its teacher
+   * (README IO-3: the next input's own spikes). `undefined` (every caller
+   * before C17) changes nothing.
+   */
+  readonly onStimulated?: (input: T, sdr: Sdr) => void;
 }
 
 /**
@@ -88,6 +96,7 @@ export function* streamThrough<T, L>(
     for (const column of columns) {
       column.stimulateSdr(sim, sdr, current);
     }
+    options.onStimulated?.(input, sdr);
     let spiked: number[] = [];
     for (let tick = 0; tick < ticksPerInput; tick++) {
       spiked = sim.step();

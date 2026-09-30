@@ -602,6 +602,87 @@ impl PredictionErrorCouplingConfig {
 /// `brain-core` for the full sign decision and for why dopamine belongs on
 /// `predictiveLearning.modulatorIndex` (permanence -- synaptic tagging and
 /// capture) rather than on `plasticity.modulatorChannel` (weight).
+/// PLAN.md C17's learning readout population (docs/decisions.md decision 36,
+/// `brain_core::readout`). A **sink** downstream of the network: it reads
+/// the network's committed spikes in `[sourceStart, sourceStart +
+/// sourceCount)` and sends nothing back, so the network is bit-identical with
+/// it on or off. `size` readout neurons (one per encoder bit), dense
+/// sign-constrained synapses (a magnitude `>= 0` whose sign is the source
+/// neuron's polarity, NEU-4), an error-driven intrinsic excitability per
+/// neuron, its own k-WTA of `k`, and a delta rule taught by
+/// `stimulateReadout` -- a generic direct input whose meaning is the
+/// caller's choice (VAL-4 sends the next input's own spikes). Sources grown
+/// at runtime join a readout whose range is trailing. Omit for none, every
+/// configuration before C17.
+///
+/// One readout per simulation at this boundary (it is readout 0 in the
+/// core, which holds a list); an array form is F16's to add.
+///
+/// Supported in both runtime modes: in partitioned mode it lives on the
+/// `PartitionRuntime` and reads the merged spike list, which it sorts before
+/// summing anything, so its state does not depend on the partition count.
+#[napi(object)]
+#[derive(Clone)]
+pub struct ReadoutConfig {
+    pub source_start: u32,
+    pub source_count: u32,
+    pub size: u32,
+    pub k: u32,
+    /// Omit to derive it from `k` by the LMS stability bound (`1 / k`).
+    pub learning_rate: Option<f64>,
+}
+
+impl ReadoutConfig {
+    fn to_core(&self) -> napi::Result<brain_core::readout::ReadoutConfig> {
+        let cfg = brain_core::readout::ReadoutConfig {
+            source_start: self.source_start,
+            source_count: self.source_count,
+            size: self.size,
+            k: self.k,
+            learning_rate: self.learning_rate.map(|r| r as f32),
+        };
+        cfg.validate().map_err(napi::Error::from_reason)?;
+        Ok(cfg)
+    }
+}
+
+/// What the readout has done since construction (or since the last
+/// `restore`: these are reporting only, not snapshot state), plus a summary
+/// of its current weights. Plain numbers: every count stays below 2^53.
+#[napi(object)]
+pub struct ReadoutStatsFfi {
+    /// Ticks observed.
+    pub ticks: f64,
+    /// Teacher deliveries that produced a learning update.
+    pub updates: f64,
+    /// Teacher deliveries dropped because no tick preceded them.
+    pub teachers_without_trace: f64,
+    /// Weight updates the `w >= 0` constraint clamped at zero.
+    pub clamped_at_zero: f64,
+    /// Ticks on which at least one readout neuron spiked.
+    pub ticks_with_winners: f64,
+    /// Weights strictly above zero, and the total count of weights. Brunel et
+    /// al. 2004 predict most stay silent at capacity.
+    pub nonzero_weights: f64,
+    pub total_weights: f64,
+    pub weight_sum: f64,
+    pub max_weight: f64,
+    pub min_excitability: f64,
+    pub max_excitability: f64,
+    /// The delta rule's rate in use.
+    pub learning_rate: f64,
+    /// Current source count (configured plus grown).
+    pub source_count: f64,
+    /// The most recent update's error, `t - y`, summarised (the surprise
+    /// signal): `sum |t - y|`, and neurons where teacher and prediction
+    /// disagreed. `-1` before the first update.
+    pub last_abs_error: f64,
+    pub last_mismatched: f64,
+    /// The same, summed over every update.
+    pub abs_error_total: f64,
+    pub mismatched_total: f64,
+}
+
 #[napi(object)]
 #[derive(Clone)]
 pub struct RewardPredictionErrorConfig {
@@ -1606,6 +1687,11 @@ struct SchedulerConfig {
     /// `PartitionRuntime`, and `PartitionRuntime::new` refuses a scheduler
     /// carrying one.
     reward_prediction_error: Option<RewardPredictionErrorConfig>,
+    /// PLAN.md C17, already validated. Applied at the same two construction
+    /// sites as the two above, for the same reason: in partitioned mode it
+    /// must live on the `PartitionRuntime` (it reads the whole network's
+    /// spikes), and `PartitionRuntime::new` refuses a scheduler carrying one.
+    readout: Option<brain_core::readout::ReadoutConfig>,
 }
 
 /// `InhibitionConfig` -> `FixedNeighbourhoods`, shared by `build_scheduler`
@@ -1940,6 +2026,7 @@ impl NativeSimulation {
         transmission_modulation: Option<TransmissionModulationConfig>,
         prediction_error_coupling: Option<PredictionErrorCouplingConfig>,
         reward_prediction_error: Option<RewardPredictionErrorConfig>,
+        readout: Option<ReadoutConfig>,
         thread_count: Option<u32>,
         total_neurons: Option<u32>,
     ) -> Result<Self> {
@@ -1988,6 +2075,7 @@ impl NativeSimulation {
         let transmission_modulation = transmission_modulation.map(|cfg| cfg.resolve()).transpose()?;
         let scheduler_segments = segments.unwrap_or(SegmentsConfig::NONE);
         let scheduler_inhibition = inhibition.as_ref().map(|cfg| (cfg.neighbourhood_size, cfg.k));
+        let readout = readout.map(|cfg| cfg.to_core()).transpose()?;
         let config = SchedulerConfig {
             max_delay,
             connection_threshold,
@@ -2006,6 +2094,7 @@ impl NativeSimulation {
             transmission_modulation,
             prediction_error_coupling,
             reward_prediction_error,
+            readout,
         };
         if let Some(cfg) = &config.prediction_error_coupling {
             cfg.validate()?;
@@ -2030,6 +2119,10 @@ impl NativeSimulation {
                 // PLAN.md C3, same placement and same reason.
                 if let Some(cfg) = &config.reward_prediction_error {
                     scheduler = scheduler.with_reward_prediction_error(cfg.to_rpe());
+                }
+                // PLAN.md C17, same placement and same reason.
+                if let Some(cfg) = config.readout {
+                    scheduler = scheduler.with_readout(cfg);
                 }
                 scheduler
             }))
@@ -2083,6 +2176,11 @@ impl NativeSimulation {
                         // a broadcast reward advances one expectation.
                         if let Some(cfg) = &state.config.reward_prediction_error {
                             rt = rt.with_reward_prediction_error(cfg.to_rpe());
+                        }
+                        // PLAN.md C17, RUN-6: one readout, fed the merged
+                        // spike list.
+                        if let Some(cfg) = state.config.readout {
+                            rt = rt.with_readout(cfg);
                         }
                         rt
                     });
@@ -2457,6 +2555,76 @@ impl NativeSimulation {
             let Runtime::Single(scheduler) = &mut self.runtime else { unreachable!() };
             scheduler.stimulate(&self.neurons, index, current as f32);
         }
+    }
+
+    /// PLAN.md C17: delivers the teacher -- the next input's own spikes -- to
+    /// these readout neurons (local indices), read by the next `step()`'s
+    /// learning update. Errors when no `readout` is configured.
+    #[napi]
+    pub fn stimulate_readout(&mut self, indices: Vec<u32>) -> Result<()> {
+        if self.is_partitioned() {
+            self.ensure_partition_runtime_built();
+            let Runtime::Partitioned(state) = &mut self.runtime else { unreachable!() };
+            let pr = state.runtime.as_mut().expect("ensure_partition_runtime_built just built this");
+            for i in indices {
+                pr.stimulate_readout(0, i).map_err(Error::from_reason)?;
+            }
+        } else {
+            let Runtime::Single(scheduler) = &mut self.runtime else { unreachable!() };
+            for i in indices {
+                scheduler.stimulate_readout(0, i).map_err(Error::from_reason)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn readout_population(&self) -> Option<&brain_core::readout::ReadoutPopulation> {
+        match &self.runtime {
+            Runtime::Single(scheduler) => scheduler.readout(0),
+            Runtime::Partitioned(state) => state.runtime.as_ref().and_then(|rt| rt.readout(0)),
+        }
+    }
+
+    /// PLAN.md C17: the readout neurons (local indices, ascending) that
+    /// spiked on the last `step()` -- `R`'s own k-WTA winners. Empty before
+    /// the first step. Errors when no `readout` is configured.
+    #[napi]
+    pub fn readout_spiked(&self) -> Result<Vec<u32>> {
+        match self.readout_population() {
+            Some(r) => Ok(r.winners().to_vec()),
+            None if self.is_partitioned() => Ok(Vec::new()),
+            None => Err(Error::from_reason("no readout population is configured")),
+        }
+    }
+
+    /// PLAN.md C17: what the readout has done, and a summary of its weights.
+    /// `null` when no `readout` is configured (or, in partitioned mode,
+    /// before the first step builds the runtime).
+    #[napi]
+    pub fn readout_stats(&self) -> Option<ReadoutStatsFfi> {
+        let r = self.readout_population()?;
+        let c = r.counters();
+        let w = r.weights();
+        let b = r.excitability();
+        Some(ReadoutStatsFfi {
+            ticks: c.ticks as f64,
+            updates: c.updates as f64,
+            teachers_without_trace: c.teachers_without_trace as f64,
+            clamped_at_zero: c.clamped_at_zero as f64,
+            ticks_with_winners: c.ticks_with_winners as f64,
+            nonzero_weights: w.iter().filter(|&&x| x > 0.0).count() as f64,
+            total_weights: w.len() as f64,
+            weight_sum: w.iter().map(|&x| f64::from(x)).sum(),
+            max_weight: w.iter().copied().fold(0.0f32, f32::max) as f64,
+            min_excitability: b.iter().copied().fold(f32::INFINITY, f32::min) as f64,
+            max_excitability: b.iter().copied().fold(f32::NEG_INFINITY, f32::max) as f64,
+            learning_rate: f64::from(r.learning_rate()),
+            source_count: f64::from(r.source_count()),
+            last_abs_error: r.last_error().map_or(-1.0, |e| f64::from(e.abs_error_sum)),
+            last_mismatched: r.last_error().map_or(-1.0, |e| f64::from(e.mismatched)),
+            abs_error_total: c.abs_error_total,
+            mismatched_total: c.mismatched_total as f64,
+        })
     }
 
     /// Named reward entry point (LRN-11, Phase 5 Requirement 15.1/15.2):
@@ -3120,6 +3288,7 @@ impl NativeSimulation {
         transmission_modulation: Option<TransmissionModulationConfig>,
         prediction_error_coupling: Option<PredictionErrorCouplingConfig>,
         reward_prediction_error: Option<RewardPredictionErrorConfig>,
+        readout: Option<ReadoutConfig>,
     ) -> Result<Self> {
         // Note: no `synapse_cap_per_neuron` parameter here -- the snapshot
         // payload already carries it (`write_synapses` stores it, and
@@ -3346,6 +3515,16 @@ impl NativeSimulation {
         // surprising (RUN-9a).
         if let Some(state) = restored.reward_baseline {
             scheduler.restore_reward_baseline_raw_state(state);
+        }
+        // PLAN.md C17 (snapshot version 15), and the branch HANDOFF fact
+        // 14(a) exists for: the constructor above attaches the readout, so a
+        // restore that forgot it would resume a network whose readout had
+        // silently reset. Configuration fresh from the caller; weights,
+        // excitability, trace and pending teacher from the snapshot. A
+        // pre-version-15 snapshot restores a fresh, silent readout.
+        if let Some(cfg) = &readout {
+            scheduler = scheduler.with_readout(cfg.to_core()?);
+            scheduler.restore_readouts_raw_state(restored.readouts).map_err(Error::from_reason)?;
         }
 
         Ok(Self {

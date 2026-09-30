@@ -29,6 +29,7 @@ import {
   runCharPredictionTrials,
   assessMilestone,
   DEFAULT_CONFIG,
+  VAL4_CONFIG,
   type CharPredictionConfig,
   type TrialResult,
 } from '../src/milestone/charPrediction.ts';
@@ -264,6 +265,44 @@ test("condition C with B5's searched values reproduces the value search's own re
     Math.abs(assessment.meanNetworkAccuracy - SEARCH_RESULT) <= 0.005,
     `expected condition C to reproduce the value search's ${SEARCH_RESULT} within half a point, got ${assessment.meanNetworkAccuracy.toFixed(4)} -- ` +
       "a change to dendritic votes, structural plasticity, silent synapses, STDP or homeostatic scaling altered what B5's chosen configuration does",
+  );
+});
+
+// PLAN.md C17 (docs/decisions.md decision 36, docs/findings.md finding 34):
+// VAL-4'S PINNED FIGURE, re-derived onto the learning readout. `VAL4_CONFIG` is
+// `B5_CONFIG` (the shipped default, contributor gating on) plus the readout.
+// `readoutAccuracy` is VAL-4's metric: 16.59% on these five selection seeds
+// (16.57% on confirmation seeds 11-15), measured by
+// `scripts/investigate-c17-learning-readout.ts`'s plain 15,000-character
+// trials. `networkAccuracy` is the fixed-template diagnostic, pinned beside it
+// at 20.05% -- the readout is a sink, so that figure is the pre-C17 headline
+// bit-for-bit (the battery's X2 control). Deterministic per seed, so the band
+// only absorbs float differences across machines.
+test("VAL-4's pinned figure: the learning readout on VAL4_CONFIG, with the fixed readout as its diagnostic (PLAN.md C17)", () => {
+  const corpus = fullCorpus.slice(0, SLICE_LENGTH);
+  const trials = runCharPredictionTrials(
+    corpus,
+    [1n, 2n, 3n, 4n, 5n],
+    VAL4_CONFIG,
+  );
+  const assessment = assessMilestone(trials);
+
+  const LEARNING_READOUT_RESULT = 0.1659; // docs/appendix/find-34.md, Q2, seeds 1-5
+  const FIXED_READOUT_DIAGNOSTIC = 0.2005; // docs/decisions.md decision 30's re-derived figure, seeds 1-5
+  console.log(
+    `[PLAN.md C17] VAL-4 learning readout=${assessment.meanReadoutAccuracy?.toFixed(4)} ` +
+      `(pinned ${LEARNING_READOUT_RESULT}), fixed-readout diagnostic=${assessment.meanNetworkAccuracy.toFixed(4)} ` +
+      `(pinned ${FIXED_READOUT_DIAGNOSTIC}), trigram=${assessment.meanTrigramAccuracy.toFixed(4)}, milestone met=${assessment.milestoneMet}`,
+  );
+  assert.ok(assessment.meanReadoutAccuracy !== undefined);
+  assert.ok(
+    Math.abs(assessment.meanReadoutAccuracy - LEARNING_READOUT_RESULT) <= 0.005,
+    `expected the learning readout to reproduce ${LEARNING_READOUT_RESULT}, got ${assessment.meanReadoutAccuracy.toFixed(4)}`,
+  );
+  assert.ok(
+    Math.abs(assessment.meanNetworkAccuracy - FIXED_READOUT_DIAGNOSTIC) <=
+      0.005,
+    `expected the fixed-readout diagnostic to reproduce ${FIXED_READOUT_DIAGNOSTIC}, got ${assessment.meanNetworkAccuracy.toFixed(4)}`,
   );
 });
 

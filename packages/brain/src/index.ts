@@ -36,6 +36,8 @@ import {
   type SilentSynapsesConfig,
   type PredictionErrorCouplingConfig,
   type RewardPredictionErrorConfig,
+  type ReadoutConfig,
+  type ReadoutStatsFfi,
   type ChannelDriveConfig,
   type ProbeOptionsFfi,
   type ProbeDataFfi,
@@ -82,6 +84,7 @@ export type {
   SilentSynapsesConfig,
   PredictionErrorCouplingConfig,
   RewardPredictionErrorConfig,
+  ReadoutConfig,
   ChannelDriveConfig,
 };
 
@@ -117,6 +120,8 @@ export type StdpModulationStats = StdpModulationStatsFfi;
 /** What the transmission gate did over a run (PLAN.md C9) -- see `Simulation.transmissionModulationStats()`. */
 export type TransmissionModulationStats = TransmissionModulationStatsFfi;
 export type StructuralStats = StructuralStatsFfi;
+/** What the learning readout has done, and its weights summarised (PLAN.md C17) -- see `Simulation.readoutStats()`. */
+export type ReadoutStats = ReadoutStatsFfi;
 /** Per-segment threshold homeostasis's live thresholds, summarised -- see `Simulation.segmentThresholdStats()`. */
 export type SegmentThresholdStats = SegmentThresholdStatsFfi;
 
@@ -294,6 +299,16 @@ export interface SimulationOptions {
    */
   rewardPredictionError?: RewardPredictionErrorConfig;
   /**
+   * PLAN.md C17 (docs/decisions.md decision 36, README IO-3): a learning
+   * readout population downstream of the network. A **sink** -- it reads the
+   * committed spikes of `[sourceStart, sourceStart + sourceCount)` and sends
+   * nothing back, so every network quantity is bit-identical with it on or
+   * off. Taught by `stimulateReadout` (the next input's own spikes, never a
+   * label), read by `readoutSpiked`. Omit for none, every configuration
+   * before C17. See `ReadoutConfig`'s own doc comment for the rule.
+   */
+  readout?: ReadoutConfig;
+  /**
    * Number of native threads `PartitionRuntime` should use (Requirement 7
    * AC1, Phase 4 RUN-4). Omit or pass 1 for today's exact single-threaded
    * behaviour -- the default, and the only mode `snapshot()`/`restore()`
@@ -356,6 +371,7 @@ function hashConfig(lif: LifConfig, options: SimulationOptions): bigint {
       ...(options.rewardPredictionError !== undefined && {
         rewardPredictionError: options.rewardPredictionError,
       }),
+      ...(options.readout !== undefined && { readout: options.readout }),
     },
     (_key, value) => (typeof value === 'bigint' ? value.toString() : value),
   );
@@ -575,6 +591,7 @@ export class Simulation {
         options.transmissionModulation ?? null,
         options.predictionErrorCoupling ?? null,
         options.rewardPredictionError ?? null,
+        options.readout ?? null,
         options.threadCount ?? null,
         options.totalNeurons ?? null,
       ),
@@ -630,6 +647,7 @@ export class Simulation {
       options.transmissionModulation ?? null,
       options.predictionErrorCoupling ?? null,
       options.rewardPredictionError ?? null,
+      options.readout ?? null,
     );
     return new Simulation(native, lif, options);
   }
@@ -1108,6 +1126,33 @@ export class Simulation {
    */
   structuralStats(): StructuralStats {
     return this.#native.structuralStats();
+  }
+
+  /**
+   * PLAN.md C17: delivers the teacher -- the next input's own spikes -- to
+   * these readout neurons (local indices), read by the next `step()`'s
+   * learning update. Throws when no `readout` is configured.
+   */
+  stimulateReadout(indices: readonly number[]): void {
+    this.#native.stimulateReadout([...indices]);
+  }
+
+  /**
+   * PLAN.md C17: the readout neurons (local indices, ascending) that spiked
+   * on the last `step()` -- the readout's own k-WTA winners. Throws when no
+   * `readout` is configured.
+   */
+  readoutSpiked(): number[] {
+    return this.#native.readoutSpiked();
+  }
+
+  /**
+   * PLAN.md C17: what the readout has done since construction (reset by a
+   * restore; not snapshot state) and a summary of its current weights.
+   * `null` when no `readout` is configured.
+   */
+  readoutStats(): ReadoutStats | null {
+    return this.#native.readoutStats();
   }
 
   /**

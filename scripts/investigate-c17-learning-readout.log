@@ -1,0 +1,61 @@
+[2026-09-29 22:20:52 +0000] 30 trials, 0 reused, 30 to run on 12 workers.
+[2026-09-29 22:25:52 +0000] [heartbeat] 0/30 done, 5.0 min elapsed
+[2026-09-29 22:30:52 +0000] [heartbeat] 0/30 done, 10.0 min elapsed
+[2026-09-29 22:35:52 +0000] [heartbeat] 0/30 done, 15.0 min elapsed
+[2026-09-29 22:39:45 +0000]   [1/30] seed=2 N=15000+suffix -> R=15.03% fixed=19.10% lms=18.23% wall=1133.4s
+[2026-09-29 22:39:58 +0000]   [2/30] seed=1 N=15000+suffix -> R=15.47% fixed=18.13% lms=17.23% wall=1145.7s
+[2026-09-29 22:40:52 +0000] [heartbeat] 2/30 done, 20.0 min elapsed
+[2026-09-29 22:45:52 +0000] [heartbeat] 2/30 done, 25.0 min elapsed
+[2026-09-29 22:50:52 +0000] [heartbeat] 2/30 done, 30.0 min elapsed
+[2026-09-29 22:55:30 +0000]   [3/30] seed=3 N=15000+suffix -> R=14.73% fixed=20.17% lms=17.33% wall=944.9s
+[2026-09-29 22:55:46 +0000]   [4/30] seed=4 N=15000+suffix -> R=15.20% fixed=18.80% lms=17.00% wall=948.2s
+[2026-09-29 22:55:52 +0000] [heartbeat] 4/30 done, 35.0 min elapsed
+[2026-09-29 23:00:52 +0000] [heartbeat] 4/30 done, 40.0 min elapsed
+[2026-09-29 23:05:52 +0000] [heartbeat] 4/30 done, 45.0 min elapsed
+[2026-09-29 23:10:52 +0000] [heartbeat] 4/30 done, 50.0 min elapsed
+[2026-09-29 23:11:28 +0000]   [5/30] seed=5 N=15000+suffix -> R=15.80% fixed=18.57% lms=18.23% wall=958.0s
+[2026-09-29 23:11:46 +0000]   [6/30] seed=11 N=15000+suffix -> R=15.20% fixed=19.17% lms=16.83% wall=959.8s
+[2026-09-29 23:15:52 +0000] [heartbeat] 6/30 done, 55.0 min elapsed
+[2026-09-29 23:20:52 +0000] [heartbeat] 6/30 done, 60.0 min elapsed
+[2026-09-29 23:25:52 +0000] [heartbeat] 6/30 done, 65.0 min elapsed
+[2026-09-29 23:26:54 +0000]   [7/30] seed=12 N=15000+suffix -> R=15.07% fixed=19.63% lms=17.20% wall=925.6s
+[2026-09-29 23:29:48 +0000]   [8/30] seed=13 N=15000+suffix -> R=15.57% fixed=19.73% lms=17.93% wall=1082.6s
+[2026-09-29 23:30:52 +0000] [heartbeat] 8/30 done, 70.0 min elapsed
+[2026-09-29 23:35:52 +0000] [heartbeat] 8/30 done, 75.0 min elapsed
+[2026-09-29 23:40:52 +0000] [heartbeat] 8/30 done, 80.0 min elapsed
+[2026-09-29 23:45:02 +0000]   [9/30] seed=14 N=15000+suffix -> R=15.87% fixed=19.30% lms=18.53% wall=1088.3s
+[2026-09-29 23:45:52 +0000] [heartbeat] 9/30 done, 85.0 min elapsed
+[2026-09-29 23:47:52 +0000]   [10/30] seed=15 N=15000+suffix -> R=15.63% fixed=19.07% lms=17.60% wall=1084.1s
+[2026-09-29 23:50:52 +0000] [heartbeat] 10/30 done, 90.0 min elapsed
+[2026-09-29 23:52:30 +0000]   [11/30] seed=1 N=15000 -> R=15.70% fixed=20.00% wall=447.5s
+[2026-09-29 23:55:08 +0000]   [12/30] seed=2 N=15000 -> R=17.25% fixed=20.55% wall=435.8s
+[2026-09-29 23:55:52 +0000] [heartbeat] 12/30 done, 95.0 min elapsed
+[2026-09-29 23:59:55 +0000]   [13/30] seed=3 N=15000 -> R=16.35% fixed=20.60% wall=445.7s
+[2026-09-30 00:00:52 +0000] [heartbeat] 13/30 done, 100.0 min elapsed
+[2026-09-30 00:02:54 +0000]   [14/30] seed=4 N=15000 -> R=17.35% fixed=20.40% wall=466.1s
+[2026-09-30 00:05:52 +0000] [heartbeat] 14/30 done, 105.0 min elapsed
+[2026-09-30 00:07:24 +0000]   [15/30] seed=5 N=15000 -> R=16.30% fixed=18.70% wall=448.7s
+[2026-09-30 00:10:37 +0000]   [16/30] seed=11 N=15000 -> R=16.10% fixed=19.35% wall=462.2s
+[2026-09-30 00:10:52 +0000] [heartbeat] 16/30 done, 110.0 min elapsed
+[2026-09-30 00:15:01 +0000]   [17/30] seed=12 N=15000 -> R=16.50% fixed=19.90% wall=456.9s
+[2026-09-30 00:15:52 +0000] [heartbeat] 17/30 done, 115.0 min elapsed
+[2026-09-30 00:18:01 +0000]   [18/30] seed=13 N=15000 -> R=17.30% fixed=21.30% wall=444.4s
+[2026-09-30 00:20:52 +0000] [heartbeat] 18/30 done, 120.0 min elapsed
+[2026-09-30 00:22:22 +0000]   [19/30] seed=14 N=15000 -> R=16.30% fixed=19.45% wall=440.5s
+[2026-09-30 00:24:46 +0000]   [20/30] seed=15 N=15000 -> R=16.65% fixed=18.35% wall=405.2s
+[2026-09-30 00:25:52 +0000] [heartbeat] 20/30 done, 125.0 min elapsed
+[2026-09-30 00:26:26 +0000]   [21/30] seed=1 N=200000+suffix -> R=15.80% fixed=15.37% lms=18.50% wall=7534.0s
+[2026-09-30 00:30:52 +0000] [heartbeat] 21/30 done, 130.0 min elapsed
+[2026-09-30 00:35:52 +0000] [heartbeat] 21/30 done, 135.0 min elapsed
+[2026-09-30 00:39:44 +0000]   [22/30] seed=11 N=200000+suffix -> R=16.73% fixed=13.57% lms=18.10% wall=8332.1s
+[2026-09-30 00:40:51 +0000]   [23/30] seed=5 N=200000+suffix -> R=15.47% fixed=14.33% lms=17.00% wall=8399.3s
+[2026-09-30 00:40:52 +0000] [heartbeat] 23/30 done, 140.0 min elapsed
+[2026-09-30 00:41:50 +0000]   [24/30] seed=12 N=200000+suffix -> R=15.83% fixed=12.60% lms=17.63% wall=8457.9s
+[2026-09-30 00:44:05 +0000]   [25/30] seed=13 N=200000+suffix -> R=15.30% fixed=15.43% lms=17.23% wall=8592.5s
+[2026-09-30 00:44:12 +0000]   [26/30] seed=2 N=200000+suffix -> R=16.57% fixed=14.50% lms=19.30% wall=8599.6s
+[2026-09-30 00:44:58 +0000]   [27/30] seed=3 N=200000+suffix -> R=15.83% fixed=13.30% lms=17.93% wall=8645.9s
+[2026-09-30 00:45:04 +0000]   [28/30] seed=4 N=200000+suffix -> R=16.40% fixed=14.43% lms=17.40% wall=8652.2s
+[2026-09-30 00:45:10 +0000]   [29/30] seed=14 N=200000+suffix -> R=15.10% fixed=14.37% lms=16.80% wall=8657.6s
+[2026-09-30 00:45:26 +0000]   [30/30] seed=15 N=200000+suffix -> R=16.43% fixed=15.43% lms=18.47% wall=8674.2s
+[2026-09-30 00:45:26 +0000] all trials finished; writing results
+[2026-09-30 00:45:32 +0000] results written to C:\projects\brain\scripts\investigate-c17-learning-readout.results.md; controls PASS

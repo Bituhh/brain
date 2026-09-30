@@ -1,7 +1,15 @@
 // The SDR-overlap decoder (Requirement 7): maps population activity back
 // to a symbol by nearest overlap against a finite set of candidate SDRs
 // -- no trained weight, no gradient step, no backpropagated error of any
-// kind (invariant 1/2, IO-3's "not a trained output layer").
+// kind (invariant 1/2). It is a measurement on a population's output, not a
+// circuit.
+//
+// README IO-3 as rewritten by docs/decisions.md decision 36 (PLAN.md C17):
+// the network's prediction is read from a *learning readout population* (the
+// core's `readout.rs`), and this function NAMES the symbol from that
+// population's winners. Applied directly to the network's own activity it is
+// the *fixed template readout*, kept as a reported diagnostic. Its cost is
+// linear in the candidate count, with no assumption about how many there are.
 
 import { overlap, overlapFraction, type Sdr } from '../sdr.ts';
 

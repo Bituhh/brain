@@ -55,6 +55,7 @@ import {
   type PredictionErrorCouplingConfig,
   type RewardPredictionErrorConfig,
   type TransmissionModulationConfig,
+  type ReadoutStats,
 } from '@brain/core';
 import { wrapColumnHandles, type ColumnHandle } from '../columns.ts';
 import {
@@ -70,7 +71,7 @@ import {
 import { streamThrough } from '../harness/stream.ts';
 import { SlidingWindowAccuracy } from '../metrics.ts';
 import { TrigramModel } from '../baseline/trigram.ts';
-import type { Sdr } from '../sdr.ts';
+import { makeSdr, type Sdr } from '../sdr.ts';
 
 export const NETWORK_WIDTH = 800;
 export const NETWORK_DENSITY = 0.08;
@@ -151,6 +152,29 @@ export interface PredictiveUpdateConfig {
    */
   readonly confirmation?: 'any' | 'feedforward';
 }
+
+/**
+ * VAL-4's learning readout (PLAN.md C17, docs/decisions.md decision 36, README
+ * IO-3 and VAL-4's metric): a spiking, sign-constrained sink population `R`
+ * in the core, one neuron per encoder bit, reading the column's tick-2 spikes
+ * and taught by the next input's own SDR. See `SimulationOptions.readout` and
+ * `crates/brain-core/src/readout.rs` for the rule and its evidence
+ * (docs/prior-art.md §13.13(o) and (p)).
+ *
+ * Neither value is tuned (decision 36). Both are derived when omitted: `k`
+ * from the encoder's active-bit count (the size of the code `R` reproduces),
+ * and `learningRate` by the core from `k` (the LMS stability bound, `1 / k`).
+ * At the shipped width and density that is `k` = 64, `eta` = 1/64.
+ */
+export interface LearningReadoutConfig {
+  /** `R`'s own k-WTA cap. Omit for the encoder's active-bit count. */
+  readonly k?: number;
+  /** The delta rule's rate, `eta`. Omit to derive it from `k`. */
+  readonly learningRate?: number;
+}
+
+/** Decision 36's form with every value derived (see `LearningReadoutConfig`). */
+export const LEARNING_READOUT: LearningReadoutConfig = {};
 
 export interface CharPredictionConfig {
   readonly width: number;
@@ -508,6 +532,17 @@ export interface CharPredictionConfig {
    * replay, and replay is the part that costs.
    */
   readonly consolidation?: ConsolidationCadence;
+  /**
+   * PLAN.md C17: VAL-4's learning readout (see `LearningReadoutConfig`).
+   * `undefined` leaves every run exactly as it was: no readout population is
+   * built, `stimulateReadout` is never called, and `TrialResult` carries no
+   * `readoutAccuracy`. **Set, the network is still bit-identical** -- the
+   * readout is a sink -- so `networkAccuracy` (the fixed-template readout,
+   * kept as a diagnostic by decision 36) does not move; the readout's own
+   * prediction is reported alongside it as `readoutAccuracy`, which is
+   * VAL-4's metric from C17 on.
+   */
+  readonly learningReadout?: LearningReadoutConfig;
 }
 
 /**
@@ -716,6 +751,20 @@ export const B5_CONFIG: CharPredictionConfig = {
   homeostaticScaling: { targetTotalWeight: 6, intervalTicks: 200 },
 };
 
+/**
+ * **VAL-4's reporting configuration** (docs/decisions.md decision 36, PLAN.md
+ * C17): `B5_CONFIG` with the learning readout attached. The network is
+ * bit-identical to `B5_CONFIG`'s -- the readout is a sink -- so this changes
+ * no fixed-readout figure; it adds the learning readout's, which is VAL-4's
+ * metric. Kept separate from `B5_CONFIG` because that object is asserted
+ * equal to the B5 search's winner (`scripts/b5-search/b5-config.test.ts`),
+ * and the readout was never part of that search.
+ */
+export const VAL4_CONFIG: CharPredictionConfig = {
+  ...B5_CONFIG,
+  learningReadout: LEARNING_READOUT,
+};
+
 export function charEncoderConfig(
   width: number,
   density: number,
@@ -848,6 +897,8 @@ export function buildNetwork(
   predictiveUpdate?: PredictiveUpdateConfig,
   /** See `CharPredictionConfig.inhibitionK`. */
   inhibitionK?: number,
+  /** PLAN.md C17 -- see `CharPredictionConfig.learningReadout`. */
+  learningReadout?: LearningReadoutConfig,
 ): { sim: Simulation; column: ColumnHandle } {
   const lif: LifConfig = {
     tauMTicks: 5,
@@ -981,6 +1032,24 @@ export function buildNetwork(
     // neuromodulator field on this account when it is unset.
     ...(transmissionModulation !== undefined && { transmissionModulation }),
     ...(homeostaticScaling !== undefined && { homeostaticScaling }),
+    // PLAN.md C17: spread only if defined, so every configuration without it
+    // builds (and hashes) exactly as before. The column is the first and only
+    // one built below, so it occupies global indices [0, width): `R` reads
+    // exactly that range and has one neuron per bit of it.
+    ...(learningReadout !== undefined && {
+      readout: {
+        sourceStart: 0,
+        sourceCount: width,
+        size: width,
+        // `runCharPredictionTrial` resolves `k` from the encoder's actual
+        // SDRs; this fallback is the same count at `NETWORK_DENSITY`.
+        k:
+          learningReadout.k ?? Math.max(1, Math.round(width * NETWORK_DENSITY)),
+        ...(learningReadout.learningRate !== undefined && {
+          learningRate: learningReadout.learningRate,
+        }),
+      },
+    }),
     predictiveLearning: {
       significanceThreshold: 0.5,
       reinforceAmount: predictiveUpdate?.reinforceAmount ?? 0.08,
@@ -1063,6 +1132,11 @@ export function buildNetwork(
     ),
   ]);
   const [column] = wrapColumnHandles([handle!]);
+  if (learningReadout !== undefined && column!.range.start !== 0) {
+    throw new Error(
+      `the learning readout reads [0, ${width}), but the column was built at ${column!.range.start}`,
+    );
+  }
   return { sim, column: column! };
 }
 
@@ -1096,6 +1170,15 @@ export interface TrialResult {
    * Present only when `consolidation` is configured.
    */
   readonly consolidationStats?: ConsolidationStats;
+  /**
+   * PLAN.md C17: the learning readout's sliding-window accuracy over the same
+   * window and characters as `networkAccuracy` -- VAL-4's metric since
+   * docs/decisions.md decision 36. Present only when `learningReadout` is
+   * configured. `networkAccuracy` is then the fixed-template diagnostic.
+   */
+  readonly readoutAccuracy?: number;
+  /** What the readout did over the trial (`Simulation.readoutStats()`). Present only with `learningReadout`. */
+  readonly readoutStats?: ReadoutStats;
 }
 
 /**
@@ -1123,6 +1206,8 @@ export interface TrialProgressSample {
   readonly trigramAccuracy: number;
   /** How many characters have been scored into `networkAccuracy` so far -- below `slidingWindow` the figure is over a partial window and should be read as such. */
   readonly sampleCount: number;
+  /** PLAN.md C17: the learning readout's sliding-window accuracy, when `learningReadout` is configured. */
+  readonly readoutAccuracy?: number;
   /** The live simulation, for read-only readback (`structuralStats()`, `modulatorLevels()`, `predictionOutcomeTotals()`, ...). */
   readonly sim: Simulation;
 }
@@ -1153,6 +1238,10 @@ export interface CharStepObservation {
   readonly overlap: number | undefined;
   /** The primary column's observed active neuron indices (its local bit positions). */
   readonly observed: ReadonlyArray<number>;
+  /** PLAN.md C17: the learning readout's decoded prediction, or `undefined` below `minConfidence` or when no readout is configured. */
+  readonly readoutPredicted?: string | undefined;
+  /** PLAN.md C17: the readout neurons that spiked on the prediction tick (local indices, ascending); empty when no readout is configured. */
+  readonly readoutActive?: ReadonlyArray<number>;
 }
 
 /**
@@ -1226,11 +1315,23 @@ export function runCharPredictionTrial(
     config.transmissionModulation,
     config.predictiveUpdate,
     config.inhibitionK,
+    config.learningReadout !== undefined
+      ? {
+          ...config.learningReadout,
+          k: config.learningReadout.k ?? candidates[0]!.sdr.activeBits.length,
+        }
+      : undefined,
   );
   const collisionMargin = config.collisionMargin ?? DEFAULT_COLLISION_MARGIN;
   const trigram = new TrigramModel();
   const networkAcc = new SlidingWindowAccuracy(config.slidingWindow);
   const trigramAcc = new SlidingWindowAccuracy(config.slidingWindow);
+  // PLAN.md C17. Scored exactly like `networkAcc`, on the same characters.
+  const readout = config.learningReadout;
+  const readoutAcc =
+    readout !== undefined
+      ? new SlidingWindowAccuracy(config.slidingWindow)
+      : undefined;
 
   const source = charNextPairs(corpus);
   let context = '';
@@ -1315,9 +1416,29 @@ export function runCharPredictionTrial(
     ticksPerInput: config.ticksPerInput,
     stimulateCurrent: config.stimulateCurrent,
     minConfidence: config.minConfidence,
+    // PLAN.md C17: the teacher is the arriving input's own SDR, delivered to
+    // `R`'s corresponding neurons as it is presented to the network. The
+    // readout pairs it with the previous character's tick-2 activity.
+    ...(readout !== undefined && {
+      onStimulated: (_input: CharNext, sdr: Sdr) =>
+        sim.stimulateReadout(sdr.activeBits),
+    }),
   })) {
     const hit = step.predicted?.label === step.actual;
     networkAcc.record(hit);
+    // PLAN.md C17: `R`'s winners on the prediction tick, named by the same
+    // `decode` and `minConfidence` as the fixed readout.
+    let readoutActive: number[] = [];
+    let readoutPredicted: string | undefined;
+    if (readoutAcc !== undefined) {
+      readoutActive = sim.readoutSpiked();
+      readoutPredicted = decode(
+        makeSdr(config.width, readoutActive),
+        candidates,
+        config.minConfidence,
+      )?.label;
+      readoutAcc.record(readoutPredicted === step.actual);
+    }
     onStep?.(
       {
         input: step.input.char,
@@ -1325,6 +1446,7 @@ export function runCharPredictionTrial(
         predicted: step.predicted?.label,
         overlap: step.predicted?.overlap,
         observed: step.observed?.activeBits ?? [],
+        ...(readoutAcc !== undefined && { readoutPredicted, readoutActive }),
       },
       sim,
     );
@@ -1398,6 +1520,9 @@ export function runCharPredictionTrial(
         networkAccuracy: networkAcc.accuracy,
         trigramAccuracy: trigramAcc.accuracy,
         sampleCount: networkAcc.sampleCount,
+        ...(readoutAcc !== undefined && {
+          readoutAccuracy: readoutAcc.accuracy,
+        }),
         sim,
       });
     }
@@ -1412,6 +1537,10 @@ export function runCharPredictionTrial(
     sampleCount: networkAcc.sampleCount,
     ...(config.structuralPlasticity !== undefined && {
       structuralStats: sim.structuralStats(),
+    }),
+    ...(readoutAcc !== undefined && {
+      readoutAccuracy: readoutAcc.accuracy,
+      readoutStats: sim.readoutStats()!,
     }),
     ...(cadence !== undefined && {
       consolidationStats: {
@@ -1435,9 +1564,16 @@ export function runCharPredictionTrials(
 
 export interface MilestoneAssessment {
   readonly trials: readonly TrialResult[];
+  /** The fixed-template readout's mean: VAL-4's metric before C17, a diagnostic after it. */
   readonly meanNetworkAccuracy: number;
+  /** PLAN.md C17: the learning readout's mean, VAL-4's metric (decision 36). Present only when every trial carries one. */
+  readonly meanReadoutAccuracy?: number;
   readonly meanTrigramAccuracy: number;
-  /** Requirement 13.5: the aggregate across seeds, not a single favorable run. */
+  /**
+   * Requirement 13.5: the aggregate across seeds, not a single favorable run.
+   * Judged on `meanReadoutAccuracy` when it is present (decision 36), else on
+   * `meanNetworkAccuracy`.
+   */
   readonly milestoneMet: boolean;
 }
 
@@ -1457,10 +1593,17 @@ export function assessMilestone(
 ): MilestoneAssessment {
   const meanNetworkAccuracy = mean(trials.map((t) => t.networkAccuracy));
   const meanTrigramAccuracy = mean(trials.map((t) => t.trigramAccuracy));
+  const readouts = trials.map((t) => t.readoutAccuracy);
+  const meanReadoutAccuracy =
+    trials.length > 0 && readouts.every((r) => r !== undefined)
+      ? mean(readouts as number[])
+      : undefined;
+  const judged = meanReadoutAccuracy ?? meanNetworkAccuracy;
   return {
     trials,
     meanNetworkAccuracy,
+    ...(meanReadoutAccuracy !== undefined && { meanReadoutAccuracy }),
     meanTrigramAccuracy,
-    milestoneMet: meanNetworkAccuracy > meanTrigramAccuracy + toleranceBand,
+    milestoneMet: judged > meanTrigramAccuracy + toleranceBand,
   };
 }

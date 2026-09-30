@@ -2,6 +2,8 @@
 
 One-off investigation and tuning scripts, each driving a specific PLAN.md item against the real native addon (not mocks, not the fast-tier test suite). They are how this project answers "does X help VAL-4" and "what value should Y be" — with real trials, not by argument. `check-traceability.mjs`, `check-requirement-coverage.mjs` and `run-ts-tests.mjs` are the exception: those three are test-suite plumbing, not investigations, and don't follow the rest of this file.
 
+**What "VAL-4 accuracy" means here** [2026-09-29 23:25 +0100]: since PLAN.md C17 (docs/decisions.md decision 36) it is the learning readout's, `TrialResult.readoutAccuracy`, present when the config sets `learningReadout` (`VAL4_CONFIG` does). `networkAccuracy` is the fixed-template readout, kept as a diagnostic, and it is what every script and checkpoint before C17 recorded. The readout is a sink, so adding it to a config changes no network figure — but it does change the config's canonical JSON, and so the checkpoint key; fold that into the protocol string deliberately rather than by accident.
+
 ## Naming and what each file is
 
 - **`investigate-<item>.ts`** — answers a specific question (does a mechanism help, what does a measurement show). `<item>` is usually the PLAN.md item id it belongs to (`investigate-c1-consolidation.ts`, `investigate-b5-growth.ts`).

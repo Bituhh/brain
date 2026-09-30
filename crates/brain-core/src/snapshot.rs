@@ -53,6 +53,7 @@ use crate::inhibition::FixedNeighbourhoods;
 use crate::plasticity::{Modulators, NUM_MODULATORS};
 use crate::neuromodulator::{PredictionErrorRawState, RewardBaselineRawState};
 use crate::plasticity::newborn::NewbornMaturationRawState;
+use crate::readout::ReadoutRawState;
 use crate::scheduler::{Scheduler, SweepSchedulingRawState};
 use crate::segment::{BinaryCoincidenceParams, DendriticVote, SegmentConfig};
 use crate::synapse::{SynapseArena, NOT_SILENT};
@@ -214,7 +215,16 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// supplied fresh via `with_predictive_learning` at restore time, and its
 /// consistency with the snapshot is the FFI config hash's job
 /// (`packages/brain/src/index.ts`'s `hashConfig`), not this module's.
-pub const FORMAT_VERSION: u32 = 14;
+///
+/// Bumped 14 -> 15 (PLAN.md C17, docs/decisions.md decision 36) to add the
+/// learning readout population's state (`readout.rs`): its dense weights,
+/// excitability, one-tick eligibility trace, any pending teacher and the
+/// last winners and its current source count (growth extends it). A trailing
+/// section: a `u32` count of readouts (a scheduler may hold several, one per
+/// F16 column), then each one's state in attachment order; a scheduler with
+/// no readout writes a zero count. A version <= 14 payload has no such
+/// section; `read` supplies an empty list, the only sound reading.
+pub const FORMAT_VERSION: u32 = 15;
 /// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
 /// concrete and falsifiable: `read` migrates any snapshot from this
 /// version through `FORMAT_VERSION`. Widen this only alongside an actual
@@ -756,6 +766,77 @@ fn read_reward_baseline_state(r: &mut Reader<'_>) -> Result<Option<RewardBaselin
     Ok(Some(RewardBaselineRawState { expected_reward: r.f32()? }))
 }
 
+/// PLAN.md C17's readout populations (version 15). Weights are the bulk:
+/// `source_count x size` f32s each (2.4 MiB at VAL-4's 800 x 800).
+fn write_readout_state(w: &mut Writer, states: &[ReadoutRawState]) {
+    w.u32(states.len() as u32);
+    for s in states {
+        write_one_readout(w, s);
+    }
+}
+
+fn write_one_readout(w: &mut Writer, s: &ReadoutRawState) {
+    w.u32(s.source_count);
+    let f32s = |w: &mut Writer, v: &[f32]| {
+        w.u32(v.len() as u32);
+        for &x in v {
+            w.f32(x);
+        }
+    };
+    let u32s = |w: &mut Writer, v: &[u32]| {
+        w.u32(v.len() as u32);
+        for &x in v {
+            w.u32(x);
+        }
+    };
+    f32s(w, &s.weights);
+    f32s(w, &s.excitability);
+    w.u8(u8::from(s.has_trace));
+    u32s(w, &s.trace_sources);
+    f32s(w, &s.trace_drive);
+    u32s(w, &s.teacher);
+    u32s(w, &s.winners);
+}
+
+/// Every length is checked against the buffer before anything is allocated
+/// (Requirement 16.8's defensive reading).
+fn read_readout_words<'a>(r: &mut Reader<'a>) -> Result<&'a [u8], SnapshotError> {
+    let len = r.u32()? as usize;
+    r.take(len.checked_mul(4).ok_or(SnapshotError::Corrupt)?)
+}
+
+fn read_readout_state(r: &mut Reader<'_>) -> Result<Vec<ReadoutRawState>, SnapshotError> {
+    let count = r.u32()?;
+    // Each readout is at least 25 bytes; refuse a count the buffer cannot hold
+    // before allocating for it.
+    if (count as usize).checked_mul(25).is_none_or(|n| n > r.buf.len() - r.pos) {
+        return Err(SnapshotError::Corrupt);
+    }
+    let mut out = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        out.push(read_one_readout(r)?);
+    }
+    Ok(out)
+}
+
+fn read_one_readout(r: &mut Reader<'_>) -> Result<ReadoutRawState, SnapshotError> {
+    let source_count = r.u32()?;
+    let f32s = |r: &mut Reader<'_>| -> Result<Vec<f32>, SnapshotError> {
+        Ok(read_readout_words(r)?.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect())
+    };
+    let u32s = |r: &mut Reader<'_>| -> Result<Vec<u32>, SnapshotError> {
+        Ok(read_readout_words(r)?.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect())
+    };
+    let weights = f32s(r)?;
+    let excitability = f32s(r)?;
+    let has_trace = r.bool()?;
+    let trace_sources = u32s(r)?;
+    let trace_drive = f32s(r)?;
+    let teacher = u32s(r)?;
+    let winners = u32s(r)?;
+    Ok(ReadoutRawState { source_count, weights, excitability, has_trace, trace_sources, trace_drive, teacher, winners })
+}
+
 fn write_newborn_maturation_state(w: &mut Writer, state: Option<&NewbornMaturationRawState>) {
     match state {
         Some(s) => {
@@ -1115,6 +1196,8 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
 
     write_reward_baseline_state(&mut w, scheduler.reward_baseline_raw_state().as_ref());
 
+    write_readout_state(&mut w, &scheduler.readouts_raw_state());
+
     w.buf
 }
 
@@ -1186,6 +1269,12 @@ pub struct Restored {
     /// the restoring scheduler was built without a baseline of its own,
     /// exactly as `prediction_error` above does.
     pub reward_baseline: Option<RewardBaselineRawState>,
+    /// PLAN.md C17's readout populations (version 15+), in attachment order.
+    /// Empty for an older snapshot or when the snapshotting scheduler had
+    /// none; apply via `Scheduler::restore_readouts_raw_state`, which ignores
+    /// it when the restoring scheduler has none and refuses a count or
+    /// dimension mismatch.
+    pub readouts: Vec<ReadoutRawState>,
 }
 
 /// Restores a snapshot written by [`write`]. `expected_config_hash` must
@@ -1318,6 +1407,9 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
     // same reason version 13 was -- read order and write order are the format.
     let reward_baseline = if header.version >= 14 { read_reward_baseline_state(&mut r)? } else { None };
 
+    // PLAN.md C17 (version 15), newest trailing section, read last.
+    let readouts = if header.version >= 15 { read_readout_state(&mut r)? } else { Vec::new() };
+
     // Leftover bytes mean the payload is not the shape its version claims
     // (see `FORMAT_VERSION`'s doc comment).
     if r.pos != bytes.len() {
@@ -1343,6 +1435,7 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
         newborn_maturation,
         prediction_error,
         reward_baseline,
+        readouts,
     })
 }
 
@@ -1432,7 +1525,7 @@ mod tests {
         let (segment_counts, segment_last_touched_tick) = scheduler.segment_coincidence_raw_state();
         let (segment_threshold, segment_rate_estimate, segment_last_depolarised_tick) = scheduler.segment_threshold_raw_state();
         // (version that introduced the section, its size), in write order.
-        let sections: [(u32, usize); 13] = [
+        let sections: [(u32, usize); 14] = [
             (2, measure(|w| write_columns(w, columns))),
             (3, measure(|w| write_modulator_state(w, modulator_levels, modulator_last_updated_at))),
             (4, measure(|w| write_adaptation(w, neurons))),
@@ -1446,6 +1539,7 @@ mod tests {
             (12, measure(|w| write_column_votes(w, columns))),
             (13, measure(|w| write_prediction_error_state(w, scheduler.prediction_error_raw_state().as_ref()))),
             (14, measure(|w| write_reward_baseline_state(w, scheduler.reward_baseline_raw_state().as_ref()))),
+            (15, measure(|w| write_readout_state(w, &scheduler.readouts_raw_state()))),
         ];
         assert_eq!(sections.last().unwrap().0, FORMAT_VERSION, "add the newest section to this helper when FORMAT_VERSION is bumped");
         let strip: usize = sections.iter().filter(|(introduced, _)| *introduced > version).map(|(_, size)| size).sum();
@@ -2103,6 +2197,75 @@ mod tests {
         let v13 = downgrade_to_version(&bytes, &neurons, &synapses, &scheduler, &columns, 2, 13);
         let restored = read(&v13, 1).expect("a version-13 payload must still migrate");
         assert!(restored.reward_baseline.is_none(), "a version-13 snapshot has no reward-baseline section, so it must restore to None");
+    }
+
+    /// RUN-9a for PLAN.md C17's readouts: every field of every readout's
+    /// state survives a write/read exactly, bit for bit, in order.
+    #[test]
+    fn round_trips_readout_state_exactly() {
+        use crate::readout::ReadoutConfig;
+        let (neurons, synapses, _) = sample_network();
+        let cfg = ReadoutConfig { source_start: 0, source_count: 2, size: 3, k: 2, learning_rate: None };
+        let mut sched = Scheduler::new(4, 0.3).with_readout(cfg).with_readout(ReadoutConfig { size: 1, k: 1, ..cfg });
+        let first = ReadoutRawState {
+            source_count: 2,
+            weights: vec![0.0, 0.125, 0.5, 1.0e-7, 0.0, 3.0],
+            excitability: vec![-0.25, 0.0, 0.75],
+            has_trace: true,
+            trace_sources: vec![1],
+            trace_drive: vec![-0.25, 0.125, 3.75],
+            teacher: vec![0, 2],
+            winners: vec![1, 2],
+        };
+        let second = ReadoutRawState {
+            source_count: 3,
+            weights: vec![0.5, 0.25, 0.0],
+            excitability: vec![0.1],
+            has_trace: false,
+            trace_sources: vec![],
+            trace_drive: vec![0.0],
+            teacher: vec![],
+            winners: vec![],
+        };
+        sched.restore_readouts_raw_state(vec![first.clone(), second.clone()]).unwrap();
+        let bytes = write(&neurons, &synapses, &sched, &ColumnRegistry::new(), 2, 1);
+        let restored = read(&bytes, 1).unwrap();
+        assert_eq!(restored.readouts, vec![first, second]);
+    }
+
+    #[test]
+    fn a_scheduler_without_a_readout_writes_an_empty_section() {
+        let (neurons, synapses, _) = sample_network();
+        let bytes = write(&neurons, &synapses, &Scheduler::new(4, 0.3), &ColumnRegistry::new(), 2, 1);
+        assert!(read(&bytes, 1).unwrap().readouts.is_empty());
+    }
+
+    #[test]
+    fn a_version_14_snapshot_restores_with_no_readout_section() {
+        let (neurons, synapses, scheduler) = sample_network();
+        let columns = ColumnRegistry::new();
+        let bytes = write(&neurons, &synapses, &scheduler, &columns, 2, 1);
+        let v14 = downgrade_to_version(&bytes, &neurons, &synapses, &scheduler, &columns, 2, 14);
+        assert!(read(&v14, 1).expect("a version-14 payload must still migrate").readouts.is_empty());
+    }
+
+    #[test]
+    fn a_readout_section_claiming_more_than_the_buffer_holds_is_corrupt() {
+        use crate::readout::ReadoutConfig;
+        let (neurons, synapses, _) = sample_network();
+        let sched = Scheduler::new(4, 0.3).with_readout(ReadoutConfig { source_start: 0, source_count: 1, size: 1, k: 1, learning_rate: None });
+        let bytes = write(&neurons, &synapses, &sched, &ColumnRegistry::new(), 2, 1);
+        let mut w = Writer::new();
+        write_readout_state(&mut w, &sched.readouts_raw_state());
+        let section_at = bytes.len() - w.buf.len();
+        // A readout count the buffer cannot hold.
+        let mut bad = bytes.clone();
+        bad[section_at..section_at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(read(&bad, 1).err(), Some(SnapshotError::Corrupt));
+        // A weights length the buffer cannot hold (after count and source_count).
+        let mut bad = bytes.clone();
+        bad[section_at + 8..section_at + 12].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(read(&bad, 1).err(), Some(SnapshotError::Corrupt));
     }
 
     /// A version-9 (pre-this-fix) payload has no newborn-maturation section
