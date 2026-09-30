@@ -601,6 +601,25 @@ mod tests {
         assert_eq!(arena.source_of(a), 0);
     }
 
+    /// P03-6.5: a created synapse records its source, target neuron, target segment, permanence,
+    /// axonal delay, eligibility trace (zero) and last-active time (the never-active sentinel).
+    /// Added by PLAN.md C18: the criterion was cited only by this module's doc comment.
+    #[test]
+    fn insert_records_every_field_a_synapse_carries() {
+        let mut arena = SynapseArena::new(4);
+        arena.reserve_for_neurons(3);
+        let id = arena.insert(1, 2, 3, 7, 0.6, 0.4).unwrap();
+        let i = id as usize;
+        assert_eq!(arena.source_of(id), 1);
+        assert_eq!(arena.target_neuron[i], 2);
+        assert_eq!(arena.target_segment[i], 3);
+        assert_eq!(arena.delay[i], 7);
+        assert_eq!(arena.permanence[i], 0.6);
+        assert_eq!(arena.weight[i], 0.4);
+        assert_eq!(arena.eligibility[i], 0.0);
+        assert_eq!(arena.last_active[i], u32::MAX);
+    }
+
     /// REGRESSION TEST for docs/findings.md finding 24, fixed by docs/decisions.md
     /// decision 27.
     ///

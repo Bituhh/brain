@@ -657,6 +657,7 @@ mod tests {
         assert!(!first.contains(10), "the second column's first neuron must not belong to the first column");
     }
 
+    /// P4-1.4: a column is built through GraphBuilder from a connectivity policy, not by enumerating neurons by hand.
     #[test]
     fn build_column_wiring_matches_a_direct_allocate_and_connect_call() {
         // P4-1.1, P4-1.2: a column must run through

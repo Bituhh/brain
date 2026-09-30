@@ -158,6 +158,7 @@ fn run_sequenced_cues(topology: &mut Topology) -> SpikeRaster {
 /// wired, A (cued first) holds its attractor and suppresses B strongly
 /// enough that B's own later cue never establishes a lasting attractor of
 /// its own.
+/// P55-3.2, P55-3.3, P55-4.1, P55-4.4: wiring built only from existing primitives; the first-cued population holds and suppresses the other; three seeds, every seed must pass.
 #[test]
 #[ignore = "slow tier: multi-seed emergent battery (NET-13)"]
 fn mutual_gating_lets_the_first_cued_population_hold_and_suppress_the_other() {
@@ -256,6 +257,7 @@ fn build_race(reward_enabled: bool) -> (NeuronArena, SynapseArena, Scheduler, u3
 /// proof). The final, symmetric tied trial then resolves differently
 /// between the two runs purely because of that weight difference (weight,
 /// not permanence, is what `deliver` transmits).
+/// P55-5.1, P55-5.2: reward converts the rewarded side's eligibility through ThreeFactorStdp, and biases a later tied trial.
 #[test]
 fn reward_after_forced_wins_biases_a_later_tied_competition_toward_the_rewarded_candidate() {
     fn run(reward_enabled: bool) -> (f32, f32, Vec<u32>) {

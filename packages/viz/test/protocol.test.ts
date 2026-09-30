@@ -54,6 +54,7 @@ test('topologyNeurons round-trips negative polarity correctly (signed, not unsig
   assert.equal(decoded.polarity[0], -1, 'a signed i8 must not decode as 255');
 });
 
+// P6-2.2: the connection threshold travels with the synapse views, so the client does the functional-connectivity filtering.
 test('topologySynapses round-trips every column exactly, including occupied as 0/1', () => {
   const message: ServerMessage = {
     type: 'topologySynapses',

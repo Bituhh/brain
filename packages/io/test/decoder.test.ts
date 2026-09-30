@@ -39,6 +39,7 @@ test('decode on an empty candidate list returns undefined', () => {
   assert.equal(decode(observed, [], 0), undefined);
 });
 
+// P5-1.4: the decoder is a pure function of its inputs.
 test('decode uses only the observed and candidate SDRs -- no external state (P5-7.4)', () => {
   // Structural check: calling decode twice with the same inputs must
   // produce the identical result, since nothing about it can depend on

@@ -543,6 +543,7 @@ fn structural_plasticity_b4_scenario_matches_golden_raster() {
     );
 }
 
+/// WADV-7.1: the weighted-mode raster reproduces exactly.
 #[test]
 #[ignore = "slow tier: run via `npm run test:golden`"]
 fn dendritic_votes_weighted_scenario_matches_golden_raster() {

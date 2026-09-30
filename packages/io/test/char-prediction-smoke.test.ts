@@ -48,6 +48,7 @@ test('runCharPredictionTrial runs end to end on a small corpus slice and returns
 // empirically before writing this assertion (not hand-derived): on this
 // fixture slice/seed, the omitted path is deterministic across repeated
 // runs (RUN-3) and the configured path measurably diverges from it.
+// PLN-2.2, PLN-2.3, P8-1.3: an optional config toggle; when set, the harness calls reward every character and the run changes.
 test("rewardSignal omitted leaves the network deterministic (RUN-3) across repeated runs, and 'correctness' measurably changes it", () => {
   const config = { ...DEFAULT_CONFIG, slidingWindow: 100 };
   const baselineA = runCharPredictionTrial(corpus, 1n, config);
@@ -80,6 +81,7 @@ test("rewardSignal omitted leaves the network deterministic (RUN-3) across repea
 // FFI parameter (added across brain-napi/lib.rs, packages/brain, and this
 // harness) actually reaches the native scheduler and does something, not
 // just that it typechecks.
+// INH-2.1: the FFI field exists because a TypeScript experiment needed it.
 test('inhibitionHomeostasis omitted leaves the network deterministic (RUN-3) across repeated runs, and a configured target measurably changes it', () => {
   const config = { ...DEFAULT_CONFIG, slidingWindow: 100 };
   const baselineA = runCharPredictionTrial(corpus, 1n, config);
@@ -308,6 +310,7 @@ test('runCharPredictionTrial reports progress in increasing steps, and structura
 // PLAN.md B5: each config option the weighted-vote search tunes must reach
 // the native scheduler and change something -- not just typecheck. One
 // deterministic baseline, then each option alone must diverge from it.
+// WADV-6.1, WADV-8.2: the vote setting is a harness config option, and scaling changes dendritic contributions only once votes are weighted.
 test("B5's config options (voteReferenceWeight, predictiveLearningTarget, homeostaticScaling, coincidenceThreshold) each reach the scheduler, and scaling only matters once votes are weighted", () => {
   const config = { ...DEFAULT_CONFIG, slidingWindow: 100 };
   const baselineA = runCharPredictionTrial(corpus, 1n, config);

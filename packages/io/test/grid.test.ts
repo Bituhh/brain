@@ -12,6 +12,7 @@ function config(overrides: Partial<GridWorldConfig> = {}): GridWorldConfig {
   };
 }
 
+// P5-16.4: synthetic and deterministic given a seed.
 test('GridWorld is deterministic for the same seed', () => {
   const a = new GridWorld(config());
   const b = new GridWorld(config());

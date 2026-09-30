@@ -55,6 +55,7 @@ fn stimulate_varied_drive(sched: &mut Scheduler, neurons: &NeuronArena, seed: u6
 /// interval far beyond the run length) must not change a single tick's
 /// spike trace relative to never attaching it at all -- same technique as
 /// `segment_threshold_homeostasis.rs`'s test of the same name.
+/// P8-2.3.
 #[test]
 fn disabled_or_unconfigured_is_bit_identical_to_not_attached_at_all() {
     fn run(sched: Scheduler) -> Vec<Vec<u32>> {
@@ -90,6 +91,7 @@ fn disabled_or_unconfigured_is_bit_identical_to_not_attached_at_all() {
 /// target (0.06), `k` must drift down and measured sparsity must converge
 /// toward that target; with it disabled, sparsity must stay pinned at the
 /// original 0.2.
+/// INH-1.3, P8-2.2, P8-2.4: the scheduler's live inhibition is adjusted in place, and the overshoot is corrected only when enabled.
 #[test]
 fn overshooting_population_converges_toward_target_rate_when_enabled_and_does_not_when_disabled() {
     const INITIAL_K: u32 = 10;

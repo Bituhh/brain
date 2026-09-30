@@ -162,6 +162,7 @@ fn overlap_fraction(a: &HashSet<u32>, b: &HashSet<u32>) -> f32 {
     intersection as f32 / a.len().min(b.len()) as f32
 }
 
+/// P8-3.1, P8-3.2.
 #[test]
 fn growth_triggers_automatically_and_new_neurons_are_immediately_usable() {
     // window=4, collision_threshold=0.5: four colliding presentations in a
@@ -201,6 +202,7 @@ fn growth_triggers_automatically_and_new_neurons_are_immediately_usable() {
     assert!(report.spiked.contains(&fresh), "a freshly grown neuron must be immediately usable, got spiked={:?}", report.spiked);
 }
 
+/// P8-3.4.
 #[test]
 fn growth_never_triggers_without_collisions() {
     // Ablation (SDG-1.5): disjoint candidate
@@ -221,6 +223,7 @@ fn growth_never_triggers_without_collisions() {
     assert_eq!(neurons.live_count(), NEIGHBOURHOOD_SIZE as usize, "population must be unchanged when growth never triggers");
 }
 
+/// P8-3.3, P03-11.8: growth is bounded by the configured ceiling.
 #[test]
 fn growth_respects_the_ceiling() {
     // ceiling=11: neurons_per_trigger=2 would normally reach 12, but the
@@ -247,6 +250,7 @@ fn growth_respects_the_ceiling() {
     assert_eq!(neurons.live_count(), 11, "growth must reach exactly the ceiling, not stop short of it");
 }
 
+/// P8-3.5.
 #[test]
 fn growth_measurably_reduces_collision_rate_vs_growth_disabled() {
     // SDG-1.6, VAL-6 multi-seed: compare an

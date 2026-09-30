@@ -5,6 +5,10 @@
 //! `Scheduler` run directly -- the RUN-8 reference-path claim, proven, not
 //! assumed.
 //!
+//! P4-7.4: every test here takes the single-threaded run as its reference
+//! and checks partitioned and multi-threaded runs for equivalence against
+//! it, never against independently written expected values.
+//!
 //! `PartitionRuntime` now does use real threads (Phase 4 Step 17,
 //! `partition.rs`'s `Executor::Rayon`/`Executor::Pinned`) -- this file's
 //! original claim that it did not is stale; the tests below cover the
@@ -246,6 +250,7 @@ fn assert_identical_synapses(a: &SynapseArena, b: &SynapseArena, neuron_count: u
 /// RUN-8: `PartitionRuntime` with exactly one partition must be the same
 /// reference path as a plain `Scheduler`, not a separate implementation
 /// that merely happens to agree.
+/// P4-3.4, P4-7.1: one partition is the same code path as the single-threaded reference, and matches it exactly.
 #[test]
 fn one_partition_matches_plain_scheduler_exactly() {
     let seed = 7;
@@ -266,6 +271,7 @@ fn one_partition_matches_plain_scheduler_exactly() {
 /// results indistinguishable from the unpartitioned reference. Sequential
 /// (`thread_count = 1`, RUN-8's reference path) here; real threading is
 /// the next test.
+/// P4-4.1, P4-8.2, P4-11.1, P4-11.2: spikes (and the STDP they drive) cross a partition boundary through the messaging path, and a different partition assignment gives the identical result.
 #[test]
 fn two_partitions_match_the_unpartitioned_reference() {
     let seed = 7;
@@ -472,6 +478,7 @@ fn the_transmission_gates_counters_are_the_same_at_any_partition_count() {
 /// stand-in the tests above use. `thread_count` deliberately exceeds
 /// `partition_count` in one case (4 threads, 2 partitions) to confirm idle
 /// worker threads change nothing.
+/// P4-4.4, P4-7.3, P4-8.3: bit-identical at every thread count, so cross-partition delivery order cannot depend on thread scheduling.
 #[test]
 fn real_threading_matches_the_sequential_reference_at_every_thread_count() {
     let seed = 7;
@@ -706,6 +713,7 @@ fn run_partitioned_with_always_on_plasticity(seed: u64, partition_count: usize, 
 /// the always-on hook must not become a new source of partition-count- or
 /// thread-count-dependent behaviour, which is exactly the class of bug
 /// RUN-3/RUN-8 exist to rule out.
+/// P4-11.4: synapses sprouted and pruned in a partitioned network are handled identically to the flat reference. (Neuron growth is refused in partitioned mode at the FFI.)
 #[test]
 fn always_on_homeostasis_and_structural_plasticity_are_identical_across_partitioning_and_threading() {
     let seed = 7;

@@ -22,6 +22,7 @@ function wordConfig(
   return { width: 400, density: 0.02, ...overrides };
 }
 
+// P5-1.4: same input and config, same output.
 test('encodeChar is deterministic (P5-5.3)', () => {
   const config = charConfig();
   const a = encodeChar(config, 'e');

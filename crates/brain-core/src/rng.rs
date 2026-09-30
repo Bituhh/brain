@@ -134,6 +134,7 @@ pub fn derive_stream(base_seed: u64, entity_id: u32, purpose: u32, tick: u32) ->
 mod tests {
     use super::*;
 
+    /// P03-3.2: randomness comes from this crate's own seeded PRNG and is reproducible from the seed alone (there is no other RNG in the crate, ENG-5).
     #[test]
     fn same_seed_same_sequence() {
         let mut a = Pcg32::new(42, 54);
@@ -179,6 +180,7 @@ mod tests {
         assert_eq!(observed, repeat, "PCG32 must be deterministic given the same seed/seq");
     }
 
+    /// P03-16.4: the generator's full internal state, not only its seed, is exposed and restored.
     #[test]
     fn state_round_trips_exactly() {
         let mut rng = Pcg32::new(123, 456);

@@ -410,7 +410,29 @@ mod tests {
         assert!((membrane - input).abs() < 1e-3, "membrane should converge to steady state = input");
     }
 
+    /// P03-4.8: the state a neuron model integrates is exactly this neuron's own scalars -- five
+    /// borrowed fields and its threshold -- with no neuron id, no arena and no other neuron
+    /// reachable. Destructured exhaustively (no `..`) and type-annotated, following
+    /// `tests/plasticity_locality.rs`'s pin on the plasticity interface: widening
+    /// `NeuronStateMut` stops this test compiling. Added by PLAN.md C18.
+    #[test]
+    fn neuron_state_holds_only_this_neurons_own_scalars() {
+        let (mut membrane, mut refractory_until, mut last_spike, mut predictive, mut adaptation) = (0.0f32, 0u32, u32::MAX, 0.0f32, 0.0f32);
+        let state = NeuronStateMut {
+            membrane: &mut membrane,
+            refractory_until: &mut refractory_until,
+            last_spike: &mut last_spike,
+            predictive: &mut predictive,
+            adaptation: &mut adaptation,
+            threshold: 1.0,
+        };
+        let NeuronStateMut { membrane, refractory_until, last_spike, predictive, adaptation, threshold } = state;
+        let fields: (&mut f32, &mut u32, &mut u32, &mut f32, &mut f32, f32) = (membrane, refractory_until, last_spike, predictive, adaptation, threshold);
+        assert_eq!(fields.5, 1.0);
+    }
+
     /// NEU-1: exercises membrane, last-spike and refractory-until together.
+    /// P03-4.2: one threshold crossing emits one spike and resets the membrane.
     #[test]
     fn spike_resets_and_enters_refractory() {
         let params = LifParams::new(5.0, 0.0, 0.0, 3);
@@ -681,6 +703,7 @@ mod tests {
     // same mechanism shape). These tests mirror the predictive-state tests
     // above field-for-field.
 
+    /// P55-2.1, P55-2.2: `LifParams` carries the adaptation parameters; a spike increments adaptation and it decays between spikes.
     #[test]
     fn adaptation_increments_on_spike_and_decays_between_spikes() {
         let params = LifParams::new(5.0, 0.0, 0.0, 0).with_adaptation(50.0, 0.5);
@@ -754,6 +777,7 @@ mod tests {
         );
     }
 
+    /// P55-2.4.
     #[test]
     fn zero_adaptation_configuration_is_unaffected_by_adaptation_field() {
         // Regression guard: LifParams::new (without with_adaptation) must

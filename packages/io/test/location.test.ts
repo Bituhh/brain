@@ -144,6 +144,7 @@ test('PathIntegrator starts at the origin', () => {
   assert.deepEqual(integrator.position, { x: 0, y: 0 });
 });
 
+// P55-6.1: the location signal integrates the agent's movement.
 test('PathIntegrator accumulates displacement across actions', () => {
   const integrator = new PathIntegrator<Action>(delta);
   integrator.integrate('right');

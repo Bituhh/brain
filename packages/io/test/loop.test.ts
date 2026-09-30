@@ -60,6 +60,7 @@ function buildLoopFixture() {
   return { sim, column: column!, actions };
 }
 
+// P5-16.2: the action is decoded through the same SDR-overlap readout as every other decode.
 test('runSensorimotorLoop closes the loop: a decoded action changes the next observation (P5-16.3 smoke test, IO-5)', () => {
   const { sim, column, actions } = buildLoopFixture();
   const world = new GridWorld({

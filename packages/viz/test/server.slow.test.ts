@@ -164,6 +164,7 @@ async function withServer(
   }
 }
 
+// P6-7.1: the server is a Node process embedding the real Simulation (every test in this file relies on it).
 test('a connecting client receives topology for the real network (P6-7.2)', async () => {
   const { sim } = buildTestSimulation();
   await withServer(sim, async (server) => {
@@ -185,6 +186,45 @@ test('a connecting client receives topology for the real network (P6-7.2)', asyn
         Array.from(synapses.occupied).filter((v) => v === 1).length,
         1,
         'exactly one synapse was actually connected',
+      );
+    } finally {
+      client.close();
+    }
+  });
+});
+
+// P6-7.3: when the network's structure changes mid-run, the server pushes the updated topology
+// to a connected client (the design's full re-send, `server.ts`'s `checkEpoch`). Growth here is
+// an `allocateNeuron` between ticks, which bumps the epoch exactly as NET-7/NET-10 growth inside
+// `step()` does. Added by PLAN.md C18: the criterion was built but no test exercised it
+// (docs/findings.md finding 35).
+test('an epoch change mid-run re-pushes the full topology to a connected client (P6-7.3)', async () => {
+  const { sim } = buildTestSimulation();
+  await withServer(sim, async (server) => {
+    const client = await connectTestClient(server.port);
+    try {
+      const initial = (await client.waitFor(
+        (m) => m.type === 'topologyNeurons',
+      )) as Extract<ServerMessage, { type: 'topologyNeurons' }>;
+      assert.equal(initial.coords.length, 6, '2 neurons before growth');
+
+      sim.allocateNeuron(0.5, 1);
+
+      const pushed = (await client.waitFor(
+        (m) => m.type === 'topologyNeurons',
+      )) as Extract<ServerMessage, { type: 'topologyNeurons' }>;
+      assert.equal(
+        pushed.coords.length,
+        9,
+        '3 neurons * 3 components after growth',
+      );
+      const synapses = (await client.waitFor(
+        (m) => m.type === 'topologySynapses',
+      )) as Extract<ServerMessage, { type: 'topologySynapses' }>;
+      assert.equal(
+        synapses.targetNeuron.length,
+        6,
+        '3 neurons * capPerNeuron 2 after growth',
       );
     } finally {
       client.close();

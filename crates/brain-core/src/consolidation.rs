@@ -434,6 +434,7 @@ mod tests {
         assert_eq!(events, vec![(0, 1), (0, 2), (2, 1)], "offsets must be rebased to the earliest returned event, not to tick 0");
     }
 
+    /// P5-10.4: the replay buffer is bounded by the configured window.
     #[test]
     fn recent_events_returns_only_the_most_recent_window_events() {
         let raster = raster_with(&[(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)]);

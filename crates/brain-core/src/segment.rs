@@ -321,6 +321,7 @@ mod tests {
         assert_eq!(BinaryCoincidence::evaluate(9.0, &SegmentState, &params), Depolarisation::NONE);
     }
 
+    /// P03-10.5: the segment interface returns a depolarisation level (`Depolarisation`), not a boolean.
     #[test]
     fn at_threshold_fires_at_full_strength() {
         let params = BinaryCoincidenceParams { threshold: 10 };
@@ -357,6 +358,7 @@ mod tests {
 mod dendritic_vote_tests {
     use super::*;
 
+    /// WADV-10.1: count mode unchanged.
     #[test]
     fn count_mode_returns_exactly_signum() {
         assert_eq!(DendriticVote::Count.contribution(0.7), 1.0);
@@ -366,6 +368,7 @@ mod dendritic_vote_tests {
         assert_eq!(DendriticVote::Count.contribution(0.0), 1.0);
     }
 
+    /// WADV-1.1, WADV-10.1.
     #[test]
     fn weighted_mode_below_reference_is_fractional() {
         let vote = DendriticVote::Weighted { reference_weight: 0.5 };
@@ -373,12 +376,14 @@ mod dendritic_vote_tests {
         assert_eq!(vote.contribution(0.1), 0.2);
     }
 
+    /// WADV-1.2.
     #[test]
     fn weighted_mode_at_reference_is_exactly_one() {
         let vote = DendriticVote::Weighted { reference_weight: 0.5 };
         assert_eq!(vote.contribution(0.5), 1.0);
     }
 
+    /// WADV-1.2, WADV-10.1.
     #[test]
     fn weighted_mode_above_reference_is_capped_at_one() {
         let vote = DendriticVote::Weighted { reference_weight: 0.5 };
@@ -386,12 +391,14 @@ mod dendritic_vote_tests {
         assert_eq!(vote.contribution(0.999_999), 1.0);
     }
 
+    /// WADV-1.3, WADV-10.1.
     #[test]
     fn weighted_mode_zero_weight_contributes_zero() {
         let vote = DendriticVote::Weighted { reference_weight: 0.5 };
         assert_eq!(vote.contribution(0.0), 0.0);
     }
 
+    /// WADV-1.4, WADV-10.1.
     #[test]
     fn weighted_mode_inhibitory_is_negative_with_the_same_magnitude_rule() {
         let vote = DendriticVote::Weighted { reference_weight: 0.5 };
@@ -426,9 +433,20 @@ mod dendritic_vote_tests {
         SegmentConfig::weighted(1, BinaryCoincidenceParams { threshold: 1 }, f32::NAN);
     }
 
+    /// WADV-2.1.
     #[test]
     fn new_defaults_to_count_mode() {
         let config = SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 5 });
         assert_eq!(config.vote, DendriticVote::Count);
+    }
+
+    /// WADV-2.3: selecting count mode explicitly gives exactly the configuration that leaving it
+    /// unset gives. The scheduler reads the vote mode only from `SegmentConfig`, so equal
+    /// configurations are the whole claim. Added by PLAN.md C18.
+    #[test]
+    fn explicit_count_mode_is_identical_to_leaving_it_unset() {
+        let unset = SegmentConfig::new(2, BinaryCoincidenceParams { threshold: 5 });
+        let explicit = SegmentConfig { vote: DendriticVote::Count, ..unset };
+        assert_eq!(explicit, unset);
     }
 }

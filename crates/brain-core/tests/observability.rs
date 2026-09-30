@@ -91,6 +91,7 @@ fn scheduler_exposes_always_on_firing_rate_and_prediction_accuracy_with_no_extra
     assert_eq!(sched.prediction_accuracy(), 0.0);
 }
 
+/// P6-14.2: the Rust integration test for segment recording, with the unwatched-neuron negative case.
 #[test]
 fn attached_probes_record_only_their_own_neurons_dendritic_segment_activity() {
     // Requirement 4 (probes fed automatically inside step()) and
@@ -203,6 +204,7 @@ fn a_vetoed_segment_records_its_negative_coincidence_count() {
 /// fractional vote, so the old `round()` also erased sub-unit counts. The
 /// probe must carry the value the scheduler actually compared against the
 /// threshold.
+/// WADV-3.3.
 #[test]
 fn weighted_vote_segment_samples_keep_their_fractional_signed_count() {
     let reference_weight = 1.0; // above every synapse's 0.9 weight, so each vote is a fraction

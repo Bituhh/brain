@@ -1098,6 +1098,7 @@ mod tests {
         registry
     }
 
+    /// P4-6.3: the assignment is a pure function of the registry and partition count.
     #[test]
     fn contiguous_distributes_columns_in_registration_order() {
         let columns = registry(&[0..10, 10..25, 25..30, 30..40]);
@@ -1134,6 +1135,7 @@ mod tests {
         assert_eq!(plan.partition_count(), 2, "cannot create more partitions than columns");
     }
 
+    /// P4-3.1: every neuron belongs to exactly one partition.
     #[test]
     fn partition_of_resolves_every_neuron_to_the_correct_partition() {
         let columns = registry(&[0..10, 10..20]);
@@ -1152,6 +1154,7 @@ mod tests {
         assert_eq!(plan.partition_of(99), 0);
     }
 
+    /// P4-6.4: with no locality information (no columns), the documented fallback is contiguous id ranges.
     #[test]
     fn even_split_divides_a_flat_network_with_no_columns() {
         let plan = PartitionPlan::even_split(10, 3); // 10/3 = 3 remainder 1 -> 4,3,3
@@ -1159,6 +1162,23 @@ mod tests {
         assert_eq!(plan.range_of(0), 0..4, "first partition gets the extra neuron");
         assert_eq!(plan.range_of(1), 4..7);
         assert_eq!(plan.range_of(2), 7..10);
+    }
+
+    /// P4-6.2: the cross-partition edge fraction of a plan is measurable, and exact on a graph
+    /// small enough to count by hand. Added by PLAN.md C18: until now only
+    /// `benches/core_bench.rs` called it. This measures the fraction; it does not show a plan
+    /// *minimises* it (README's minimisation requirement stays deferred for that).
+    #[test]
+    fn cross_partition_edge_fraction_counts_edges_that_cross_a_boundary() {
+        let plan = PartitionPlan::even_split(4, 2); // {0,1} | {2,3}
+        let mut synapses = SynapseArena::new(4);
+        synapses.reserve_for_neurons(4);
+        assert_eq!(plan.cross_partition_edge_fraction(&synapses, 4), 0.0, "no synapses: zero, not NaN");
+        synapses.insert(0, 1, 0, 1, 0.5, 0.5).unwrap(); // within partition 0
+        synapses.insert(0, 2, 0, 2, 0.5, 0.5).unwrap(); // crosses
+        synapses.insert(3, 2, 0, 1, 0.5, 0.5).unwrap(); // within partition 1
+        synapses.insert(1, 3, 0, 2, 0.5, 0.5).unwrap(); // crosses
+        assert_eq!(plan.cross_partition_edge_fraction(&synapses, 4), 0.5);
     }
 
     #[test]

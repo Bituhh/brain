@@ -123,6 +123,7 @@ impl Trial {
 /// e.g. level 0.5 measured a slightly different delta -- which is what led
 /// to expressing the claim as a ratio instead of hand-deriving an absolute
 /// value.)
+/// P8-1.4.
 #[test]
 fn two_exposures_produce_proportionally_different_permanence_across_modulator_levels() {
     const SPROUT_PERMANENCE: f32 = 0.4;

@@ -341,6 +341,7 @@ mod tests {
         assert_eq!(r.iter().copied().collect::<Vec<_>>(), vec![9995, 9996, 9997, 9998, 9999]);
     }
 
+    /// P03-13.1: spike times, always.
     #[test]
     fn probe_always_records_spike_times() {
         let mut probe = Probe::new(7, ProbeOptions::spikes_only(10));
@@ -357,6 +358,7 @@ mod tests {
         assert!(probe.membrane_trace().is_none());
     }
 
+    /// P03-13.1: the optional membrane trace.
     #[test]
     fn probe_records_membrane_trace_when_enabled() {
         let options = ProbeOptions { capacity: 5, record_membrane: true, weight_synapses: Vec::new(), record_segments: false };
@@ -367,6 +369,7 @@ mod tests {
         assert_eq!(trace.iter().copied().collect::<Vec<_>>(), vec![0.1, 0.2]);
     }
 
+    /// P03-13.1: the optional watched-synapse history.
     #[test]
     fn probe_records_watched_synapse_permanence_and_weight_when_enabled() {
         let options = ProbeOptions { capacity: 5, record_membrane: false, weight_synapses: vec![3, 9], record_segments: false };

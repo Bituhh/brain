@@ -56,6 +56,7 @@ function actionDelta(action: Action): { x: number; y: number } {
   }
 }
 
+// P55-6.1: position accumulates across the loop's actions.
 test('runReferenceFrameLoop closes: both columns get stimulated and position accumulates across steps', () => {
   const lif: LifConfig = {
     tauMTicks: 5,

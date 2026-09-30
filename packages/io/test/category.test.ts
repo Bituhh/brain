@@ -30,6 +30,7 @@ test('encodeCategory produces an SDR at approximately the configured density (P5
   assert.equal(sdr.activeBits.length, expected);
 });
 
+// P5-1.4: same input and config, same output.
 test('encodeCategory is deterministic (P5-2.3)', () => {
   const a = encodeCategory(config(), 'blue');
   const b = encodeCategory(config(), 'blue');

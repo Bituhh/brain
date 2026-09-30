@@ -26,6 +26,7 @@ test('encodeScalar produces exactly activeBits active bits (P5-3.1)', () => {
   assert.equal(sdr.width, 200);
 });
 
+// P5-1.4: same input and config, same output.
 test('encodeScalar is deterministic (P5-2.3)', () => {
   const a = encodeScalar(config(), 42);
   const b = encodeScalar(config(), 42);

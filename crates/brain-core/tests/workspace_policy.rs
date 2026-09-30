@@ -253,6 +253,7 @@ fn neither_core_crate_names_a_modality_action_effector_or_environment() {
 /// reusing its exact walk-and-assert structure against a different
 /// forbidden list, since this guards a distinct invariant (layering, not
 /// modality-agnosticism) even though the mechanism is identical.
+/// P6-13.2: nothing below packages/brain names a visualiser concept (and no code there names `viz`, half of P6-13.1).
 #[test]
 fn neither_core_crate_names_a_visualiser_concept() {
     let forbidden = ["viz", "render", "canvas", "websocket", "webgl"];
@@ -275,6 +276,93 @@ fn neither_core_crate_names_a_visualiser_concept() {
                 );
             }
         }
+    }
+}
+
+/// P03-1.6: every `unsafe` block in the core and its binding crate carries a comment stating the
+/// invariant it relies on -- a `// SAFETY` line somewhere in the comment block directly above it.
+/// Today every one is a zero-copy typed-array view in `brain-napi` (`brain-core` has none), and the
+/// walk must find at least one, so the test cannot pass by scanning nothing. Added by PLAN.md C18:
+/// the criterion was only ever cited by the production comments it describes.
+#[test]
+fn every_unsafe_block_carries_a_safety_comment() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    walk_rs_files(&manifest_dir.join("src"), &mut files);
+    walk_rs_files(&manifest_dir.join("../brain-napi/src"), &mut files);
+    let mut found = 0;
+    for path in &files {
+        let Ok(source) = std::fs::read_to_string(path) else { continue };
+        let lines: Vec<&str> = source.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            let code = line.split("//").next().unwrap_or("");
+            if !code.contains("unsafe {") && !code.contains("unsafe fn") && !code.contains("unsafe impl") {
+                continue;
+            }
+            found += 1;
+            let mut above = i;
+            let mut has_safety = false;
+            while above > 0 && lines[above - 1].trim_start().starts_with("//") {
+                above -= 1;
+                if lines[above].contains("SAFETY") {
+                    has_safety = true;
+                    break;
+                }
+            }
+            assert!(
+                has_safety,
+                "{}:{}: an `unsafe` block needs a `// SAFETY` comment directly above it stating the invariant it relies on (P03-1.6): {}",
+                path.display(),
+                i + 1,
+                line.trim()
+            );
+        }
+    }
+    assert!(found > 0, "the walk must find the brain-napi view blocks, or this test would pass vacuously");
+}
+
+/// P6-13.1, the manifest half: neither engine crate depends on `packages/viz`. The dependency
+/// direction is strictly viz -> packages/brain -> brain-napi -> brain-core. The code half ("no code
+/// below packages/brain names `viz`") is `neither_core_crate_names_a_visualiser_concept` above;
+/// `brain_core_manifest_carries_no_runtime_dependency_beyond_rayon` already pins brain-core's own
+/// manifest, so this reads brain-napi's two.
+#[test]
+fn the_engine_crates_do_not_depend_on_the_visualiser() {
+    for (name, manifest) in [
+        ("crates/brain-napi/Cargo.toml", include_str!("../../brain-napi/Cargo.toml")),
+        ("crates/brain-napi/package.json", include_str!("../../brain-napi/package.json")),
+    ] {
+        assert!(
+            !manifest.contains("viz"),
+            "{name} must not reference the visualiser package (P6-13.1): the engine never depends on its observer"
+        );
+    }
+}
+
+/// P6-13.4: `packages/viz` adds no npm runtime dependency for charting, graph layout or 3D scene
+/// management -- its only runtime dependencies are this workspace's own `@brain/*` packages. Any
+/// third-party one would need the explicit justification ENG-6 asks for, and this test failing is
+/// the prompt to write it.
+#[test]
+fn the_visualiser_package_adds_no_third_party_runtime_dependency() {
+    let manifest = include_str!("../../../packages/viz/package.json");
+    let deps_start = manifest
+        .find("\"dependencies\"")
+        .expect("packages/viz/package.json must declare its dependencies (it depends on @brain/core)");
+    let block_start = deps_start + manifest[deps_start..].find('{').expect("a dependencies object");
+    let block_end = block_start + manifest[block_start..].find('}').expect("a closed dependencies object");
+    let names: Vec<&str> = manifest[block_start + 1..block_end]
+        .split(',')
+        .filter_map(|entry| entry.split(':').next())
+        .map(|key| key.trim().trim_matches('"'))
+        .filter(|key| !key.is_empty())
+        .collect();
+    assert!(!names.is_empty(), "the dependencies object must be parsed, or this test would pass vacuously");
+    for name in names {
+        assert!(
+            name.starts_with("@brain/"),
+            "packages/viz must add no third-party runtime dependency (P6-13.4), found '{name}'"
+        );
     }
 }
 
@@ -311,6 +399,7 @@ fn fast_and_slow_test_tiers_are_separately_invocable() {
 /// checker's own report (`npm run check:traceability`, part of the slow
 /// tier) is what a human reviews for whether every *currently expected*
 /// gap is still just the deliberate ones.
+/// P5-14.4, P55-9.4, P6-14.5: the same checkable mapping, for each later phase's own criteria.
 #[test]
 fn the_traceability_checker_itself_runs_and_reports_a_result() {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

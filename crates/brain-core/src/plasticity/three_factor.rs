@@ -438,6 +438,7 @@ mod tests {
         assert_eq!(fx.eligibility, 0.0, "never delivered -> no causal timing to credit");
     }
 
+    /// P03-8.6: a causal pre/post coincidence writes an eligibility trace at the synapse (the first touch below).
     #[test]
     fn eligibility_decays_between_touches() { // LRN-3
         let rule = ThreeFactorStdp::new(ThreeFactorParams::new(stdp(), 50.0, 1.0, 0));

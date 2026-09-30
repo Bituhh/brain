@@ -578,6 +578,7 @@ mod tests {
     // Requirement 1/3/4). One-for-one mirrors of IntrinsicHomeostasis's own
     // tests above, addressed by composite index instead of neuron index.
 
+    /// DTH-1.2, DTH-5.1, DTH-6.2: one target rate plus the sibling idiom's parameters, and `maybe_apply` is handed only threshold and rate state, so it cannot touch synapses, somatic thresholds or topology.
     #[test]
     fn a_segment_depolarising_above_target_has_its_threshold_raised() {
         let mut threshold = vec![1.0];
@@ -590,6 +591,7 @@ mod tests {
         assert!(threshold[0] > 1.0, "depolarising when the target rate is 0 must raise the threshold, got {}", threshold[0]);
     }
 
+    /// DTH-1.3, DTH-4.1, DTH-4.2, DTH-4.3: lowered, clamped at the configured floor, and held there over further sweeps without error.
     #[test]
     fn a_quiet_segment_below_target_has_its_threshold_lowered_but_not_below_the_floor() {
         let mut threshold = vec![0.15];
@@ -610,6 +612,7 @@ mod tests {
         assert!(threshold[0] >= 0.1, "threshold must never drop below min_threshold, got {}", threshold[0]);
     }
 
+    /// DTH-1.4.
     #[test]
     fn a_segment_at_exactly_its_target_rate_is_left_unchanged() {
         let mut threshold = vec![1.0];
@@ -624,6 +627,7 @@ mod tests {
         assert!((threshold[0] - 1.0).abs() < 1e-3, "a segment already at its target rate should see negligible drift");
     }
 
+    /// DTH-1.1, DTH-6.1: an independently timed sweep that updates only once its own interval elapses.
     #[test]
     fn segment_threshold_homeostasis_does_not_apply_before_the_interval_elapses() {
         let mut threshold = vec![1.0];
@@ -654,6 +658,7 @@ mod tests {
 
     // -- InhibitionHomeostasis (inhibition-homeostasis spec, Requirement 1).
 
+    /// INH-1.1, P8-2.1: the EMA-tracking, interval-gated mechanism in its siblings' shape.
     #[test]
     fn activity_above_target_lowers_k_not_raises_it() {
         // Guards the sign-flip specifically: unlike threshold homeostasis,

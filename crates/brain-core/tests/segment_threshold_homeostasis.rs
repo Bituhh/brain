@@ -66,6 +66,7 @@ fn run_predictive_trace(mut sched: Scheduler, mut neurons: NeuronArena, mut syna
 /// Requirement 2: a `Scheduler` with the mechanism attached but never swept
 /// (interval far beyond the run length) must produce a bit-identical
 /// depolarisation trace to one that never had it attached at all.
+/// DTH-2.1, DTH-2.2, DTH-2.3: one segment per neuron, mechanism absent or never swept, bit-identical.
 #[test]
 fn disabled_or_never_swept_is_bit_identical_to_not_attached_at_all() {
     let (neurons_a, synapses_a, source_a, target_a) = one_segment_topology();

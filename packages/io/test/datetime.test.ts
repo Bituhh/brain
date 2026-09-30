@@ -12,6 +12,7 @@ function timeOfDayOnlyConfig(): DatetimeEncoderConfig {
   return { components: [timeOfDayComponent(200, 20)] };
 }
 
+// P5-1.4: same input and config, same output (the timestamp is the input, never the wall clock).
 test('encodeDatetime is deterministic (P5-2.3)', () => {
   const config = timeOfDayOnlyConfig();
   const date = new Date(2026, 0, 15, 10, 30, 0);
@@ -82,6 +83,7 @@ test('dayOfWeek wraps at the week boundary: Saturday and Sunday overlap', () => 
   );
 });
 
+// P5-4.1.
 test("multiple components combine independently: differing only in one component still shares the other's bits", () => {
   const config: DatetimeEncoderConfig = {
     components: [timeOfDayComponent(200, 20), dayOfWeekComponent(70, 10)],

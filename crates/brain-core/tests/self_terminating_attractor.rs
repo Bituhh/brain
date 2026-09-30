@@ -106,6 +106,7 @@ fn spikes_at_or_after(raster: &SpikeRaster, tick_floor: usize) -> usize {
 /// attractor sustains well past withdrawal (not a failure to launch) but
 /// has gone silent by the end of the window -- self-terminated, with no
 /// external suppression ever applied.
+/// P55-4.2: the defined end mechanism for a held selection is adaptation (P7-2's mechanism).
 #[test]
 #[ignore = "slow tier: multi-seed emergent battery (NEU-8 self-release, Phase 7)"]
 fn attractor_self_terminates_via_adaptation_with_no_external_suppression() {

@@ -492,6 +492,7 @@ mod tests {
         assert_eq!(arena.resolve(ghost), Err(ArenaError::OutOfRange));
     }
 
+    /// P03-3.3: slot reuse follows a fixed LIFO order, never a hash or allocation address.
     #[test]
     fn reuse_order_is_lifo_and_deterministic() {
         let mut arena = NeuronArena::new();

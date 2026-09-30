@@ -1892,6 +1892,7 @@ mod tests {
     /// last-depolarised tick round-trip through a snapshot exactly, mirroring
     /// `round_trip_preserves_a_partially_decayed_coincidence_window`'s
     /// technique but for this newer, version-6 section.
+    /// DTH-7.1, DTH-7.2.
     #[test]
     fn round_trips_segment_threshold_homeostasis_state_exactly() {
         let mut neurons = NeuronArena::new();
@@ -1943,6 +1944,7 @@ mod tests {
     /// exactly what a fresh `Scheduler` already starts with, mirroring
     /// `a_version_4_snapshot_restores_with_an_empty_coincidence_window_section`'s
     /// own technique one version up.
+    /// DTH-7.3.
     #[test]
     fn a_version_5_snapshot_restores_with_an_empty_segment_threshold_section() {
         let (neurons, synapses, scheduler) = sample_network();
@@ -2353,6 +2355,7 @@ mod tests {
     /// allows -- including the column that was actually written in
     /// `Weighted` mode, since that information simply did not exist in a
     /// version-11 snapshot.
+    /// WADV-7.4.
     #[test]
     fn a_version_11_snapshot_restores_every_column_in_count_mode() {
         let (neurons, synapses, scheduler) = sample_network();
@@ -2367,6 +2370,7 @@ mod tests {
         }
     }
 
+    /// P03-16.7, P03-16.8: every snapshot carries a version tag, and an unrecognised one fails loudly with no partial load.
     #[test]
     fn unrecognised_version_fails_loudly_with_no_partial_load() {
         let (neurons, synapses, scheduler) = sample_network();
@@ -2383,6 +2387,7 @@ mod tests {
         match read(&bytes, 43) { Err(SnapshotError::ConfigMismatch) => {}, other => panic!("expected ConfigMismatch, got a different result (ok={})", other.is_ok()) }
     }
 
+    /// P4-9.7.
     #[test]
     fn truncated_buffer_is_reported_as_corrupt_not_a_panic() {
         let (neurons, synapses, scheduler) = sample_network();
@@ -2416,6 +2421,7 @@ mod tests {
 
     // -- Migratable format (Requirement 9, Step 21).
 
+    /// P4-9.1, P4-9.5: the header (magic, version, config hash, tick) is unchanged and readable without the payload.
     #[test]
     fn read_header_reads_just_the_header_without_touching_the_payload() {
         let (neurons, synapses, scheduler) = sample_network();
@@ -2447,6 +2453,7 @@ mod tests {
         assert!(matches!(read(&bytes, 1), Err(SnapshotError::UnsupportedVersion)));
     }
 
+    /// P4-1.6: column membership and identity round-trip exactly.
     #[test]
     fn columns_round_trip_exactly() {
         let (neurons, synapses, scheduler) = sample_network();
@@ -2487,6 +2494,7 @@ mod tests {
     /// `sample_network`-shaped scenario this test file already uses) must
     /// still restore correctly, with an empty `ColumnRegistry`, and the
     /// restored state must be usable to continue simulating.
+    /// P4-9.2: an older version migrates forward rather than being rejected.
     #[test]
     fn a_version_1_snapshot_restores_with_an_empty_column_registry_and_keeps_working() {
         let bytes = std::fs::read("tests/fixtures/snapshot_v1.bin").expect("golden v1 fixture must exist -- see Step 21's commit for how it was generated");

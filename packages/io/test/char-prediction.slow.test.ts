@@ -210,6 +210,7 @@ test("condition C with B4's searched values reproduces the value search's own re
 // score 20.05%, which is INSIDE the +/-0.005 band and would therefore pass
 // silently while measuring a different configuration. A regression test that
 // passes for the wrong reason is worse than one that fails.
+// WADV-10.4.
 test("condition C with B5's searched values reproduces the value search's own result (PLAN.md B5)", () => {
   const corpus = fullCorpus.slice(0, SLICE_LENGTH);
   const structuralPlasticity: StructuralPlasticityConfig = {

@@ -898,6 +898,7 @@ mod tests {
 
     const NEUTRAL_MODULATORS: crate::plasticity::Modulators = [1.0; crate::plasticity::NUM_MODULATORS];
 
+    /// WADV-5.2: the default target keeps the pre-B5 permanence behaviour.
     #[test]
     fn correct_prediction_reinforces_the_responsible_segments_permanence_not_weight() {
         let mut neurons = make_neurons(2);
@@ -1111,6 +1112,7 @@ mod tests {
     /// PLN-1.1: with `modulator_index: Some(idx)`, a correct
     /// prediction's reinforcement is proportional to the ambient level at
     /// that channel, not the fixed `reinforce_amount`.
+    /// P8-1.1, P8-1.2, PLN-1.4: the delta scales with the channel level, and a level of 1.0 reproduces the fixed amount exactly.
     #[test]
     fn modulator_index_some_scales_reinforcement_proportionally_to_channel_level() {
         let params_at = |modulator_index| PredictiveLearningParams { modulator_index, ..default_params() };

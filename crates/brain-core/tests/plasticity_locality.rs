@@ -53,6 +53,7 @@ use std::sync::Arc;
 /// answer was chosen *not* to need this (the role lives in the scheduler,
 /// not here), so at the time of writing this list is unchanged from before
 /// C8.
+/// P03-8.1: a rule receives exactly the synapse's own state, its pre/post neurons' local state and the modulator levels.
 #[test]
 fn a_rule_is_handed_exactly_these_inputs_and_nothing_else() {
     let ctx = LocalContext {

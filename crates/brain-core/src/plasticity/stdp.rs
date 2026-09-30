@@ -340,6 +340,7 @@ mod tests {
         StdpParams { a_plus: 0.1, a_minus: 0.12, tau_plus: 20.0, tau_minus: 20.0, window_ticks: 100 }
     }
 
+    /// P03-8.3: pre-before-post potentiates.
     #[test]
     fn positive_dt_potentiates() {
         let p = params();

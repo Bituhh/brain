@@ -1091,6 +1091,7 @@ mod tests {
         assert!(synapses.occupied_in_block(1).any(|id| synapses.target_neuron[id as usize] == 2), "neuron 2 must still be reachable as a sprout target from every allowed source");
     }
 
+    /// P03-11.7.
     #[test]
     fn reclaims_neurons_unused_beyond_the_configured_period() {
         let mut neurons = make_neurons(2);

@@ -137,6 +137,7 @@ test("an empty arena's view does not throw and has length zero", () => {
   assert.equal(view.membrane.length, 0);
 });
 
+// P03-5.3: the outgoing synapse scheduled its delivery at the spike tick plus that synapse's own delay.
 test('Simulation: a spike is delivered at exactly tick + delay (P03-5.4)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
@@ -492,6 +493,7 @@ test('Simulation.buildColumns wires lateral voting only between named columns (P
 // -- Phase 5.5 Requirement 3: NET-13's suppress half (cross-population
 // inhibitory gating) at the FFI boundary.
 
+// P55-3.5: the gating topology is an additive `gatingGroups` extension of buildColumns, not hand-wired from TypeScript.
 test('Simulation.buildColumns wires gating suppression only between named columns (Requirement 3, NET-13)', () => {
   // Column 0 is entirely inhibitory (excitatoryFraction 0), column 1
   // entirely excitatory, so the gating wiring's effect is unambiguous:
@@ -556,6 +558,7 @@ test('Simulation.buildColumns wires gating suppression only between named column
   );
 });
 
+// P4-1.7: a network built with zero columns takes the unchanged flat path.
 test('Simulation.buildColumns is additive: a flat (no build_columns) network is unaffected (P5-8.2)', () => {
   // Same determinism check as the existing threadCount test above, just
   // confirming a network that never calls buildColumns takes the exact
@@ -808,6 +811,7 @@ test("SegmentsConfig.voteReferenceWeight: weighted mode changes whether a weak s
   );
 });
 
+// WADV-10.1: an invalid reference_weight is rejected.
 test('SegmentsConfig.voteReferenceWeight: Simulation.create rejects an out-of-range value (WADV-1.6)', () => {
   const lif: LifConfig = {
     tauMTicks: 5,
@@ -1060,6 +1064,7 @@ test('Simulation structuralPlasticity prunes a weak synapse through the real com
 
 // -- NET-10: saturation-driven growth, wired live.
 
+// SDG-2.1, SDG-2.2, P8-3.6: growth configured through SimulationOptions and observed through liveNeuronCount/growthEventCount.
 test('Simulation.growth allocates neurons automatically through the real compiled addon, with no caller-driven apply_growth call (SDG-1.1, SDG Requirement 2)', () => {
   const lif: LifConfig = {
     tauMTicks: 5,
@@ -1620,6 +1625,7 @@ test('Simulation: consolidation round-trips through snapshot/restore (advanced t
 // -- Phase 6 Requirement 1: neuron-state bulk views (coords, polarity,
 // threshold, refractory, last spike, adaptation).
 
+// P6-1.1, P6-1.3: a flat Float32Array of 3 x liveCount, zero-copy.
 test('Simulation.coordsView reflects real column-placed coordinates (NET-3, Requirement 1)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
@@ -1634,6 +1640,7 @@ test('Simulation.coordsView reflects real column-placed coordinates (NET-3, Requ
   assert.deepEqual(Array.from(coords), [10, 20, 30, 11, 20, 30, 12, 20, 30]);
 });
 
+// P6-1.1, P6-1.3: an Int8Array, zero-copy.
 test('Simulation.polarityView reflects Dale-signed polarity (NEU-4, Requirement 1)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
@@ -1646,6 +1653,7 @@ test('Simulation.polarityView reflects Dale-signed polarity (NEU-4, Requirement 
   assert.equal(polarity[inhibitory], -1);
 });
 
+// P6-1.1.
 test('Simulation.thresholdView, refractoryView and lastSpikeView reflect real neuron state (Requirement 1)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 3 },
@@ -1673,6 +1681,7 @@ test('Simulation.thresholdView, refractoryView and lastSpikeView reflect real ne
   );
 });
 
+// P6-1.1.
 test('Simulation.adaptationView defaults to zero with no adaptation configured (NEU-8, P6-1.4 backward compatibility)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
@@ -1690,8 +1699,43 @@ test('Simulation.adaptationView defaults to zero with no adaptation configured (
   );
 });
 
+// P6-1.2, P6-2.3: every Phase 6 bulk view follows membraneView's epoch contract -- cached while
+// the epoch is unchanged, re-minted (never served stale) after an arena-growing call. Added by
+// PLAN.md C18: until now nothing grew a Simulation while holding one of these views.
+test('Simulation Phase 6 neuron and synapse views are re-minted after growth, never served stale', () => {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 2 },
+  );
+  sim.allocateNeuron(0.5, 1);
+  const epochBefore = sim.epoch();
+  const coordsBefore = sim.coordsView();
+  const targetsBefore = sim.synapseTargetNeuronView();
+  assert.equal(coordsBefore.length, 3, '1 neuron * 3 components');
+  assert.equal(targetsBefore.length, 2, '1 neuron * capPerNeuron 2');
+  assert.strictEqual(
+    sim.coordsView(),
+    coordsBefore,
+    'cached while the epoch is unchanged',
+  );
+
+  sim.allocateNeuron(0.5, -1); // appends: grows both arenas and bumps the epoch
+
+  assert.ok(sim.epoch() > epochBefore, 'growth must bump the epoch');
+  const coordsAfter = sim.coordsView();
+  assert.notStrictEqual(coordsAfter, coordsBefore, 're-minted, not stale');
+  assert.equal(coordsAfter.length, 6, '2 neurons * 3 components');
+  assert.equal(sim.polarityView()[1], -1, 'the new neuron is visible');
+  assert.equal(
+    sim.synapseTargetNeuronView().length,
+    4,
+    'synapse views re-mint over the grown synapse arena too',
+  );
+});
+
 // -- Phase 6 Requirement 2: synapse-state bulk views.
 
+// P6-2.1.
 test("Simulation synapse bulk views expose a connected synapse's real data, and occupied filters unallocated slots (SYN-1/2/3, Requirement 2)", () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
@@ -1736,6 +1780,7 @@ test("Simulation synapse bulk views expose a connected synapse's real data, and 
 
 // -- Phase 6 Requirement 3: spike-raster export FFI (OBS-3).
 
+// P6-3.1: the existing RASTER format, as a Uint8Array.
 test('Simulation.rasterBytes exports real recorded spikes (OBS-3, Requirement 3)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
@@ -1762,6 +1807,7 @@ test('Simulation.rasterBytes exports real recorded spikes (OBS-3, Requirement 3)
 // attachProbe/firingRate/predictionAccuracy, previously all
 // `Runtime::Single`-only (this same file used to assert `rasterBytes`
 // *threw* in partitioned mode -- see git history for that prior test).
+// P6-3.4, P7-1.4: the raster accessor is extended to partitioned mode, and reproduces threadCount 1's raster.
 test("Simulation.rasterBytes exports real recorded spikes in partitioned mode too, reproducing threadCount 1's raster exactly (Phase 7 Requirement 1(d))", () => {
   function buildAndRaster(threadCount?: number): Uint8Array {
     const sim = Simulation.create(
@@ -1801,6 +1847,7 @@ test("Simulation.rasterBytes exports real recorded spikes in partitioned mode to
 
 // -- Phase 6 Requirement 4: probe FFI (OBS-1).
 
+// P6-4.1, P6-4.2, P6-4.3, P6-4.4: attach, fed by step() with real values, read back, detach.
 test('Simulation attachProbe/readProbe/detachProbe round-trip real spike and membrane data through the addon (OBS-1, Requirement 4)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
@@ -1830,6 +1877,7 @@ test('Simulation attachProbe/readProbe/detachProbe round-trip real spike and mem
   );
 });
 
+// P6-6.1, P6-6.4: segment recording through the probe FFI.
 test('Simulation attachProbe with recordSegments records real per-tick segment activity (Requirement 6)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
@@ -1912,6 +1960,7 @@ test('Simulation readProbe reports a vetoed segment as a negative count, not 0 (
 
 // -- Phase 6 Requirement 5: metrics FFI (OBS-2).
 
+// P6-5.1, P6-5.2.
 test('Simulation firingRate/predictionAccuracy/metricsSnapshot report real values through the addon (OBS-2, Requirement 5)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
@@ -1945,6 +1994,7 @@ test('Simulation firingRate/predictionAccuracy/metricsSnapshot report real value
 // `prediction_accuracy` now sum every partition's raw counts rather than
 // reporting a hardcoded `0.0`.
 
+// P4-11.5, P6-4.5, P7-1.4: two probes, independently addressed, in partitioned mode.
 test('Simulation.attachProbe/readProbe work in partitioned mode, routed to the partition that owns the neuron (Phase 7 Requirement 1(d))', () => {
   const lif: LifConfig = {
     tauMTicks: 5,
@@ -1998,6 +2048,7 @@ test('Simulation.attachProbe/readProbe work in partitioned mode, routed to the p
   );
 });
 
+// P4-11.5, P7-1.4: the partitioned metric reports what the flat one would.
 test('Simulation.firingRate sums raw spike counts across partitions rather than averaging their rates (Phase 7 Requirement 1(d))', () => {
   const lif: LifConfig = {
     tauMTicks: 5,

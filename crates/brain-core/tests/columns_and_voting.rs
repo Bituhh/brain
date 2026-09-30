@@ -112,6 +112,7 @@ fn run_scenario(wire_voting: bool) -> bool {
 }
 
 /// P4-2.6.
+/// P4-2.3: the informed (strongly driven) column's vote carries a neighbour with no quorum.
 #[test]
 fn voting_lets_a_weakly_driven_column_fire_when_its_neighbour_already_has() {
     assert!(!run_scenario(false), "without lateral voting, A's steady-state drive must never cross threshold on its own");
