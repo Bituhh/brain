@@ -63,7 +63,7 @@
 // been isolated. A null would say the substrate is now honest about what
 // dopamine means and that this task does not exercise it -- which is a
 // different claim from the mechanism being wrong, and is reportable as such
-// (Requirement 13.6).
+// (P5-13.6).
 //
 // RUNNING IT. `node --experimental-strip-types scripts/investigate-c3-reward-prediction-error.ts`
 //

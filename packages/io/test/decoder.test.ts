@@ -11,20 +11,20 @@ function candidates(): Candidate<string>[] {
   ];
 }
 
-test('decode returns the highest-overlap candidate (Requirement 7.1, IO-3)', () => {
+test('decode returns the highest-overlap candidate (P5-7.1, IO-3)', () => {
   const observed = makeSdr(20, [0, 1, 2, 9]); // 3/4 overlap with "a", 0 with the others
   const result = decode(observed, candidates(), 0.1);
   assert.equal(result?.label, 'a');
   assert.equal(result?.overlap, 3);
 });
 
-test('decode returns undefined below minConfidence rather than forcing a nearest choice (Requirement 7.2)', () => {
+test('decode returns undefined below minConfidence rather than forcing a nearest choice (P5-7.2)', () => {
   const observed = makeSdr(20, [0, 9, 14, 18]); // only 1/4 overlap with "a", the best available
   const result = decode(observed, candidates(), 0.5);
   assert.equal(result, undefined);
 });
 
-test('decode resolves ties to the lowest candidate index, deterministically (Requirement 7.3)', () => {
+test('decode resolves ties to the lowest candidate index, deterministically (P5-7.3)', () => {
   const tied: Candidate<string>[] = [
     { label: 'first', sdr: makeSdr(20, [0, 1]) },
     { label: 'second', sdr: makeSdr(20, [2, 3]) },
@@ -39,7 +39,7 @@ test('decode on an empty candidate list returns undefined', () => {
   assert.equal(decode(observed, [], 0), undefined);
 });
 
-test('decode uses only the observed and candidate SDRs -- no external state (Requirement 7.4)', () => {
+test('decode uses only the observed and candidate SDRs -- no external state (P5-7.4)', () => {
   // Structural check: calling decode twice with the same inputs must
   // produce the identical result, since nothing about it can depend on
   // call history (no weight, no learning).

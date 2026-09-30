@@ -8,7 +8,7 @@
 // mapped) yet the event stream, and therefore the whole run, must be identical to
 // the hook-unset run. That makes the two runs the same workload -- the only thing
 // that differs is the arithmetic being timed -- and turns the timing comparison
-// into a bit-identity check as a side effect (Requirement 5.2, end to end, on the
+// into a bit-identity check as a side effect (bit-identity when unset, end to end, on the
 // 800-neuron network, not on a 20-neuron test fixture).
 //
 // Both arms hold noradrenaline at 1.0 via `extraTonicModulators`, so the unset arm

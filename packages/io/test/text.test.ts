@@ -22,7 +22,7 @@ function wordConfig(
   return { width: 400, density: 0.02, ...overrides };
 }
 
-test('encodeChar is deterministic (Requirement 5.3)', () => {
+test('encodeChar is deterministic (P5-5.3)', () => {
   const config = charConfig();
   const a = encodeChar(config, 'e');
   const b = encodeChar(config, 'e');
@@ -34,7 +34,7 @@ test('encodeChar rejects a non-single-character input', () => {
   assert.throws(() => encodeChar(charConfig(), ''), RangeError);
 });
 
-test('encodeChar: two distinct characters have low overlap relative to density (Requirement 5.4)', () => {
+test('encodeChar: two distinct characters have low overlap relative to density (P5-5.4)', () => {
   const config = charConfig();
   const expectedActive = Math.round(config.width * config.density);
   const e = encodeChar(config, 'e');
@@ -45,7 +45,7 @@ test('encodeChar: two distinct characters have low overlap relative to density (
   );
 });
 
-test('encodeChar: overlap between orthographically similar and dissimilar pairs is not required to differ (Requirement 5.4)', () => {
+test('encodeChar: overlap between orthographically similar and dissimilar pairs is not required to differ (P5-5.4)', () => {
   // Explicitly not testing "'e' and 'c' overlap more than 'e' and 'z'" --
   // the spec is explicit that this encoder is not required to encode
   // orthographic similarity. This test only confirms both pairs are
@@ -57,7 +57,7 @@ test('encodeChar: overlap between orthographically similar and dissimilar pairs 
   assert.ok(overlap(e, c) < expectedActive * 0.5);
 });
 
-test('encodeChar with context: the same character in different contexts produces different SDRs (Requirement 5.1)', () => {
+test('encodeChar with context: the same character in different contexts produces different SDRs (P5-5.1)', () => {
   const config = charConfig({ contextChars: 2 });
   const eInThe = encodeChar(config, 'e', 'th');
   const eInHe = encodeChar(config, 'e', 'h');
@@ -75,7 +75,7 @@ test('encodeChar without context: the same character is identical regardless of 
   assert.deepEqual(eInThe.activeBits, eInHe.activeBits);
 });
 
-test('SUPPORTED_ALPHABET covers printable ASCII and common whitespace (Requirement 5.5)', () => {
+test('SUPPORTED_ALPHABET covers printable ASCII and common whitespace (P5-5.5)', () => {
   assert.ok(SUPPORTED_ALPHABET.includes('a'));
   assert.ok(SUPPORTED_ALPHABET.includes('Z'));
   assert.ok(SUPPORTED_ALPHABET.includes('0'));
@@ -92,7 +92,7 @@ test('every character in the supported alphabet is encodable without error', () 
   }
 });
 
-test('tokenizeWords splits on whitespace and punctuation using plain string logic (Requirement 5.2)', () => {
+test('tokenizeWords splits on whitespace and punctuation using plain string logic (P5-5.2)', () => {
   assert.deepEqual(tokenizeWords('the quick, brown fox!'), [
     'the',
     'quick',
@@ -106,7 +106,7 @@ test('tokenizeWords splits on whitespace and punctuation using plain string logi
   assert.deepEqual(tokenizeWords("don't stop"), ["don't", 'stop']);
 });
 
-test('encodeWord is deterministic and distinguishes distinct words (Requirement 5.2, 5.3)', () => {
+test('encodeWord is deterministic and distinguishes distinct words (P5-5.2, P5-5.3)', () => {
   const config = wordConfig();
   const a1 = encodeWord(config, 'hello');
   const a2 = encodeWord(config, 'hello');

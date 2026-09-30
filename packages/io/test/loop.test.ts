@@ -60,7 +60,7 @@ function buildLoopFixture() {
   return { sim, column: column!, actions };
 }
 
-test('runSensorimotorLoop closes the loop: a decoded action changes the next observation (Requirement 16.3 smoke test, IO-5)', () => {
+test('runSensorimotorLoop closes the loop: a decoded action changes the next observation (P5-16.3 smoke test, IO-5)', () => {
   const { sim, column, actions } = buildLoopFixture();
   const world = new GridWorld({
     width: 5,
@@ -94,7 +94,7 @@ test('runSensorimotorLoop closes the loop: a decoded action changes the next obs
   );
 });
 
-test("runSensorimotorLoop: an action that is never taken leaves the environment unchanged (Requirement 16.3's converse)", () => {
+test("runSensorimotorLoop: an action that is never taken leaves the environment unchanged (P5-16.3's converse)", () => {
   const { sim, column, actions } = buildLoopFixture();
   const world = new GridWorld({
     width: 5,

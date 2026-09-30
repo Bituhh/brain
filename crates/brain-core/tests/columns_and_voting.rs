@@ -2,7 +2,7 @@
 //! Requirement 2) exercised through the real scheduler, not in isolation.
 //!
 //! `voting_lets_a_weakly_driven_column_fire_when_its_neighbour_already_has`
-//! is Requirement 2's Acceptance Criterion 6 -- the ablation proof that
+//! is P4-2.6 -- the ablation proof that
 //! voting is doing real work, in the spirit of VAL-9: two columns are
 //! built identically and driven identically (column `A` weakly, `B`
 //! strongly) in two scenarios that differ *only* in whether
@@ -111,7 +111,7 @@ fn run_scenario(wire_voting: bool) -> bool {
     a_ever_spiked
 }
 
-/// Requirement 2, Acceptance Criterion 6.
+/// P4-2.6.
 #[test]
 fn voting_lets_a_weakly_driven_column_fire_when_its_neighbour_already_has() {
     assert!(!run_scenario(false), "without lateral voting, A's steady-state drive must never cross threshold on its own");

@@ -1,5 +1,5 @@
 //! Whole-network VAL-9 ablation test for PLAN.md B5's weighted dendritic
-//! votes (docs/decisions.md decision 13, requirements.md Requirement 10.2).
+//! votes (docs/decisions.md decision 13, WADV-10.2).
 //!
 //! The scenario design.md names directly: a `target` neuron whose segment 0
 //! has an *established* context synapse (full weight, at/above the

@@ -1,7 +1,7 @@
 // Interactive control panel (Phase 6 Requirement 8, client side): wires
 // DOM controls to the callbacks `main.ts` turns into control-channel
 // messages. No simulation-mutating capability is invented here beyond
-// what the FFI already exposes (Requirement 8.1) -- every callback below
+// what the FFI already exposes (P6-8.1) -- every callback below
 // maps to exactly one `ClientMessage` variant.
 
 export interface ControlsCallbacks {

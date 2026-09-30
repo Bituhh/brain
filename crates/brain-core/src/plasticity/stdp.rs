@@ -1,10 +1,10 @@
-//! The STDP timing kernel (Requirement 8.3, 8.4, 8.5).
+//! The STDP timing kernel (P03-8.3, P03-8.4, P03-8.5).
 //!
 //! This module holds *only* the pure, analytic shape of spike-timing
 //! dependent plasticity -- a function of one signed time interval to one
 //! signed weight-change contribution -- kept separate from
 //! `three_factor.rs`'s eligibility/modulation machinery so it can be
-//! tested directly against its own closed form (Requirement 8.5) without
+//! tested directly against its own closed form (P03-8.5) without
 //! needing eligibility decay or a modulator in the picture at all.
 //!
 //! Convention: `dt = t_post - t_pre`. `dt > 0` (pre before post) is the
@@ -36,7 +36,7 @@ pub struct StdpParams {
 
 impl StdpParams {
     /// The signed weight-change contribution for one pre/post spike pair
-    /// separated by `dt = t_post - t_pre` ticks (Requirement 8.5's curve).
+    /// separated by `dt = t_post - t_pre` ticks (P03-8.5's curve).
     pub fn kernel(&self, dt: f32) -> f32 {
         if dt.abs() > self.window_ticks as f32 {
             return 0.0;
@@ -346,7 +346,7 @@ mod tests {
         assert!(p.kernel(5.0) > 0.0);
     }
 
-    /// Requirement 8.4: post-before-pre weakens.
+    /// P03-8.4: post-before-pre weakens.
     #[test]
     fn negative_dt_depresses() {
         let p = params();
@@ -540,11 +540,11 @@ mod tests {
         assert!(StdpModulation::new(Some(can_reach_zero), Some(LevelMap { min: -1.0, ..ok }), None, None, None).is_ok());
     }
 
-    /// Requirement 8.5: the kernel reproduces the configured asymmetric
+    /// P03-8.5: the kernel reproduces the configured asymmetric
     /// STDP curve exactly (it *is* the curve -- this test exists to catch
     /// an accidental change to the formula, e.g. swapped tau/amplitude
     /// terms, that unit tests on individual points might miss).
-    /// Requirement 14.1's STDP half.
+    /// P03-14.1's STDP half.
     #[test]
     fn curve_matches_the_configured_asymmetric_exponential_exactly() {
         let p = StdpParams { a_plus: 0.05, a_minus: 0.08, tau_plus: 15.0, tau_minus: 25.0, window_ticks: 200 };

@@ -8,7 +8,7 @@
 // when the *specific* location bits that were wired near it are the ones
 // active -- so the same weak sensory drive spikes when paired with one
 // location and does not when paired with a different, non-overlapping one.
-// This is the substrate capability Requirement 6 AC2 asks be demonstrated;
+// This is the substrate capability P55-6.2 asks be demonstrated;
 // it does not require a multi-episode learning curve to show the substrate
 // can do it, any more than NET-5's own voting ablation needed one.
 
@@ -117,8 +117,8 @@ function buildNetwork(sensoryBaseX: number, wireVoting: boolean) {
   // Distance-only wiring: a location neuron and the sensory neuron connect
   // only when they are coordinate-close, under a short length_scale --
   // *except* at distance exactly 0, where probability_at is p0 regardless
-  // of length_scale (exp(0) = 1 always). So the ablation (Requirement 6
-  // AC4) is "never call connect_lateral_voting at all" -- matching
+  // of length_scale (exp(0) = 1 always). So the ablation
+  // (P55-6.4) is "never call connect_lateral_voting at all" -- matching
   // `columns_and_voting.rs`'s own established ablation shape exactly --
   // rather than trying to shrink length_scale to zero, which cannot
   // actually sever a distance-0 pair.
@@ -170,7 +170,7 @@ function runTrial(
   return sensorySpiked;
 }
 
-test('a sensory neuron depolarised by a specific location spikes under otherwise-insufficient drive when that location is active (Requirement 6 AC2)', () => {
+test('a sensory neuron depolarised by a specific location spikes under otherwise-insufficient drive when that location is active (P55-6.2)', () => {
   // sensoryBaseX chosen so the sensory neuron's coordinate coincides with
   // location x=5's neuron coordinate exactly (distance 0) and is far
   // (length_scale-relative) from every other location neuron, including
@@ -183,7 +183,7 @@ test('a sensory neuron depolarised by a specific location spikes under otherwise
   );
 });
 
-test("the same weak drive does NOT spike under a different, non-overlapping location (Requirement 6 AC2's disambiguation)", () => {
+test("the same weak drive does NOT spike under a different, non-overlapping location (P55-6.2's disambiguation)", () => {
   const sensoryBaseX = 5;
   assert.equal(
     runTrial(sensoryBaseX, true, 15),
@@ -192,7 +192,7 @@ test("the same weak drive does NOT spike under a different, non-overlapping loca
   );
 });
 
-test('ablation: with lateral voting never wired at all, neither location depolarises the sensory neuron (Requirement 6 AC4)', () => {
+test('ablation: with lateral voting never wired at all, neither location depolarises the sensory neuron (P55-6.4)', () => {
   const sensoryBaseX = 5;
   assert.equal(
     runTrial(sensoryBaseX, false, 5),

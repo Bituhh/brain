@@ -3,14 +3,14 @@
 //! Topology is *described*, not enumerated: neurons are positioned in an
 //! abstract coordinate space (already carried by `NeuronArena::coords`
 //! since Step 2), and a connectivity policy decides connection probability
-//! as a function of distance between them (Requirement 6.2). Every random
+//! as a function of distance between them (P03-6.2). Every random
 //! decision is drawn via `rng::derive_stream`, keyed by
 //! `(seed, entity_id, purpose, second_id)` -- never a persistent generator
 //! -- so a given seed produces the same topology regardless of thread,
 //! iteration order, or partitioning (RUN-3, docs/decisions.md decision 7).
 //!
 //! Nothing here excludes self-connections, cycles, or recurrence
-//! (Requirement 6.1): a source-to-target pair is just two neuron indices,
+//! (P03-6.1): a source-to-target pair is just two neuron indices,
 //! and the loop over pairs never special-cases `source == target` or
 //! checks for an existing path back.
 //!
@@ -59,7 +59,7 @@ mod purpose {
     pub const SEGMENT_ASSIGN: u32 = 5;
 }
 
-/// A distance-based connectivity policy (Requirement 6.2): connection
+/// A distance-based connectivity policy (P03-6.2): connection
 /// probability falls off exponentially with distance between neuron
 /// coordinates. Exponential falloff is a standard, simple choice matching
 /// the "mostly nearby, long tail of distant connections" biology described
@@ -129,8 +129,8 @@ impl GraphBuilder {
     }
 
     /// Allocates `coords.len()` neurons at the given positions, assigning
-    /// polarity by an `excitatory_fraction` ratio (NEU-4, Requirement
-    /// 6.3 -- default 80:20 is the caller's choice of fraction, not baked
+    /// polarity by an `excitatory_fraction` ratio (NEU-4,
+    /// P03-6.3 -- default 80:20 is the caller's choice of fraction, not baked
     /// in here) via a derived stream keyed by each neuron's index, not by
     /// allocation order -- the same seed gives the same polarity
     /// assignment regardless of what else has already been allocated.
@@ -152,9 +152,9 @@ impl GraphBuilder {
     }
 
     /// Applies a distance-based connectivity policy over `neuron_indices`
-    /// (Requirement 6.2), reading each neuron's position from
+    /// (P03-6.2), reading each neuron's position from
     /// `neurons.coords`. A `BlockFull` result from `SynapseArena::insert`
-    /// (Requirement 11.3's per-neuron budget) is a legitimate, expected
+    /// (P03-11.3's per-neuron budget) is a legitimate, expected
     /// outcome, not every desired connection needs to succeed -- this
     /// silently skips those rather than treating them as errors, matching
     /// design.md's Error Handling table.
@@ -211,7 +211,7 @@ impl GraphBuilder {
     /// existing [`Self::allocate_population`] and wires its internal
     /// microcircuit via the existing [`Self::connect`], restricted to just
     /// this column's own indices -- no new allocation/connection code path,
-    /// which is Requirement 1's Acceptance Criteria 1-2 by construction.
+    /// which is P4-1.1 and P4-1.2 by construction.
     /// `segments.segments_per_neuron` is forwarded straight to `connect`, so
     /// the column's own internal wiring is distributed across its neurons'
     /// dendritic segments exactly as any other `connect` call now is (docs/findings.md
@@ -225,7 +225,7 @@ impl GraphBuilder {
     /// fresh, strictly contiguous range -- true at network construction
     /// time, which is when columns are built. `neighbourhood_size` is the
     /// number of neurons per local k-WTA competition *within* this column
-    /// (Requirement 1, Acceptance Criterion 3): pass `coords.len() as u32`
+    /// (P4-1.3): pass `coords.len() as u32`
     /// for "the whole column is one neighbourhood" (this experiment's most
     /// common case, matching `tests/emergent.rs`'s one-neighbourhood-per-
     /// symbol pattern), or a smaller value for several neighbourhoods
@@ -262,7 +262,7 @@ impl GraphBuilder {
 
     /// Wires a distance-policy-sampled set of synapses from every index in
     /// `source_indices` to every index in `target_indices` onto
-    /// `target_segment` (Phase 5.5 Requirement 3, Acceptance Criteria 1-2).
+    /// `target_segment` (P55-3.1, P55-3.2).
     /// The same sampling `connect`/the old `connect_lateral_voting` body
     /// already used, generalised to arbitrary index sets rather than one
     /// population or a whole column range -- `connect_lateral_voting` below
@@ -322,8 +322,8 @@ impl GraphBuilder {
     /// what turns "another column already has support for an answer" into
     /// "this column's matching neurons reach threshold with a larger
     /// margin" (NEU-6). A column with no lateral-voting call is therefore
-    /// unaffected by this method's existence at all (Requirement 2,
-    /// Acceptance Criterion 4) -- this wires ordinary synapses onto an
+    /// unaffected by this method's existence at all
+    /// (P4-2.4) -- this wires ordinary synapses onto an
     /// ordinary segment index the caller chooses, not a reserved sentinel
     /// the way [`crate::segment::FEEDFORWARD_SEGMENT`] is: an unused
     /// segment index has no special meaning of its own until something
@@ -364,7 +364,7 @@ mod tests {
         (0..n).map(|i| [i as f32 * spacing, 0.0, 0.0]).collect()
     }
 
-    /// Requirement 6.3.
+    /// P03-6.3.
     #[test]
     fn population_ratio_is_approximately_80_20() {
         let mut neurons = NeuronArena::new();
@@ -406,10 +406,10 @@ mod tests {
 
         let a = indices[0];
         let b = indices[1];
-        assert!(synapses.occupied_in_block(a).any(|s| synapses.target_neuron[s as usize] == a), "self-connections must be permitted (Req 6.1)");
+        assert!(synapses.occupied_in_block(a).any(|s| synapses.target_neuron[s as usize] == a), "self-connections must be permitted (P03-6.1)");
         let a_to_b = synapses.occupied_in_block(a).any(|s| synapses.target_neuron[s as usize] == b);
         let b_to_a = synapses.occupied_in_block(b).any(|s| synapses.target_neuron[s as usize] == a);
-        assert!(a_to_b && b_to_a, "recurrent A->B and B->A must both be permitted (Req 6.1)");
+        assert!(a_to_b && b_to_a, "recurrent A->B and B->A must both be permitted (P03-6.1)");
     }
 
     #[test]
@@ -429,7 +429,7 @@ mod tests {
 
     #[test]
     fn nearby_pairs_connect_more_often_than_distant_pairs() {
-        // Requirement 6.2: connection probability is a function of
+        // P03-6.2: connection probability is a function of
         // distance. Qualitative, robust check: pool connection attempts
         // by distance bucket and confirm the near bucket's hit rate is
         // clearly higher than the far bucket's, across a single but large
@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn build_column_forwards_segments_per_neuron_to_its_internal_wiring() {
-        // Requirement 1 AC1-2's "no new allocation/connection code path"
+        // P4-1.1/P4-1.2's "no new allocation/connection code path"
         // extends to this parameter too: a column built with
         // segments_per_neuron > 1 must show the same spread `connect`
         // itself does, not silently stay collapsed onto segment 0 the way
@@ -617,7 +617,7 @@ mod tests {
 
     // -- Column primitive (NET-4, Requirement 1): `build_column` must be
     // indistinguishable from calling `allocate_population` + `connect`
-    // directly (Requirement 1, Acceptance Criteria 1-2) and must produce a
+    // directly (P4-1.1, P4-1.2) and must produce a
     // correctly-scoped `ColumnSpec`.
 
     use crate::segment::BinaryCoincidenceParams;
@@ -659,7 +659,7 @@ mod tests {
 
     #[test]
     fn build_column_wiring_matches_a_direct_allocate_and_connect_call() {
-        // Requirement 1, Acceptance Criteria 1-2: a column must run through
+        // P4-1.1, P4-1.2: a column must run through
         // exactly the same allocation/connection code as a flat population
         // -- proven here by reproducing build_column's own steps manually
         // with the same seed and asserting identical connectivity.
@@ -784,6 +784,6 @@ mod tests {
         builder.connect_lateral_voting(&neurons, &mut synapses, &columns, &[a_id], 0, &voting_policy);
 
         let total: usize = columns.range_of(a_id).unwrap().map(|i| synapses.occupied_in_block(i).count()).sum();
-        assert_eq!(total, 0, "Requirement 2 AC4: a lone column in its own voting group must remain unaffected");
+        assert_eq!(total, 0, "P4-2.4: a lone column in its own voting group must remain unaffected");
     }
 }

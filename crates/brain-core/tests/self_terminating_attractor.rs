@@ -47,11 +47,11 @@ const BOOTSTRAP_TICKS: u32 = 10;
 /// estimate to observe both "still sustaining" and "has self-terminated"
 /// within one run).
 const POST_WITHDRAWAL_TICKS: u32 = 500;
-/// The attractor must still be active here (Acceptance Criterion 1's
+/// The attractor must still be active here (P7-2.1's
 /// "sustained, not a failure to launch") -- well before the estimated
 /// quenching point.
 const STILL_ACTIVE_CHECKPOINT: usize = 100;
-/// The attractor must have gone silent by here (Acceptance Criterion 1's
+/// The attractor must have gone silent by here (P7-2.1's
 /// self-termination) -- comfortably past the estimated quenching point.
 const SELF_TERMINATED_BY: usize = 400;
 const SEEDS: [u64; 5] = [1, 2, 3, 4, 5];
@@ -102,7 +102,7 @@ fn spikes_at_or_after(raster: &SpikeRaster, tick_floor: usize) -> usize {
     raster.events().iter().filter(|&&(tick, _)| tick as usize >= tick_floor).count()
 }
 
-/// Requirement 2, Acceptance Criterion 1: with adaptation enabled, the
+/// P7-2.1: with adaptation enabled, the
 /// attractor sustains well past withdrawal (not a failure to launch) but
 /// has gone silent by the end of the window -- self-terminated, with no
 /// external suppression ever applied.
@@ -131,11 +131,11 @@ fn attractor_self_terminates_via_adaptation_with_no_external_suppression() {
     }
 }
 
-/// Requirement 2, Acceptance Criterion 2 (ablation): the identical
+/// P7-2.2 (ablation): the identical
 /// topology with adaptation left at its default (disabled -- every other
 /// existing test's configuration) must NOT self-terminate within the same
 /// window, proving adaptation, not some other factor (e.g. floating-point
-/// decay, ambient wiring), is responsible for Acceptance Criterion 1's
+/// decay, ambient wiring), is responsible for P7-2.1's
 /// result.
 #[test]
 #[ignore = "slow tier: multi-seed emergent battery (NEU-8 self-release, Phase 7)"]

@@ -2,7 +2,7 @@
 // sliding-window-over-a-bit-array construction (docs/prior-art.md §13.1) -- bucket
 // the value's position in [min, max], turn on a contiguous run of bits
 // centered there. Nearby values share most of their run (substantial
-// overlap); far values share none (Requirement 3.2).
+// overlap); far values share none (P5-3.2).
 
 import { makeSdr, type Sdr } from '../sdr.ts';
 
@@ -14,7 +14,7 @@ export interface ScalarEncoderConfig {
   /** Length of the contiguous "on" run -- the encoder's resolution: two values closer than roughly one bucket apart share most of their run. */
   readonly activeBits: number;
   /**
-   * How an out-of-range value is handled (Requirement 3.3): `"clamp"`
+   * How an out-of-range value is handled (P5-3.3): `"clamp"`
    * deterministically clamps to `[min, max]`; `"reject"` throws
    * `ScalarRangeError`. Required, not defaulted, so behaviour is always
    * an explicit, documented per-instance choice rather than silently
@@ -40,7 +40,7 @@ function validateConfig(config: ScalarEncoderConfig): void {
 
 /**
  * Encodes `value` into an `Sdr` of `config.width` bits, `config.activeBits`
- * of them contiguous (Requirement 3.1). Deterministic (Requirement 2.3):
+ * of them contiguous (P5-3.1). Deterministic (P5-2.3):
  * the same `value` under the same `config` always produces the
  * bit-identical `Sdr`.
  */

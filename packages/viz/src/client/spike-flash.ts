@@ -2,11 +2,11 @@
 // "recently spiked" record, sampled by the render loop rather than driving
 // one draw call per incoming `tick` message -- this is what makes bursts
 // of several `tick` messages arriving between two rendered animation
-// frames coalesce into one drawn flash per neuron (Requirement 10.3)
+// frames coalesce into one drawn flash per neuron (P6-10.3)
 // automatically, with no explicit batching logic.
 //
 // v1 renders an instantaneous per-neuron flash, not a delay-aware
-// travelling-dot animation along each edge (design.md's Requirement 10.2
+// travelling-dot animation along each edge (design.md's P6-10.2
 // decision) -- a stated simplification, not an oversight.
 
 export class SpikeFlash {

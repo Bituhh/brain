@@ -12,7 +12,7 @@
 // under index blocks. This script asks the separate question: now that the
 // capacity is reachable, does VAL-4 accuracy move?
 //
-// Written before the result, per README Requirement 13.6: unblocking a path
+// Written before the result, per P5-13.6: unblocking a path
 // is not the same as the path being useful, and PLAN.md B3 already produced
 // exactly that shape of result (it dissolved the growth deadlock and the
 // newly functional capacity did not help). A null here is a deliverable.
@@ -201,7 +201,7 @@ const winnerConfig = toConfig(searchCondition(winner));
 /**
  * Only `structuralPlasticity.sproutReachRadius` is set, never
  * `predictiveLearning`'s. Two reasons, both about this network rather than
- * about the mechanism: `charPrediction.ts` disables Requirement 12.1's burst
+ * about the mechanism: `charPrediction.ts` disables P03-12.1's burst
  * path outright (`neighbourhoodSize: 1`) because letting it range widely at
  * 800 neurons measured 400x slower, and a radius *overrides* that rather
  * than intersecting with it -- so setting one here would reintroduce a cost

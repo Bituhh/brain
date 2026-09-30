@@ -155,7 +155,7 @@ export interface WsServerHandlers {
 
 /**
  * Attaches WebSocket upgrade handling to an existing `http.Server`
- * (Phase 6 Requirement 7.1) -- the same server also serves the static
+ * (P6-7.1) -- the same server also serves the static
  * client bundle over plain HTTP (`server.ts`), matching a normal local
  * dev-tool's single-port convenience.
  */
@@ -221,7 +221,7 @@ export function attachWebSocketServer(
             handlers.onMessage(conn, parsed.payload);
           }
           // text (0x1) and pong (0xa) frames are intentionally ignored: this
-          // protocol is binary-only (Requirement 7.5's wire format), and a
+          // protocol is binary-only (P6-7.5's wire format), and a
           // pong needs no response.
         }
       };

@@ -1,5 +1,5 @@
 //! Sanity tests for the shared fixture builders themselves
-//! (`tests/common/`, Requirement 15.12): a bug in a shared builder would
+//! (`tests/common/`, P03-15.12): a bug in a shared builder would
 //! silently affect every test that reaches for it, so the builder gets
 //! its own coverage rather than being trusted by construction -- and this
 //! is the demonstration call site for the pattern new whole-network tests

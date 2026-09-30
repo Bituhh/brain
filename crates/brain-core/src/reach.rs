@@ -27,7 +27,7 @@
 ///
 /// [`Self::IndexBlocks`] is every pre-C4 caller's behaviour and stays the
 /// default, so a configuration that does not opt in is bit-identical
-/// (Requirement 5.2's convention throughout this crate).
+/// (the bit-identical-when-unset convention used throughout this crate).
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum SproutReach {
     /// Disjoint, contiguous index blocks of `FixedNeighbourhoods::size()`

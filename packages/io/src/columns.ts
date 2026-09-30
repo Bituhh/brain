@@ -1,4 +1,4 @@
-// The `packages/io` <-> network bridge (Requirements 2.4, 7.5, 8.3, 8.4):
+// The `packages/io` <-> network bridge (P5-2.4, P5-7.5, P5-8.3, P5-8.4):
 // wraps one column built via `Simulation.buildColumns` (packages/brain)
 // with the encode/decode-facing conveniences that boundary rule keeps out
 // of the FFI surface itself -- resolving an `Sdr`'s active bits onto
@@ -27,7 +27,7 @@ export class ColumnHandle {
   /**
    * Maps `sdr`'s active bits (local, `[0, width)`) onto this column's
    * global neuron-index range and stimulates each one with `current`
-   * (Requirement 2.4/8.3's explicit, documented mapping).
+   * (P5-2.4/P5-8.3's explicit, documented mapping).
    */
   stimulateSdr(sim: Simulation, sdr: Sdr, current: number): void {
     if (sdr.width > this.width) {
@@ -43,7 +43,7 @@ export class ColumnHandle {
   /**
    * Filters the global spiked-index list (`sim.step()`'s return value)
    * down to this column's own range, shifted to local indices
-   * (Requirement 7.5's explicit, documented mapping -- symmetric in spirit
+   * (P5-7.5's explicit, documented mapping -- symmetric in spirit
    * with `stimulateSdr`).
    */
   observedSdr(spikedThisTick: ReadonlyArray<number>): Sdr {
@@ -56,12 +56,12 @@ export class ColumnHandle {
     return makeSdr(this.width, bits);
   }
 
-  /** Zero-copy subarray of `sim.membraneView()` restricted to this column (Requirement 8.4). */
+  /** Zero-copy subarray of `sim.membraneView()` restricted to this column (P5-8.4). */
   membraneWindow(sim: Simulation): Float32Array {
     return sim.membraneView().subarray(this.range.start, this.range.end);
   }
 
-  /** Zero-copy subarray of `sim.predictiveView()` restricted to this column (Requirement 8.4). */
+  /** Zero-copy subarray of `sim.predictiveView()` restricted to this column (P5-8.4). */
   predictiveWindow(sim: Simulation): Float32Array {
     return sim.predictiveView().subarray(this.range.start, this.range.end);
   }

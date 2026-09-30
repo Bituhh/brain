@@ -52,8 +52,8 @@ export function voteReferenceWeightOf(
 function homeostaticScalingOf(
   point: Point<B5ParamName>,
 ): CharPredictionConfig['homeostaticScaling'] {
-  // Target/interval held fixed (not themselves searched -- Requirement
-  // 6.2 asks only for on/off, not a rescale-rate search): a moderate target
+  // Target/interval held fixed (not themselves searched --
+  // WADV-6.2 asks only for on/off, not a rescale-rate search): a moderate target
   // for this harness's own initial-weight scale (columnConfig's
   // initialPermanence 0.4 over ~p0*width incoming synapses).
   return point.homeostaticScaling === 1
@@ -68,7 +68,7 @@ export type Condition =
       readonly point: Point<B5ParamName>;
       readonly fixes: Fixes;
     }
-  /** Reference: condition A (no structural plasticity), count mode -- Requirement 9.3. */
+  /** Reference: condition A (no structural plasticity), count mode -- WADV-9.3. */
   | { readonly kind: 'A-count' }
   /** Reference: condition A at the winner's own vote/threshold/target/homeostasis settings, no structural plasticity. */
   | { readonly kind: 'A-at'; readonly point: Point<B5ParamName> }

@@ -58,7 +58,7 @@ fn params() -> StructuralPlasticityParams {
 ///
 /// `cap_per_neuron` is **1** and every block is pre-filled, so every insert
 /// the sweep attempts fails with `BlockFull` (a legitimate, expected outcome
-/// -- Requirement 11.3). The sweep therefore walks its entire candidate set
+/// -- P03-11.3). The sweep therefore walks its entire candidate set
 /// in both arms while neither gets to change the topology. That is what
 /// makes the two numbers comparable: without it, the spatial arm would
 /// create more synapses than the index-block arm and then pay to carry

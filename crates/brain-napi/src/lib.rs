@@ -69,7 +69,7 @@ impl NativeArena {
         self.inner.allocate(spec).index
     }
 
-    /// The arena's current epoch (Requirement 2.2). A plain scalar call --
+    /// The arena's current epoch (P03-2.2). A plain scalar call --
     /// cheap enough to call once per view acquisition, which is the only
     /// frequency the design ever needs it at (never per-element).
     #[napi]
@@ -88,12 +88,12 @@ impl NativeArena {
     }
 
     /// A zero-copy view over the membrane array's *current* backing memory
-    /// (Requirement 2.1): the returned `Float32Array` aliases Rust-owned
+    /// (P03-2.1): the returned `Float32Array` aliases Rust-owned
     /// memory rather than copying it, so a mutation made through
     /// `poke_membrane` is visible through a view obtained *before* that
     /// mutation, with no further FFI call and no marshalling in between.
     ///
-    /// # Safety contract (Requirement 2.2)
+    /// # Safety contract (P03-2.2)
     /// The view is valid only until the next operation that *grows* the
     /// arena (an `allocate` call that appends rather than reuses a freed
     /// slot) -- growth may reallocate the backing `Vec` and free this
@@ -109,14 +109,14 @@ impl NativeArena {
     /// the JS side), not a safety requirement of this function itself. A
     /// caller that retains a raw typed array past a `grow()` call and
     /// reads it directly, bypassing `ArenaViews`, is outside that
-    /// contract -- consistent with Requirement 2.4 (memory layout is not
+    /// contract -- consistent with P03-2.4 (memory layout is not
     /// part of the public contract, so nothing sanctioned exposes a way
     /// to do this).
     #[napi]
     pub fn membrane_view(&mut self) -> Float32Array {
         let len = self.inner.membrane.len();
         let ptr = self.inner.membrane.as_mut_ptr();
-        // SAFETY (Requirement 1.6): `ptr` addresses `self.inner.membrane`'s current
+        // SAFETY (P03-1.6): `ptr` addresses `self.inner.membrane`'s current
         // allocation, valid for `len` elements. That allocation's true
         // owner is `self.inner`, kept alive by the JS object wrapping this
         // `NativeArena` -- NOT by this array's finalizer, which is
@@ -132,7 +132,7 @@ impl NativeArena {
     /// Mutates a membrane value directly. A stand-in for real neuron
     /// dynamics (Step 4), used only to prove that Rust-side mutation is
     /// visible through an already-obtained view with no copy in between
-    /// (Requirement 2.1).
+    /// (P03-2.1).
     #[napi]
     pub fn poke_membrane(&mut self, index: u32, value: f64) -> Result<()> {
         let slot = self
@@ -160,13 +160,13 @@ pub struct LifConfig {
     pub v_rest: f64,
     pub v_reset: f64,
     pub refractory_ticks: u32,
-    /// Dendritic predictive-state decay (Requirement 10.3). Omit (or pair
+    /// Dendritic predictive-state decay (P03-10.3). Omit (or pair
     /// with an omitted `predictive_threshold_reduction`) to leave
     /// `predictive` with no effect on thresholding, matching every
     /// pre-Step-8 caller's behaviour exactly (`LifParams::new`'s default).
     pub tau_predictive_ticks: Option<f64>,
     /// How much a fully-depolarised segment lowers the effective threshold
-    /// (Requirement 10.3) -- it lowers threshold, it never fires the cell
+    /// (P03-10.3) -- it lowers threshold, it never fires the cell
     /// by itself.
     pub predictive_threshold_reduction: Option<f64>,
     /// Spike-frequency adaptation's decay time constant (NEU-8, Phase 5.5
@@ -252,7 +252,7 @@ impl SegmentsConfig {
         Ok(())
     }
 
-    /// `segment::SegmentConfig`'s `vote` field, following Requirement 1.6's
+    /// `segment::SegmentConfig`'s `vote` field, following WADV-1.6's
     /// `(0, 1]` bound -- `validate()` must have already been called on
     /// this value (every construction site below does).
     fn dendritic_vote(&self) -> DendriticVote {
@@ -335,7 +335,7 @@ pub struct PredictiveLearningConfig {
     /// without displacing a routing channel already in use -- which the
     /// shipped VAL-4 configuration's tonically-held acetylcholine is.
     pub gain_modulator_index: Option<u32>,
-    /// Neighbourhood `size`/`k` used only by Requirement 12.1's
+    /// Neighbourhood `size`/`k` used only by P03-12.1's
     /// unpredicted-spike burst path to find "recently active" neighbours
     /// to reinforce or sprout onto -- independent of the scheduler's own
     /// `InhibitionConfig`, since a caller may want a different notion of
@@ -349,7 +349,7 @@ pub struct PredictiveLearningConfig {
     /// permanence-only finding -- see `predictive::SegmentLearningTarget`'s
     /// doc comment.
     pub learning_target: Option<String>,
-    /// `reach::SproutReach::Spatial`'s FFI mirror for Requirement 12.1's
+    /// `reach::SproutReach::Spatial`'s FFI mirror for P03-12.1's
     /// burst path (PLAN.md C4, docs/decisions.md decision 15): when set, a
     /// bursting neuron's candidate sources are every neuron within this
     /// Euclidean radius of it in `coordsView()` space, instead of its
@@ -365,7 +365,7 @@ pub struct PredictiveLearningConfig {
     /// disable this path entirely for a measured >400x cost -- a radius
     /// ignores `neighbourhoodSize` completely.
     pub sprout_reach_radius: Option<f64>,
-    /// PLAN.md C14 arm 1: restrict Requirement 12.3's reinforcement to the
+    /// PLAN.md C14 arm 1: restrict P03-12.3's reinforcement to the
     /// synapses that actually *delivered* within this many **ticks**
     /// (`ticksPerInput` of 2 makes a window of 4 ticks 2 characters).
     ///
@@ -379,7 +379,7 @@ pub struct PredictiveLearningConfig {
     /// uninvolved inputs is measured (Royer & Paré 2003) while heterosynaptic
     /// potentiation is not (docs/prior-art.md §13.13(k)/(l)).
     pub contributor_window_ticks: Option<u32>,
-    /// `false` restores the pre-C14 rule -- Requirement 12.3 reinforces every
+    /// `false` restores the pre-C14 rule -- P03-12.3 reinforces every
     /// synapse on the segment, contributor or not. Omit (or `true`) for the
     /// default gate.
     ///
@@ -728,7 +728,7 @@ impl RewardPredictionErrorConfig {
     }
 }
 
-/// Homeostatic synaptic scaling (LRN-6, Phase 5 Requirement 9.2/9.6): the
+/// Homeostatic synaptic scaling (LRN-6, P5-9.2/P5-9.6): the
 /// second of two "closed while wiring Requirement 15" gaps -- Steps 26/27
 /// wired `Scheduler`/`PartitionRuntime` to drive this automatically inside
 /// `step()` when configured, but nothing before this exposed the
@@ -801,7 +801,7 @@ pub struct InhibitionHomeostasisConfig {
     pub interval_ticks: u32,
 }
 
-/// Structural plasticity (LRN-7, Phase 5 Requirement 9.2/9.6) -- the
+/// Structural plasticity (LRN-7, P5-9.2/P5-9.6) -- the
 /// `HomeostaticScalingConfig` companion. Omit to leave `step()`'s
 /// structural sweep disabled, matching every pre-Phase-5 caller.
 #[napi(object)]
@@ -1424,7 +1424,7 @@ pub struct MetricsSnapshotFfi {
 /// **Why a cumulative tally and not a per-tick or end-of-run reading.**
 /// `predictionAccuracy()` already reports a smoothed *rate*, and
 /// `predictiveView()` reports the *instantaneous* depolarisation of each
-/// neuron. Neither can answer "did Requirement 12.2/12.3 ever classify
+/// neuron. Neither can answer "did P03-12.2/P03-12.3 ever classify
 /// anything over this run", which is the question C4's own fixture finding
 /// turned on: a single end-of-run reading of `predictiveView()` was used to
 /// infer that a configuration had stopped predicting *at all*, and that
@@ -1592,7 +1592,7 @@ pub struct NativeSimulation {
     runtime: Runtime,
     lif_params: LifParams,
     /// Column membership (Phase 5 Requirement 8), default empty -- an empty
-    /// registry is Requirement 8.2's fallback: `ensure_partition_runtime_built`
+    /// registry is P5-8.2's fallback: `ensure_partition_runtime_built`
     /// treats it exactly like the pre-Phase-5 flat-network path, and
     /// `snapshot_bytes`/`restore` round-trip it unchanged either way (it was
     /// always written, just always empty, before `build_columns` existed).
@@ -1637,7 +1637,7 @@ pub struct NativeSimulation {
     /// not part of this comparison -- it is a scheduler-level refinement of
     /// `k` (PLAN.md B3) that `ColumnConfig` cannot express at all.
     scheduler_inhibition: Option<(u32, u32)>,
-    /// Count of growth triggers observed so far (NET-10, Requirement 2.2)
+    /// Count of growth triggers observed so far (NET-10, SDG-2.2)
     /// -- incremented in `step()` (`Runtime::Single` only, matching growth's
     /// overall scope) whenever `StepReport::grown` is non-empty. Exposed via
     /// `growth_event_count()` so a caller can tell "did anything grow since
@@ -1821,7 +1821,7 @@ fn build_scheduler(config: &SchedulerConfig) -> Scheduler {
     scheduler
 }
 
-/// `NativeSimulation`'s execution mode (Requirement 7 AC1: `threadCount`
+/// `NativeSimulation`'s execution mode (P4-7.1: `threadCount`
 /// defaults to 1, i.e. `Single`, with zero behaviour change for every
 /// caller that never mentions it).
 ///
@@ -1854,8 +1854,8 @@ enum Runtime {
 }
 
 /// Local inhibition config (Requirement 7): fixed-size k-winners-take-all
-/// neighbourhoods. Omit to run with inhibition disabled (Requirement
-/// 7.5's ablation path) -- not a special-cased mode, just what the
+/// neighbourhoods. Omit to run with inhibition disabled
+/// (P03-7.5's ablation path) -- not a special-cased mode, just what the
 /// scheduler does by default.
 #[napi(object)]
 pub struct InhibitionConfig {
@@ -1980,8 +1980,8 @@ pub struct GatingGroupConfig {
     pub policy: DistancePolicyConfig,
 }
 
-/// One built column's identity and neuron-index range (Phase 5 Requirement
-/// 8.3): `start..end` is the "explicit, documented mapping" a caller uses to
+/// One built column's identity and neuron-index range
+/// (P5-8.3): `start..end` is the "explicit, documented mapping" a caller uses to
 /// resolve an SDR's active bits (or any column-relative index) onto global
 /// neuron indices for `stimulate`, without needing to know the network's
 /// internal numbering scheme.
@@ -1995,7 +1995,7 @@ pub struct ColumnHandleFfi {
 #[napi]
 impl NativeSimulation {
     // `thread_count`: number of native threads `PartitionRuntime` should use
-    // (Requirement 7 AC1). Omit or pass 1 for today's exact single-threaded
+    // (P4-7.1). Omit or pass 1 for today's exact single-threaded
     // behaviour.
     //
     // `total_neurons`: required when `thread_count > 1` -- the network's
@@ -2150,7 +2150,7 @@ impl NativeSimulation {
     /// (`Runtime`'s doc comment explains why this can't happen eagerly in
     /// `new()`). A no-op once built, and a no-op entirely in `Single` mode.
     ///
-    /// Phase 5 Requirement 8.2/8.6: when `build_columns` has registered at
+    /// P5-8.2/P5-8.6: when `build_columns` has registered at
     /// least one column, partitioning is biased by `PartitionPlan::contiguous`
     /// (never splits a column) instead of the flat-network
     /// `PartitionPlan::even_split` -- additive, since an empty `columns`
@@ -2215,7 +2215,7 @@ impl NativeSimulation {
 
     /// Creates a synapse from `source` to `target`. Returns the synapse id,
     /// or `null` if the source's synapse budget is exhausted
-    /// (Requirement 11.3) -- not an exception, since a full block is an
+    /// (P03-11.3) -- not an exception, since a full block is an
     /// ordinary, expected outcome (design.md's Error Handling table).
     #[napi]
     pub fn connect(&mut self, source: u32, target: u32, segment: u32, delay: u32, permanence: f64) -> Option<u32> {
@@ -2235,8 +2235,7 @@ impl NativeSimulation {
     /// `voting_groups`'s lateral-voting connectivity and `gating_groups`'s
     /// cross-population inhibitory connectivity) using
     /// `GraphBuilder::build_column`/`connect_lateral_voting`/
-    /// `connect_between` unchanged (Phase 5 Requirement 8.1, Phase 5.5
-    /// Requirement 3 AC5) -- no new neuron/synapse/plasticity code path
+    /// `connect_between` unchanged (P5-8.1, P55-3.5) -- no new neuron/synapse/plasticity code path
     /// exists to satisfy this method. Must be called before the first
     /// `stimulate`/`allocate`/`connect`/`step` call, the same caller-enforced
     /// (not runtime-checked) lifecycle contract `totalNeurons` already
@@ -2345,7 +2344,7 @@ impl NativeSimulation {
         Ok(handles)
     }
 
-    /// The arena's current epoch (Requirement 2.2), mirroring `NativeArena::epoch`
+    /// The arena's current epoch (P03-2.2), mirroring `NativeArena::epoch`
     /// -- a caller consuming `membraneView`/`predictiveView` below checks this
     /// before trusting a previously-obtained view, the same cooperative
     /// contract `packages/brain`'s `ArenaViews` already enforces for
@@ -2355,8 +2354,8 @@ impl NativeSimulation {
         self.neurons.epoch() as u32
     }
 
-    /// A zero-copy view over every neuron's membrane potential (Phase 5
-    /// Requirement 8.4): the bulk counterpart to `membraneAt`, added so a
+    /// A zero-copy view over every neuron's membrane potential
+    /// (P5-8.4): the bulk counterpart to `membraneAt`, added so a
     /// caller reading a whole column's (or the whole network's) state does
     /// not pay one FFI call per neuron per tick. Same safety contract as
     /// `NativeArena::membrane_view` -- valid only until the next call that
@@ -2372,7 +2371,7 @@ impl NativeSimulation {
     }
 
     /// A zero-copy view over every neuron's dendritic predictive state
-    /// (Phase 5 Requirement 8.4), the bulk counterpart to `predictiveAt`.
+    /// (P5-8.4), the bulk counterpart to `predictiveAt`.
     /// Same safety contract as `membrane_view` above.
     #[napi]
     pub fn predictive_view(&mut self) -> Float32Array {
@@ -2453,8 +2452,8 @@ impl NativeSimulation {
         unsafe { Uint32Array::with_external_data(ptr, len, |_ptr, _len| {}) }
     }
 
-    /// `SynapseArena`'s fixed per-source-block capacity (Phase 6 Requirement
-    /// 2.1): every synapse-array view below has length `liveNeuronCount *
+    /// `SynapseArena`'s fixed per-source-block capacity
+    /// (P6-2.1): every synapse-array view below has length `liveNeuronCount *
     /// capPerNeuron`, and a caller resolves synapse id `i`'s source neuron
     /// as `i / capPerNeuron` -- the same arithmetic `SynapseArena::source_of`
     /// already uses internally, exposed here as a constant rather than a
@@ -2492,7 +2491,7 @@ impl NativeSimulation {
     /// A zero-copy view over every synapse slot's permanence (SYN-3, Phase
     /// 6 Requirement 2) -- functionally connected only at or above the
     /// connection threshold this simulation was constructed with; filtering
-    /// on that threshold happens client-side (design.md's Requirement 2.2
+    /// on that threshold happens client-side (design.md's P6-2.2
     /// decision), since the caller already has that value. Same safety
     /// contract as `membrane_view` above.
     #[napi]
@@ -2527,7 +2526,7 @@ impl NativeSimulation {
         unsafe { Uint16Array::with_external_data(ptr, len, |_ptr, _len| {}) }
     }
 
-    /// Whether each synapse slot is occupied (Phase 6 Requirement 2.1) --
+    /// Whether each synapse slot is occupied (P6-2.1) --
     /// **not zero-copy**, unlike every other accessor on this type:
     /// `SynapseArena`'s `occupied: Vec<bool>` is a private implementation
     /// detail with no guaranteed byte layout matching `Uint8Array`, so this
@@ -2631,7 +2630,7 @@ impl NativeSimulation {
         })
     }
 
-    /// Named reward entry point (LRN-11, Phase 5 Requirement 15.1/15.2):
+    /// Named reward entry point (LRN-11, P5-15.1/P5-15.2):
     /// drives the dopamine channel specifically. This, `injectModulator`,
     /// and `modulatorLevels` below are this codebase's *first* modulator
     /// call to ever cross the FFI boundary -- `Scheduler::inject_modulator`/
@@ -2642,7 +2641,7 @@ impl NativeSimulation {
     /// `stimulate` above; in partitioned mode this always calls
     /// `PartitionRuntime::inject_modulator`'s *broadcasting* form (never
     /// `inject_modulator_into_partition` -- nothing at this boundary
-    /// targets one partition specifically, Phase 5 Requirement 15.3).
+    /// targets one partition specifically, P5-15.3).
     ///
     /// **Delegates to the core's own `reward`, not to `injectModulator`, and
     /// PLAN.md C3 found out why that distinction matters.** Until C3 the two
@@ -2684,7 +2683,7 @@ impl NativeSimulation {
         }
     }
 
-    /// Readback (Phase 5 Requirement 15.5): the neuromodulator field's
+    /// Readback (P5-15.5): the neuromodulator field's
     /// levels as last computed, with no tick-advancing catch-up (see
     /// `NeuromodulatorField::levels_unchecked`'s doc comment for why a
     /// diagnostic read must not itself perturb the field's lazy decay
@@ -2806,7 +2805,7 @@ impl NativeSimulation {
             // Requirement 5 (Phase 6): feeds `metrics_snapshot`'s on-demand
             // scan, so that call needs no parameter the caller must track.
             self.last_spike_count = report.spiked.len() as u32;
-            // NET-10, Requirement 2.2: a growth event is observable here,
+            // NET-10, SDG-2.2: a growth event is observable here,
             // the same tick it happened, with no separate poll. A
             // column-backed network must also widen its last column's own
             // range (`column.rs`'s `ColumnRegistry::extend_last`) right
@@ -2824,7 +2823,7 @@ impl NativeSimulation {
         }
     }
 
-    /// Current live neuron count (NET-10, Requirement 2.2) -- exposed so a
+    /// Current live neuron count (NET-10, SDG-2.2) -- exposed so a
     /// caller can observe saturation-driven growth's effect without any
     /// other accessor already reporting it (`metricsSnapshot` does not
     /// carry a neuron count).
@@ -2833,7 +2832,7 @@ impl NativeSimulation {
         self.neurons.live_count() as u32
     }
 
-    /// Count of growth triggers observed so far (NET-10, Requirement 2.2).
+    /// Count of growth triggers observed so far (NET-10, SDG-2.2).
     /// Zero for a simulation with no `growth` configured, or one that has
     /// not triggered yet.
     #[napi]
@@ -2868,7 +2867,7 @@ impl NativeSimulation {
     /// uses this to force a losing k-WTA candidate back to rest
     /// immediately, since a vetoed (not committed) candidate otherwise
     /// correctly remains a live, above-threshold competitor for several
-    /// subsequent ticks (Requirement 7.1's intended behaviour for
+    /// subsequent ticks (P03-7.1's intended behaviour for
     /// *sustained* competing input) -- which would otherwise leak through
     /// as a spurious extra winner on a later, unrelated presentation.
     #[napi]
@@ -2882,7 +2881,7 @@ impl NativeSimulation {
         Ok(())
     }
 
-    /// Dendritic predictive state (Requirement 10.3): how strongly this
+    /// Dendritic predictive state (P03-10.3): how strongly this
     /// neuron is currently predicted to fire, independent of whether it
     /// actually has yet -- a prediction *is* this depolarised state, not
     /// only the spike that may later confirm it.
@@ -2897,7 +2896,7 @@ impl NativeSimulation {
     /// further input drops out of the dirty set immediately, freezing its
     /// `predictive` value rather than letting it decay away in the
     /// background (a consequence of "a silent neuron costs nothing",
-    /// Requirement 5.1, not a bug). A caller measuring predictive state
+    /// P03-5.1, not a bug). A caller measuring predictive state
     /// after a quiet period should call this first rather than assume the
     /// quiet period alone cleared stale residue.
     #[napi]
@@ -2957,7 +2956,7 @@ impl NativeSimulation {
         Ok(())
     }
 
-    /// Detaches `neuron`'s probe, if any (Phase 6 Requirement 4.4) -- a
+    /// Detaches `neuron`'s probe, if any (P6-4.4) -- a
     /// no-op, not an error, if no probe was attached, in either mode.
     /// Routed the same way [`Self::attach_probe`] is as of Phase 7
     /// Requirement 1(d).
@@ -2974,7 +2973,7 @@ impl NativeSimulation {
         }
     }
 
-    /// Reads back `neuron`'s probe data (Phase 6 Requirement 4.3), or
+    /// Reads back `neuron`'s probe data (P6-4.3), or
     /// `None` if no probe is attached to it. Routed the same way
     /// [`Self::attach_probe`] is as of Phase 7 Requirement 1(d).
     #[napi]
@@ -3003,8 +3002,8 @@ impl NativeSimulation {
         })
     }
 
-    /// Population firing rate over the always-on window (OBS-2, Phase 6
-    /// Requirement 5.1) -- cheap enough to call every tick. As of Phase 7
+    /// Population firing rate over the always-on window (OBS-2,
+    /// P6-5.1) -- cheap enough to call every tick. As of Phase 7
     /// Requirement 1(d), aggregates correctly across every partition in
     /// partitioned mode: **sums each partition's raw `running_sum` before
     /// dividing** by the shared tick count and total live population,
@@ -3146,8 +3145,8 @@ impl NativeSimulation {
         })
     }
 
-    /// Prediction accuracy over the always-on window (OBS-2, Phase 6
-    /// Requirement 5.1). As of Phase 7 Requirement 1(d), aggregates
+    /// Prediction accuracy over the always-on window (OBS-2,
+    /// P6-5.1). As of Phase 7 Requirement 1(d), aggregates
     /// correctly across every partition: **sums each partition's raw
     /// `predicted_sum`/`total_sum` before dividing**, not each partition's
     /// own `accuracy()` ratio -- the same reasoning as `firing_rate` above
@@ -3176,8 +3175,8 @@ impl NativeSimulation {
         }
     }
 
-    /// The on-demand, O(neurons+synapses) metrics scan (OBS-2, Phase 6
-    /// Requirement 5.2) -- never run automatically inside `step()`, per
+    /// The on-demand, O(neurons+synapses) metrics scan (OBS-2,
+    /// P6-5.2) -- never run automatically inside `step()`, per
     /// `metrics.rs`'s own documented reason. Uses `self.last_spike_count`
     /// (updated at the end of the most recent `step()` call) rather than
     /// taking it as a parameter.
@@ -3225,8 +3224,8 @@ impl NativeSimulation {
         }
     }
 
-    /// Serialises the complete simulation state to bytes (Requirement
-    /// 16.1, 16.11). File I/O (including the atomic temp-write-then-rename
+    /// Serialises the complete simulation state to bytes
+    /// (P03-16.1, P03-16.11). File I/O (including the atomic temp-write-then-rename
     /// design.md's Durability policy calls for) is deliberately not done
     /// here: writing a file is an infrequent, orchestration-level action,
     /// not a per-tick one, so it belongs on the TypeScript side (ENG-1's
@@ -3251,7 +3250,7 @@ impl NativeSimulation {
         // Phase 4 Step 21 added a column-registry section to the snapshot
         // format (FORMAT_VERSION 2); Phase 5's `build_columns` is what
         // actually populates `self.columns` now, so this writes the real
-        // registry rather than always an empty one (Requirement 8.5) --
+        // registry rather than always an empty one (P5-8.5) --
         // a `NativeSimulation` that never calls `build_columns` still writes
         // an empty registry, unchanged from every pre-Phase-5 snapshot.
         let bytes = brain_core::snapshot::write(&self.neurons, &self.synapses, scheduler, &self.columns, self.neurons.capacity_len() as u32, hash);
@@ -3481,7 +3480,7 @@ impl NativeSimulation {
             cfg.validate()?;
             scheduler = scheduler.with_reward_prediction_error(cfg.to_rpe());
         }
-        // Phase 5 Requirement 15.6: must run *after* `with_plasticity` above,
+        // P5-15.6: must run *after* `with_plasticity` above,
         // which resets the neuromodulator field to a fresh, zeroed one as a
         // side effect of applying `modulator_tau_ticks` config -- restoring
         // before that call would have its effect immediately discarded.
@@ -3536,14 +3535,14 @@ impl NativeSimulation {
             synapses: restored.synapses,
             runtime: Runtime::Single(Box::new(scheduler)),
             lif_params: lif.to_lif_params(),
-            // Phase 5 Requirement 8.5: column membership/identity round-trips
+            // P5-8.5: column membership/identity round-trips
             // exactly -- previously discarded here, silently losing any
             // column structure a snapshot actually carried (Phase 4's
             // `Restored::columns` already existed; nothing before Phase 5
             // ever read it back out at this boundary).
             columns: restored.columns,
             // The raster is a bounded runtime recording, not persisted
-            // simulation state (Requirement 16.1's "complete simulation
+            // simulation state (P03-16.1's "complete simulation
             // state" is about topology/permanences/tick/etc., not a replay
             // buffer) -- a restored simulation starts with none, exactly
             // like a freshly constructed one.
@@ -3579,7 +3578,7 @@ impl NativeSimulation {
     /// replays a bounded recent window of `self.raster` via
     /// `Scheduler::run_consolidation`, then force-applies downscaling and
     /// an aggressive pruning pass. Never runs as a side effect of `step()`
-    /// -- an explicit call only (Requirement 12.1), since docs/prior-art.md §2.9/docs/prior-art.md §2.10
+    /// -- an explicit call only (P5-12.1), since docs/prior-art.md §2.9/docs/prior-art.md §2.10
     /// frames consolidation as a distinct operating state.
     ///
     /// **Single-mode only**, matching `run_consolidation`'s own Rust-level

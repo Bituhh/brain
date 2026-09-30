@@ -1,4 +1,4 @@
-// The trigram baseline (Requirement 13.3): plain frequency counting over
+// The trigram baseline (P5-13.3): plain frequency counting over
 // (2-character context -> next character) pairs, argmax prediction.
 // Arithmetic on counts, not a dependency (ENG-5/ENG-6) -- this is the
 // baseline VAL-4's milestone must beat, not a library.

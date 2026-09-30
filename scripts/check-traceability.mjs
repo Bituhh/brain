@@ -123,10 +123,25 @@ const SCAN_ROOTS = ['crates', 'packages', 'scripts', 'examples'].map((dir) =>
   path.join(repoRoot, dir),
 );
 
-// The retired form. Tolerates a doc-comment line break between the word and the number (rustfmt
-// used to split "Requirement\n//! 15.2"), bounded to 10 characters so it cannot drift onto an
-// unrelated later number. A "Phase N " qualifier in front is still the retired form.
-const RETIRED_CITATION = /\b(?:Requirements?|Reqs?\.?)[\s/!*]{1,10}(\d+\.\d+)/g;
+// The retired forms. "Requirement N.M" tolerates a doc-comment line break between the word and the
+// number (rustfmt used to split "Requirement\n//! 15.2"), bounded to 10 characters so it cannot
+// drift onto an unrelated later number; a "Phase N " qualifier in front is still the retired form.
+// "Requirement 3 AC5" / "Acceptance Criterion 2" is a second retired form, found by C18: it names
+// the criterion's number but leaves both the requirement and the spec to the surrounding prose.
+const RETIRED_CITATION =
+  /\b(?:(?:Requirements?|Reqs?\.?)[\s/!*]{1,10}\d+\.\d+|ACs? ?\d+|Acceptance Criteri(?:on|a) \d+)/g;
+
+// Retired-form citations whose spec could not be decided from the file, the test's subject or any
+// spec's text (PLAN.md C18's retrofit: "where it cannot be decided, leave it bare and list it").
+// Each stays in the source as written and credits nothing. Add an entry only with a reason.
+const UNRESOLVED_CITATIONS = [
+  {
+    file: 'packages/io/test/char-prediction.slow.test.ts',
+    text: 'Requirement 14.6',
+    reason:
+      "the sentence is about recording the honest VAL-4 result in README's Phase 5 status, but Phase 5's 14.6 is \"the existing suite still passes\" and always was (checked against the spec as first committed, 82954da); no other spec's 14.6 fits. The honest-reporting criterion, P5-13.6, is already cited three lines above.",
+  },
+];
 
 function parseSpec(dir) {
   const file = path.join(SPECS_ROOT, dir, 'requirements.md');
@@ -291,18 +306,37 @@ function main() {
     );
   }
 
-  // The retired "Requirement N.M" form credits nothing: which spec it means is exactly what it
-  // cannot say. Every one fails until it is rewritten as an id.
+  // The retired forms credit nothing: which spec they mean is exactly what they cannot say. Every
+  // one fails until it is rewritten as an id, unless it is on UNRESOLVED_CITATIONS with a reason.
+  const isListed = (a) =>
+    UNRESOLVED_CITATIONS.some(
+      (u) => a.site.startsWith(`${u.file}:`) && a.text === u.text,
+    );
+  const listed = ambiguous.filter(isListed);
+  const unlisted = ambiguous.filter((a) => !isListed(a));
   const ambiguousFiles = new Set(ambiguous.map((a) => a.site.split(':')[0]));
   console.log(
-    `\n${ambiguous.length} ambiguous citations in the retired "Requirement N.M" form, in ${ambiguousFiles.size} files -- credited to nothing.`,
+    `\n${ambiguous.length} ambiguous citations in a retired form ("Requirement N.M", "AC N"), in ${ambiguousFiles.size} files -- credited to nothing. ${listed.length} of them are listed as undecidable (UNRESOLVED_CITATIONS):`,
   );
-  if (ambiguous.length > 0) {
+  for (const u of UNRESOLVED_CITATIONS) {
+    const sites = listed.filter(
+      (a) => a.site.startsWith(`${u.file}:`) && a.text === u.text,
+    );
+    if (sites.length === 0) {
+      fail(
+        `UNRESOLVED_CITATIONS names "${u.text}" in ${u.file}, which no longer exists -- remove the entry.`,
+      );
+      continue;
+    }
+    for (const a of sites)
+      console.log(`  - ${a.site}  "${a.text}": ${u.reason}`);
+  }
+  if (unlisted.length > 0) {
     fail(
-      `${ambiguous.length} citations use the retired "Requirement N.M" form. Rewrite each as <PREFIX>-N.M for the spec its author was reading${listAll ? ':' : ' (--list shows each site).'}`,
+      `${unlisted.length} citations use a retired form. Rewrite each as <PREFIX>-N.M for the spec its author was reading${listAll ? ':' : ' (--list shows each site).'}`,
     );
     if (listAll) {
-      for (const a of ambiguous) console.error(`  - ${a.site}  "${a.text}"`);
+      for (const a of unlisted) console.error(`  - ${a.site}  "${a.text}"`);
     }
   }
 

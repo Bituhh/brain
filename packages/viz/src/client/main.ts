@@ -211,7 +211,7 @@ scrubInput.addEventListener('input', () => {
     graphView.setTickState(tick, [], undefined);
     return;
   }
-  statusEl.textContent = `scrubbed to tick ${tick} (spike history only -- see Requirement 11.2)`;
+  statusEl.textContent = `scrubbed to tick ${tick} (spike history only -- see P6-11.2)`;
   graphView.setTickState(tick, scrubber.spikesAtTick(tick), undefined);
 });
 

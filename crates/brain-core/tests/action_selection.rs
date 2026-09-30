@@ -12,8 +12,8 @@
 //!   voting mechanism, not suppression). Each population's excitatory
 //!   neurons drive their *own* inhibitory population (an ordinary
 //!   feedforward excitatory synapse), which projects onto the *other*
-//!   population's excitatory neurons -- the two-hop circuit Requirement 3
-//!   AC1 describes, not a direct exc-to-exc sign flip.
+//!   population's excitatory neurons -- the two-hop circuit
+//!   P55-3.1 describes, not a direct exc-to-exc sign flip.
 //! - **Hold** (Requirement 4): reuses `working_memory.rs`'s validated
 //!   attractor mechanism unchanged -- each population's excitatory neurons
 //!   are wired into the same kind of strongly self-recurrent clique
@@ -175,7 +175,7 @@ fn mutual_gating_lets_the_first_cued_population_hold_and_suppress_the_other() {
     }
 }
 
-/// Requirement 3, Acceptance Criterion 4: with the cross-population
+/// P55-3.4: with the cross-population
 /// inhibitory synapses absent (the ablation configuration), both A and B
 /// must be able to sustain their own attractor simultaneously once each has
 /// been cued -- proving suppression, not something else, was responsible

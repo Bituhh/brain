@@ -81,7 +81,7 @@
 // results table and per-window instrumentation below are this re-run, not
 // B2's original one.
 //
-// Honest caveat (Requirement 13.6): the exact growth/structuralPlasticity
+// Honest caveat (P5-13.6): the exact growth/structuralPlasticity
 // parameters used to produce the original 4.91% figure were not preserved
 // in this repo (that retest was run from an ad hoc scratch script, not
 // committed). Condition B below is a best-effort reconstruction from what
@@ -97,7 +97,7 @@
 // Run directly: `node scripts/investigate-growth-regression.ts` (requires
 // `npm run build:native` and `npm run build --workspaces --if-present`
 // first). Every condition's official 5-seed result is appended to
-// RESULTS_PATH as soon as it's measured (Requirement 13.6: every trial
+// RESULTS_PATH as soon as it's measured (P5-13.6: every trial
 // recorded honestly). The 3 most informative conditions (B, D, E -- see
 // CONDITIONS below) additionally get one instrumented seed-1 run sampling
 // accuracy/liveNeuronCount/growthEventCount/synapse count/mean permanence

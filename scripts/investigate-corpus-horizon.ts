@@ -36,7 +36,7 @@
 //       Reported per seed, and reported as ">= 200,000" when no such point exists.
 //
 //   Q3  DO THE BARS MOVE WITH LENGTH? Both comparators are length-dependent and neither
-//       transfers: the trigram baseline (Requirement 13.3) and the 16.56% "always guess
+//       transfers: the trigram baseline (P5-13.3) and the 16.56% "always guess
 //       space" bar (docs/findings.md finding 7) that B5's winner is the first
 //       configuration to clear. Reading: NO VERDICT, four numbers -- each bar at 15,000
 //       and at 200,000 -- plus whether the network's margin over "always guess space"

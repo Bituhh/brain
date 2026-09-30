@@ -1,7 +1,7 @@
-// GridWorld (Requirement 16.4): a synthetic, seeded 2-D symbol grid with a
+// GridWorld (P5-16.4): a synthetic, seeded 2-D symbol grid with a
 // cursor. The agent observes only the cell under the cursor plus its own
 // last action, and can move in four directions. Realism is explicitly not
-// the goal; a closed causal loop is (Requirement 16.3) -- deliberately no
+// the goal; a closed causal loop is (P5-16.3) -- deliberately no
 // location signal, no grid cells, no reference frame (that is NET-9,
 // Phase 5.5's job, and IO-5 landing here is what unblocks it).
 
@@ -20,7 +20,7 @@ export interface GridWorldConfig {
   readonly symbols: ReadonlyArray<string>;
   /**
    * Places a distinguishing symbol at exactly one cell -- the mechanism
-   * Requirement 16.5's ablation needs: two otherwise-identical grids
+   * P5-16.5's ablation needs: two otherwise-identical grids
    * (same seed, same symbols) differing only here, reachable only by
    * actually moving the cursor there.
    */
@@ -63,7 +63,7 @@ function mulberry32(seed: number): () => number {
 }
 
 /**
- * The environment half of the sensorimotor loop (Requirement 16.1):
+ * The environment half of the sensorimotor loop (P5-16.1):
  * `observe`/`act` are the only two methods `runSensorimotorLoop` needs,
  * matching that module's `Environment<Obs, Act>` interface structurally.
  */
@@ -116,7 +116,7 @@ export class GridWorld {
     return { x: this.#cursorX, y: this.#cursorY };
   }
 
-  /** The cell under the cursor plus the agent's own last action -- nothing else is observable (Requirement 16.1). */
+  /** The cell under the cursor plus the agent's own last action -- nothing else is observable (P5-16.1). */
   observe(): Observation {
     return {
       cell: this.#grid[this.#cursorY]![this.#cursorX]!,
@@ -124,7 +124,7 @@ export class GridWorld {
     };
   }
 
-  /** Moves the cursor one cell (clamped to the grid's edges), changing what the *next* `observe()` call returns (Requirement 16.3). */
+  /** Moves the cursor one cell (clamped to the grid's edges), changing what the *next* `observe()` call returns (P5-16.3). */
   act(action: Action): void {
     this.#lastAction = action;
     switch (action) {

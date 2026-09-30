@@ -13,9 +13,9 @@
 //! (population instead of neuron). This file proves the properties that
 //! live above the per-mechanism math already unit-tested in
 //! `plasticity/homeostatic.rs`: disabled/unconfigured is bit-identical to
-//! today (Requirement 1 AC4), a population whose natural activity
+//! today (INH-1.4), a population whose natural activity
 //! overshoots a fixed `k` is corrected toward the configured target when
-//! enabled and is *not* corrected when disabled (Requirement 1 AC5's
+//! enabled and is *not* corrected when disabled (INH-1.5's
 //! ablation, VAL-9 style), and repeated runs are deterministic.
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
@@ -51,7 +51,7 @@ fn stimulate_varied_drive(sched: &mut Scheduler, neurons: &NeuronArena, seed: u6
     }
 }
 
-/// Requirement 1 AC4: attaching the mechanism but never sweeping it (an
+/// INH-1.4: attaching the mechanism but never sweeping it (an
 /// interval far beyond the run length) must not change a single tick's
 /// spike trace relative to never attaching it at all -- same technique as
 /// `segment_threshold_homeostasis.rs`'s test of the same name.
@@ -83,7 +83,7 @@ fn disabled_or_unconfigured_is_bit_identical_to_not_attached_at_all() {
     );
 }
 
-/// Requirement 1 AC5, VAL-9: `k=10` over neighbourhoods of 50 (sparsity
+/// INH-1.5, VAL-9: `k=10` over neighbourhoods of 50 (sparsity
 /// 0.2) under drive strong enough that every neighbourhood reliably fills
 /// all 10 slots -- a fixed `k` therefore pins sparsity at 0.2 regardless of
 /// what `target_rate` asks for. With homeostasis enabled and a much lower

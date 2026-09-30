@@ -1,4 +1,4 @@
-// Requirement 14.4: this project's exit criterion, driven end-to-end from
+// P03-14.4: this project's exit criterion, driven end-to-end from
 // TypeScript through the same zero-copy boundary rules as every other
 // example (Requirement 2). After training on both `ABCD` and `XBCY`,
 // presenting `ABC` must make the network predict `D` (not `Y`), and `XBC`
@@ -24,8 +24,8 @@
 //    coincidentally land on the same neurons often enough to erase the
 //    distinction.
 // 2. `predictiveAt` does not decay while a neuron is idle -- it only
-//    decays while a neuron is actively being integrated (Requirement
-//    5.1's "a silent neuron costs nothing"). `resetPredictive()` must be
+//    decays while a neuron is actively being integrated
+//    (P03-5.1's "a silent neuron costs nothing"). `resetPredictive()` must be
 //    called explicitly before measuring after a quiet gap; the gap alone
 //    does not clear stale residue.
 
@@ -104,7 +104,7 @@ function buildNetwork(seed: number): Simulation {
     synapseCapPerNeuron: 64, // C fans out to both D and Y, each across 2 segments
     inhibition: { neighbourhoodSize: SYMBOL_SIZE, k: K },
     segments: { segmentsPerNeuron: 2, coincidenceThreshold: 2 },
-    // Requirement 12.1's unpredicted-spike burst path is neighbourhood-scoped
+    // P03-12.1's unpredicted-spike burst path is neighbourhood-scoped
     // and would sprout spurious lateral connections within a symbol's own
     // block if left enabled here -- neighbourhoodSize=1/k=1 makes it a
     // guaranteed no-op (its only "candidate" is the target itself, always
@@ -215,5 +215,5 @@ if (!(yAfterXbc > dAfterXbc)) {
 }
 
 console.log(
-  'OK: the network predicts D after ABC and Y after XBC (Requirement 14.4 -- the exit criterion).',
+  'OK: the network predicts D after ABC and Y after XBC (P03-14.4 -- the exit criterion).',
 );

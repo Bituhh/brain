@@ -404,7 +404,7 @@ test('spatial sprout reach lets grown neurons reach the original population, and
  * whole run** is exactly 0.0000 and `classifiedAsPredicted` is 0 — the
  * network does not merely end quiet, it never predicts once. And the
  * alternative explanation is ruled out rather than left open: it was not
- * that Requirement 12.2/12.3 fired and their permanence writes coincided at
+ * that P03-12.2/P03-12.3 fired and their permanence writes coincided at
  * both dopamine levels (the staircase `.claude/HANDOFF.md` fact 14 suspects
  * for a modulator gain), because they never fired at all.
  *
@@ -472,7 +472,7 @@ test('a spatial sweep reach that narrows the candidate set stops this fixture pr
   assert.equal(
     narrowed.classifiedAsPredicted,
     0,
-    `a sweep radius of 40 on this fixture must stop Requirement 12.2/12.3 classifying anything at all ` +
+    `a sweep radius of 40 on this fixture must stop P03-12.2/P03-12.3 classifying anything at all ` +
       `(got ${narrowed.classifiedAsPredicted}) -- this is the measured reason the default radius is ${SPROUT_REACH_RADIUS} and not 40`,
   );
   assert.equal(
@@ -844,8 +844,8 @@ test('both modulated learning rules are live, and dopamine carries a prediction 
   );
 
   // 3b. **The precondition assertions 4 and 5 silently depend on, made
-  //     explicit — PLAN.md C4's follow-up, 2026-09-21.** Requirement
-  //     12.2/12.3 (reinforce/punish) is the *only* dopamine-gated path this
+  //     explicit — PLAN.md C4's follow-up, 2026-09-21.**
+  //     P03-12.2/P03-12.3 (reinforce/punish) is the *only* dopamine-gated path this
   //     test measures, and it fires only for a neuron whose dendritic
   //     prediction was significant. If this scenario predicts nothing, then
   //     rewarding cannot change permanence, assertion 4 fails, and the
@@ -871,7 +871,7 @@ test('both modulated learning rules are live, and dopamine carries a prediction 
   ] as const) {
     assert.ok(
       arm.classifiedAsPredicted > 0,
-      `${label}: this scenario must classify at least one outcome as "was predicted", or Requirement 12.2/12.3 never runs and ` +
+      `${label}: this scenario must classify at least one outcome as "was predicted", or P03-12.2/P03-12.3 never runs and ` +
         'assertions 4 and 5 below are vacuous rather than passing. A zero here means the fixture stopped predicting -- ' +
         'fix the cause, do not adjust this test (docs/findings.md finding 17 records the time that was nearly done)',
     );

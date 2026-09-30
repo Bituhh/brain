@@ -12,7 +12,7 @@ function timeOfDayOnlyConfig(): DatetimeEncoderConfig {
   return { components: [timeOfDayComponent(200, 20)] };
 }
 
-test('encodeDatetime is deterministic (Requirement 2.3)', () => {
+test('encodeDatetime is deterministic (P5-2.3)', () => {
   const config = timeOfDayOnlyConfig();
   const date = new Date(2026, 0, 15, 10, 30, 0);
   const a = encodeDatetime(config, date);
@@ -28,7 +28,7 @@ test("encodeDatetime width is the sum of every component's width", () => {
   assert.equal(sdr.width, 270);
 });
 
-test('close timestamps (same day, minutes apart) overlap substantially (Requirement 4.2)', () => {
+test('close timestamps (same day, minutes apart) overlap substantially (P5-4.2)', () => {
   const config = timeOfDayOnlyConfig();
   const a = encodeDatetime(config, new Date(2026, 0, 15, 10, 30, 0));
   const b = encodeDatetime(config, new Date(2026, 0, 15, 10, 31, 0));
@@ -38,7 +38,7 @@ test('close timestamps (same day, minutes apart) overlap substantially (Requirem
   );
 });
 
-test("far-apart timestamps within the same day overlap little (Requirement 4.2's converse)", () => {
+test("far-apart timestamps within the same day overlap little (P5-4.2's converse)", () => {
   const config = timeOfDayOnlyConfig();
   const morning = encodeDatetime(config, new Date(2026, 0, 15, 2, 0, 0));
   const evening = encodeDatetime(config, new Date(2026, 0, 15, 22, 0, 0));
@@ -48,7 +48,7 @@ test("far-apart timestamps within the same day overlap little (Requirement 4.2's
   );
 });
 
-test('the same time-of-day on different days overlaps substantially (Requirement 4.3 -- the property a raw scalar encoder cannot provide)', () => {
+test('the same time-of-day on different days overlaps substantially (P5-4.3 -- the property a raw scalar encoder cannot provide)', () => {
   const config = timeOfDayOnlyConfig();
   const day1 = encodeDatetime(config, new Date(2026, 0, 1, 14, 0, 0));
   const day2 = encodeDatetime(config, new Date(2026, 5, 20, 14, 0, 0)); // five months later, same clock time
@@ -59,7 +59,7 @@ test('the same time-of-day on different days overlaps substantially (Requirement
   );
 });
 
-test("time-of-day wraps at the day boundary: 23:59 and 00:01 overlap (Requirement 4.3's wraparound mechanism)", () => {
+test("time-of-day wraps at the day boundary: 23:59 and 00:01 overlap (P5-4.3's wraparound mechanism)", () => {
   const config = timeOfDayOnlyConfig();
   const lateNight = encodeDatetime(config, new Date(2026, 0, 15, 23, 59, 0));
   const earlyMorning = encodeDatetime(config, new Date(2026, 0, 16, 0, 1, 0));

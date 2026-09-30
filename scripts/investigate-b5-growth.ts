@@ -1,4 +1,4 @@
-// PLAN.md B5, Requirement 9.5: re-runs docs/findings.md finding 10's growth
+// PLAN.md B5, WADV-9.5: re-runs docs/findings.md finding 10's growth
 // conditions (B, D, E, F) at B5's value-search winner, since growth is where
 // new wiring should earn its place. B4's scope was condition C only, so this
 // is the first time the growth battery runs with any of B4's fixes or B5's
@@ -267,7 +267,7 @@ const mean = (xs: readonly number[]) =>
 const lines = [
   '# B5 growth battery -- results',
   '',
-  `Generated ${new Date().toISOString()} by scripts/investigate-b5-growth.ts (PLAN.md B5, Requirement 9.5). Corpus slice ${CORPUS_LENGTH} characters; confirmation seeds ${SEEDS.join(', ')}, never used by the value search to choose.`,
+  `Generated ${new Date().toISOString()} by scripts/investigate-b5-growth.ts (PLAN.md B5, WADV-9.5). Corpus slice ${CORPUS_LENGTH} characters; confirmation seeds ${SEEDS.join(', ')}, never used by the value search to choose.`,
   '',
   `Winner (from tune-b5-values.chosen.json): ${conditionLabel(searchCondition(winner))}.`,
   '',

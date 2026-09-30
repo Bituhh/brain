@@ -1,4 +1,4 @@
-//! Shared fixture builders (Requirement 15.12): scenarios are constructed
+//! Shared fixture builders (P03-15.12): scenarios are constructed
 //! through these rather than bespoke per-test setup, so different test
 //! files reasoning about "a plastic two-neuron chain" or "a population
 //! with inhibition" are actually comparable, not superficially similar
@@ -9,7 +9,7 @@
 //! `structural_and_growth.rs` predate this module and have their own
 //! local `train`/`two_neurons_three_synapses`-style builders, which is a
 //! reasonable local pattern in its own right (Step 12's `git log` shows
-//! several of them adopted before Requirement 15.12 called for a *shared*
+//! several of them adopted before P03-15.12 called for a *shared*
 //! one). New whole-network tests should reach for this module first.
 
 #![allow(dead_code)] // not every fixture here is used by every test binary that includes this module

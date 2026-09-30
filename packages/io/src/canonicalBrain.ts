@@ -149,7 +149,7 @@ const K = Math.max(1, Math.round(WIDTH * TARGET_SPARSITY));
 export const SPROUT_REACH_RADIUS = 60;
 
 /**
- * PLAN.md C4: the same quantity for Requirement 12.1's burst path, which
+ * PLAN.md C4: the same quantity for P03-12.1's burst path, which
  * fires per unpredicted spike rather than once per sweep and so is kept
  * tighter -- 21 neurons in reach, the same scale as the
  * `neighbourhoodSize: 20` index block it replaces.
@@ -663,7 +663,7 @@ export function withIndexBlockSproutReach(
 }
 
 /**
- * PLAN.md C4: adds a Euclidean reach to Requirement 12.1's **burst** path
+ * PLAN.md C4: adds a Euclidean reach to P03-12.1's **burst** path
  * as well, which `canonicalSimulationOptions` deliberately leaves on index
  * blocks.
  *

@@ -8,8 +8,8 @@
 //! scheduler events.
 //!
 //! It multiplicatively renormalises each neuron's *incoming* weight total
-//! toward a configured target (Requirement 9.1), on a timescale
-//! substantially slower than STDP (Requirement 9.2, enforced by
+//! toward a configured target (P03-9.1), on a timescale
+//! substantially slower than STDP (P03-9.2, enforced by
 //! `interval_ticks` being large relative to `three_factor`'s
 //! `tau_plus`/`tau_minus`) so it stabilises runs without erasing what was
 //! just learned. Multiplicative (not subtractive) scaling preserves the
@@ -63,7 +63,7 @@ impl HomeostaticScaling {
 
     /// Applies the rescale sweep to every neuron unconditionally, ignoring
     /// `interval_ticks`/`last_applied_at` entirely -- consolidation's
-    /// downscaling pass (LRN-10, Phase 5 Requirement 11.1) needs exactly
+    /// downscaling pass (LRN-10, P5-11.1) needs exactly
     /// this same math, usually at a different target, run on its own
     /// caller-invoked schedule rather than the online interval. Takes no
     /// `tick` because the rescale computation itself has no use for one --
@@ -107,7 +107,7 @@ impl HomeostaticScaling {
     }
 }
 
-/// Intrinsic (per-neuron) homeostasis (NEU-7, Requirement 4.7): drifts a
+/// Intrinsic (per-neuron) homeostasis (NEU-7, P03-4.7): drifts a
 /// neuron's own firing threshold to correct a deviation between its
 /// long-run firing rate and a target rate, independent of
 /// [`HomeostaticScaling`]'s synaptic renormalisation above -- NEU-7 is
@@ -419,7 +419,7 @@ mod tests {
         assert!(!scaling.maybe_apply(&neurons, &mut synapses, 500));
     }
 
-    /// Phase 5 Requirement 11.1: consolidation's downscaling pass calls
+    /// P5-11.1: consolidation's downscaling pass calls
     /// `force_apply` directly, and it must rescale regardless of how much
     /// (or how little) time has elapsed since construction.
     #[test]
@@ -508,7 +508,7 @@ mod tests {
         assert!(scaling.maybe_apply(&neurons, &mut synapses, 200));
     }
 
-    // -- IntrinsicHomeostasis (Requirement 4.7, NEU-7).
+    // -- IntrinsicHomeostasis (P03-4.7, NEU-7).
 
     #[test]
     fn a_neuron_firing_above_target_has_its_threshold_raised() {
@@ -633,8 +633,7 @@ mod tests {
         assert!(!homeostasis.maybe_apply(&mut threshold, &mut rate_estimate, &last_depolarised_tick, &[0], 500));
     }
 
-    /// Requirement 1 Acceptance Criterion 5 / Requirement 3 Acceptance
-    /// Criterion 1: every segment on a neuron adjusts using only its own
+    /// DTH-1.5 / DTH-3.1: every segment on a neuron adjusts using only its own
     /// recorded history -- one composite's threshold must never move because
     /// of another composite's activity, even when swept in the same call.
     #[test]

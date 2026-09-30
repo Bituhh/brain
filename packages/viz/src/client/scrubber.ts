@@ -6,7 +6,7 @@
 // of `probe.rs`'s `import` logic in TypeScript, simpler than round-
 // tripping through Rust again for a format this compact.
 //
-// Only spike *timing* is historical (design.md's Requirement 11.2
+// Only spike *timing* is historical (design.md's P6-11.2
 // decision): membrane/predictive/refractory are never recorded
 // historically, so scrubbing highlights which neurons spiked at the
 // scrubbed-to tick against the last-known topology, and makes no claim

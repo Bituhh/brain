@@ -3,11 +3,11 @@
 //! This is the component design.md flags as highest-risk (design risk #2):
 //! it must hold three properties simultaneously —
 //!
-//! 1. **Deterministic reuse** (Requirement 3.3): freed slots are recycled in
+//! 1. **Deterministic reuse** (P03-3.3): freed slots are recycled in
 //!    a fixed order, never dependent on hashing or allocation addresses.
-//! 2. **Growth without breaking identity** (Requirement 11.4-11.10): adding
+//! 2. **Growth without breaking identity** (P03-11.4 to P03-11.10): adding
 //!    a neuron never invalidates any other neuron's id.
-//! 3. **Exact serialisation** (Requirement 16.6): a snapshot must capture
+//! 3. **Exact serialisation** (P03-16.6): a snapshot must capture
 //!    the free list and generation counters, not just live values, so a
 //!    restore reproduces mutated topology exactly, including which storage
 //!    was reclaimed and reused.
@@ -16,7 +16,7 @@
 //! order is just stack order, and the stack itself is a flat `Vec<u32>`
 //! that serialises the same way as everything else here.
 //!
-//! `epoch` implements Requirement 2.2 (view invalidation): it increments
+//! `epoch` implements P03-2.2 (view invalidation): it increments
 //! whenever the arena's logical length grows, which is the only operation
 //! that can move the backing buffers out from under a typed-array view
 //! handed across the FFI boundary. Reusing a freed slot does *not* bump the
@@ -80,9 +80,9 @@ pub struct NeuronArena {
     generation: Vec<u32>,
     alive: Vec<bool>,
     /// LIFO stack of reclaimed indices -- deterministic reuse order
-    /// (Requirement 3.3, 11.10).
+    /// (P03-3.3, P03-11.10).
     free: Vec<u32>,
-    /// Bumped whenever the arena's logical length grows (Requirement 2.2).
+    /// Bumped whenever the arena's logical length grows (P03-2.2).
     epoch: u64,
 }
 
@@ -127,14 +127,14 @@ impl NeuronArena {
     }
 
     /// The current epoch. Views minted by the FFI boundary carry the epoch
-    /// they were taken at; a mismatch means the view is stale (Req 2.2).
+    /// they were taken at; a mismatch means the view is stale (P03-2.2).
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// Approximate resident memory this arena's backing storage occupies,
-    /// summed from every field's own `Vec::capacity()` (Requirement 10
-    /// AC2) -- exact enough to answer "does a 100k-neuron network fit on a
+    /// summed from every field's own `Vec::capacity()`
+    /// (P4-10.2) -- exact enough to answer "does a 100k-neuron network fit on a
     /// workstation" without a new dependency (ENG-6) or OS-specific
     /// `/proc` parsing: every byte here is one this struct's fields
     /// genuinely reserved, not a process-wide RSS estimate that would also
@@ -157,7 +157,7 @@ impl NeuronArena {
 
     /// Resolves a `NeuronId` to a raw index, validating that the slot is
     /// live and the generation matches. This is the boundary check
-    /// (Requirement 2.2's "fail loudly rather than reading freed or reused
+    /// (P03-2.2's "fail loudly rather than reading freed or reused
     /// memory") -- hot-path code that already knows an index is fresh this
     /// tick may skip it and index the arrays directly.
     pub fn resolve(&self, id: NeuronId) -> Result<usize, ArenaError> {
@@ -176,8 +176,8 @@ impl NeuronArena {
     }
 
     /// Allocates a neuron, reusing the most recently freed slot if one
-    /// exists (LIFO -- Requirement 3.3), otherwise appending and bumping
-    /// the epoch (Requirement 2.2).
+    /// exists (LIFO -- P03-3.3), otherwise appending and bumping
+    /// the epoch (P03-2.2).
     pub fn allocate(&mut self, spec: NeuronSpec) -> NeuronId {
         if let Some(idx) = self.free.pop() {
             let i = idx as usize;
@@ -213,7 +213,7 @@ impl NeuronArena {
     }
 
     /// Reclaims a neuron's slot. The generation is bumped so any surviving
-    /// copy of this `NeuronId` is detectably stale (Requirement 2.2) even
+    /// copy of this `NeuronId` is detectably stale (P03-2.2) even
     /// after the slot is reused by a later `allocate` call.
     pub fn free(&mut self, id: NeuronId) -> Result<(), ArenaError> {
         let idx = self.resolve(id)?;
@@ -224,7 +224,7 @@ impl NeuronArena {
     }
 
     /// Raw access to the generation, alive-flag, and free-list arrays, for
-    /// the snapshot writer (Requirement 16.6), so a restore can reproduce
+    /// the snapshot writer (P03-16.6), so a restore can reproduce
     /// reclaimed-and-reused state exactly.
     pub fn raw_lifecycle(&self) -> (&[u32], &[bool], &[u32]) {
         (&self.generation, &self.alive, &self.free)
@@ -388,7 +388,7 @@ impl NeuronArena {
 /// type -- see `offset_slice.rs`'s module docs for why.
 pub struct NeuronArenaViewMut<'a> {
     total_neuron_count: usize,
-    /// Every neuron's coordinates (NET-1/Requirement 6.2), whole-arena and
+    /// Every neuron's coordinates (NET-1/P03-6.2), whole-arena and
     /// **shared** rather than split per partition -- see
     /// [`NeuronArena::split_views_mut`]'s doc comment for why that is safe
     /// and why `reach::SproutReach::Spatial` needs it. Read via

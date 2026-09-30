@@ -1,11 +1,11 @@
 //! Three-factor plasticity: eligibility traces plus neuromodulation
-//! (LRN-3, LRN-4, Requirement 8.6, 8.7, 8.8).
+//! (LRN-3, LRN-4, P03-8.6, P03-8.7, P03-8.8).
 //!
 //! `Δweight = learning_rate · eligibility · modulator`. With the modulator
 //! held at 1.0, this degenerates exactly to the STDP kernel driving weight
-//! directly (Requirement 8.8) -- there is no separate "plain STDP"
+//! directly (P03-8.8) -- there is no separate "plain STDP"
 //! implementation; it is this rule evaluated with a constant modulator,
-//! which is the literal reading of Requirement 8.8's "reduces to." README
+//! which is the literal reading of P03-8.8's "reduces to." README
 //! docs/decisions.md's weight/permanence split (2026-09-13) moved this from permanence to
 //! weight: STDP is the fast, per-spike-pair mechanism, and permanence
 //! (SYN-3's structural quantity) is now touched only by structural
@@ -23,7 +23,7 @@
 //! rather than continuously integrating eligibility x modulator between
 //! touches, is a deliberate event-driven approximation -- consistent
 //! with everything else in this engine only doing work when something
-//! happens (Requirement 5.1).
+//! happens (P03-5.1).
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
@@ -36,7 +36,7 @@ pub struct ThreeFactorParams {
     /// `exp(-1 / tau_eligibility_ticks)`, precomputed once -- matching
     /// `LifParams::decay_per_tick`'s hot-path-discipline rationale
     /// (ENG-9). `tau_eligibility_ticks` is expected to be on the order of
-    /// seconds of simulated time (Requirement 8.6) -- at RUN-1a's default
+    /// seconds of simulated time (P03-8.6) -- at RUN-1a's default
     /// 0.1 ms tick, several tens of thousands of ticks.
     pub eligibility_decay_per_tick: f32,
     pub learning_rate: f32,
@@ -70,7 +70,7 @@ pub struct ThreeFactorParams {
     /// `modulator_index`/`gain_modulator_index` scale. `None` -- every
     /// pre-existing caller, and what [`ThreeFactorParams::new`] sets -- takes
     /// [`StdpParams::kernel`] unchanged, so nothing that does not opt in can
-    /// notice this field exists (Requirement 5.2).
+    /// notice this field exists (bit-identical when unset, the rule weight-aware-dendritic-votes' spec set for opt-in changes).
     ///
     /// Independent of the two channels above: those decide how strongly the
     /// *eligibility already accumulated* is cashed into weight, this decides
@@ -103,7 +103,7 @@ impl ThreeFactorParams {
     /// PLAN.md C2: opts this rule into a second, multiplicative broadcast
     /// gain -- see [`Self::gain_modulator_index`]. Left off by
     /// [`Self::new`] so every pre-existing caller stays bit-identical
-    /// (Requirement 5.2).
+    /// (the same bit-identical-when-unset rule).
     pub fn with_gain_channel(mut self, index: usize) -> Self {
         debug_assert!(index < super::NUM_MODULATORS);
         self.gain_modulator_index = Some(index);
@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn modulator_at_unity_reduces_to_plain_stdp() {
-        // Requirement 8.8, LRN-4, tested literally: with modulator == 1.0,
+        // P03-8.8, LRN-4, tested literally: with modulator == 1.0,
         // the weight change from one event must equal
         // learning_rate * eligibility_after_this_event -- i.e. exactly
         // the STDP-shaped contribution, undiluted by any modulation.
@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn zero_modulator_produces_zero_weight_change_despite_eligibility() {
-        // Requirement 8.7: Δw = lr * eligibility * modulator -- if
+        // P03-8.7: Δw = lr * eligibility * modulator -- if
         // modulator is 0, no weight change occurs even though eligibility
         // itself is still tracked.
         let rule = ThreeFactorStdp::new(ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0));
@@ -409,7 +409,7 @@ mod tests {
         assert!(fx.eligibility != 0.0, "eligibility itself must still be tracked regardless of modulator");
     }
 
-    /// Requirement 8.4.
+    /// P03-8.4.
     #[test]
     fn on_delivery_depresses_when_post_recently_fired() {
         let rule = ThreeFactorStdp::new(ThreeFactorParams::new(stdp(), 1000.0, 1.0, 0));

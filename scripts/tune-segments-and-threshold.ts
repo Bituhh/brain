@@ -43,7 +43,7 @@
 //
 // Run directly: `node scripts/tune-segments-and-threshold.ts` (requires
 // `npm run build:native` first). Every trial is appended to RESULTS_PATH
-// as soon as it's measured (Requirement 13.6: every trial recorded
+// as soon as it's measured (P5-13.6: every trial recorded
 // honestly, not just the best one kept).
 
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';

@@ -1,6 +1,6 @@
 //! Predictive learning (LRN-8, Requirement 12): the network learns from
 //! its own prediction failures, with no label, target, or external error
-//! (Requirement 12.5) -- the only signal is whether a neuron's own
+//! (P03-12.5) -- the only signal is whether a neuron's own
 //! dendritic prediction (`segment.rs`, `neuron.rs`'s `predictive`) matched
 //! what actually happened this tick.
 //!
@@ -16,7 +16,7 @@
 //! - **False positive** (12.2): `predictive_now` was significant but the
 //!   neuron did *not* commit -- whether because membrane never reached
 //!   even the lowered threshold, or because it crossed but lost local
-//!   inhibition. Requirement 12.2's text says "the predicted firing does
+//!   inhibition. P03-12.2's text says "the predicted firing does
 //!   not occur", which a vetoed spike satisfies literally (no spike was
 //!   emitted this tick, from the soma's perspective) -- so this
 //!   implementation punishes both cases alike rather than carving out an
@@ -82,8 +82,8 @@ pub struct PredictiveLearningParams {
     /// binary, permanence-gated signum step (`scheduler.rs`'s
     /// `apply_local_effect`), so only permanence changes were visible to
     /// future predictions. `DendriticVote::Weighted` changes that; the
-    /// default stays permanence for count-mode bit-identity (Requirement
-    /// 5.2), not because weight is now known to be worse.
+    /// default stays permanence for count-mode bit-identity
+    /// (WADV-5.2), not because weight is now known to be worse.
     pub reinforce_amount: f32,
     /// Delta *subtracted* from a false positive's segment (12.2), to the
     /// variable(s) `learning_target` names. Stored positive; applied as a
@@ -92,7 +92,7 @@ pub struct PredictiveLearningParams {
     /// Which variable(s) reinforce/punish (12.2/12.3) and the burst path's
     /// existing-synapse reinforcement (12.1) adjust. Defaults to
     /// `SegmentLearningTarget::Permanence`, today's behaviour, so every
-    /// existing caller is bit-identical (Requirement 5.2).
+    /// existing caller is bit-identical (WADV-5.2).
     pub learning_target: SegmentLearningTarget,
     /// Which segment an unpredicted/burst spike (12.1) reinforces or
     /// sprouts onto. A plain configuration choice, not a reserved value
@@ -494,7 +494,7 @@ impl PredictiveLearning {
         self.reach
     }
 
-    /// `Requirement 1 AC1/AC2`: `None` leaves reinforce/punish deltas at
+    /// PLN-1.1/PLN-1.2: `None` leaves reinforce/punish deltas at
     /// today's fixed amount (no `NeuromodulatorField` read at all);
     /// `Some(idx)` scales by the ambient level at that channel.
     fn modulator_scale(&self, modulators: crate::plasticity::Modulators) -> f32 {
@@ -506,7 +506,7 @@ impl PredictiveLearning {
         routed * gain
     }
 
-    /// Requirement 12.2/12.3's reinforce/punish. `synapses.incoming(neuron)`
+    /// P03-12.2/P03-12.3's reinforce/punish. `synapses.incoming(neuron)`
     /// can return a cross-partition synapse id (see
     /// `SynapseArenaViewMut::incoming`'s doc comment) -- this view cannot
     /// safely index, let alone mutate, one (its data belongs to another
@@ -537,7 +537,7 @@ impl PredictiveLearning {
     /// corpus collapsed from a nonzero baseline to exactly 0 when this
     /// wrote weight instead of permanence, under count-mode votes). Under
     /// `DendriticVote::Weighted`, weight reaches the tally directly, so B5's
-    /// search re-tests whether that finding still holds (Requirement 5.3)
+    /// search re-tests whether that finding still holds (WADV-5.3)
     /// rather than carrying decision 11's call forward past the reason it
     /// was made. Unlike STDP (three_factor.rs), which shapes feedforward
     /// current magnitude and is correctly weight-side regardless of vote
@@ -688,7 +688,7 @@ impl PredictiveLearning {
     /// significant before this tick's decay and no longer is, without ever
     /// having produced a spike (a spike is handled separately, via
     /// `resolve` called directly from the commit/veto path, using the same
-    /// pre-decay value). Used to fire Requirement 12.2's punishment exactly
+    /// pre-decay value). Used to fire P03-12.2's punishment exactly
     /// once per failed prediction rather than on every tick it sits pending
     /// below its own segment's coincidence window.
     pub fn prediction_expired(&self, predictive_before: f32, predictive_after: f32) -> bool {
@@ -746,7 +746,7 @@ impl PredictiveLearning {
             }
             None => {
                 // Structural, one-time value -- not a reinforcement
-                // event, so not modulator-scaled (Requirement 1 AC2).
+                // event, so not modulator-scaled (PLN-1.2).
                 if let Ok(id) = synapses.insert(source, neuron, segment, 1, self.params.burst_sprout_permanence, self.params.burst_sprout_weight) {
                     // PLAN.md B4: a fresh contact is born silent, exactly
                     // like `StructuralPlasticity::sprout`'s -- see
@@ -754,7 +754,7 @@ impl PredictiveLearning {
                     synapses.silent_since[id as usize] = tick;
                 }
                 // BlockFull is a legitimate, expected outcome
-                // (Requirement 11.3), matching structural.rs's
+                // (P03-11.3), matching structural.rs's
                 // convention -- silently skip.
             }
         }
@@ -1108,7 +1108,7 @@ mod tests {
         assert_eq!(tracker.get(5), None);
     }
 
-    /// Requirement 1 AC1: with `modulator_index: Some(idx)`, a correct
+    /// PLN-1.1: with `modulator_index: Some(idx)`, a correct
     /// prediction's reinforcement is proportional to the ambient level at
     /// that channel, not the fixed `reinforce_amount`.
     #[test]
@@ -1143,7 +1143,7 @@ mod tests {
         assert!((at_double - 0.2).abs() < 1e-6, "2.0x modulator must double reinforce_amount, got {at_double}");
     }
 
-    /// Requirement 1 AC1, punish side: same proportional scaling, mirrored
+    /// PLN-1.1, punish side: same proportional scaling, mirrored
     /// for the false-positive path.
     #[test]
     fn modulator_index_some_scales_punishment_proportionally_to_channel_level() {
@@ -1167,7 +1167,7 @@ mod tests {
         );
     }
 
-    /// Requirement 1 AC2: a burst-sprouted synapse's starting permanence
+    /// PLN-1.2: a burst-sprouted synapse's starting permanence
     /// and weight are structural, one-time values, not a reinforcement --
     /// both must be identical regardless of modulator level, including at
     /// 0.0.
@@ -1494,7 +1494,7 @@ mod tests {
         }
     }
 
-    /// The default is unchanged, asserted rather than assumed (Requirement 5.2).
+    /// The default is unchanged, asserted rather than assumed (bit-identical when unset).
     #[test]
     fn hard_bounds_are_the_default_and_are_the_pre_c14_arithmetic() {
         assert_eq!(BoundMode::default(), BoundMode::Hard);

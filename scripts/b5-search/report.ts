@@ -107,7 +107,7 @@ export function renderReport(
   lines.push('');
 
   lines.push(
-    '## Factorial at the winner: vote mode x silent gate x learning target (Requirement 9.4)',
+    '## Factorial at the winner: vote mode x silent gate x learning target (WADV-9.4)',
   );
   lines.push('');
   lines.push(
@@ -124,7 +124,7 @@ export function renderReport(
   }
   lines.push('');
 
-  lines.push('## References (confirmation seeds) -- Requirement 9.3');
+  lines.push('## References (confirmation seeds) -- WADV-9.3');
   lines.push('');
   lines.push('| reference | confirmation mean | per seed |');
   lines.push('|---|---|---|');

@@ -24,19 +24,19 @@ function config(
   return { categories: CATEGORIES, width: 200, density: 0.05, ...overrides };
 }
 
-test('encodeCategory produces an SDR at approximately the configured density (Requirement 6.3)', () => {
+test('encodeCategory produces an SDR at approximately the configured density (P5-6.3)', () => {
   const sdr = encodeCategory(config(), 'red');
   const expected = Math.round(200 * 0.05);
   assert.equal(sdr.activeBits.length, expected);
 });
 
-test('encodeCategory is deterministic (Requirement 2.3)', () => {
+test('encodeCategory is deterministic (P5-2.3)', () => {
   const a = encodeCategory(config(), 'blue');
   const b = encodeCategory(config(), 'blue');
   assert.deepEqual(a.activeBits, b.activeBits);
 });
 
-test('encodeCategory: unrelated categories have low overlap by default (Requirement 3.4)', () => {
+test('encodeCategory: unrelated categories have low overlap by default (P5-3.4)', () => {
   const cfg = config();
   const activeBitsPerCategory = Math.round(cfg.width * cfg.density);
   for (let i = 0; i < CATEGORIES.length; i++) {
@@ -51,7 +51,7 @@ test('encodeCategory: unrelated categories have low overlap by default (Requirem
   }
 });
 
-test('encodeCategory rejects a label outside the configured set (Requirement 3.5)', () => {
+test('encodeCategory rejects a label outside the configured set (P5-3.5)', () => {
   assert.throws(
     () => encodeCategory(config(), 'not-a-color' as never),
     UnknownCategoryError,

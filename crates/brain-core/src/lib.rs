@@ -1,13 +1,13 @@
 //! `brain-core`: the simulation core.
 //!
-//! Zero *AI/ML* runtime dependencies (ENG-5, ENG-6, Requirement 1.2):
+//! Zero *AI/ML* runtime dependencies (ENG-5, ENG-6, P03-1.2):
 //! `rayon` is this crate's one runtime dependency, the exception README
 //! ENG-6 names explicitly ("the Rust core should need approximately rayon
 //! and nothing else"), used only for RUN-4's partitioned parallelism
 //! (`partition.rs`, Phase 4). `proptest` and `criterion` below are dev-only,
-//! exempt from the rule entirely (Requirement 1.4), and neither they nor
+//! exempt from the rule entirely (P03-1.4), and neither they nor
 //! rayon nor anything else in this crate names a neural-network/tensor/
-//! autodiff/embedding/LLM dependency (Requirement 1.3; see
+//! autodiff/embedding/LLM dependency (P03-1.3; see
 //! `tests/workspace_policy.rs` for the check that actually inspects the
 //! manifest text). Every numeric primitive used here — PRNG, arena,
 //! scheduler, plasticity — is implemented in this crate.
@@ -34,7 +34,7 @@
 //! respects partition boundaries (`StructuralPlasticity::maybe_sweep_partitioned`),
 //! and `PartitionPlan`/`ColumnRegistry` both gained `extend_last` for
 //! developmental growth's arena-always-appends-at-the-end constraint
-//! (Step 19, done). The exit criterion (Requirement 14.4) re-expressed via
+//! (Step 19, done). The exit criterion (P03-14.4) re-expressed via
 //! real columns and proven to survive real partitioning and real
 //! multi-threading, bit-identically (`tests/emergent_columns.rs`) -- caught
 //! and fixed a real out-of-bounds bug in predictive learning's
@@ -61,14 +61,14 @@
 //! benchmark at the real 100k-neuron scale remains a documented follow-up
 //! (Step 23, done; numbers and reasoning in docs/open-questions.md).
 //!
-//! The test suite is organised in four layers (Requirement 15.1): Rust
+//! The test suite is organised in four layers (P03-15.1): Rust
 //! unit tests (this crate's own `#[cfg(test)]` modules), Rust whole-network
 //! integration tests (`tests/`), TypeScript boundary tests
 //! (`packages/brain/test/`), and a separate emergent-behaviour suite
 //! (Phase 3's exit criterion, `tests/emergent/`, Step 13). Tooling is
 //! `cargo test` with `proptest` and `criterion` as dev-dependencies here,
-//! and Node's built-in `node:test` on the TypeScript side (Requirement
-//! 15.2) -- no test runner adds a runtime dependency anywhere.
+//! and Node's built-in `node:test` on the TypeScript side
+//! (P03-15.2) -- no test runner adds a runtime dependency anywhere.
 
 pub mod arena;
 pub mod column;

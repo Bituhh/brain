@@ -6,7 +6,7 @@
 //! if that count reaches a threshold, report a depolarisation level. It
 //! never decides to spike; that stays the soma's decision, made only
 //! easier by the depolarisation (`neuron.rs`'s `predictive` field lowers
-//! the *effective* threshold, it does not bypass it -- Requirement 10.3).
+//! the *effective* threshold, it does not bypass it -- P03-10.3).
 //!
 //! **The coincidence window defaults to one tick, and is optionally
 //! widenable (docs/decisions.md decision 22, settled 2026-09-11).** `active` is a
@@ -24,10 +24,10 @@
 //! `f32`, not `u16`: a decayed accumulator is not an integer count of
 //! *this instant's* deliveries the way the old hard-reset tally was.
 
-/// A dendritic spike's graded depolarisation level (Requirement 10.5) --
+/// A dendritic spike's graded depolarisation level (P03-10.5) --
 /// not a boolean, so a future graded model (e.g. one with a real
 /// per-branch membrane potential) can report partial activation without
-/// requiring any change to callers (Requirement 10.6).
+/// requiring any change to callers (P03-10.6).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Depolarisation(pub f32);
 
@@ -39,7 +39,7 @@ impl Depolarisation {
 /// running conductance). Empty for now: `BinaryCoincidence` needs nothing
 /// here, matching design.md's sketch -- the type exists purely so
 /// `SegmentModel`'s signature does not need to change when a graded model
-/// is added later (Requirement 10.6's "no change to callers").
+/// is added later (P03-10.6's "no change to callers").
 #[derive(Clone, Copy, Default, Debug)]
 pub struct SegmentState;
 
@@ -58,7 +58,7 @@ pub struct BinaryCoincidenceParams {
     pub threshold: u16,
 }
 
-/// The binary segment model (Requirement 10.6): fires at full strength
+/// The binary segment model (P03-10.6): fires at full strength
 /// once `active >= threshold`, otherwise not at all. Cheap, and -- per
 /// docs/prior-art.md §2.3 -- sufficient on its own to produce high-order sequence
 /// memory; a graded model is a real extension, not a prerequisite.
@@ -204,7 +204,7 @@ impl DendriticVote {
     /// `Weighted` returns `signum × (|signed_current| / reference_weight)`,
     /// capped at magnitude 1.0, and exactly `0.0` when `signed_current` is
     /// `0.0` (unlike `Count`) -- a weight of zero casts no vote in weighted
-    /// mode, per Requirement 1.3.
+    /// mode, per WADV-1.3.
     #[inline]
     pub fn contribution(self, signed_current: f32) -> f32 {
         match self {
@@ -220,7 +220,7 @@ impl DendriticVote {
     }
 }
 
-/// Configuration for `Scheduler::with_segments` (Requirement 10.1: every
+/// Configuration for `Scheduler::with_segments` (P03-10.1: every
 /// neuron gets the same fixed number of segments).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SegmentConfig {
@@ -244,7 +244,7 @@ impl SegmentConfig {
 
     /// Builds a `SegmentConfig` in weighted mode. Panics (via `assert!`,
     /// matching `SegmentThresholdHomeostasis::new`'s precedent) if
-    /// `reference_weight` is not finite and in `(0, 1]` (Requirement 1.6).
+    /// `reference_weight` is not finite and in `(0, 1]` (WADV-1.6).
     pub fn weighted(segments_per_neuron: u32, params: BinaryCoincidenceParams, reference_weight: f32) -> Self {
         assert!(
             reference_weight.is_finite() && reference_weight > 0.0 && reference_weight <= 1.0,
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn above_threshold_still_returns_exactly_one_value() {
-        // Requirement 10.6, NEU-6a: the binary implementation returns one
+        // P03-10.6, NEU-6a: the binary implementation returns one
         // of two values -- not a magnitude that scales with how far over
         // threshold the count is.
         let params = BinaryCoincidenceParams { threshold: 10 };

@@ -26,7 +26,7 @@
 // soon as it's measured, not just printed to the console -- so a trial is
 // never lost even if this long-running search is interrupted, and the log
 // can be pasted straight into docs/findings.md finding 7's tuning table
-// (Requirement 13.6: every trial recorded honestly, not just the best one
+// (P5-13.6: every trial recorded honestly, not just the best one
 // kept). The `seeds` column is what distinguishes a fast search estimate
 // from an official-protocol confirmation -- both belong in the same
 // honest record, at their own stated sample size.

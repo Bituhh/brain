@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeSdr, overlap, overlapFraction } from '../src/sdr.ts';
 
-test('makeSdr sorts and deduplicates active bits (Requirement 2.1)', () => {
+test('makeSdr sorts and deduplicates active bits (P5-2.1)', () => {
   const sdr = makeSdr(10, [5, 1, 5, 3, 1]);
   assert.deepEqual(sdr.activeBits, [1, 3, 5]);
   assert.equal(sdr.width, 10);
@@ -18,7 +18,7 @@ test('makeSdr rejects an invalid width', () => {
   assert.throws(() => makeSdr(1.5, []), RangeError);
 });
 
-test('overlap counts exactly the shared active bits (Requirement 2.2)', () => {
+test('overlap counts exactly the shared active bits (P5-2.2)', () => {
   const a = makeSdr(20, [1, 2, 3, 4]);
   const b = makeSdr(20, [3, 4, 5, 6]);
   assert.equal(overlap(a, b), 2);

@@ -10,7 +10,7 @@
 /**
  * A Sparse Distributed Representation: a fixed total bit width plus the
  * set of bits that are active. `activeBits` is always sorted and
- * deduplicated (Requirement 2.1) -- not because any consumer needs the
+ * deduplicated (P5-2.1) -- not because any consumer needs the
  * order, but so two `Sdr`s built from the same conceptual bit set compare
  * and serialise identically regardless of how they were constructed.
  */
@@ -45,7 +45,7 @@ export function makeSdr(width: number, activeBits: Iterable<number>): Sdr {
 }
 
 /**
- * The count of bit indices active in both `a` and `b` (Requirement 2.2) --
+ * The count of bit indices active in both `a` and `b` (P5-2.2) --
  * the single implementation every decoder in this package uses. `a` and
  * `b` need not share a width: comparing SDRs of different widths is
  * meaningless for most callers, but this function does not enforce equal
@@ -54,7 +54,7 @@ export function makeSdr(width: number, activeBits: Iterable<number>): Sdr {
  * primitive itself).
  */
 export function overlap(a: Sdr, b: Sdr): number {
-  // `a.activeBits`/`b.activeBits` are already sorted (Requirement 2.1),
+  // `a.activeBits`/`b.activeBits` are already sorted (P5-2.1),
   // so a linear merge-style walk finds the intersection in O(|a| + |b|)
   // rather than O(|a| * |b|) or paying for a Set allocation per call.
   let i = 0;
@@ -79,8 +79,8 @@ export function overlap(a: Sdr, b: Sdr): number {
 /**
  * `overlap(a, b)` normalised by the smaller of the two active-bit counts,
  * so two SDRs of very different densities still produce a comparable
- * `[0, 1]` figure -- e.g. a decoder's confidence threshold (Requirement
- * 7.2) is naturally expressed against this, not the raw count.
+ * `[0, 1]` figure -- e.g. a decoder's confidence threshold
+ * (P5-7.2) is naturally expressed against this, not the raw count.
  */
 export function overlapFraction(a: Sdr, b: Sdr): number {
   const denominator = Math.min(a.activeBits.length, b.activeBits.length);

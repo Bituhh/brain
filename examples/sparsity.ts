@@ -73,7 +73,7 @@ if (relativeError >= 0.3) {
 }
 if (withoutInhibition <= TARGET_SPARSITY * 2.0) {
   throw new Error(
-    'Expected disabling inhibition to substantially break the sparsity bound (Requirement 7.5).',
+    'Expected disabling inhibition to substantially break the sparsity bound (P03-7.5).',
   );
 }
 

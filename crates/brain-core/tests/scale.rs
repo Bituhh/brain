@@ -1,4 +1,4 @@
-//! Requirement 10 AC2: builds a 100k-neuron / 50M-synapse network and
+//! P4-10.2: builds a 100k-neuron / 50M-synapse network and
 //! reports its actual peak memory footprint via `NeuronArena`/
 //! `SynapseArena::approx_memory_bytes`, giving a concrete, falsifiable
 //! answer to whether ENG-11's stated network size target is resident in
@@ -27,7 +27,7 @@ const SYNAPSES_PER_NEURON: u32 = 500; // 100_000 * 500 = 50,000,000 synapses, ma
 fn builds_100k_neuron_50m_synapse_network_within_a_workstation_memory_budget() {
     let mut neurons = NeuronArena::new();
     for i in 0..NEURON_COUNT {
-        let polarity = if i % 5 == 0 { -1 } else { 1 }; // Requirement 6.3-style 80:20 excitatory:inhibitory split.
+        let polarity = if i % 5 == 0 { -1 } else { 1 }; // P03-6.3-style 80:20 excitatory:inhibitory split.
         neurons.allocate(NeuronSpec { threshold: 1.0, polarity, coords: [i as f32, 0.0, 0.0] });
     }
 
@@ -59,7 +59,7 @@ fn builds_100k_neuron_50m_synapse_network_within_a_workstation_memory_budget() {
         total_mb,
     );
 
-    // Requirement 10 AC2's actual check: a generous, falsifiable
+    // P4-10.2's actual check: a generous, falsifiable
     // workstation-scale ceiling (a few GB is unremarkable on a modern
     // workstation), not a tight budget -- this fails loudly if the
     // footprint ever balloons well past what "resident on a workstation"

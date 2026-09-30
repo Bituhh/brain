@@ -36,7 +36,7 @@
 //! rest of the column (`AMBIENT_PERMANENCE` sits above
 //! `connection_threshold`, not below it), so nothing structurally
 //! prevents leakage the way toy-scale's total isolation did.
-//! Pattern-specificity (Acceptance Criterion 2) has to be earned by real
+//! Pattern-specificity (P55-1.2) has to be earned by real
 //! k-WTA competition against that leakage, not assumed by isolation.
 //!
 //! The whole column shares one `FixedNeighbourhoods` scheme
@@ -69,7 +69,7 @@ const CONNECTION_THRESHOLD: f32 = 0.3;
 /// 200-neuron column could ever fire alongside it on a single tick.
 const K: u32 = DRIVEN_SUBSET_SIZE;
 const PERMANENCE_SUSTAINING: f32 = 0.9;
-const PERMANENCE_ABLATED: f32 = 0.1; // below CONNECTION_THRESHOLD -- inert (matches working_memory.rs's Requirement 1 AC3 precedent)
+const PERMANENCE_ABLATED: f32 = 0.1; // below CONNECTION_THRESHOLD -- inert (matches working_memory.rs's P55-1.3 precedent)
 const BOOTSTRAP_CURRENT: f32 = 5.0;
 const BOOTSTRAP_TICKS: u32 = 10;
 const POST_WITHDRAWAL_TICKS: u32 = 100;
@@ -118,7 +118,7 @@ fn run_bootstrap_then_withdraw(column: &mut ScaleColumn, inhibition: FixedNeighb
     (raster, meter)
 }
 
-/// Requirement 1(a), Acceptance Criteria 1-2: a driven subset's activity
+/// P7-1.1, applying P55-1.1 and P55-1.2 at scale: a driven subset's activity
 /// persists well past withdrawal, and the persisting activity stays
 /// concentrated in that subset rather than spreading across the column.
 #[test]
@@ -129,7 +129,7 @@ fn attractor_sustains_a_pattern_specific_representation_at_scale() {
         let driven = driven_range(&column);
         let (raster, meter) = run_bootstrap_then_withdraw(&mut column, inhibition);
 
-        // AC1: activity in the second half of the post-withdrawal window
+        // P55-1.1: activity in the second half of the post-withdrawal window
         // must still be well above zero -- not just a settling tail from
         // the bootstrap's own refractory/membrane state.
         let second_half_spikes: usize =
@@ -140,7 +140,7 @@ fn attractor_sustains_a_pattern_specific_representation_at_scale() {
             meter.mean_spikes_per_tick()
         );
 
-        // AC2: every spike observed in the window's second half must
+        // P55-1.2: every spike observed in the window's second half must
         // belong to the driven subset -- unlike working_memory.rs, this
         // is not true by construction here (real synapses to nearby
         // non-driven neurons exist), so this is the part real locality
@@ -157,7 +157,7 @@ fn attractor_sustains_a_pattern_specific_representation_at_scale() {
     }
 }
 
-/// Requirement 1(a), Acceptance Criterion 3: with the column's wiring held
+/// P7-1.1's ablation, applying P55-1.3 at scale: with the column's wiring held
 /// below `connection_threshold` (inert, per `plasticity/predictive.rs`'s
 /// existing sub-threshold-is-skipped precedent), the same
 /// bootstrap-then-withdraw procedure must NOT sustain activity --

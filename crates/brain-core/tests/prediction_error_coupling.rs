@@ -178,7 +178,7 @@ fn a_mispredicting_network_drives_both_channels_above_baseline() {
     assert_eq!(trial.acetylcholine(), BASELINE);
 
     // The first exposures are pure failure: B fires with nothing predicting
-    // it (Requirement 12.1), so the failure rate is 1.0.
+    // it (P03-12.1), so the failure rate is 1.0.
     for _ in 0..3 {
         trial.expose_ab();
     }
@@ -752,7 +752,7 @@ fn noradrenaline_widens_the_stdp_window_while_the_world_is_surprising() {
 /// and the hook set at map gain 0 -- and the property fails: the probe
 /// pairing never counts, before or after the switch. The two ablations are
 /// also bit-identical to each other throughout (a gain-0 map is the configured
-/// curve exactly, Requirement 5.2), and they see the *same* surprise as the
+/// curve exactly: bit-identical when unset), and they see the *same* surprise as the
 /// coupled run, so what was removed is the consumer, not the signal.
 #[test]
 fn ablation_without_the_coupling_the_probe_pairing_never_counts() {

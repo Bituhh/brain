@@ -1,6 +1,6 @@
 // PLAN.md B5's own `SearchHooks`/`ConditionCodec` (`scripts/b4-search/search.ts`'s
 // and `evaluator.ts`'s generalised parameters), and the factorial combo type
-// requirements.md Requirement 9.4 asks for: vote mode x silent gate x
+// WADV-9.4 asks for: vote mode x silent gate x
 // learning target (2 x 2 x 3 = 12 rows) -- not B4's four fixes, so B5 needs
 // its own combo shape and its own factorial/reference construction, not a
 // reuse of B4's.
@@ -19,7 +19,7 @@ import {
 } from './conditions.ts';
 import type { B5ParamName } from './space.ts';
 
-/** Requirement 9.4's factorial: vote mode, B4 fix 1 (the silent gate), and predictive-learning target, independently of each other and of the rest of the winner's point. */
+/** WADV-9.4's factorial: vote mode, B4 fix 1 (the silent gate), and predictive-learning target, independently of each other and of the rest of the winner's point. */
 export interface FactorialCombo {
   readonly voteMode: 'count' | 'weighted';
   readonly silentGate: boolean;
@@ -73,7 +73,7 @@ export function toFactorialCondition(
   return { kind: 'C', point, fixes };
 }
 
-/** The informative rows (Requirement 9.4 reports "each one's marginal effect"): every row is informative at only 12 combinations, so every row gets a confirm-seed score -- unlike B4's 16-row factorial, where only 5 rows were singled out. */
+/** The informative rows (WADV-9.4 reports "each one's marginal effect"): every row is informative at only 12 combinations, so every row gets a confirm-seed score -- unlike B4's 16-row factorial, where only 5 rows were singled out. */
 function isFactorialConfirmRow(): boolean {
   return true;
 }

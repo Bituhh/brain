@@ -111,7 +111,7 @@ const DEFERRED = new Set([
   // ENG-5 (zero AI/ML dependencies) used to sit here as "no test asserts it". That was wrong
   // from the start (PLAN.md C10, 2026-09-30): `tests/workspace_policy.rs`'s
   // `no_manifest_names_a_forbidden_ai_ml_dependency` asserts exactly ENG-5, but cited only the
-  // Phase 0-3 criterion "Requirement 1.3", which this script's id space cannot see. It now cites
+  // Phase 0-3 criterion P03-1.3, which this script's id space cannot see. It now cites
   // ENG-5 and walks the tree for manifests and lockfiles instead of listing five by hand (the list
   // had missed packages/brain, packages/viz and crates/brain-napi's package.json).
   //

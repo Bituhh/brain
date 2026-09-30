@@ -23,7 +23,7 @@ fn a_probe_and_a_raster_driven_from_the_real_scheduler_stay_consistent_and_bound
     let params = LifParams::new(5.0, 0.0, 0.0, 0);
 
     // A probe on `a` with a capacity far smaller than the number of ticks
-    // this test runs -- Requirement 13.2 must hold under real, sustained
+    // this test runs -- P03-13.2 must hold under real, sustained
     // drive, not just in probe.rs's synthetic unit tests.
     let mut probe = Probe::new(a, ProbeOptions { capacity: 5, record_membrane: true, weight_synapses: vec![syn], record_segments: false });
     let mut raster = SpikeRaster::new();
@@ -40,7 +40,7 @@ fn a_probe_and_a_raster_driven_from_the_real_scheduler_stay_consistent_and_bound
         accuracy.record(report.predicted_spikes, report.spiked.len() as u32);
     }
 
-    // Requirement 13.2: the probe never grew past its configured capacity
+    // P03-13.2: the probe never grew past its configured capacity
     // despite 200 ticks of sustained firing.
     assert_eq!(probe.spike_times().count(), 5);
     assert_eq!(probe.membrane_trace().unwrap().len(), 5);
@@ -51,14 +51,14 @@ fn a_probe_and_a_raster_driven_from_the_real_scheduler_stay_consistent_and_bound
     assert_eq!(accuracy.accuracy(), 0.0);
     assert!(firing_rate.mean_spikes_per_tick() > 0.0, "a must have fired repeatedly under sustained stimulation");
 
-    // Requirement 13.5: the raster this run actually produced round-trips
+    // P03-13.5: the raster this run actually produced round-trips
     // through export/import exactly.
     let bytes = raster.export();
     let restored = SpikeRaster::import(&bytes).unwrap();
     assert_eq!(restored.events(), raster.events());
     assert!(!raster.is_empty());
 
-    // Requirement 13.3: the arena-level snapshot reflects the real
+    // P03-13.3: the arena-level snapshot reflects the real
     // topology this run actually has.
     let snapshot = MetricsSnapshot::compute(&neurons, &synapses, 0);
     assert_eq!(snapshot.synapse_count, 1);
@@ -67,7 +67,7 @@ fn a_probe_and_a_raster_driven_from_the_real_scheduler_stay_consistent_and_bound
 
 #[test]
 fn scheduler_exposes_always_on_firing_rate_and_prediction_accuracy_with_no_extra_wiring() {
-    // Requirement 5.1 (Phase 6): OBS-2's incremental meters must be usable
+    // P6-5.1: OBS-2's incremental meters must be usable
     // by simply calling step() -- no caller-side FiringRateMeter/
     // PredictionAccuracyMeter construction required, unlike the
     // hand-driven pattern the test above still uses for its own,
@@ -96,7 +96,7 @@ fn attached_probes_record_only_their_own_neurons_dendritic_segment_activity() {
     // Requirement 4 (probes fed automatically inside step()) and
     // Requirement 6 (per-segment activity recording, including a
     // below-threshold count) driven end-to-end from the real scheduler --
-    // and Requirement 6.3's "no cost/interference for an unwatched
+    // and P6-6.3's "no cost/interference for an unwatched
     // neuron" as a correctness claim: a second probe attached to an
     // unrelated neuron with no segment activity of its own must stay
     // empty, proving the per-composite hashmap lookup only ever reaches
@@ -148,7 +148,7 @@ fn attached_probes_record_only_their_own_neurons_dendritic_segment_activity() {
     let other_history = sched.probe(other).unwrap().segment_history().unwrap();
     assert_eq!(other_history.len(), 0, "an unrelated neuron's probe must not observe another neuron's segment activity");
 
-    // Requirement 4.4: detaching removes the probe entirely.
+    // P6-4.4: detaching removes the probe entirely.
     sched.detach_probe(target);
     assert!(sched.probe(target).is_none());
 }

@@ -1,4 +1,4 @@
-//! Golden spike-raster regression tests (Requirement 15.5, 15.6).
+//! Golden spike-raster regression tests (P03-15.5, P03-15.6).
 //!
 //! A fixed, fully deterministic scenario produces a spike raster; it is
 //! compared byte-for-byte against a stored reference. This catches the
@@ -9,7 +9,7 @@
 //! (`npm run test:golden`), not the fast tier that runs on every change.
 //! **Regeneration is a separate, explicitly named test**
 //! (`regenerate_golden_rasters`), never automatic on comparison failure
-//! (Requirement 15.6): running it overwrites the stored `.raster` file,
+//! (P03-15.6): running it overwrites the stored `.raster` file,
 //! and the resulting diff is then a normal, reviewed change to commit --
 //! exactly the "deliberate, reviewed action" the requirement asks for.
 //! `cargo test --release --test golden matches_golden` will never touch
@@ -466,7 +466,7 @@ fn run_structural_plasticity_b4_scenario_with(switches: B4Switches, k: B4Knobs) 
     let params = LifParams::new(6.0, 0.0, 0.0, 1).with_predictive(20.0, 0.5);
 
     // Dopamine starts at 1.0 and is topped up each tick so it stays there
-    // (tau 500): plain STDP, Requirement 8.8's reference point.
+    // (tau 500): plain STDP, P03-8.8's reference point.
     sched.inject_modulator(DOPAMINE, 1.0);
     let mut raster = SpikeRaster::new();
     for tick in 0..STRUCTURAL_B4_TICKS {
@@ -557,7 +557,7 @@ fn dendritic_votes_weighted_scenario_matches_golden_raster() {
     );
 }
 
-/// Requirement 10.3's fast-tier sibling: proves the golden scenario above
+/// WADV-10.3's fast-tier sibling: proves the golden scenario above
 /// actually exercises the vote mode, the same discipline
 /// `structural_b4_scenario_is_sensitive_to_each_fix` established for B4.
 #[test]
@@ -568,7 +568,7 @@ fn dendritic_votes_weighted_scenario_is_sensitive_to_vote_mode() {
     // (every dendritic coincidence completes, since count mode ignores
     // weight); in weighted mode, at this scenario's weights and reference,
     // none of them ever do -- confirmed directly while building this test,
-    // the property Requirement 10.2's ablation test names by name.
+    // the property WADV-10.2's ablation test names by name.
     assert_ne!(weighted, count, "switching to count mode must change this scenario's raster -- otherwise it does not cover the vote mode at all");
 }
 

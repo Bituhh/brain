@@ -2,7 +2,7 @@
 // the FFI that already exists. No Rust changes at all -- `step()` already
 // returns the indices that spiked and `stimulate()` already takes input
 // back in, so this is a `while` statement in orchestration code, not a
-// core capability (Requirement 16.1).
+// core capability (P5-16.1).
 //
 // Deliberately its own function, not `harness/stream.ts`'s `streamThrough`
 // called with an environment-backed source, and not a wrapper around it
@@ -13,7 +13,7 @@
 // before this tick's decode exists to source it from, and there is no
 // ground-truth label to compare against (only whether the closed loop
 // measurably outperforms a disconnected one on a task that requires
-// acting, Requirement 16.5's ablation). Both functions are a few lines of
+// acting, P5-16.5's ablation). Both functions are a few lines of
 // orchestration once `ColumnHandle`/`decode()` exist, so sharing that much
 // is enough.
 
@@ -22,7 +22,7 @@ import type { Sdr } from './sdr.ts';
 import { decode, type Candidate } from './decoders/overlap.ts';
 import type { ColumnHandle } from './columns.ts';
 
-/** The environment half of the loop (Requirement 16.1) -- `GridWorld` (`environments/grid.ts`) is this phase's only implementation. */
+/** The environment half of the loop (P5-16.1) -- `GridWorld` (`environments/grid.ts`) is this phase's only implementation. */
 export interface Environment<Obs, Act> {
   observe(): Obs;
   act(action: Act): void;
@@ -30,7 +30,7 @@ export interface Environment<Obs, Act> {
 
 export interface SensorimotorConfig<Obs, Act> {
   readonly encode: (observation: Obs) => Sdr;
-  /** Candidate SDRs, one per possible action -- decoded against via Requirement 7's existing SDR-overlap readout, not a second, motor-specific path (Requirement 16.2). */
+  /** Candidate SDRs, one per possible action -- decoded against via Requirement 7's existing SDR-overlap readout, not a second, motor-specific path (P5-16.2). */
   readonly actions: ReadonlyMap<Act, Sdr>;
   /** Every column in this group receives the identical encoded observation each step; the *first* column's activity is decoded (matching `streamThrough`'s own convention). */
   readonly columns: ReadonlyArray<ColumnHandle>;

@@ -199,7 +199,7 @@ fn run_partitioned_with_segments(seed: u64, partition_count: usize, executor: Ex
     let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
     let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
     for tick in 0..TICKS {
-        // Phase 5 Requirement 15.3: the broadcasting form replaces this
+        // P5-15.3: the broadcasting form replaces this
         // file's own hand-rolled per-partition loop -- exactly the trap
         // docs/decisions.md decision 21 identified, now closed at the source.
         runtime.inject_modulator(DOPAMINE, 1.0);
@@ -278,7 +278,7 @@ fn two_partitions_match_the_unpartitioned_reference() {
     assert_identical_synapses(&plain.synapses, &two_partitions.synapses, TOTAL_NEURONS, "2-partition vs plain");
 }
 
-/// PLAN.md B5 (docs/decisions.md decision 13), Requirement 7.2: the same crux
+/// PLAN.md B5 (docs/decisions.md decision 13), WADV-7.2: the same crux
 /// claim as the two count-mode tests above, under `DendriticVote::Weighted`
 /// specifically -- the contribution is computed from the delivery's own
 /// `signed_current` at the receiving scheduler (design.md's Architecture
@@ -466,7 +466,7 @@ fn the_transmission_gates_counters_are_the_same_at_any_partition_count() {
     assert_eq!(one, totals(2), "the merged counters must not depend on how the network was split");
 }
 
-/// Requirement 8, Acceptance Criterion 1: the same seed/topology/input run
+/// P4-8.1: the same seed/topology/input run
 /// at different *thread counts* (not just different partition counts) must
 /// be bit-identical -- real rayon-managed threads now, not the sequential
 /// stand-in the tests above use. `thread_count` deliberately exceeds
@@ -582,7 +582,7 @@ fn cross_column_spike_phase_is_identical_across_partitioning_and_threading() {
     }
 }
 
-// -- Phase 5 Requirement 9.2/9.6: always-on homeostasis/structural
+// -- P5-9.2/P5-9.6: always-on homeostasis/structural
 // plasticity must be held to the same bit-identical standard as every other
 // mechanism above, since they are now part of `step()`'s own per-tick work
 // (`Scheduler::step`/`PartitionRuntime::step`) rather than a caller-driven
@@ -683,7 +683,7 @@ fn run_partitioned_with_always_on_plasticity(seed: u64, partition_count: usize, 
     let mut spiked_per_tick = Vec::with_capacity(TICKS as usize);
     let mut vetoed_per_tick = Vec::with_capacity(TICKS as usize);
     for tick in 0..TICKS {
-        // Phase 5 Requirement 15.3: the broadcasting form replaces this
+        // P5-15.3: the broadcasting form replaces this
         // file's own hand-rolled per-partition loop -- exactly the trap
         // docs/decisions.md decision 21 identified, now closed at the source.
         runtime.inject_modulator(DOPAMINE, 1.0);
@@ -700,7 +700,7 @@ fn run_partitioned_with_always_on_plasticity(seed: u64, partition_count: usize, 
     RunOutcome { neurons, synapses, spiked_per_tick, vetoed_per_tick }
 }
 
-/// Requirement 9.2/9.6's own correctness proof: with both mechanisms
+/// P5-9.2/P5-9.6's own correctness proof: with both mechanisms
 /// enabled, a plain `Scheduler` and `PartitionRuntime` at 2 partitions
 /// (sequential, rayon, and the pinned executor) must still agree exactly --
 /// the always-on hook must not become a new source of partition-count- or
@@ -736,7 +736,7 @@ fn always_on_homeostasis_and_structural_plasticity_are_identical_across_partitio
     }
 }
 
-/// Requirement 15.3/15.4's most direct proof, isolated from every other
+/// P5-15.3/P5-15.4's most direct proof, isolated from every other
 /// mechanism above: a *single* broadcast `inject_modulator` call must reach
 /// every partition equally, not just whichever partition a caller happened
 /// to address. Two completely disjoint, symmetric causally-spiking pairs,
@@ -779,7 +779,7 @@ fn a_single_broadcast_injection_reaches_every_partition_equally() {
     assert_eq!(after0, after1, "both partitions saw the same broadcast injection, so both pairs (identical topology) must potentiate identically");
 }
 
-/// Phase 5.5 Requirement 5, Acceptance Criterion 3: a reward-broadcast
+/// P55-5.3: a reward-broadcast
 /// injection must reach every partition equally even when the topology
 /// itself contains a cross-*partition* NET-13-style gating edge (an
 /// inhibitory-polarity source projecting onto an excitatory target on

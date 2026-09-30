@@ -206,7 +206,7 @@ fn late_spikes(raster: &SpikeRaster, range: &Range<u32>) -> usize {
     raster.events().iter().filter(|&&(t, n)| t >= last_quarter_start && range.contains(&n)).count()
 }
 
-/// Requirement 1(b), Acceptance Criterion 2: with gating wired, A (cued
+/// P7-1.2: with gating wired, A (cued
 /// first) holds its attractor and suppresses B strongly enough that B's
 /// own later cue never establishes a lasting attractor of its own --
 /// checked over each population's *whole* column, not just its driven
@@ -226,7 +226,7 @@ fn mutual_gating_lets_the_first_cued_population_hold_and_suppress_the_other_at_s
     }
 }
 
-/// Requirement 1(b), Acceptance Criterion 2's ablation: with the
+/// P7-1.2's ablation: with the
 /// cross-population inhibitory synapses absent, both A and B must be able
 /// to sustain their own attractor simultaneously once each has been cued
 /// -- proving suppression, not something else (e.g. ambient wiring, k-WTA

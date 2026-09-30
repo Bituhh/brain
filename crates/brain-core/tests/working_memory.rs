@@ -70,11 +70,11 @@ const THRESHOLD: f32 = 1.0;
 const TAU_M_TICKS: f32 = 1.0;
 const CONNECTION_THRESHOLD: f32 = 0.3;
 const CLIQUE_PERMANENCE_SUSTAINING: f32 = 0.9; // comfortably above CONNECTION_THRESHOLD
-const CLIQUE_PERMANENCE_ABLATED: f32 = 0.1; // below CONNECTION_THRESHOLD -- inert (Requirement 1 AC3)
+const CLIQUE_PERMANENCE_ABLATED: f32 = 0.1; // below CONNECTION_THRESHOLD -- inert (P55-1.3)
 const BOOTSTRAP_CURRENT: f32 = 5.0; // supra-threshold external drive during the bootstrap window
 const BOOTSTRAP_TICKS: u32 = 10;
 const POST_WITHDRAWAL_TICKS: u32 = 100;
-/// Requirement 1 AC1's "at least N post-withdrawal ticks" floor: the clique
+/// P55-1.1's "at least N post-withdrawal ticks" floor: the clique
 /// must still be producing spikes in the *second half* of the observation
 /// window, not merely coasting on residual refractory/membrane state from
 /// the bootstrap itself.
@@ -157,7 +157,7 @@ fn run_bootstrap_then_withdraw(
     (raster, meter)
 }
 
-/// Requirement 1, Acceptance Criteria 1, 2 and 5: a driven clique's activity
+/// P55-1.1, P55-1.2 and P55-1.5: a driven clique's activity
 /// persists well past withdrawal, and the persisting activity is
 /// attributable to the specific driven subset.
 #[test]
@@ -167,7 +167,7 @@ fn attractor_sustains_a_pattern_specific_representation_after_input_stops() {
         let (mut neurons, mut synapses, column_range, clique_range) = build_topology(seed, CLIQUE_PERMANENCE_SUSTAINING);
         let (raster, meter) = run_bootstrap_then_withdraw(&mut neurons, &mut synapses, clique_range.clone());
 
-        // AC1: activity in the second half of the post-withdrawal window
+        // P55-1.1: activity in the second half of the post-withdrawal window
         // must still be well above zero -- not just a settling tail from
         // the bootstrap's own refractory/membrane state.
         let second_half_spikes: usize =
@@ -178,7 +178,7 @@ fn attractor_sustains_a_pattern_specific_representation_after_input_stops() {
             meter.mean_spikes_per_tick()
         );
 
-        // AC2: every spike observed post-withdrawal must belong to the
+        // P55-1.2: every spike observed post-withdrawal must belong to the
         // driven clique, not to the rest of the column (which was never
         // wired to anything and never stimulated, so any spike from it
         // would indicate the "attractor" is not actually pattern-specific).
@@ -190,7 +190,7 @@ fn attractor_sustains_a_pattern_specific_representation_after_input_stops() {
     }
 }
 
-/// Requirement 1, Acceptance Criterion 3: with the clique's recurrent
+/// P55-1.3: with the clique's recurrent
 /// synapses held below `connection_threshold` (inert, per
 /// `plasticity/predictive.rs`'s existing sub-threshold-is-skipped
 /// precedent), the same bootstrap-then-withdraw procedure must NOT sustain

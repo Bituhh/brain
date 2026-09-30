@@ -2,7 +2,7 @@
 // WebSocket binary message's first byte is a type tag; everything after it
 // is that type's payload, little-endian throughout, with every array
 // length carried as an explicit u32 prefix rather than assumed fixed
-// (Requirement 7.4 -- a huge network changes how *long* a message is,
+// (P6-7.4 -- a huge network changes how *long* a message is,
 // never its *shape*). Hand-rolled rather than reaching for a serialisation
 // library, matching this project's existing precedent
 // (`snapshot.rs`/`probe.rs`'s `RASTER` format) and ENG-5/ENG-6's
@@ -11,7 +11,7 @@
 // Pure functions, no Node or DOM API -- importable unchanged by both
 // `server.ts` (Node) and the browser client, which is what makes "a client
 // and server built independently against the design doc would
-// interoperate" (Requirement 7.5) actually true: both sides import this
+// interoperate" (P6-7.5) actually true: both sides import this
 // exact module rather than reimplementing the format twice.
 //
 // Scalar convention: per-neuron/per-synapse *bulk arrays* use the same
@@ -34,7 +34,7 @@ export interface TopologySynapsesMessage {
   readonly type: 'topologySynapses';
   readonly epoch: number;
   readonly capPerNeuron: number;
-  /** SYN-3: a synapse is functionally connected only at or above this value (design.md's Requirement 2.2 decision -- filtering happens client-side, so the client needs this). */
+  /** SYN-3: a synapse is functionally connected only at or above this value (design.md's P6-2.2 decision -- filtering happens client-side, so the client needs this). */
   readonly connectionThreshold: number;
   readonly targetNeuron: Uint32Array;
   readonly targetSegment: Uint32Array;
@@ -57,7 +57,7 @@ export interface TickMessage {
   readonly firingRate: number;
   readonly predictionAccuracy: number;
   readonly spiked: Uint32Array;
-  /** Present only on ticks matching the configured state stride (Requirement 7.4). */
+  /** Present only on ticks matching the configured state stride (P6-7.4). */
   readonly state: TickStateMessage | undefined;
 }
 

@@ -1,7 +1,7 @@
-//! Per-tick metrics (OBS-2, Requirement 13.3).
+//! Per-tick metrics (OBS-2, P03-13.3).
 //!
 //! Two different shapes of "cheap enough to leave permanently on"
-//! (Requirement 13.4) live here, deliberately kept separate:
+//! (P03-13.4) live here, deliberately kept separate:
 //!
 //! - **Incremental, O(1) per tick**: [`FiringRateMeter`] and
 //!   [`PredictionAccuracyMeter`] are ring-buffer running sums fed one small

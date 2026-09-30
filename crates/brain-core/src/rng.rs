@@ -1,10 +1,10 @@
 //! PCG32 — a small, fast, exactly-restorable pseudorandom generator.
 //!
 //! Written in-repo per ENG-5 (no external RNG dependency) and RUN-3 /
-//! Requirement 3.2: the engine draws from its own seeded PRNG and never from
+//! P03-3.2: the engine draws from its own seeded PRNG and never from
 //! an ambient or platform random source.
 //!
-//! Requirement 16.4 is why PCG32 specifically: its entire state is two
+//! P03-16.4 is why PCG32 specifically: its entire state is two
 //! `u64`s, both of which this module exposes and restores exactly, so a
 //! snapshot's RNG section is trivial and stable across rebuilds. This is
 //! the PCG XSH-RR variant with a 64-bit state, following the algorithm
@@ -16,7 +16,7 @@
 pub struct Pcg32 {
     state: u64,
     /// Must be odd; stored pre-shifted (`(seq << 1) | 1`) so restoration
-    /// needs no reconstruction logic (Requirement 16.4).
+    /// needs no reconstruction logic (P03-16.4).
     inc: u64,
 }
 
@@ -35,15 +35,15 @@ impl Pcg32 {
         rng
     }
 
-    /// Restores a generator from previously-saved raw state (Requirement
-    /// 16.4). `inc` is expected already odd, as returned by
+    /// Restores a generator from previously-saved raw state
+    /// (P03-16.4). `inc` is expected already odd, as returned by
     /// [`Pcg32::raw_state`].
     pub fn from_raw_state(state: u64, inc: u64) -> Self {
         Pcg32 { state, inc: inc | 1 }
     }
 
     /// The exact internal state, for snapshotting. Round-trips through
-    /// [`Pcg32::from_raw_state`] with no loss (Requirement 16.4, 3.2).
+    /// [`Pcg32::from_raw_state`] with no loss (P03-16.4, P03-3.2).
     pub fn raw_state(&self) -> (u64, u64) {
         (self.state, self.inc)
     }
@@ -160,7 +160,7 @@ mod tests {
     }
 
     /// Pinned output for a fixed seed. This is a regression guard against an
-    /// accidental change to the algorithm's arithmetic (Requirement 3.4) —
+    /// accidental change to the algorithm's arithmetic (P03-3.4) —
     /// it is not a claim of bit-compatibility with any other PCG32
     /// implementation, since none is required by any requirement.
     #[test]

@@ -72,8 +72,8 @@ pub struct GrowthRawState {
 
 /// The certain, always-available fallback (design.md's growth risk #1):
 /// adds a fixed number of neurons every fixed number of ticks, regardless
-/// of any saturation signal. A crude but valid reading of Requirement
-/// 11.6 -- "the population is always due for more capacity on this
+/// of any saturation signal. A crude but valid reading of
+/// P03-11.6 -- "the population is always due for more capacity on this
 /// schedule" -- that keeps Requirement 11 satisfiable even if
 /// `OverlapSaturation`'s metric turns out not to hold up.
 pub struct FixedSchedule {
@@ -196,7 +196,7 @@ impl GrowthPolicy for OverlapSaturation {
     }
 }
 
-/// Allocates `count` neurons (Requirement 11.4: fully participating
+/// Allocates `count` neurons (P03-11.4: fully participating
 /// immediately -- there is nothing further to wire up, since
 /// `NeuronArena::allocate` and `SynapseArena::reserve_for_neurons` are the
 /// same calls any other construction path uses) and reserves synapse
@@ -204,7 +204,7 @@ impl GrowthPolicy for OverlapSaturation {
 /// threshold/polarity/coordinates, letting the caller decide placement
 /// without this function needing an opinion on it.
 ///
-/// A ceiling (Requirement 11.8) is the caller's responsibility, checked
+/// A ceiling (P03-11.8) is the caller's responsibility, checked
 /// before calling this: `apply_growth` does not itself know what "the
 /// population" means across multiple pools, so it cannot enforce a global
 /// cap on its own.
@@ -248,8 +248,8 @@ mod tests {
         let added = apply_growth(&mut neurons, &mut synapses, 5, spec);
         assert_eq!(added.len(), 5);
         assert_eq!(neurons.live_count(), 5);
-        assert!(neurons.epoch() > before_epoch, "growth must be observable as arena growth (Requirement 2.2)");
-        // Requirement 11.4: fully participating without a rebuild --
+        assert!(neurons.epoch() > before_epoch, "growth must be observable as arena growth (P03-2.2)");
+        // P03-11.4: fully participating without a rebuild --
         // synapse storage must already be sized for the new neurons.
         assert!(synapses.insert(added[0].index, added[1].index, 0, 1, 0.5, 0.5).is_ok());
     }
@@ -261,7 +261,7 @@ mod tests {
         let original = neurons.allocate(spec(0));
         synapses.reserve_for_neurons(neurons.capacity_len());
         apply_growth(&mut neurons, &mut synapses, 10, spec);
-        assert!(neurons.is_alive(original), "Requirement 11.5: existing identity must remain valid after growth");
+        assert!(neurons.is_alive(original), "P03-11.5: existing identity must remain valid after growth");
     }
 
     #[test]
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(policy.should_grow(&PopulationStats { live_count: 0, tick: 1000 }, 1), 0, "must not trigger before the window fills");
     }
 
-    /// Requirement 11.6.
+    /// P03-11.6.
     #[test]
     fn overlap_saturation_triggers_once_collision_rate_exceeds_threshold() {
         let mut policy = OverlapSaturation::new(0.5, 10, 5, 10);

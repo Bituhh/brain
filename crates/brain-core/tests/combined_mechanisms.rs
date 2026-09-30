@@ -10,8 +10,8 @@
 //! repeatedly-injected modulator (LRN-2/3/4/5 -- not left at the default
 //! zero the way an unconfigured `plasticity` leaves it), homeostatic
 //! synaptic scaling (LRN-6), structural plasticity (LRN-7), and per-segment
-//! threshold homeostasis (dendritic-threshold-homeostasis spec, Requirement
-//! 6 AC3 -- added as a sixth concurrent mechanism here rather than a new
+//! threshold homeostasis
+//! (DTH-6.3 -- added as a sixth concurrent mechanism here rather than a new
 //! file, per that requirement's own instruction to reuse this file's
 //! existing coverage instead of writing a new combined-mechanisms test).
 //!
@@ -171,8 +171,8 @@ struct RunResult {
     both_won_same_tick_count: u32,
     target_ever_spiked: bool,
     rival_ever_spiked: bool,
-    /// `rival`'s segment-0 live threshold at the end of the run (dendritic-
-    /// threshold-homeostasis spec, Requirement 6 AC3) -- `None` when the
+    /// `rival`'s segment-0 live threshold at the end of the run
+    /// (DTH-6.3) -- `None` when the
     /// mechanism was not attached at all.
     rival_segment_threshold: Option<f32>,
 }
@@ -243,7 +243,7 @@ fn run(with_homeostasis: bool) -> RunResult {
         // isolates which mechanism produced which effect.
         .with_predictive_learning(predictive_params, FixedNeighbourhoods::new(1, 1))
         .with_plasticity(make_plasticity(), [500.0; NUM_MODULATORS])
-        // dendritic-threshold-homeostasis spec, Requirement 6 AC3: always on
+        // DTH-6.3: always on
         // in this file (unlike `with_homeostasis`, not one of the two
         // dimensions the tests below vary) -- `cue` depolarises `rival`'s
         // segment 0 deterministically every tick (see `Topology`'s own doc
@@ -343,12 +343,12 @@ fn all_six_mechanisms_remain_individually_effective_when_run_concurrently() {
     );
     assert!(
         result.structural.pruned >= 1,
-        "structural plasticity must have pruned the below-floor canary synapse at least once during the run (Requirement 11.1), got {} prunes",
+        "structural plasticity must have pruned the below-floor canary synapse at least once during the run (P03-11.1), got {} prunes",
         result.structural.pruned
     );
     assert!(
         result.structural.sprouted >= 1,
-        "structural plasticity must have sprouted at least one new candidate between the two co-active, unconnected sprout neurons (Requirement 11.2), got {} sprouts",
+        "structural plasticity must have sprouted at least one new candidate between the two co-active, unconnected sprout neurons (P03-11.2), got {} sprouts",
         result.structural.sprouted
     );
     assert!(result.rival_ever_depolarised, "the dendritic segment must have depolarised rival at least once (NEU-5/NEU-6) -- segments must not be starved by the other concurrent mechanisms");
@@ -366,7 +366,7 @@ fn all_six_mechanisms_remain_individually_effective_when_run_concurrently() {
         result.both_won_same_tick_count < TICKS,
         "local inhibition (NET-2) must suppress target/rival co-firing on at least some ticks, even under the combined load of every other mechanism -- got co-firing on every single one of {TICKS} ticks, which means the shared neighbourhood's k=7-of-8 competition never once bound"
     );
-    // dendritic-threshold-homeostasis spec, Requirement 6 AC3: this
+    // DTH-6.3: this
     // mechanism must still be doing its own job -- converging rival's
     // segment 0 threshold away from its untouched initial value of 1.0 --
     // while the other five mechanisms are simultaneously touching the same

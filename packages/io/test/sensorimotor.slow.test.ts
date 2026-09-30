@@ -1,4 +1,4 @@
-// Requirement 16.5's load-bearing ablation, VAL-9's pattern applied to the
+// P5-16.5's load-bearing ablation, VAL-9's pattern applied to the
 // sensorimotor loop: the same network and environment, with actions
 // disconnected from observations, must perform measurably worse on a task
 // that requires acting to disambiguate. Slow tier (per design.md's Testing
@@ -9,7 +9,7 @@
 // The task (design.md's own rationale for choosing GridWorld): two grids,
 // identical except for one distinguishing cell reachable only by actually
 // moving there. An agent whose decoded action is *not* applied to the
-// environment (Requirement 16.5's "observations sampled independently of
+// environment (P5-16.5's "observations sampled independently of
 // what the network emitted") can never reliably reach it; an agent whose
 // action genuinely drives the environment does, deterministically, given
 // a network configured to always decode the same directed move.
@@ -79,7 +79,7 @@ function buildNetwork(): {
   return { sim, column: column!, candidates };
 }
 
-/** A fixed sequence that never happens to be "right" -- standing in for "observations sampled independently of what the network emitted" (Requirement 16.5): the environment's transitions ignore the decoded action entirely. */
+/** A fixed sequence that never happens to be "right" -- standing in for "observations sampled independently of what the network emitted" (P5-16.5): the environment's transitions ignore the decoded action entirely. */
 const DISCONNECTED_ACTIONS: readonly Action[] = [
   'up',
   'down',
@@ -130,7 +130,7 @@ function runTask(
   return sawDistinguishingSymbol;
 }
 
-test("closed loop: the network's decoded action reliably reaches the distinguishing cell (Requirement 16.3)", () => {
+test("closed loop: the network's decoded action reliably reaches the distinguishing cell (P5-16.3)", () => {
   assert.equal(
     runTask(true, '!'),
     true,
@@ -138,7 +138,7 @@ test("closed loop: the network's decoded action reliably reaches the distinguish
   );
 });
 
-test("disconnected loop: actions sampled independently of the network's output do not reach the distinguishing cell (Requirement 16.5's ablation)", () => {
+test("disconnected loop: actions sampled independently of the network's output do not reach the distinguishing cell (P5-16.5's ablation)", () => {
   assert.equal(
     runTask(false, '!'),
     false,
@@ -146,7 +146,7 @@ test("disconnected loop: actions sampled independently of the network's output d
   );
 });
 
-test('the closed loop measurably outperforms the disconnected one on the disambiguation task (Requirement 16.5)', () => {
+test('the closed loop measurably outperforms the disconnected one on the disambiguation task (P5-16.5)', () => {
   // The actual acceptance criterion, stated as a single comparison rather
   // than two separate boolean assertions: closing the loop must be what
   // makes the difference, not incidental to it.

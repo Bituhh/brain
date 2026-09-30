@@ -9,8 +9,8 @@ const BRAIN_CORE_CARGO_TOML: &str = include_str!("../Cargo.toml");
 const ROOT_PACKAGE_JSON: &str = include_str!("../../../package.json");
 const RUST_TOOLCHAIN_TOML: &str = include_str!("../../../rust-toolchain.toml");
 
-/// Requirement 1.2 (`brain-core` has no dependency on any binding crate,
-/// on `napi`, or on `wasm-bindgen`) and half of Requirement 1.4 (dev-only
+/// P03-1.2 (`brain-core` has no dependency on any binding crate,
+/// on `napi`, or on `wasm-bindgen`) and half of P03-1.4 (dev-only
 /// tooling is exempt from the runtime-dependency justification rule):
 /// checked directly against the manifest text rather than via `cargo
 /// tree` (which would need this test to shell out to cargo itself).
@@ -49,11 +49,11 @@ fn brain_core_manifest_carries_no_runtime_dependency_beyond_rayon() {
     }
     assert!(
         !BRAIN_CORE_CARGO_TOML.to_lowercase().contains("napi") && !BRAIN_CORE_CARGO_TOML.to_lowercase().contains("wasm-bindgen"),
-        "brain-core must not depend on a binding crate (Requirement 1.2)"
+        "brain-core must not depend on a binding crate (P03-1.2)"
     );
     assert!(
         BRAIN_CORE_CARGO_TOML.contains("[dev-dependencies]"),
-        "proptest/criterion are expected as dev-dependencies (Requirement 1.4's exemption) -- \
+        "proptest/criterion are expected as dev-dependencies (P03-1.4's exemption) -- \
          this assertion just confirms the section this test reasons about still exists"
     );
 }
@@ -85,7 +85,7 @@ fn walk_manifests(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-/// ENG-5 (Phase 0-3 Requirement 1.3): no manifest in the workspace may name
+/// ENG-5 (P03-1.3): no manifest in the workspace may name
 /// a neural-network, tensor, autodiff, ONNX, embedding, or LLM dependency.
 /// Checked as substring absence across every manifest and lockfile found by
 /// walking the tree, including `brain-napi`'s (the FFI boundary is not
@@ -127,14 +127,14 @@ fn no_manifest_names_a_forbidden_ai_ml_dependency() {
         for term in forbidden {
             assert!(
                 !lower.contains(term),
-                "{} must not name a forbidden AI/ML dependency (ENG-5, Requirement 1.3), found '{term}'",
+                "{} must not name a forbidden AI/ML dependency (ENG-5, P03-1.3), found '{term}'",
                 path.display()
             );
         }
     }
 }
 
-/// Requirement 1.1's testable half: a clean checkout needs a toolchain
+/// P03-1.1's testable half: a clean checkout needs a toolchain
 /// pinned to an exact version for the build to be reproducible without
 /// the developer hunting down a matching compiler themselves. (The other
 /// half -- "produces a loadable native addon... without manual
@@ -145,7 +145,7 @@ fn no_manifest_names_a_forbidden_ai_ml_dependency() {
 fn rust_toolchain_is_pinned_to_an_exact_version() {
     assert!(
         RUST_TOOLCHAIN_TOML.contains("channel"),
-        "rust-toolchain.toml must pin an exact channel/version (Requirement 1.1, 3.4), not float on stable"
+        "rust-toolchain.toml must pin an exact channel/version (P03-1.1, P03-3.4), not float on stable"
     );
 }
 
@@ -207,10 +207,10 @@ fn walk_rs_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-/// Requirement 1.5/16.6 (invariant 8): "any type, field or branch in the
+/// P5-1.5/P5-16.6 (invariant 8): "any type, field or branch in the
 /// core that names a modality... is a design defect" (README invariant
-/// 8), extended by Requirement 16.6 to action/effector/environment names
-/// once the sensorimotor loop exists, and by Phase 5.5 Requirement 6.5 to
+/// 8), extended by P5-16.6 to action/effector/environment names
+/// once the sensorimotor loop exists, and by P55-6.5 to
 /// location/grid/reference-frame names now that NET-9 exists (built
 /// entirely in `packages/io`, over the existing FFI -- see
 /// `location.ts`/`harness/reference-frame.ts`). Scans every `.rs` file
@@ -236,7 +236,7 @@ fn neither_core_crate_names_a_modality_action_effector_or_environment() {
             for token in identifier_tokens(line) {
                 assert!(
                     !forbidden.contains(&token.as_str()),
-                    "{}: code (outside comments) must not name a modality/action/effector/environment (Requirement 1.5/16.6), found identifier token '{}' in line: {}",
+                    "{}: code (outside comments) must not name a modality/action/effector/environment (P5-1.5/P5-16.6), found identifier token '{}' in line: {}",
                     path.display(),
                     token,
                     line.trim()
@@ -246,7 +246,7 @@ fn neither_core_crate_names_a_modality_action_effector_or_environment() {
     }
 }
 
-/// VIZ-2 (Phase 6 Requirement 13.3): the visualiser must never become a
+/// VIZ-2 (P6-13.3): the visualiser must never become a
 /// dependency of the engine -- "no visualiser-specific concept (colour,
 /// screen coordinates, UI state) SHALL appear anywhere below
 /// `packages/brain`" (design.md). A sibling to the modality scan above,
@@ -268,7 +268,7 @@ fn neither_core_crate_names_a_visualiser_concept() {
             for token in identifier_tokens(line) {
                 assert!(
                     !forbidden.contains(&token.as_str()),
-                    "{}: code (outside comments) must not name a visualiser-specific concept (Phase 6 Requirement 13.3), found identifier token '{}' in line: {}",
+                    "{}: code (outside comments) must not name a visualiser-specific concept (P6-13.3), found identifier token '{}' in line: {}",
                     path.display(),
                     token,
                     line.trim()
@@ -278,7 +278,7 @@ fn neither_core_crate_names_a_visualiser_concept() {
     }
 }
 
-/// Requirement 15.10: a fast tier (units, boundary, properties) and a slow
+/// P03-15.10: a fast tier (units, boundary, properties) and a slow
 /// tier (emergent behaviour, soaks, golden rasters) must each be
 /// separately invocable. Checked as the presence of distinct npm scripts
 /// rather than by actually running the slow tier here, which would defeat
@@ -287,20 +287,20 @@ fn neither_core_crate_names_a_visualiser_concept() {
 fn fast_and_slow_test_tiers_are_separately_invocable() {
     // Plain substring checks rather than real JSON parsing -- adding a
     // parser dependency for one structural check on two script names
-    // would be exactly the kind of unjustified dependency Requirement 1.4
+    // would be exactly the kind of unjustified dependency P03-1.4
     // asks for a reason to add, and this manifest's shape is simple and
     // stable enough that a substring check is not fragile here.
     assert!(
         ROOT_PACKAGE_JSON.contains("\"test:fast\":"),
-        "a fast tier must be invocable as its own npm script (Requirement 15.10)"
+        "a fast tier must be invocable as its own npm script (P03-15.10)"
     );
     assert!(
         ROOT_PACKAGE_JSON.contains("\"test:slow\":"),
-        "a slow tier must be separately invocable as its own npm script (Requirement 15.10)"
+        "a slow tier must be separately invocable as its own npm script (P03-15.10)"
     );
 }
 
-/// Requirement 15.9: the traceability mapping must not just exist as
+/// P03-15.9: the traceability mapping must not just exist as
 /// prose but be *checkable* -- this runs the actual checker
 /// (`scripts/check-traceability.mjs`) as a subprocess and confirms it
 /// executes and reports a coherent result, rather than merely asserting

@@ -16,11 +16,11 @@
 //! down the dendrite. This file proves the three properties that live above
 //! the per-composite math already unit-tested in `plasticity/homeostatic.rs`:
 //! disabled is bit-identical to today (Requirement 2), two segments on the
-//! same neuron adjust from only their own recorded history (Requirement 1
-//! AC5, Requirement 3 AC1), and repeated runs are deterministic
-//! (Requirement 3 AC3). Snapshot round-tripping (Requirement 7) is covered
+//! same neuron adjust from only their own recorded history
+//! (DTH-1.5, DTH-3.1), and repeated runs are deterministic
+//! (DTH-3.3). Snapshot round-tripping (Requirement 7) is covered
 //! in `snapshot.rs` directly, and coexistence with the other homeostatic/
-//! structural mechanisms (Requirement 6 AC3) in `combined_mechanisms.rs`.
+//! structural mechanisms (DTH-6.3) in `combined_mechanisms.rs`.
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::neuron::{Lif, LifParams};
@@ -84,8 +84,7 @@ fn disabled_or_never_swept_is_bit_identical_to_not_attached_at_all() {
     );
 }
 
-/// Requirement 1 Acceptance Criterion 5, Requirement 3 Acceptance Criterion
-/// 1: one neuron, two segments -- segment 0 is driven every tick, segment 1
+/// DTH-1.5, DTH-3.1: one neuron, two segments -- segment 0 is driven every tick, segment 1
 /// is never driven at all. Their thresholds must diverge in the expected
 /// directions, and segment 1 (which the sweep should find "at/below its
 /// target rate" since it never depolarises) must never be pulled around by
@@ -139,7 +138,7 @@ fn segments_on_the_same_neuron_adjust_independently() {
     );
 }
 
-/// Requirement 3 Acceptance Criterion 3: the same construction and tick
+/// DTH-3.3: the same construction and tick
 /// sequence, run twice from identical initial state, must produce identical
 /// `segment_threshold` sequences -- no real randomness anywhere in the
 /// adjustment.

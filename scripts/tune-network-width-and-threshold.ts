@@ -29,7 +29,7 @@
 // to LOG_PATH as soon as it's measured -- a trial is never lost even if
 // this long-running search is interrupted, and the log is written in the
 // same format `tune-segment-threshold-homeostasis.ts`'s already
-// establishes, so it can be read the same way (Requirement 13.6: every
+// establishes, so it can be read the same way (P5-13.6: every
 // trial recorded honestly, not just the best one kept).
 //
 // This script only searches and prints its recommendation -- it does not

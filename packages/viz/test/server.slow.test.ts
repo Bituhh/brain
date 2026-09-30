@@ -1,4 +1,4 @@
-// End-to-end server tests (Phase 6 Requirement 8.4/14.4): a real
+// End-to-end server tests (P6-8.4/P6-14.4): a real
 // `startVizServer` on an ephemeral port, against a real (not mocked)
 // `Simulation`, driven by a minimal test-only WebSocket client built from
 // `ws.ts`'s own frame codec -- not a new dependency, and not a second
@@ -164,7 +164,7 @@ async function withServer(
   }
 }
 
-test('a connecting client receives topology for the real network (Requirement 7.2)', async () => {
+test('a connecting client receives topology for the real network (P6-7.2)', async () => {
   const { sim } = buildTestSimulation();
   await withServer(sim, async (server) => {
     const client = await connectTestClient(server.port);
@@ -192,7 +192,7 @@ test('a connecting client receives topology for the real network (Requirement 7.
   });
 });
 
-test('the server ticks automatically once started (Requirement 7.4, not paused by default)', async () => {
+test('the server ticks automatically once started (P6-7.4, not paused by default)', async () => {
   const { sim } = buildTestSimulation();
   await withServer(sim, async (server) => {
     const client = await connectTestClient(server.port);
@@ -208,7 +208,7 @@ test('the server ticks automatically once started (Requirement 7.4, not paused b
   });
 });
 
-test('pause stops ticking and stepOnce advances exactly one tick while paused (Requirement 8.2, 8.4)', async () => {
+test('pause stops ticking and stepOnce advances exactly one tick while paused (P6-8.2, P6-8.4)', async () => {
   const { sim } = buildTestSimulation();
   await withServer(sim, async (server) => {
     const client = await connectTestClient(server.port);
@@ -253,7 +253,7 @@ test('pause stops ticking and stepOnce advances exactly one tick while paused (R
   });
 });
 
-test('resume restarts automatic ticking after a pause (Requirement 8.1)', async () => {
+test('resume restarts automatic ticking after a pause (P6-8.1)', async () => {
   const { sim } = buildTestSimulation();
   await withServer(sim, async (server) => {
     const client = await connectTestClient(server.port);
@@ -270,7 +270,7 @@ test('resume restarts automatic ticking after a pause (Requirement 8.1)', async 
   });
 });
 
-test('stimulate reaches the real simulation through the control channel (Requirement 8.1)', async () => {
+test('stimulate reaches the real simulation through the control channel (P6-8.1)', async () => {
   const { sim, a } = buildTestSimulation();
   await withServer(sim, async (server) => {
     const client = await connectTestClient(server.port);
@@ -297,7 +297,7 @@ test('stimulate reaches the real simulation through the control channel (Require
   });
 });
 
-test('reward and injectModulator are accepted from the primary connection with no error reply (Requirement 8.1)', async () => {
+test('reward and injectModulator are accepted from the primary connection with no error reply (P6-8.1)', async () => {
   const { sim } = buildTestSimulation();
   await withServer(sim, async (server) => {
     const client = await connectTestClient(server.port);
@@ -323,7 +323,7 @@ test('reward and injectModulator are accepted from the primary connection with n
   });
 });
 
-test("a non-primary connection's mutating command is rejected with an error (Requirement 8.5)", async () => {
+test("a non-primary connection's mutating command is rejected with an error (P6-8.5)", async () => {
   const { sim } = buildTestSimulation();
   await withServer(sim, async (server) => {
     const primaryClient = await connectTestClient(server.port);
@@ -342,7 +342,7 @@ test("a non-primary connection's mutating command is rejected with an error (Req
   });
 });
 
-test('a non-primary connection may still attach a probe (Requirement 8.3, observation-only actions are harmless)', async () => {
+test('a non-primary connection may still attach a probe (P6-8.3, observation-only actions are harmless)', async () => {
   const { sim, b } = buildTestSimulation();
   await withServer(sim, async (server) => {
     const primaryClient = await connectTestClient(server.port);
@@ -475,7 +475,7 @@ test('starting a server against a partitioned simulation now works end-to-end --
   });
 });
 
-test('the server binds loopback-only (127.0.0.1) by default, never a public address (Requirement 7.6)', async () => {
+test('the server binds loopback-only (127.0.0.1) by default, never a public address (P6-7.6)', async () => {
   const { sim } = buildTestSimulation();
   const server = await startVizServer({ sim, port: 0 });
   try {

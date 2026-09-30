@@ -1,6 +1,6 @@
-//! Property-based invariant suite (`proptest`, Requirement 15.7): over
+//! Property-based invariant suite (`proptest`, P03-15.7): over
 //! generated inputs rather than hand-picked scenarios, checking exactly
-//! the universal properties Requirement 15.7 and design.md's Testing
+//! the universal properties P03-15.7 and design.md's Testing
 //! Strategy name -- permanence/weight bounds, no early delivery, Dale's
 //! principle, the sparsity ceiling, and snapshot round-trip as identity.
 //!
@@ -33,7 +33,7 @@ fn make_chain() -> RuleChain {
 }
 
 proptest! {
-    /// Requirement 6.7, SYN-4: weight (docs/prior-art.md §2.5's efficacy -- what `ThreeFactorStdp`
+    /// P03-6.7, SYN-4: weight (docs/prior-art.md §2.5's efficacy -- what `ThreeFactorStdp`
     /// actually moves, per docs/decisions.md's weight/permanence split, 2026-09-13)
     /// stays within `[0, 1]` no matter what sequence of deliveries,
     /// post-spikes, ticks, or modulator levels a synapse is driven through --
@@ -80,7 +80,7 @@ proptest! {
         }
     }
 
-    /// Requirement 5.4, SYN-2: a spike scheduled with axonal delay `d`
+    /// P03-5.4, SYN-2: a spike scheduled with axonal delay `d`
     /// must never be observed by its target before tick `spike_tick + d`,
     /// for any delay in a broad range, not just the one or two values
     /// hand-written tests happened to use.
@@ -110,7 +110,7 @@ proptest! {
         prop_assert!(neurons.membrane[b as usize] != 0.0, "b must receive its delivery at exactly tick {delay}");
     }
 
-    /// Requirement 6.4, NEU-4 (Dale's principle): a spike's effect on its
+    /// P03-6.4, NEU-4 (Dale's principle): a spike's effect on its
     /// target always carries the sign of the *source* neuron's polarity,
     /// for any polarity/threshold/current/permanence combination -- no
     /// synapse can carry a sign independent of its source, because none
@@ -209,7 +209,7 @@ proptest! {
         prop_assert_eq!(tally, expected, "the tally must equal the capped sum of each delivery's own contribution, computed independently");
     }
 
-    /// Requirement 7.1/7.2's ceiling, isolated from any specific network:
+    /// P03-7.1/P03-7.2's ceiling, isolated from any specific network:
     /// `FixedNeighbourhoods::resolve_into` must never let more than `k`
     /// candidates win within any single neighbourhood, regardless of how
     /// many candidates share it or what margins they carry.
@@ -234,7 +234,7 @@ proptest! {
         }
     }
 
-    /// Requirement 16.2/16.3's "identity function" property, fuzzed over
+    /// P03-16.2/P03-16.3's "identity function" property, fuzzed over
     /// the *shape* of the network rather than one fixed topology: a
     /// randomly built arena/synapse/scheduler state, exported and
     /// re-imported, must reproduce every observable field exactly.

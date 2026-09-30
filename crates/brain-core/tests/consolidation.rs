@@ -3,7 +3,7 @@
 //! per this project's established pattern (design.md's Testing Strategy
 //! Layer 2, matching `tests/homeostasis.rs`/`tests/structural_and_growth.rs`).
 //!
-//! The headline claim (Requirement 10.5/11.4): replaying a previously-
+//! The headline claim (P5-10.5/P5-11.4): replaying a previously-
 //! learned sequence's activity, interleaved with learning a new one, must
 //! measurably reduce the catastrophic-forgetting effect on the first
 //! relative to learning the second with no consolidation at all -- the
@@ -57,7 +57,7 @@ fn new_scheduler() -> Scheduler {
     Scheduler::new(4, 0.01)
         .with_plasticity(make_plasticity(), [1000.0; NUM_MODULATORS])
         // Substantially slower than STDP (LRN-6's own stated timescale
-        // requirement -- Phase 0-3 Requirement 9.2), not every tick: a
+        // requirement -- P03-9.2), not every tick: a
         // fixed total-incoming budget for `post`, corrected periodically
         // rather than snapped back to the exact target on every single
         // delivery, which would leave whichever synapse saturated the
@@ -92,7 +92,7 @@ fn consolidation_params() -> ConsolidationParams {
     }
 }
 
-/// Requirement 10.5/11.4: the load-bearing ablation.
+/// P5-10.5/P5-11.4: the load-bearing ablation.
 #[test]
 fn consolidation_measurably_reduces_forgetting_relative_to_no_consolidation() {
     let params = LifParams::new(5.0, 0.0, 0.0, 0);

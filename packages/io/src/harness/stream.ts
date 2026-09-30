@@ -1,13 +1,13 @@
 // The streaming experiment harness (IO-4, Requirement 9): feeds a source
 // of sequential inputs to the network with no train/inference split.
 // A generator, not a class with a start/stop/mode flag -- there is no
-// "training mode" to turn off (Requirement 9.2); a caller iterates
+// "training mode" to turn off (P5-9.2); a caller iterates
 // indefinitely, or stops at any point and calls `sim.snapshot()`
-// (Requirement 9.4, unchanged from Phase 0-4) to resume the stream later
+// (P5-9.4, unchanged from Phase 0-4) to resume the stream later
 // without discarding what was learned.
 
 // Driveable from plain TypeScript using only @brain/io and @brain/core, no
-// new runtime dependency (Requirement 9.5, ENG-6): everything below is
+// new runtime dependency (P5-9.5, ENG-6): everything below is
 // pure orchestration over this workspace's own modules and Node built-ins.
 import type { Simulation } from '@brain/core';
 import type { Sdr } from '../sdr.ts';
@@ -53,7 +53,7 @@ export interface StreamThroughOptions<T, L> {
   readonly ticksPerInput: number;
   /** Current used to stimulate each active bit. Defaults to 10.0, comfortably supra-threshold for this project's own test/example networks. */
   readonly stimulateCurrent?: number;
-  /** Passed straight to `decode` (Requirement 7.2's confidence threshold). Defaults to 0.3. */
+  /** Passed straight to `decode` (P5-7.2's confidence threshold). Defaults to 0.3. */
   readonly minConfidence?: number;
   /**
    * Called once per input, after it is stimulated onto every column and
@@ -67,13 +67,13 @@ export interface StreamThroughOptions<T, L> {
 
 /**
  * Streams `options.source` through the network with learning continuously
- * on (Requirement 9.1): each `next()` call encodes one input, stimulates
+ * on (P5-9.1): each `next()` call encodes one input, stimulates
  * it onto every configured column, advances `ticksPerInput` ticks,
  * decodes the resulting activity, and yields. Plasticity (STDP,
  * three-factor, homeostasis, structural plasticity/growth) stays exactly
  * as active as `sim`'s own configuration made it -- this function
  * introduces no new plasticity code path and no mode switch of any kind
- * (Requirement 9.2).
+ * (P5-9.2).
  */
 export function* streamThrough<T, L>(
   options: StreamThroughOptions<T, L>,

@@ -5,11 +5,11 @@
 //! slot`. This is the decision that makes the hot path cheap (design.md):
 //! a spiking neuron reads one contiguous block, insertion/removal never
 //! needs compaction or a variable-length list, and the fixed capacity
-//! directly implements the per-neuron synapse budget (Requirement 11.3).
+//! directly implements the per-neuron synapse budget (P03-11.3).
 //!
 //! "Source" is not a stored field -- it is implicit in which block a slot
 //! belongs to, following the same arithmetic-derivation principle as
-//! `ids.rs`. Requirement 6.5's "source" is satisfied by this addressing
+//! `ids.rs`. P03-6.5's "source" is satisfied by this addressing
 //! scheme, not by a redundant column.
 //!
 //! Only the data structure lands here (Step 4, alongside the scheduler
@@ -27,7 +27,7 @@ pub struct SynapseArena {
     pub target_segment: Vec<u32>,
     /// In `[0, 1]`; functionally connected only at or above a connection
     /// threshold applied by the caller (SYN-3) -- this arena does not bake
-    /// in a fixed threshold, since Requirement 6.6 treats it as configured
+    /// in a fixed threshold, since P03-6.6 treats it as configured
     /// by whoever is delivering spikes, not as an intrinsic property of
     /// storage.
     pub permanence: Vec<f32>,
@@ -55,7 +55,7 @@ pub struct SynapseArena {
     pub last_active: Vec<u32>,
     /// Tick this synapse's eligibility trace was last decayed
     /// (`u32::MAX` sentinel: never touched). Updated by *both*
-    /// `on_delivery` and `on_post_spike` (Requirement 8.6) -- deliberately
+    /// `on_delivery` and `on_post_spike` (P03-8.6) -- deliberately
     /// a separate field from `last_active` above; collapsing them would
     /// corrupt `on_post_spike`'s causal-direction timing whenever a
     /// post-spike-triggered touch happened without an intervening
@@ -116,7 +116,7 @@ pub struct SynapseArena {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SynapseError {
-    /// The source neuron's synapse block is full (Requirement 11.3's
+    /// The source neuron's synapse block is full (P03-11.3's
     /// budget). Design.md's Error Handling table treats this as a normal,
     /// expected outcome for sprouting to skip -- not something a caller
     /// must treat as exceptional.
@@ -150,7 +150,7 @@ impl SynapseArena {
     }
 
     /// Approximate resident memory this arena's backing storage occupies
-    /// (Requirement 10 AC2) -- see [`crate::arena::NeuronArena::approx_memory_bytes`]'s
+    /// (P4-10.2) -- see [`crate::arena::NeuronArena::approx_memory_bytes`]'s
     /// doc comment for the rationale. Includes `target_index`'s per-neuron
     /// `Vec<u32>` allocations (the field named in this struct's own doc
     /// comment as a real, currently-unbounded memory cost under structural
@@ -202,7 +202,7 @@ impl SynapseArena {
     /// Inserts a synapse into the first free slot in `source_index`'s
     /// block. Returns the synapse id (used to index `permanence`,
     /// `eligibility`, etc. directly) or `BlockFull` if the per-neuron
-    /// budget (Requirement 11.3) is exhausted.
+    /// budget (P03-11.3) is exhausted.
     pub fn insert(
         &mut self,
         source_index: u32,
@@ -241,7 +241,7 @@ impl SynapseArena {
     }
 
     /// Removes a synapse, freeing its slot for reuse by a later `insert`
-    /// into the same block (Requirement 11.1's pruning), and drops its id
+    /// into the same block (P03-11.1's pruning), and drops its id
     /// from its target's reverse index so the freed slot's later reuse
     /// cannot resurrect a stale entry (see the `target_index` field doc
     /// comment, and docs/decisions.md decision 27).
@@ -265,7 +265,7 @@ impl SynapseArena {
     /// use only -- unlike `insert`, which scans for the first free slot in
     /// a source's block, this places a synapse at precisely `id`, which
     /// is what reproducing an existing snapshot's layout requires
-    /// (Requirement 16.2's "indistinguishable from the one that produced
+    /// (P03-16.2's "indistinguishable from the one that produced
     /// it"). Fails if `id` is out of range for the arena's current
     /// capacity (the caller must `reserve_for_neurons` first) or already
     /// occupied.
@@ -317,7 +317,7 @@ impl SynapseArena {
     }
 
     /// Iterates the occupied synapse ids in `source_index`'s block, in slot
-    /// order -- what a spike scans to schedule delivery (Requirement 5.3).
+    /// order -- what a spike scans to schedule delivery (P03-5.3).
     pub fn occupied_in_block(&self, source_index: u32) -> impl Iterator<Item = u32> + '_ {
         let range = self.block_range(source_index);
         range.filter(move |&slot| self.occupied[slot]).map(|slot| slot as u32)

@@ -25,7 +25,7 @@ mod purpose {
 }
 
 pub struct StructuralPlasticityParams {
-    /// Permanence at or below this is pruned (Requirement 11.1).
+    /// Permanence at or below this is pruned (P03-11.1).
     pub prune_floor: f32,
     /// Permanence a newly-sprouted candidate synapse starts at.
     ///
@@ -52,7 +52,7 @@ pub struct StructuralPlasticityParams {
     pub sprout_weight: f32,
     /// A neuron must have fired at least once per sweep for this many
     /// *consecutive* sweeps before it is eligible to be one half of a
-    /// sprouted pair (Requirement 11.2's "repeatedly co-active" -- a
+    /// sprouted pair (P03-11.2's "repeatedly co-active" -- a
     /// single coincidence is not enough). This is a per-neuron proxy for
     /// joint co-activation history, not a per-pair counter: tracking
     /// every pair directly would need unbounded (HashMap-shaped) memory
@@ -64,15 +64,14 @@ pub struct StructuralPlasticityParams {
     pub min_activity_streak: u32,
     pub sweep_interval_ticks: u32,
     /// How long (in ticks) a neuron may go without firing before it
-    /// becomes eligible for reclamation (Requirement 11.7). Neurons that
+    /// becomes eligible for reclamation (P03-11.7). Neurons that
     /// have *never* fired (`last_spike == u32::MAX`) are exempt --
     /// "unused" means "was active, then went quiet", not "hasn't been
     /// needed yet since creation", which would reclaim every newly grown
     /// neuron before it had a chance to do anything.
     pub unused_ticks_before_reclaim: u32,
     /// Minimum axonal delay (ticks) a sprouted synapse must carry when its
-    /// two endpoints belong to different partitions (Requirement 4,
-    /// Acceptance Criterion 2 -- RUN-5's "a spike with >= 2 ticks of delay
+    /// two endpoints belong to different partitions (P4-4.2 -- RUN-5's "a spike with >= 2 ticks of delay
     /// can cross a partition boundary with no synchronisation barrier").
     /// Only consulted by [`Self::maybe_sweep_partitioned`]; a same-partition
     /// sprout (or any sprout via plain [`Self::maybe_sweep`]) still gets
@@ -354,7 +353,7 @@ impl StructuralPlasticity {
             synapses.silent_since[id as usize] = tick; // PLAN.md B4: a fresh contact is born silent
             return 1;
         }
-        // BlockFull is a legitimate, expected outcome (Requirement 11.3) --
+        // BlockFull is a legitimate, expected outcome (P03-11.3) --
         // silently move on, matching design.md's Error Handling table.
         0
     }
@@ -362,7 +361,7 @@ impl StructuralPlasticity {
     /// `partition_of` decides each sprouted synapse's delay: same-partition
     /// pairs (including the always-true case plain [`Self::maybe_sweep`]
     /// uses, `|_| 0`) get delay 1 as before; cross-partition pairs get
-    /// `max(1, min_cross_partition_delay)` (Requirement 4 AC2). `neurons` is
+    /// `max(1, min_cross_partition_delay)` (P4-4.2). `neurons` is
     /// read for `last_spike` (PLAN.md B4, fix 2's timing window) and, under
     /// [`SproutReach::Spatial`], for `coords` (PLAN.md C4) --
     /// `activity_streak` above already carries this sweep's coarser
@@ -370,7 +369,7 @@ impl StructuralPlasticity {
     /// (`SynapseArena::silent_since`).
     ///
     /// **Both branches visit candidates in ascending index order** (RUN-3,
-    /// Requirement 11.10): never a hash-based structure, and under a
+    /// P03-11.10): never a hash-based structure, and under a
     /// spatial reach never sorted by distance -- a neuron's candidate set is
     /// *filtered* by distance and *ordered* by index, so `insert`'s
     /// first-free-slot choice and the `BlockFull` cutoff stay reproducible.
@@ -481,8 +480,8 @@ impl StructuralPlasticity {
 
     /// Runs pruning, sprouting, and unused-neuron reclamation unconditionally,
     /// ignoring `sweep_interval_ticks`/`last_swept_at` entirely --
-    /// consolidation's aggressive pruning pass (LRN-10, Phase 5 Requirement
-    /// 11.2) needs this same logic, usually at a stricter `prune_floor` than
+    /// consolidation's aggressive pruning pass (LRN-10,
+    /// P5-11.2) needs this same logic, usually at a stricter `prune_floor` than
     /// the online sweep uses, run on its own caller-invoked schedule. Unlike
     /// [`HomeostaticScaling::force_apply`], this *does* still update
     /// `last_swept_at` and the activity streaks: `since_tick` is a genuine
@@ -761,7 +760,7 @@ mod tests {
         assert!(sp.maybe_sweep(&mut neurons, &mut synapses, 50).is_none());
     }
 
-    /// Phase 5 Requirement 11.2: consolidation's aggressive pruning pass
+    /// P5-11.2: consolidation's aggressive pruning pass
     /// calls `force_sweep` directly, and it must prune/sprout/reclaim
     /// regardless of how much time has elapsed since construction.
     #[test]
@@ -1007,7 +1006,7 @@ mod tests {
         assert_eq!(synapses.weight[id as usize], 0.05, "must start at sprout_weight, near-zero so it only transmits a trickle");
     }
 
-    /// Requirement 4, Acceptance Criterion 2.
+    /// P4-4.2.
     #[test]
     fn cross_partition_sprouts_get_the_configured_minimum_delay() {
         let mut neurons = make_neurons(3); // 0, 1 in partition 0; 2 in partition 1
@@ -1255,7 +1254,7 @@ mod tests {
         assert_eq!(sweep(Some(SproutReach::spatial(1.0))), (10, true), "radius 1: each neuron's own window, and 2->3 is now a pair");
     }
 
-    /// RUN-3 / Requirement 11.10: the spatial branch must present
+    /// RUN-3 / P03-11.10: the spatial branch must present
     /// candidates in ascending index order, not distance order. Observable
     /// because `insert` fills a source's block from the first free slot, so
     /// slot order records visit order -- and because a `BlockFull` cutoff
@@ -1305,7 +1304,7 @@ mod tests {
         );
     }
 
-    /// Requirement 11.1/11.3: a spatial reach changes *which pairs are
+    /// P03-11.1/P03-11.3: a spatial reach changes *which pairs are
     /// considered*, nothing else -- pruning, the timing window, the
     /// source-index restriction and `BlockFull` all behave exactly as they
     /// do under index blocks, because `maybe_sprout_pair` is shared.

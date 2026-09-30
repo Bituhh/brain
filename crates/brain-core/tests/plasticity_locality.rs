@@ -85,7 +85,7 @@ fn a_rule_is_handed_exactly_these_inputs_and_nothing_else() {
         eligibility_updated_at: &mut eligibility_updated_at,
     };
     // Five borrowed scalars, no synapse id, no arena -- a rule cannot
-    // address any synapse but this one (Requirement 8.2).
+    // address any synapse but this one (P03-8.2).
     let SynapseMut { permanence, weight, eligibility, last_active, eligibility_updated_at } = syn;
     assert_eq!(*permanence, 0.4);
     assert_eq!(*weight, 0.5);

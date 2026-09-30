@@ -4,7 +4,7 @@
 // (e.g. the `e` in "the" vs. the `e` in "he", VAL-4's rationale) is a
 // product of sequence context learned *downstream*, not of this encoder:
 // two distinct characters need not (and by construction, mostly do not)
-// overlap more than any other unrelated pair (Requirement 5.4).
+// overlap more than any other unrelated pair (P5-5.4).
 
 import { makeSdr, type Sdr } from '../sdr.ts';
 import { hashToBits } from '../hash.ts';
@@ -15,7 +15,7 @@ export interface CharEncoderConfig {
   readonly seed?: string;
   /**
    * How many immediately preceding characters to fold into the hash key,
-   * in addition to the character itself (Requirement 5.1's "optionally, a
+   * in addition to the character itself (P5-5.1's "optionally, a
    * small amount of trailing context" -- trailing the read position, i.e.
    * already-seen characters). `0` (the default) encodes the character
    * alone.
@@ -25,8 +25,8 @@ export interface CharEncoderConfig {
 
 /**
  * Encodes a single character, optionally folding in `precedingContext`'s
- * trailing characters (Requirement 5.1). Deterministic (Requirement 2.3
- * via 5.3): the same character and context under the same config always
+ * trailing characters (P5-5.1). Deterministic
+ * (P5-2.3 via P5-5.3): the same character and context under the same config always
  * produce the bit-identical `Sdr`.
  */
 export function encodeChar(
@@ -58,7 +58,7 @@ export interface WordEncoderConfig {
 
 /**
  * Splits `text` into tokens by plain string logic (whitespace and
- * punctuation boundaries) -- not an NLP library (Requirement 5.2's "plain
+ * punctuation boundaries) -- not an NLP library (P5-5.2's "plain
  * string logic, not an NLP library"). Unicode-aware only insofar as
  * `\p{L}`/`\p{N}` are JS regex built-ins, not a dependency.
  */
@@ -66,7 +66,7 @@ export function tokenizeWords(text: string): string[] {
   return text.split(/[^\p{L}\p{N}']+/u).filter((token) => token.length > 0);
 }
 
-/** Encodes a single word/token (Requirement 5.2), via the same hash-based construction `encodeChar` uses. */
+/** Encodes a single word/token (P5-5.2), via the same hash-based construction `encodeChar` uses. */
 export function encodeWord(config: WordEncoderConfig, word: string): Sdr {
   const bits = hashToBits(
     config.seed ?? 'word',
@@ -78,7 +78,7 @@ export function encodeWord(config: WordEncoderConfig, word: string): Sdr {
 }
 
 /**
- * Printable ASCII plus common whitespace (Requirement 5.5) -- the minimum
+ * Printable ASCII plus common whitespace (P5-5.5) -- the minimum
  * alphabet `encodeChar` must support to encode arbitrary plain-text
  * English input for VAL-4.
  */

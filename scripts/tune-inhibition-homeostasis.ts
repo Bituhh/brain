@@ -16,7 +16,7 @@
 // edit charPrediction.ts itself. Apply the winning value to
 // `DEFAULT_CONFIG.inhibitionHomeostasis` by hand once the search finishes,
 // or leave it `undefined` if nothing beats the disabled baseline (recorded
-// honestly either way, Requirement 13.6).
+// honestly either way, P5-13.6).
 //
 // Every trial is appended to LOG_PATH as a markdown table row as soon as
 // it's measured, matching `tune-segment-threshold-homeostasis.ts`'s own
@@ -196,7 +196,7 @@ if (winner !== undefined) {
   );
 } else {
   console.log(
-    '\nNo candidate beat the disabled baseline even in the 3-seed search -- recommendation: leave inhibitionHomeostasis undefined (disabled) by default. Recorded honestly, per Requirement 13.6.',
+    '\nNo candidate beat the disabled baseline even in the 3-seed search -- recommendation: leave inhibitionHomeostasis undefined (disabled) by default. Recorded honestly, per P5-13.6.',
   );
 }
 

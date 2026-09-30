@@ -5,7 +5,7 @@
 //! What this file proves, and why each claim is a separate test rather than one
 //! omnibus:
 //!
-//! 1. **Bit-identity with the hook unset** (Requirement 5.2). Not configured,
+//! 1. **Bit-identity with the hook unset** (the bit-identical-when-unset rule weight-aware-dendritic-votes' spec set for opt-in changes). Not configured,
 //!    configured-with-nothing, and configured-but-sitting-at-its-reference must
 //!    all reproduce the pre-C5 run exactly. The third is the strong one: the
 //!    modulated code path is *running* and still changes nothing.
@@ -242,7 +242,7 @@ fn assert_differ(a: &Outcome, b: &Outcome, label: &str) {
     assert_ne!(synapse_state(a), synapse_state(b), "{label}: expected the runs to differ, and they did not");
 }
 
-/// Requirement 5.2, and the strong form: three ways of not changing the curve.
+/// Bit-identity when unset, in the strong form: three ways of not changing the curve.
 #[test]
 fn the_hook_unset_configured_empty_or_at_its_reference_reproduces_the_pre_c5_run_bit_for_bit() {
     let level = Level::Held(1.0);

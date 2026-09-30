@@ -1,4 +1,4 @@
-// This file itself is evidence for Requirement 9.5: streamThrough is
+// This file itself is evidence for P5-9.5: streamThrough is
 // exercised end to end from plain TypeScript using only @brain/io and
 // @brain/core (the imports below), no new runtime dependency (ENG-6).
 import { test } from 'node:test';
@@ -55,7 +55,7 @@ function plasticityConfig() {
   };
 }
 
-test('streamThrough yields one step per input, with the correct actual label (Requirement 9.1)', () => {
+test('streamThrough yields one step per input, with the correct actual label (P5-9.1)', () => {
   const lif: LifConfig = {
     tauMTicks: 5,
     vRest: 0,
@@ -140,7 +140,7 @@ test("streamThrough advances the simulation's tick counter by ticksPerInput per 
   );
 });
 
-test('streamThrough: plasticity remains active throughout, with no train/inference mode switch (Requirement 9.2, IO-4)', () => {
+test('streamThrough: plasticity remains active throughout, with no train/inference mode switch (P5-9.2, IO-4)', () => {
   // Reuses the exact binary threshold-crossing technique already proven in
   // packages/brain/test/boundary.test.ts's "Simulation.reward measurably
   // changes a plasticity outcome" test, driven through streamThrough this
@@ -207,7 +207,7 @@ test('streamThrough: plasticity remains active throughout, with no train/inferen
   );
 });
 
-test('streamThrough: stopping mid-stream and snapshotting round-trips correctly (Requirement 9.4)', async () => {
+test('streamThrough: stopping mid-stream and snapshotting round-trips correctly (P5-9.4)', async () => {
   const { mkdtempSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');

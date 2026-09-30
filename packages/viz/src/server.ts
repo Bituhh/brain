@@ -4,7 +4,7 @@
 // browser client bundle over plain HTTP on the same port -- a normal
 // local dev-tool's single-port convenience.
 //
-// Concurrency model (Requirement 8.4): Node is single-threaded and every
+// Concurrency model (P6-8.4): Node is single-threaded and every
 // FFI call this file makes is synchronous, so a control message can never
 // arrive *during* a `sim.step()` call -- only between two JS callback
 // invocations, which is already "between ticks" by construction. This
@@ -37,7 +37,7 @@ const DEFAULT_PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 // built), served verbatim at `/dist/*` so that every relative import the
 // compiled client bundle makes (e.g. `client/main.js`'s `../protocol.js`)
 // resolves to the same real file on disk that produced it, with no
-// bundler rewriting import paths (Requirement 7.1, VIZ-2's "no charting
+// bundler rewriting import paths (P6-7.1, VIZ-2's "no charting
 // or graph library" extended to "no bundler either").
 const DEFAULT_DIST_DIR = fileURLToPath(new URL('.', import.meta.url));
 
@@ -50,7 +50,7 @@ const MIME: Readonly<Record<string, string>> = {
 
 export interface VizServerOptions {
   readonly sim: Simulation;
-  /** Defaults to `127.0.0.1` (Requirement 7.6) -- never a public bind by default. */
+  /** Defaults to `127.0.0.1` (P6-7.6) -- never a public bind by default. */
   readonly host?: string;
   /** Defaults to an OS-assigned ephemeral port. */
   readonly port?: number;
@@ -58,7 +58,7 @@ export interface VizServerOptions {
   readonly publicDir?: string;
   /** Defaults to this package's own compiled output directory, served at `/dist/*`. */
   readonly distDir?: string;
-  /** Requirement 7.4: full state arrays are only pushed every `stateStride`th tick. Defaults to 1 (every tick). */
+  /** P6-7.4: full state arrays are only pushed every `stateStride`th tick. Defaults to 1 (every tick). */
   readonly stateStride?: number;
   /**
    * Caps how many ticks per second the live loop advances (default 60,
@@ -84,7 +84,7 @@ export interface VizServer {
   close(): Promise<void>;
 }
 
-/** Client-mutating message types (Requirement 8.5): restricted to the primary connection. */
+/** Client-mutating message types (P6-8.5): restricted to the primary connection. */
 function isMutating(type: ClientMessage['type']): boolean {
   return (
     type === 'pause' ||
@@ -121,7 +121,7 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
   const publicDir = options.publicDir ?? DEFAULT_PUBLIC_DIR;
   const distDir = options.distDir ?? DEFAULT_DIST_DIR;
   let stateStride = Math.max(1, options.stateStride ?? 1);
-  let metricsCadence = 0; // 0 = never auto-push metricsSnapshot (Requirement 5.3 decision)
+  let metricsCadence = 0; // 0 = never auto-push metricsSnapshot (P6-5.3 decision)
   const tickIntervalMs = 1000 / Math.max(1, options.ticksPerSecond ?? 60);
 
   let running = true;
@@ -193,7 +193,7 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
 
   /**
    * Detects structural growth (NET-7/NET-10) via `epoch()` and re-pushes
-   * full topology to every client (Requirement 7.3 decision: a full
+   * full topology to every client (P6-7.3 decision: a full
    * re-send, not a diff -- growth is comparatively rare relative to tick
    * rate, so simplicity wins).
    */
@@ -257,7 +257,7 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
     if (isMutating(msg.type) && conn !== primary) {
       sendError(
         conn,
-        `only the primary connection may send '${msg.type}' (Requirement 8.5)`,
+        `only the primary connection may send '${msg.type}' (P6-8.5)`,
       );
       return;
     }
@@ -337,7 +337,7 @@ export function startVizServer(options: VizServerOptions): Promise<VizServer> {
   function onClose(conn: WsConnection): void {
     clients.delete(conn);
     if (primary === conn) {
-      // Promote the next-oldest remaining connection (Requirement 8.5) --
+      // Promote the next-oldest remaining connection (P6-8.5) --
       // `Set` iterates in insertion order, so this is exactly that.
       primary = clients.values().next().value;
     }

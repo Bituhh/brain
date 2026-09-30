@@ -238,7 +238,7 @@ fn spatial_reach_is_deterministic() {
     assert_eq!(fingerprint(), fingerprint(), "two identical spatial-reach runs must be bit-identical");
 }
 
-/// Requirement 5.2 / PLAN.md C4 constraint 4, at the whole-network level:
+/// The bit-identical-when-unset rule / PLAN.md C4 constraint 4, at the whole-network level:
 /// constructing the sweep and *not* calling `with_sprout_reach` must be
 /// indistinguishable from calling it with `IndexBlocks`. Cheap, and it is
 /// the property every golden raster and both pinned VAL-4 figures depend on.

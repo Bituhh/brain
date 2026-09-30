@@ -46,7 +46,7 @@ fn train(ticks: u32) -> (NeuronArena, SynapseArena, Scheduler, u32, u32, u32) {
 
 #[test]
 fn structural_changes_continue_without_a_rebuild() {
-    // Requirement 11.9: sprout, prune, and grow mid-run, then keep
+    // P03-11.9: sprout, prune, and grow mid-run, then keep
     // stepping the *same* scheduler/arenas with no special handling.
     let (mut neurons, mut synapses, mut sched, a, b, _syn) = train(50);
     let params = LifParams::new(5.0, 0.0, 0.0, 0);
@@ -89,7 +89,7 @@ fn structural_changes_continue_without_a_rebuild() {
 
 #[test]
 fn growth_does_not_degrade_previously_learned_behaviour() {
-    // Requirement 11.11 / VAL-2(e)'s shape: teach a-then-b, grow the
+    // P03-11.11 / VAL-2(e)'s shape: teach a-then-b, grow the
     // network with unrelated neurons, then confirm the learned synapse's
     // behaviour is unaffected.
     let (mut neurons, mut synapses, mut sched, a, b, syn) = train(200);
@@ -115,7 +115,7 @@ fn growth_does_not_degrade_previously_learned_behaviour() {
 
 #[test]
 fn structural_and_growth_changes_are_deterministic() {
-    // Requirement 11.10: the same scenario run twice, including
+    // P03-11.10: the same scenario run twice, including
     // structural changes, produces identical results.
     fn run() -> (f32, u32) {
         let (mut neurons, mut synapses, mut sched, a, b, syn) = train(100);
@@ -153,7 +153,7 @@ fn structural_and_growth_changes_are_deterministic() {
 
 #[test]
 fn snapshot_survives_a_real_structural_sweep_and_growth() {
-    // Requirement 16.6, exercised through the actual mechanism (pruning,
+    // P03-16.6, exercised through the actual mechanism (pruning,
     // sprouting, reclamation, growth) rather than direct arena calls --
     // snapshot.rs's own tests cover the arena-level mechanics in
     // isolation; this confirms the pieces still fit together.
@@ -219,7 +219,7 @@ fn snapshot_survives_a_real_structural_sweep_and_growth() {
 
 #[test]
 fn a_restored_network_can_grow_and_keep_learning_without_discarding_prior_learning() {
-    // Requirement 16.9, RUN-9b: after restore, neurons and synapses must be
+    // P03-16.9, RUN-9b: after restore, neurons and synapses must be
     // addable to the network and learning must continue, without
     // discarding what was already learned before the snapshot.
     let (neurons, synapses, sched, a, b, syn) = train(150);

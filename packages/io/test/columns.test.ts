@@ -57,7 +57,7 @@ function buildSim(): {
   return { sim, column: column! };
 }
 
-test("ColumnHandle.stimulateSdr maps active bits onto the column's global range (Requirement 2.4, 8.3)", () => {
+test("ColumnHandle.stimulateSdr maps active bits onto the column's global range (P5-2.4, P5-8.3)", () => {
   const { sim, column } = buildSim();
   const sdr = makeSdr(4, [0, 2]); // local bits 0 and 2 -> global column.range.start + {0, 2}
   column.stimulateSdr(sim, sdr, 10.0);
@@ -74,7 +74,7 @@ test('ColumnHandle.stimulateSdr rejects an Sdr wider than the column', () => {
   assert.throws(() => column.stimulateSdr(sim, tooWide, 10.0), RangeError);
 });
 
-test('ColumnHandle.observedSdr filters and shifts the global spiked list to local indices (Requirement 7.5)', () => {
+test('ColumnHandle.observedSdr filters and shifts the global spiked list to local indices (P5-7.5)', () => {
   const { sim, column } = buildSim();
   const sdr = makeSdr(4, [1, 3]);
   column.stimulateSdr(sim, sdr, 10.0);
@@ -111,7 +111,7 @@ test("ColumnHandle.observedSdr ignores spikes outside this column's range", () =
   assert.deepEqual(columnB!.observedSdr(spiked).activeBits, [1]);
 });
 
-test('ColumnHandle.membraneWindow/predictiveWindow are zero-copy subarrays scoped to the column (Requirement 8.4)', () => {
+test('ColumnHandle.membraneWindow/predictiveWindow are zero-copy subarrays scoped to the column (P5-8.4)', () => {
   const { sim, column } = buildSim();
   const membraneWindow = column.membraneWindow(sim);
   const predictiveWindow = column.predictiveWindow(sim);

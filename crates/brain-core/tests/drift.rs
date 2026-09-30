@@ -43,7 +43,7 @@ use brain_core::segment::{BinaryCoincidenceParams, SegmentConfig};
 use brain_core::synapse::SynapseArena;
 
 /// An order of magnitude past `homeostasis.rs`'s existing 10,000-tick
-/// soak (Requirement 4 Acceptance Criterion 1).
+/// soak (P7-4.1).
 const TOTAL_TICKS: u32 = 100_000;
 /// `predictive_learning.rs`'s own per-trial shape: one A-then-B
 /// presentation followed by quiet ticks, so each exposure is a distinct
@@ -60,7 +60,7 @@ const SAMPLE_INTERVAL_TICKS: u32 = 2_000;
 /// (`predictive_learning.rs`'s own finding: the first exposure is always
 /// unpredicted), so an early low sample is expected, not drift.
 const WARMUP_TICKS: u32 = 4_000;
-/// Acceptance Criterion 2's tolerance band: later windows may not fall
+/// P7-4.2's tolerance band: later windows may not fall
 /// more than this far below the best accuracy seen after warmup.
 const DRIFT_TOLERANCE: f64 = 0.15;
 
@@ -81,7 +81,7 @@ fn predictive_params() -> PredictiveLearningParams {
 
 /// `with_homeostasis` adds `HomeostaticScaling`/`StructuralPlasticity`
 /// (LRN-6/LRN-7) as always-on periodic sweeps on top of the same
-/// predictive-learning network -- Requirement 4 Acceptance Criterion 3's
+/// predictive-learning network -- P7-4.3's
 /// ablation axis. Parameters are deliberately conservative (a low prune
 /// floor with real margin below the reinforced synapse's expected
 /// near-1.0 steady state, matching `homeostasis.rs`'s own established
@@ -159,7 +159,7 @@ fn run_soak(with_homeostasis: bool) -> Vec<(u32, f64)> {
     samples
 }
 
-/// Requirement 4, Acceptance Criteria 1-2: prediction accuracy is sampled
+/// P7-4.1, P7-4.2: prediction accuracy is sampled
 /// in successive windows across a 100,000-tick run (not read once at the
 /// end), and later windows must not have degraded beyond
 /// [`DRIFT_TOLERANCE`] relative to the best post-warmup accuracy seen --
@@ -183,7 +183,7 @@ fn prediction_accuracy_does_not_drift_over_an_extended_run() {
     );
 }
 
-/// Requirement 4, Acceptance Criterion 3 (ablation): the identical
+/// P7-4.3 (ablation): the identical
 /// protocol with homeostatic scaling/structural plasticity disabled --
 /// establishing whether those mechanisms bear on prediction drift at all
 /// in this setup, or whether stability (or its absence) is unaffected by

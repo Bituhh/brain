@@ -108,12 +108,12 @@ fn without_homeostasis_correlated_activity_saturates_incoming_weights() {
 
 #[test]
 fn with_homeostasis_incoming_weights_stay_bounded_near_target() {
-    // Requirement 9.1: renormalised toward the configured target. Target
+    // P03-9.1: renormalised toward the configured target. Target
     // total is 1.0 over FAN_IN=8 synapses -> ~0.125 mean immediately after
     // a rescale. The measurement is taken at an arbitrary tick, not
     // immediately after an application, so some upward drift from
     // continued correlated STDP between applications (every 50 ticks) is
-    // expected and correct (Requirement 9.2 asks for a slower timescale
+    // expected and correct (P03-9.2 asks for a slower timescale
     // than STDP, not zero drift between applications) -- the bound here
     // is "comfortably far from saturation", which
     // `disabling_homeostasis_lets_weights_diverge...` below turns into a
@@ -128,7 +128,7 @@ fn with_homeostasis_incoming_weights_stay_bounded_near_target() {
 
 #[test]
 fn disabling_homeostasis_lets_weights_diverge_from_the_with_homeostasis_case() {
-    // Requirement 9.4's ablation (also Requirement 15.8), stated as a direct comparison rather
+    // P03-9.4's ablation (also P03-15.8), stated as a direct comparison rather
     // than two independent thresholds: this is the assertion that
     // homeostasis is the mechanism responsible for the difference, not an
     // accident of the two tests above using different tolerances.
@@ -142,7 +142,7 @@ fn disabling_homeostasis_lets_weights_diverge_from_the_with_homeostasis_case() {
 
 #[test]
 fn mean_weight_stays_within_bounds_over_an_extended_soak() {
-    // Requirement 9.3: over an extended run, mean weight remains within
+    // P03-9.3: over an extended run, mean weight remains within
     // configured bounds (here: comfortably inside [0, 1], and specifically
     // not pinned at the ceiling the way the no-homeostasis case is).
     let (mut neurons, mut synapses, sources, target) = build_fan_in();

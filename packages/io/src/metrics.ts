@@ -1,6 +1,6 @@
 // Sliding-window per-character prediction accuracy -- VAL-4's stated
 // metric, factored out so both the network's own evaluation and the
-// trigram baseline (Requirement 13.3) use the identical measurement,
+// trigram baseline (P5-13.3) use the identical measurement,
 // keeping the comparison apples-to-apples.
 
 export class SlidingWindowAccuracy {

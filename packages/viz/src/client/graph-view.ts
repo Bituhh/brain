@@ -1,5 +1,5 @@
 // The spatially-embedded graph view (VIZ-1, Phase 6 Requirements 9-10):
-// plain Canvas 2D, no charting/graph-layout library (Requirement 9.4).
+// plain Canvas 2D, no charting/graph-layout library (P6-9.4).
 
 import { SpikeFlash } from './spike-flash.ts';
 
@@ -29,7 +29,7 @@ export interface TickState {
 
 export type NeuronState = 'resting' | 'predicted' | 'firing' | 'refractory';
 
-/** Precedence when more than one condition holds (design.md Requirement 9.2 decision): firing > refractory > predicted > resting. */
+/** Precedence when more than one condition holds (design.md P6-9.2 decision): firing > refractory > predicted > resting. */
 const STATE_COLOR: Readonly<Record<NeuronState, string>> = {
   firing: '#f59e0b',
   refractory: '#7c3aed',
@@ -54,7 +54,7 @@ export class GraphView {
   // Viewport: world coordinates (raw NET-3 coords, x/y only) map to screen
   // pixels via `screen = world * scale + offset`. `z` is not discarded --
   // it maps to a subtle depth cue on the drawn radius (design.md's
-  // Requirement 9.1 decision) rather than a third screen dimension.
+  // P6-9.1 decision) rather than a third screen dimension.
   #scale = 8;
   #offsetX = 40;
   #offsetY = 40;
@@ -185,7 +185,7 @@ export class GraphView {
         ctx.lineWidth = Math.max(0.5, w * 2);
       } else {
         // SYN-3: sub-threshold synapses are *potential*, not connected --
-        // visually distinguished (Requirement 9.3), not drawn identically.
+        // visually distinguished (P6-9.3), not drawn identically.
         ctx.strokeStyle = 'rgba(148,163,184,0.08)';
         ctx.lineWidth = 0.5;
         ctx.setLineDash([2, 3]);
@@ -205,7 +205,7 @@ export class GraphView {
       const p = this.#project(i);
       const state = this.classify(i);
       const flash = this.#flash.intensity(i, now);
-      const depthScale = 1 + p.depth * 0.02; // a subtle depth cue from z, per design.md's Requirement 9.1 decision
+      const depthScale = 1 + p.depth * 0.02; // a subtle depth cue from z, per design.md's P6-9.1 decision
       const radius =
         (NEURON_RADIUS_PX + flash * 3) *
         Math.max(0.6, Math.min(1.6, depthScale));

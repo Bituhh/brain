@@ -1,21 +1,21 @@
 // VAL-4 milestone harness tests (Requirement 13). Slow tier: each trial
 // streams thousands of real corpus characters through a real column
-// network with learning continuously on (Requirement 9.1) -- not
+// network with learning continuously on (P5-9.1) -- not
 // something the fast tier can afford (see `char-prediction-smoke.test.ts`
 // for the fast-tier truncated-corpus sanity check of the same code path).
 //
 // These tests verify the harness's *mechanics* -- real numbers, computed
 // correctly, over a real corpus slice, aggregated correctly across seeds
-// (Requirement 13.5) -- rather than hard-asserting the "network beats
-// trigram" bar (Requirement 13.4) as a must-pass condition. That bar is
+// (P5-13.5) -- rather than hard-asserting the "network beats
+// trigram" bar (P5-13.4) as a must-pass condition. That bar is
 // empirically not met by the best-tuned configuration found (see
 // `packages/io/src/milestone/charPrediction.ts`'s module doc for the
-// tuning history); Requirement 13.6 asks for that to be recorded
+// tuning history); P5-13.6 asks for that to be recorded
 // honestly, not for the test to be shaped until it passes anyway. The
 // honest aggregate result is logged here and recorded in README §11's
 // Phase 5 status (Requirement 14.6).
 //
-// Requirement 13.7: this file's result and the sensorimotor ablation's
+// P5-13.7: this file's result and the sensorimotor ablation's
 // result (packages/io/test/sensorimotor.slow.test.ts) are deliberately
 // never merged into one pass/fail -- each is its own test file, its own
 // assertions, reported separately here and in README §11.
@@ -43,7 +43,7 @@ const fullCorpus = readFileSync(corpusPath, 'utf8');
 const SLICE_LENGTH = 15_000;
 const SEEDS = [1n, 2n, 3n];
 
-test('the VAL-4 harness produces well-formed, comparable results across seeds (Requirement 13.1-13.3, 13.5)', () => {
+test('the VAL-4 harness produces well-formed, comparable results across seeds (P5-13.1, P5-13.2, P5-13.3, P5-13.5)', () => {
   const corpus = fullCorpus.slice(0, SLICE_LENGTH);
   const trials = runCharPredictionTrials(corpus, SEEDS, {
     ...DEFAULT_CONFIG,
@@ -68,7 +68,7 @@ test('the VAL-4 harness produces well-formed, comparable results across seeds (R
       trial.sampleCount > 0,
       'a corpus slice this size must yield at least one scored sample',
     );
-    // Sanity floor on the baseline itself (Requirement 13.3): a trigram
+    // Sanity floor on the baseline itself (P5-13.3): a trigram
     // model trained online on real English prose should clear plain
     // chance (1/97) by a wide margin on a slice this size -- this is a
     // regression check on the harness's own plumbing (context tracking,
@@ -83,11 +83,11 @@ test('the VAL-4 harness produces well-formed, comparable results across seeds (R
   console.log(
     `[VAL-4] mean network accuracy=${assessment.meanNetworkAccuracy.toFixed(4)} ` +
       `mean trigram accuracy=${assessment.meanTrigramAccuracy.toFixed(4)} ` +
-      `milestone met=${assessment.milestoneMet} (Requirement 13.6: recorded honestly, not a must-pass assertion)`,
+      `milestone met=${assessment.milestoneMet} (P5-13.6: recorded honestly, not a must-pass assertion)`,
   );
 });
 
-test('assessMilestone aggregates by mean across seeds and applies the tolerance band, not a single favorable run (Requirement 13.5)', () => {
+test('assessMilestone aggregates by mean across seeds and applies the tolerance band, not a single favorable run (P5-13.5)', () => {
   const trials: TrialResult[] = [
     { seed: 1n, networkAccuracy: 0.5, trigramAccuracy: 0.3, sampleCount: 100 },
     { seed: 2n, networkAccuracy: 0.1, trigramAccuracy: 0.3, sampleCount: 100 },

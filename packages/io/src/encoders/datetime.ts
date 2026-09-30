@@ -1,7 +1,7 @@
 // The datetime/cyclic encoder (Requirement 4): composes one scalar-style
 // sub-encoder per configured cyclic component (time-of-day, day-of-week,
 // ...) and concatenates their bit ranges into one wider SDR. This is what
-// gives it phase-equivalence overlap (Requirement 4.3) a raw epoch-scalar
+// gives it phase-equivalence overlap (P5-4.3) a raw epoch-scalar
 // encoder cannot provide -- a plain scalar encoder's sliding window never
 // wraps at a period boundary, so 23:59 and 00:01 (adjacent in wall-clock
 // terms) would share no bits at all; a cyclic component's window does
@@ -31,7 +31,7 @@ export const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 /** One week, in days -- the period for `dayOfWeekComponent`. */
 export const DAYS_PER_WEEK = 7;
 
-/** Time-of-day, wrapping every `MILLISECONDS_PER_DAY` (Requirement 4.1's "own periodic range"). */
+/** Time-of-day, wrapping every `MILLISECONDS_PER_DAY` (P5-4.1's "own periodic range"). */
 export function timeOfDayComponent(
   width: number,
   activeBits: number,
@@ -69,7 +69,7 @@ export function dayOfWeekComponent(
  * mapped to a contiguous run of `activeBits` bits within a `width`-bit
  * window that *wraps* at the window's own edge -- bucket 0 and bucket
  * `width - 1` are themselves adjacent, unlike `encodeScalar`'s plain
- * sliding window, which is what gives Requirement 4.3's phase-equivalence
+ * sliding window, which is what gives P5-4.3's phase-equivalence
  * overlap (e.g. 23:59 and 00:01 sharing bits).
  *
  * Exported (Phase 5.5 Requirement 6) so `location.ts`'s grid-cell-like
@@ -91,15 +91,15 @@ export function encodeCyclicComponent(
   const start = Math.floor(fraction * buckets);
   const bits: number[] = [];
   for (let i = 0; i < activeBits; i++) {
-    bits.push((start + i) % width); // wraps at the window's own width -- the mechanism behind Requirement 4.3
+    bits.push((start + i) % width); // wraps at the window's own width -- the mechanism behind P5-4.3
   }
   return bits;
 }
 
 /**
  * Encodes `date` by concatenating every configured component's own
- * (wrapping) sub-encoding into one SDR (Requirement 4.1). Deterministic
- * (Requirement 2.3): the same `date` under the same `config` always
+ * (wrapping) sub-encoding into one SDR (P5-4.1). Deterministic
+ * (P5-2.3): the same `date` under the same `config` always
  * produces the bit-identical `Sdr`.
  */
 export function encodeDatetime(config: DatetimeEncoderConfig, date: Date): Sdr {

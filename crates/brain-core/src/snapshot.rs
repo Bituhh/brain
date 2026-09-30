@@ -16,21 +16,21 @@
 //! snapshots so a restore against incompatible configuration fails loudly
 //! rather than behaving strangely" -- the snapshot stores and checks a
 //! caller-computed `config_hash`, opaque to this module, rather than
-//! trying to serialise Rust types generically. Requirement 16.1's
+//! trying to serialise Rust types generically. P03-16.1's
 //! "configuration" is satisfied by that validation, not by round-tripping
 //! the config itself.
 //!
 //! **What *is* state, and therefore lives in the payload:** every
 //! `NeuronArena` field (including `free`/`generation`/`epoch`, so
-//! Requirement 16.6's reclaimed-and-reused slots round-trip exactly),
+//! P03-16.6's reclaimed-and-reused slots round-trip exactly),
 //! every occupied `SynapseArena` slot (unoccupied slots are skipped --
 //! this is what makes payload size proportional to live structure rather
-//! than allocated capacity, Requirement 16.10), and the scheduler's
+//! than allocated capacity, P03-16.10), and the scheduler's
 //! genuinely cross-tick transient state: the delay ring's in-flight
 //! spikes and the dirty set's members. Scratch buffers
 //! (`candidates_scratch`, `winner_set`, etc.) are deliberately excluded:
 //! they are fully cleared and rebuilt within a single `step()` call, so at
-//! any tick boundary (where Requirement 16.10 says a snapshot must be
+//! any tick boundary (where P03-16.10 says a snapshot must be
 //! taken) they hold nothing to lose.
 //!
 //! **No persistent RNG state exists yet to snapshot.** `rng::derive_stream`
@@ -43,7 +43,7 @@
 //! responsibility exactly like every other config value above. If a
 //! future component (design.md's sketched `GrowthPolicy::should_grow`
 //! takes `&mut Pcg32`) introduces a genuinely persistent generator, its
-//! state will need a section here -- Requirement 16.5 makes that a
+//! state will need a section here -- P03-16.5 makes that a
 //! design defect to skip when the time comes, not an optional nice-to-have.
 
 use crate::arena::NeuronArena;
@@ -157,8 +157,8 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// pre-Phase-5.5 restore() produced, since NEU-8 did not exist).
 ///
 /// Bumped 2 -> 3 in Phase 5 to add a neuromodulator-field-state section
-/// (Requirement 15.6). **This closes a real, pre-existing gap, not just an
-/// addition**: Requirement 16.1 (Phase 0-3) already claimed "neuromodulator
+/// (P5-15.6). **This closes a real, pre-existing gap, not just an
+/// addition**: P03-16.1 already claimed "neuromodulator
 /// levels" were part of "the complete simulation state" this format
 /// captures, but no version of this module ever actually serialised them --
 /// `restore()` always overlaid a freshly-zeroed field (`with_plasticity`
@@ -225,7 +225,7 @@ const MAGIC: [u8; 6] = *b"BRAIN\0";
 /// no readout writes a zero count. A version <= 14 payload has no such
 /// section; `read` supplies an empty list, the only sound reading.
 pub const FORMAT_VERSION: u32 = 15;
-/// Requirement 9, Acceptance Criterion 8's compatibility guarantee, made
+/// P4-9.8's compatibility guarantee, made
 /// concrete and falsifiable: `read` migrates any snapshot from this
 /// version through `FORMAT_VERSION`. Widen this only alongside an actual
 /// migration path for the version being dropped -- see `read`'s version
@@ -237,13 +237,13 @@ pub enum SnapshotError {
     /// Too short, bad magic, or a length-prefixed section overruns the
     /// buffer -- checked before any allocation proportional to a
     /// claimed length, so a corrupt/truncated file cannot trigger an
-    /// out-of-memory attempt (Requirement 16.8's "fail loudly", applied
+    /// out-of-memory attempt (P03-16.8's "fail loudly", applied
     /// defensively).
     Corrupt,
     /// The version tag is newer than `FORMAT_VERSION` or older than
-    /// `OLDEST_SUPPORTED_VERSION` (Requirement 9, Acceptance Criterion 3).
+    /// `OLDEST_SUPPORTED_VERSION` (P4-9.3).
     /// No partial or best-effort load is attempted either way
-    /// (Requirement 16.8).
+    /// (P03-16.8).
     UnsupportedVersion,
     /// The caller-supplied `config_hash` does not match the one stored in
     /// the snapshot.
@@ -328,7 +328,7 @@ impl<'a> Reader<'a> {
 }
 
 /// A snapshot's fixed-size header, readable without touching the (usually
-/// far larger) payload after it -- Requirement 9, Acceptance Criterion 5's
+/// far larger) payload after it -- P4-9.5's
 /// partial loading: a caller wanting just the version, config hash, or
 /// tick a snapshot was taken at (e.g. to decide whether it is even worth
 /// restoring) can call [`read_header`] alone.
@@ -799,7 +799,7 @@ fn write_one_readout(w: &mut Writer, s: &ReadoutRawState) {
 }
 
 /// Every length is checked against the buffer before anything is allocated
-/// (Requirement 16.8's defensive reading).
+/// (P03-16.8's defensive reading).
 fn read_readout_words<'a>(r: &mut Reader<'a>) -> Result<&'a [u8], SnapshotError> {
     let len = r.u32()? as usize;
     r.take(len.checked_mul(4).ok_or(SnapshotError::Corrupt)?)
@@ -1110,7 +1110,7 @@ fn read_column_votes(r: &mut Reader<'_>, columns: &mut ColumnRegistry) -> Result
     Ok(())
 }
 
-/// New in format version 3 (Phase 5 Requirement 15.6): the neuromodulator
+/// New in format version 3 (P5-15.6): the neuromodulator
 /// field's current levels plus the tick they were last touched at -- the
 /// genuinely evolving half of `NeuromodulatorField`'s state (its decay time
 /// constants stay caller-supplied configuration, per this module's own
@@ -1135,9 +1135,9 @@ fn read_modulator_state(r: &mut Reader<'_>) -> Result<(Modulators, u32), Snapsho
 }
 
 /// Serialises `neurons` + `synapses` + `scheduler`'s transient state
-/// (Requirement 16.1) plus `columns` (Requirement 9, new in format version
-/// 2) into a versioned binary buffer (Requirement 16.7), tagged with a
-/// caller-supplied, opaque `config_hash` (Requirement 16.1's
+/// (P03-16.1) plus `columns` (Requirement 9, new in format version
+/// 2) into a versioned binary buffer (P03-16.7), tagged with a
+/// caller-supplied, opaque `config_hash` (P03-16.1's
 /// "configuration", validated rather than round-tripped -- see module
 /// docs). `neuron_count` should be the same value the synapse arena was
 /// last `reserve_for_neurons`-ed with. Pass `&ColumnRegistry::new()` for a
@@ -1204,7 +1204,7 @@ pub fn write(neurons: &NeuronArena, synapses: &SynapseArena, scheduler: &Schedul
 /// The state a snapshot restores, before being overlaid onto a
 /// freshly-configured `Scheduler` (see module docs on why configuration is
 /// supplied fresh rather than restored). `columns` is empty when restoring
-/// a format-version-1 snapshot (Requirement 9, Acceptance Criterion 6 --
+/// a format-version-1 snapshot (P4-9.6 --
 /// there is only one sound reading of "a network with no column section",
 /// namely "it had no columns").
 pub struct Restored {
@@ -1214,7 +1214,7 @@ pub struct Restored {
     pub ring: Vec<Vec<u32>>,
     pub dirty_members: Vec<u32>,
     pub columns: ColumnRegistry,
-    /// New in format version 3 (Phase 5 Requirement 15.6). Zeroed when
+    /// New in format version 3 (P5-15.6). Zeroed when
     /// restoring a version-1 or -2 snapshot (no modulator section exists to
     /// read) -- apply via `Scheduler::restore_modulator_state` *after*
     /// `with_plasticity`, which otherwise resets the field to exactly these
@@ -1278,15 +1278,15 @@ pub struct Restored {
 }
 
 /// Restores a snapshot written by [`write`]. `expected_config_hash` must
-/// match the hash the snapshot was written with (Requirement 16.1's
+/// match the hash the snapshot was written with (P03-16.1's
 /// configuration check). A version newer than [`FORMAT_VERSION`] or older
 /// than [`OLDEST_SUPPORTED_VERSION`], or any structural corruption, fails
-/// loudly with no partial load (Requirement 16.8, Requirement 9 Acceptance
-/// Criterion 3): every length is bounds-checked against the buffer before
+/// loudly with no partial load (P03-16.8,
+/// P4-9.3): every length is bounds-checked against the buffer before
 /// use, so a truncated or malformed file cannot cause an out-of-bounds
 /// read or an out-of-memory allocation attempt.
 ///
-/// Migration (Requirement 9, Acceptance Criteria 2/4/6) is version-
+/// Migration (P4-9.2/P4-9.4/P4-9.6) is version-
 /// dispatched reading straight into today's [`Restored`], not a
 /// byte-rewriting pipeline through every intermediate version: the actual
 /// schema that matters is these Rust structs, and every version so far
@@ -1329,13 +1329,13 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
         dirty_members.push(r.u32()?);
     }
 
-    // Format version 1 has no column section at all -- Requirement 9,
-    // Acceptance Criterion 6: the only sound migration is "no columns".
+    // Format version 1 has no column section at all --
+    // P4-9.6: the only sound migration is "no columns".
     let mut columns = if header.version >= 2 { read_columns(&mut r)? } else { ColumnRegistry::new() };
 
     // Format versions 1 and 2 have no modulator-state section -- the only
     // sound migration is "zeroed, exactly like a fresh NeuromodulatorField"
-    // (Phase 5 Requirement 15.6), which is what every pre-Phase-5 restore()
+    // (P5-15.6), which is what every pre-Phase-5 restore()
     // silently produced anyway.
     let (modulator_levels, modulator_last_updated_at) = if header.version >= 3 { read_modulator_state(&mut r)? } else { ([0.0; NUM_MODULATORS], 0) };
 
@@ -1400,7 +1400,7 @@ pub fn read(bytes: &[u8], expected_config_hash: u64) -> Result<Restored, Snapsho
     // PLAN.md C2 (version 13): the newest trailing section, read last because
     // it is written last -- read order and write order are the format, and a
     // mismatch surfaces as `Corrupt` rather than as wrong values, which is the
-    // intended failure mode (Requirement 16.8's "fail loudly").
+    // intended failure mode (P03-16.8's "fail loudly").
     let prediction_error = if header.version >= 13 { read_prediction_error_state(&mut r)? } else { None };
 
     // PLAN.md C3 (version 14): the newest trailing section, read last for the
@@ -1477,12 +1477,12 @@ mod tests {
 
     #[test]
     fn round_trips_dendritic_predictive_state() {
-        // Requirement 16.1 explicitly names "dendritic segment state" as
+        // P03-16.1 explicitly names "dendritic segment state" as
         // part of what a snapshot must capture (Step 8, Requirement 10) --
         // this is `NeuronArena::predictive`, the decaying depolarisation a
         // fired segment sets. Already covered incidentally by
         // round_trips_neuron_fields_exactly's full-array comparisons, but
-        // stated directly since Requirement 16.1 calls it out by name.
+        // stated directly since P03-16.1 calls it out by name.
         let (mut neurons, synapses, scheduler) = sample_network();
         neurons.predictive[1] = 0.73;
 
@@ -1493,7 +1493,7 @@ mod tests {
         assert_eq!(restored.neurons.predictive[1], 0.73);
     }
 
-    /// Phase 5.5 Requirement 2.5: NEU-8's adaptation state round-trips
+    /// P55-2.5: NEU-8's adaptation state round-trips
     /// exactly, mirroring `round_trips_dendritic_predictive_state` above.
     #[test]
     fn round_trips_spike_frequency_adaptation() {
@@ -1607,7 +1607,7 @@ mod tests {
 
     #[test]
     fn unoccupied_synapse_slots_are_not_stored() {
-        // Requirement 16.10: payload proportional to live (occupied)
+        // P03-16.10: payload proportional to live (occupied)
         // structure, not allocated capacity. cap_per_neuron=100 reserves
         // a large block per neuron; only the one occupied synapse should
         // appear in the payload.
@@ -1649,7 +1649,7 @@ mod tests {
 
     #[test]
     fn round_trips_reclaimed_and_reused_neuron_slots() {
-        // Requirement 16.6: restore must reproduce mutated topology
+        // P03-16.6: restore must reproduce mutated topology
         // exactly, including storage reclamation and index reuse.
         let (mut neurons, synapses, scheduler) = sample_network();
         let a = crate::ids::NeuronId::new(0, 0);
@@ -1665,7 +1665,7 @@ mod tests {
         assert_eq!(restored.neurons.threshold[0], 2.0);
     }
 
-    /// Phase 5 Requirement 15.6: the neuromodulator field's level and decay
+    /// P5-15.6: the neuromodulator field's level and decay
     /// clock must round-trip exactly, including partial decay -- the gap
     /// this format version closes (see `FORMAT_VERSION`'s doc comment).
     #[test]
@@ -1731,7 +1731,7 @@ mod tests {
 
     #[test]
     fn round_trip_through_the_scheduler_is_bit_identical_to_uninterrupted_run() {
-        // Requirement 16.3, the load-bearing property: snapshot mid-run,
+        // P03-16.3, the load-bearing property: snapshot mid-run,
         // restore, continue, and compare against an uninterrupted run of
         // the same total length under the same setup.
         fn build() -> (NeuronArena, SynapseArena, u32, u32) {
@@ -2436,7 +2436,7 @@ mod tests {
         assert!(matches!(read_header(&bad_magic), Err(SnapshotError::Corrupt)));
     }
 
-    /// Requirement 9, Acceptance Criterion 3: too new is rejected exactly
+    /// P4-9.3: too new is rejected exactly
     /// like too old (the existing `unrecognised_version_fails_loudly_with_no_partial_load`
     /// test above already covers "too new"; this covers "too old").
     #[test]
@@ -2481,7 +2481,7 @@ mod tests {
         assert!(restored.columns.is_empty());
     }
 
-    /// Requirement 9, Acceptance Criteria 4 and 6: a snapshot written by the
+    /// P4-9.4 and P4-9.6: a snapshot written by the
     /// pre-Phase-4 format (version 1, no column section at all -- captured
     /// once, before this format change landed, from the exact same
     /// `sample_network`-shaped scenario this test file already uses) must

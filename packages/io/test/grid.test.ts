@@ -43,7 +43,7 @@ test('GridWorld: different seeds can produce different layouts', () => {
   );
 });
 
-test('GridWorld.observe reports only the cell and the last action, nothing else (Requirement 16.1)', () => {
+test('GridWorld.observe reports only the cell and the last action, nothing else (P5-16.1)', () => {
   const world = new GridWorld(config());
   const initial = world.observe();
   assert.equal(initial.lastAction, undefined, 'no action has been taken yet');
@@ -51,7 +51,7 @@ test('GridWorld.observe reports only the cell and the last action, nothing else 
   assert.equal(world.observe().lastAction, 'up');
 });
 
-test('GridWorld.act changes the observed cell (Requirement 16.3 -- a closed loop, not a decorative action)', () => {
+test('GridWorld.act changes the observed cell (P5-16.3 -- a closed loop, not a decorative action)', () => {
   const world = new GridWorld(
     config({
       distinguishingCell: { x: 4, y: 2, symbol: '!' },

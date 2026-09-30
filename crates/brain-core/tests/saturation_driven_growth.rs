@@ -166,7 +166,7 @@ fn overlap_fraction(a: &HashSet<u32>, b: &HashSet<u32>) -> f32 {
 fn growth_triggers_automatically_and_new_neurons_are_immediately_usable() {
     // window=4, collision_threshold=0.5: four colliding presentations in a
     // row saturate the rolling window and should trigger growth with no
-    // separate, human-issued command (Requirement 1 Acceptance Criterion 1).
+    // separate, human-issued command (SDG-1.1).
     let (mut neurons, mut synapses, mut scheduler) = setup(Some((0.5, 4, 2, 1, 20, 1)));
 
     let mut last_b: HashSet<u32> = HashSet::new();
@@ -193,7 +193,7 @@ fn growth_triggers_automatically_and_new_neurons_are_immediately_usable() {
     assert!(neurons.live_count() > 10, "sustained collisions must have triggered automatic growth, got live_count={}", neurons.live_count());
     assert!(!grown_this_run.is_empty(), "a growth event must be observable via StepReport::grown");
 
-    // Requirement 1 Acceptance Criterion 3: a freshly grown neuron accepts
+    // SDG-1.3: a freshly grown neuron accepts
     // stimulation and spikes normally, immediately, with no further setup.
     let fresh = grown_this_run[0];
     scheduler.stimulate(&neurons, fresh, DRIVE_CURRENT);
@@ -203,7 +203,7 @@ fn growth_triggers_automatically_and_new_neurons_are_immediately_usable() {
 
 #[test]
 fn growth_never_triggers_without_collisions() {
-    // Ablation (Requirement 1 Acceptance Criterion 5): disjoint candidate
+    // Ablation (SDG-1.5): disjoint candidate
     // sets never produce overlapping winners, so record_growth_activation
     // never reports a collision, and population size must never change.
     let (mut neurons, mut synapses, mut scheduler) = setup(Some((0.5, 4, 2, 1, 20, 1)));
@@ -224,7 +224,7 @@ fn growth_never_triggers_without_collisions() {
 #[test]
 fn growth_respects_the_ceiling() {
     // ceiling=11: neurons_per_trigger=2 would normally reach 12, but the
-    // caller-supplied ceiling (Requirement 1 Acceptance Criterion 4) must
+    // caller-supplied ceiling (SDG-1.4) must
     // cap the very first trigger at exactly one neuron, and growth must
     // never resume once the ceiling is reached even under continued
     // sustained collisions.
@@ -249,7 +249,7 @@ fn growth_respects_the_ceiling() {
 
 #[test]
 fn growth_measurably_reduces_collision_rate_vs_growth_disabled() {
-    // Requirement 1 Acceptance Criterion 6, VAL-6 multi-seed: compare an
+    // SDG-1.6, VAL-6 multi-seed: compare an
     // identically-driven run with growth enabled against one with growth
     // artificially prevented (ceiling == initial population, so should_grow
     // is never even consulted -- the same "held below threshold" ablation

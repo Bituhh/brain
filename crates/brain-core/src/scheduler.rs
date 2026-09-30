@@ -1,15 +1,15 @@
 //! Event-driven scheduler on a fixed time grid (RUN-1, RUN-1a, RUN-1b).
 //!
 //! Work is proportional to in-flight spikes, not to neuron count
-//! (Requirement 5.1): a "dirty set" tracks only neurons that have
+//! (P03-5.1): a "dirty set" tracks only neurons that have
 //! accumulated input this tick or are still active from a recent one (see
 //! `NeuronDynamics::integrate`'s `still_active` outcome), and a delay ring
 //! of pre-allocated buckets means scheduling and delivering a spike never
-//! allocates in steady state (Requirement 5.6, ENG-9).
+//! allocates in steady state (P03-5.6, ENG-9).
 //!
 //! Time is represented purely as this fixed grid of ring buckets -- there
 //! is no global priority queue over continuous timestamps anywhere in this
-//! module (Requirement 5.5): a synapse's delivery tick is a bucket index,
+//! module (P03-5.5): a synapse's delivery tick is a bucket index,
 //! computed once at spike time, never a value competing in a sorted
 //! structure.
 //!
@@ -20,7 +20,7 @@
 //! the winners within each neighbourhood and the rest are vetoed
 //! (suppressed, not erased -- `neuron.rs`'s `veto_spike`). With no
 //! inhibition configured, every candidate simply wins -- this is
-//! Requirement 7.5's ablation path, not a special case the scheduler
+//! P03-7.5's ablation path, not a special case the scheduler
 //! treats differently.
 
 use std::collections::HashMap;
@@ -42,7 +42,7 @@ use crate::segment::{segment_role, BinaryCoincidence, Depolarisation, SegmentCon
 use crate::synapse::{SynapseArena, SynapseArenaViewMut, NOT_SILENT};
 use crate::transmission::{TransmissionModulation, TransmissionModulationStats};
 
-/// Always-on metrics window (Requirement 5.1, Phase 6): OBS-2 frames the
+/// Always-on metrics window (P6-5.1): OBS-2 frames the
 /// incremental meters as "cheap enough to leave permanently on", so
 /// `Scheduler` constructs both unconditionally with this fixed default --
 /// no new constructor parameter, so no existing call site changes.
@@ -125,14 +125,14 @@ impl DirtySet {
 pub struct StepReport {
     pub tick: u32,
     /// Neurons whose spike was committed this tick -- i.e. won their local
-    /// competition, if any was configured (Requirement 7.1).
+    /// competition, if any was configured (P03-7.1).
     pub spiked: Vec<u32>,
     /// Neurons that crossed threshold but were suppressed by a
     /// faster-margin competitor this tick. Empty whenever inhibition is
     /// not configured. Exposed for tests and metrics (OBS-2) that need to
     /// distinguish "no activity" from "activity, but inhibited".
     pub vetoed: Vec<u32>,
-    /// How many of `spiked` were correctly predicted (Requirement 12.3),
+    /// How many of `spiked` were correctly predicted (P03-12.3),
     /// i.e. `predictive` was significant at the moment they fired. Always
     /// `0` when predictive learning is not configured -- feeds
     /// `metrics::PredictionAccuracyMeter` (OBS-2's prediction-accuracy
@@ -193,8 +193,8 @@ impl SilentSynapseParams {
 pub struct DeliveryEffect {
     /// The delivering synapse's source neuron and own id -- carried purely
     /// so a partitioned runtime can sort a batch of these into a canonical,
-    /// thread-schedule-independent order before applying them (Requirement
-    /// 8, Acceptance Criterion 3): floating-point addition is not
+    /// thread-schedule-independent order before applying them
+    /// (P4-8.3): floating-point addition is not
     /// associative, so *which order* several cross-partition contributions
     /// to the same target's `input_accum` are summed in is an actual
     /// determinism hazard, not merely a style preference.
@@ -236,7 +236,7 @@ pub struct CrossPartitionPostSpike {
 pub struct Scheduler {
     tick: u32,
     /// `max_delay + 1` pre-allocated, never-freed buckets of synapse ids
-    /// (Requirement 5.6). Bucket `b` holds synapses whose delivery tick is
+    /// (P03-5.6). Bucket `b` holds synapses whose delivery tick is
     /// congruent to `b` modulo `ring.len()`.
     ring: Vec<Vec<u32>>,
     dirty: DirtySet,
@@ -253,10 +253,10 @@ pub struct Scheduler {
     external_scratch: Vec<bool>,
     /// Permanence at or above this is functionally connected (SYN-3); below
     /// it, a synapse is a potential connection and does not transmit
-    /// (Requirement 6.6).
+    /// (P03-6.6).
     connection_threshold: f32,
     /// `None` means every candidate wins unconditionally -- the ablation
-    /// path for Requirement 7.5, not a special-cased branch.
+    /// path for P03-7.5, not a special-cased branch.
     inhibition: Option<FixedNeighbourhoods>,
     // Scratch buffers, reused every tick so steady-state resolution
     // allocates nothing (ENG-9) once they reach their working size.
@@ -401,7 +401,7 @@ pub struct Scheduler {
     predictive_scratch: Vec<f32>,
     /// `None` means homeostatic synaptic scaling (LRN-6) never runs inside
     /// `step()` -- the pre-Phase-5 behaviour, and still the default. When
-    /// configured (Phase 5 Requirement 9.2/9.6), `step()` drives its
+    /// configured (P5-9.2/P5-9.6), `step()` drives its
     /// `maybe_apply` itself every tick, at whatever interval the instance
     /// was constructed with; this is what makes "learning is always on"
     /// (IO-4, invariant 7) true for a caller that only ever calls `step()`,
@@ -480,9 +480,9 @@ pub struct Scheduler {
     /// on why this does not threaten RUN-3/RUN-9a determinism): iteration
     /// order over this map never leaks into anything that affects dynamics.
     probes: HashMap<u32, Probe>,
-    /// Always-on population firing rate (OBS-2, Requirement 5.1, Phase 6).
+    /// Always-on population firing rate (OBS-2, P6-5.1).
     firing_rate: FiringRateMeter,
-    /// Always-on prediction accuracy (OBS-2, Requirement 5.1, Phase 6).
+    /// Always-on prediction accuracy (OBS-2, P6-5.1).
     prediction_accuracy: PredictionAccuracyMeter,
     /// `None` means `inhibition`'s `k` never adjusts itself (docs/decisions.md
     /// decision 10) -- the default, and zero extra cost when never
@@ -629,7 +629,7 @@ impl Scheduler {
         self.probes.insert(neuron, probe);
     }
 
-    /// Detaches `neuron`'s probe, if any (Requirement 4.4) -- frees its
+    /// Detaches `neuron`'s probe, if any (P6-4.4) -- frees its
     /// bounded buffers and stops the per-tick `O(#probes)` observation cost
     /// for it.
     pub fn detach_probe(&mut self, neuron: u32) {
@@ -640,14 +640,14 @@ impl Scheduler {
         self.probes.get(&neuron)
     }
 
-    /// Population firing rate over the always-on window (OBS-2, Requirement
-    /// 5.1) -- mean spikes per tick as a fraction of `population_size`.
+    /// Population firing rate over the always-on window (OBS-2,
+    /// P6-5.1) -- mean spikes per tick as a fraction of `population_size`.
     pub fn firing_rate(&self, population_size: u32) -> f64 {
         self.firing_rate.population_rate(population_size)
     }
 
-    /// Prediction accuracy over the always-on window (OBS-2, Requirement
-    /// 5.1).
+    /// Prediction accuracy over the always-on window (OBS-2,
+    /// P6-5.1).
     pub fn prediction_accuracy(&self) -> f64 {
         self.prediction_accuracy.accuracy()
     }
@@ -853,7 +853,7 @@ impl Scheduler {
         self
     }
 
-    /// Opts Requirement 12.1's burst-sprout path into a different
+    /// Opts P03-12.1's burst-sprout path into a different
     /// [`SproutReach`] (PLAN.md C4, docs/decisions.md decision 15) -- which other
     /// neurons a bursting one may sprout *from*, a quantity separate from
     /// NET-2's k-WTA competition group. Requires
@@ -872,7 +872,7 @@ impl Scheduler {
         self
     }
 
-    /// Restricts Requirement 12.3's reinforcement to the synapses that
+    /// Restricts P03-12.3's reinforcement to the synapses that
     /// delivered recently (PLAN.md C14 arm 1). Requires
     /// [`Self::with_predictive_learning`] first, same precedent as
     /// [`Self::with_predictive_learning_sprout_reach`] above.
@@ -882,7 +882,7 @@ impl Scheduler {
         self
     }
 
-    /// Restores the pre-C14 rule: Requirement 12.3 reinforces every synapse on
+    /// Restores the pre-C14 rule: P03-12.3 reinforces every synapse on
     /// the segment (docs/decisions.md decision 30). Requires
     /// [`Self::with_predictive_learning`] first, same precedent as above.
     pub fn without_predictive_learning_contributor_gate(mut self) -> Self {
@@ -891,7 +891,7 @@ impl Scheduler {
         self
     }
 
-    /// Switches Requirement 12.2/12.3's arithmetic to weight-dependent (soft)
+    /// Switches P03-12.2/P03-12.3's arithmetic to weight-dependent (soft)
     /// bounds (PLAN.md C14 arm 2). Requires [`Self::with_predictive_learning`]
     /// first, same precedent as above.
     pub fn with_predictive_learning_bound_mode(mut self, mode: crate::plasticity::predictive::BoundMode) -> Self {
@@ -909,7 +909,7 @@ impl Scheduler {
         self
     }
 
-    /// Whether Requirement 12.1's burst path is configured with a *spatial*
+    /// Whether P03-12.1's burst path is configured with a *spatial*
     /// sprout reach -- read by `PartitionRuntime::new` to refuse a
     /// combination it cannot keep bit-identical across partition counts.
     /// `false` when predictive learning is not configured at all.
@@ -924,7 +924,7 @@ impl Scheduler {
         self.modulators.inject(self.tick, index, amount);
     }
 
-    /// Named reward entry point (LRN-11, Phase 5 Requirement 15.1): drives
+    /// Named reward entry point (LRN-11, P5-15.1): drives
     /// the dopamine channel specifically, so "reward" has one spelling in
     /// this codebase rather than every caller independently knowing to
     /// pick `DOPAMINE` and a magnitude. No neuron or plasticity-rule code
@@ -1023,7 +1023,7 @@ impl Scheduler {
     }
 
     /// The neuromodulator field's levels as last computed, with no
-    /// tick-advancing catch-up (Phase 5 Requirement 15.5) -- see
+    /// tick-advancing catch-up (P5-15.5) -- see
     /// [`NeuromodulatorField::levels_unchecked`].
     pub fn modulator_levels(&self) -> Modulators {
         self.modulators.levels_unchecked()
@@ -1038,12 +1038,12 @@ impl Scheduler {
     }
 
     /// Enables homeostatic synaptic scaling (LRN-6) as an always-on, opt-in
-    /// part of `step()` (Phase 5 Requirement 9.2/9.6): `scaling.maybe_apply`
+    /// part of `step()` (P5-9.2/P5-9.6): `scaling.maybe_apply`
     /// runs at the end of every tick, at whatever interval `scaling` was
     /// constructed with. Without this call, `step()` never touches
     /// homeostasis at all -- unchanged from every pre-Phase-5 behaviour, and
-    /// still the default a caller must opt into, not out of (Requirement
-    /// 9.6's "opt-in configuration... rather than an unconditional change").
+    /// still the default a caller must opt into, not out of
+    /// (P5-9.6's "opt-in configuration... rather than an unconditional change").
     pub fn with_homeostatic_scaling(mut self, scaling: HomeostaticScaling) -> Self {
         self.homeostatic_scaling = Some(scaling);
         self
@@ -1066,7 +1066,7 @@ impl Scheduler {
     }
 
     /// Enables structural plasticity (LRN-7) as an always-on, opt-in part of
-    /// `step()` (Phase 5 Requirement 9.2/9.6), the structural-plasticity
+    /// `step()` (P5-9.2/P5-9.6), the structural-plasticity
     /// counterpart to [`Self::with_homeostatic_scaling`] above -- same
     /// opt-in default, same "unchanged unless configured" guarantee.
     pub fn with_structural_plasticity(mut self, plasticity: StructuralPlasticity) -> Self {
@@ -1223,7 +1223,7 @@ impl Scheduler {
     }
 
     /// Feeds one activation event to the growth policy's collision signal
-    /// (Requirement 1 AC2): the caller decides what counts as a collision
+    /// (SDG-1.2): the caller decides what counts as a collision
     /// for its own encoding, matching `OverlapSaturation::record_activation`'s
     /// own stated design -- this module has no opinion on it. A no-op if
     /// growth is not configured.
@@ -1285,7 +1285,7 @@ impl Scheduler {
         }
     }
 
-    /// Disables inhibition (Requirement 7.5's ablation path): every
+    /// Disables inhibition (P03-7.5's ablation path): every
     /// threshold crossing becomes an official spike unconditionally.
     pub fn disable_inhibition(&mut self) {
         self.inhibition = None;
@@ -1306,7 +1306,7 @@ impl Scheduler {
         self.tick
     }
 
-    /// The delay ring's current contents (Requirement 16.1's "topology" is
+    /// The delay ring's current contents (P03-16.1's "topology" is
     /// arena-level; this is the *in-flight spike* state a snapshot must
     /// also capture -- a scheduled-but-not-yet-delivered spike is genuine
     /// state, not derivable from anything else).
@@ -1344,7 +1344,7 @@ impl Scheduler {
         }
     }
 
-    /// The neuromodulator field's raw state (Phase 5 Requirement 15.6) --
+    /// The neuromodulator field's raw state (P5-15.6) --
     /// see [`NeuromodulatorField::raw_state`].
     pub fn modulator_raw_state(&self) -> (Modulators, u32) {
         self.modulators.raw_state()
@@ -1539,8 +1539,8 @@ impl Scheduler {
     /// (Requirement 8's on_post_spike), and schedules its outgoing
     /// deliveries (SYN-2's delay). This is the same sequence
     /// `evaluate_and_resolve`'s winner-commit path performs for a real
-    /// winning candidate, used by `consolidation.rs`'s replay (Phase 5
-    /// Requirement 10.3): from `RuleChain`'s point of view a replayed spike
+    /// winning candidate, used by `consolidation.rs`'s replay
+    /// (P5-10.3): from `RuleChain`'s point of view a replayed spike
     /// *is* the same kind of event a live one produces.
     ///
     /// **Deliberately a separate implementation, not a shared one**, and
@@ -1566,7 +1566,7 @@ impl Scheduler {
     /// its ring bucket from `self.tick`, not from a parameter, so a
     /// replayed event's deliveries must be scheduled relative to *its own*
     /// (advancing) virtual tick, not whatever tick this scheduler was
-    /// already at (Requirement 12.2's "advance the tick counter for every
+    /// already at (P5-12.2's "advance the tick counter for every
     /// tick of replay").
     pub(crate) fn commit_and_schedule<D: NeuronDynamics>(
         &mut self,
@@ -1706,7 +1706,7 @@ impl Scheduler {
     }
 
     /// Advances the tick counter directly, with no other side effect
-    /// (Phase 5 Requirement 12.2): `consolidation.rs`'s `run_consolidation`
+    /// (P5-12.2): `consolidation.rs`'s `run_consolidation`
     /// uses this to move past the span of ticks its replay just covered,
     /// once `commit_and_schedule` has already left `self.tick` at the last
     /// replayed event's own tick.
@@ -1808,7 +1808,7 @@ impl Scheduler {
     /// incidental: floating-point addition is commutative but not
     /// associative, so *which order* several contributions to the same
     /// target's `input_accum` are summed in can change the last bit of the
-    /// result (Requirement 8, Acceptance Criterion 3's determinism claim is
+    /// result (P4-8.3's determinism claim is
     /// about exactly this). A partitioned runtime cannot preserve
     /// `deliver`'s ring-iteration order across partitions, so instead both
     /// `step` (one scheduler) and `partition::PartitionRuntime` (several)
@@ -1843,15 +1843,15 @@ impl Scheduler {
         // scheduling *new* deliveries into (potentially) the same ring
         // without a borrow conflict; its capacity is preserved and it's
         // swapped back once drained, so this is not an allocation
-        // (Requirement 5.6).
+        // (P03-5.6).
         let mut deliveries = std::mem::take(&mut self.ring[bucket_idx]);
         for &synapse_id in deliveries.iter() {
             if !synapses.is_occupied(synapse_id) {
-                continue; // pruned since it was scheduled (Requirement 11.1)
+                continue; // pruned since it was scheduled (P03-11.1)
             }
             let permanence = synapses.permanence[synapse_id as usize];
             if permanence < self.connection_threshold {
-                continue; // Requirement 6.6: sub-threshold does not transmit
+                continue; // P03-6.6: sub-threshold does not transmit
             }
             let source_index = synapses.source_of(synapse_id);
             let target = synapses.target_neuron[synapse_id as usize];
@@ -1995,7 +1995,7 @@ impl Scheduler {
     }
 
     /// Records this tick's always-on metrics (`firing_rate`/
-    /// `prediction_accuracy`, OBS-2 Requirement 5.1) and feeds every
+    /// `prediction_accuracy`, OBS-2, P6-5.1) and feeds every
     /// attached probe (Requirement 4, Phase 6) from `report` and this
     /// tick's neuron/synapse state. Takes views rather than whole arenas
     /// so [`crate::partition::PartitionRuntime::step`] -- which calls
@@ -2027,21 +2027,21 @@ impl Scheduler {
     /// Advances the simulation by exactly one tick:
     ///
     /// 1. Drains this tick's ring bucket, accumulating signed input per
-    ///    target neuron and marking them dirty (Requirement 5.3, 5.4).
+    ///    target neuron and marking them dirty (P03-5.3, P03-5.4).
     /// 2. Integrates every dirty neuron exactly once via `D` (Requirement
     ///    4), collecting threshold-crossing candidates.
     /// 3. Resolves candidates into winners (via `inhibition`, if
-    ///    configured; otherwise every candidate wins -- Requirement 7.5)
+    ///    configured; otherwise every candidate wins -- P03-7.5)
     ///    and commits or vetoes each accordingly.
     /// 4. For each committed spike, scans its outgoing synapse block and
     ///    schedules delivery at `tick + delay` for every connected synapse
-    ///    (Requirement 5.3).
+    ///    (P03-5.3).
     /// 5. Carries forward whatever `integrate` reported as still active
     ///    (refractory, unsettled, or a vetoed candidate); drops the rest.
     ///
     /// Composed from [`Self::deliver`] (step 1, with an always-local
     /// `remote_post`), a canonical sort plus [`Self::apply_delivery_effects`]
-    /// (Requirement 8, Acceptance Criterion 3 -- see `deliver`'s doc
+    /// (P4-8.3 -- see `deliver`'s doc
     /// comment), and [`Self::evaluate_and_resolve`] (steps 1b-5, with no
     /// remote sources) -- all extracted for `partition.rs`'s benefit. The
     /// sort formalises what was previously an incidental (ring-insertion)
@@ -2068,7 +2068,7 @@ impl Scheduler {
         let mut synapse_view = synapses.whole_view_mut();
         self.ensure_input_capacity(neuron_view.capacity_len());
         let mut effects = self.deliver(&neuron_view, &mut synapse_view, |_| None);
-        // Requirement 8, Acceptance Criterion 3: the same canonical sort a
+        // P4-8.3: the same canonical sort a
         // partitioned runtime's merge phase applies across several
         // schedulers' combined effects (`partition.rs`) -- a single
         // scheduler's own effects take the same path so the two cases
@@ -2080,7 +2080,7 @@ impl Scheduler {
 
         self.record_tick_observables(&report, &neuron_view, &synapse_view);
 
-        // Phase 5 Requirement 9.2/9.6: always-on homeostasis/structural
+        // P5-9.2/P5-9.6: always-on homeostasis/structural
         // plasticity, opt-in via with_homeostatic_scaling/
         // with_structural_plasticity above. `neuron_view`/`synapse_view`'s
         // borrows of `neurons`/`synapses` have already ended (their last use
@@ -2231,9 +2231,9 @@ impl Scheduler {
         params: &D::Params,
         is_remote_source: impl Fn(u32) -> bool,
     ) -> (StepReport, Vec<CrossPartitionPostSpike>) {
-        // 1b. Evaluate every segment touched this tick (Requirement 10.2):
+        // 1b. Evaluate every segment touched this tick (P03-10.2):
         // a segment that reaches its coincidence threshold depolarises its
-        // neuron (Requirement 10.3 -- boosts `predictive`, never fires it
+        // neuron (P03-10.3 -- boosts `predictive`, never fires it
         // directly) and marks it dirty so that boost is actually
         // integrated this tick even if no feedforward input also arrived.
         if let Some(config) = &self.segments {
@@ -2351,7 +2351,7 @@ impl Scheduler {
                 if outcome.still_active {
                     next_dirty.insert(idx);
                 }
-                // Requirement 12.2: a prediction that never even produced a
+                // P03-12.2: a prediction that never even produced a
                 // threshold crossing before decaying back below
                 // significance has still failed -- caught here as the
                 // pre-integrate/post-integrate transition across the
@@ -2474,10 +2474,10 @@ impl Scheduler {
                 vetoed.push(idx);
                 // A vetoed candidate is never "settled" -- it remains a
                 // live, above-threshold competitor and must always be
-                // re-evaluated next tick (Requirement 7.1).
+                // re-evaluated next tick (P03-7.1).
                 next_dirty.insert(idx);
 
-                // Requirement 12.2: a prediction that crossed threshold but
+                // P03-12.2: a prediction that crossed threshold but
                 // lost local inhibition is a failed prediction *this tick*
                 // ("the predicted firing does not occur" is satisfied
                 // literally -- no spike was emitted), not a pending one, so
@@ -2528,7 +2528,7 @@ mod tests {
         arena.allocate(NeuronSpec { threshold, polarity, coords: [0.0, 0.0, 0.0] }).index
     }
 
-    // -- Phase 5 Requirement 9.2/9.6: always-on homeostasis/structural
+    // -- P5-9.2/P5-9.6: always-on homeostasis/structural
     // plasticity, opt-in on `Scheduler` itself.
 
     #[test]
@@ -2690,7 +2690,7 @@ mod tests {
         assert_eq!(sched.inhibition_k(), Some(3), "inhibition's live k must resync to the restored k_estimate, not stay at the caller's fresh with_inhibition(..., 5) value");
     }
 
-    // -- Phase 5 Requirement 15.1/15.5: `reward` and `modulator_levels`.
+    // -- P5-15.1/P5-15.5: `reward` and `modulator_levels`.
 
     #[test]
     fn reward_drives_the_dopamine_channel_specifically() {
@@ -2777,10 +2777,10 @@ mod tests {
         sched.stimulate(&neurons, a, 10.0);
         sched.step::<Lif>(&mut neurons, &mut synapses, &params); // a spikes
         sched.step::<Lif>(&mut neurons, &mut synapses, &params); // would-be delivery tick
-        assert_eq!(neurons.membrane[b as usize], 0.0, "sub-threshold permanence must not transmit (Req 6.6)");
+        assert_eq!(neurons.membrane[b as usize], 0.0, "sub-threshold permanence must not transmit (P03-6.6)");
     }
 
-    /// Requirement 6.4.
+    /// P03-6.4.
     #[test]
     fn inhibitory_source_delivers_negative_current() {
         let mut neurons = NeuronArena::new();
@@ -2830,7 +2830,7 @@ mod tests {
         sched.stimulate(&neurons, a, 10.0);
         sched.step::<Lif>(&mut neurons, &mut synapses, &params); // a spikes, schedules delivery at tick+3
 
-        synapses.remove(syn); // pruned before delivery (Requirement 11.1)
+        synapses.remove(syn); // pruned before delivery (P03-11.1)
 
         sched.step::<Lif>(&mut neurons, &mut synapses, &params);
         sched.step::<Lif>(&mut neurons, &mut synapses, &params);
@@ -2855,7 +2855,7 @@ mod tests {
     #[test]
     fn ring_delivery_is_deterministic_in_order() {
         // Two synapses landing in the same bucket must be processed in a
-        // fixed (insertion) order, the basis of Requirement 3.1's
+        // fixed (insertion) order, the basis of P03-3.1's
         // determinism -- run twice and confirm identical resulting state.
         fn run() -> f32 {
             let mut neurons = NeuronArena::new();
@@ -2881,7 +2881,7 @@ mod tests {
 
     #[test]
     fn without_inhibition_every_candidate_spikes_unconditionally() {
-        // Requirement 7.5's ablation path: with no FixedNeighbourhoods
+        // P03-7.5's ablation path: with no FixedNeighbourhoods
         // configured, a tick where multiple neurons cross threshold at
         // once must let all of them spike, not just k of them.
         let mut neurons = NeuronArena::new();
@@ -2987,7 +2987,7 @@ mod tests {
         synapses.reserve_for_neurons(2);
         let syn = synapses.insert(a, b, 0, 1, 0.5, 0.5).unwrap();
 
-        // modulator held at 1.0 unconditionally -> Requirement 8.8's
+        // modulator held at 1.0 unconditionally -> P03-8.8's
         // "reduces to plain STDP", exercised end to end.
         let mut sched = Scheduler::new(4, 0.4).with_plasticity(make_plasticity(DOPAMINE), [1000.0; NUM_MODULATORS]);
         sched.inject_modulator(DOPAMINE, 1.0);
@@ -3026,7 +3026,7 @@ mod tests {
         sched.step::<Lif>(&mut neurons, &mut synapses, &params);
         let after = synapses.weight[syn as usize];
 
-        assert_eq!(before, after, "Requirement 8.7: with modulator at 0, no weight change occurs regardless of activity");
+        assert_eq!(before, after, "P03-8.7: with modulator at 0, no weight change occurs regardless of activity");
     }
 
     #[test]
@@ -3253,7 +3253,7 @@ mod tests {
         sched.step::<Lif>(neurons, synapses, &params); // both deliveries land on the same tick
     }
 
-    /// Requirement 3.1, design.md's key test: two synapses at half the
+    /// WADV-3.1, design.md's key test: two synapses at half the
     /// reference weight do not complete a threshold-2 coincidence in
     /// weighted mode (each contributes 0.5, summing to exactly the
     /// threshold's boundary from below is not this case -- 1.0 < 2), but
@@ -3280,7 +3280,7 @@ mod tests {
         );
     }
 
-    /// Requirement 3.1: two synapses *at* the reference weight complete the
+    /// WADV-3.1: two synapses *at* the reference weight complete the
     /// same threshold-2 coincidence in weighted mode as in count mode --
     /// `coincidence_threshold` keeps meaning "this many established
     /// synapses" for synapses that have reached the reference weight.
@@ -3295,7 +3295,7 @@ mod tests {
         assert!(neurons.predictive[b as usize] > 0.0, "two synapses at the reference weight must each cast a full vote, completing threshold 2 exactly as count mode would");
     }
 
-    /// Requirement 4.1: a silent synapse contributes nothing in weighted
+    /// WADV-4.1: a silent synapse contributes nothing in weighted
     /// mode either -- B4's silent gate and B5's vote mode are independent
     /// mechanisms.
     #[test]
@@ -3311,7 +3311,7 @@ mod tests {
         assert_ne!(synapses.silent_since[dendritic as usize], NOT_SILENT);
     }
 
-    /// Requirement 1.5: the vote mode only affects the dendritic path --
+    /// WADV-1.5: the vote mode only affects the dendritic path --
     /// `FEEDFORWARD_SEGMENT` transmission is bit-identical regardless of it.
     #[test]
     fn weighted_mode_does_not_change_feedforward_transmission() {
@@ -3340,7 +3340,7 @@ mod tests {
 
     #[test]
     fn segment_fires_independently_of_other_segments_on_the_same_neuron() {
-        // Requirement 10.1, 10.2: multiple segments, each with its own
+        // P03-10.1, P03-10.2: multiple segments, each with its own
         // synapse set, each firing independently.
         let mut neurons = NeuronArena::new();
         let mut synapses = SynapseArena::new(1);
@@ -3387,7 +3387,7 @@ mod tests {
 
     #[test]
     fn predictive_state_helps_a_neuron_win_inhibition_over_an_equally_stimulated_neighbour() {
-        // Requirement 10.4, the integration this whole mechanism exists
+        // P03-10.4, the integration this whole mechanism exists
         // for: predictive state lowers the effective threshold enough
         // that, under identical feedforward stimulation, the predicted
         // neuron reaches threshold with a larger margin and wins local
@@ -3619,7 +3619,7 @@ mod tests {
 
         assert!(neurons.last_spike[a as usize] != u32::MAX && neurons.last_spike[b as usize] != u32::MAX);
         let sprouted = synapses.occupied_in_block(a).find(|&id| synapses.target_neuron[id as usize] == b);
-        assert!(sprouted.is_some(), "an unpredicted spike must sprout a synapse from a recently-active neighbour (Requirement 12.1)");
+        assert!(sprouted.is_some(), "an unpredicted spike must sprout a synapse from a recently-active neighbour (P03-12.1)");
         assert_eq!(synapses.permanence[sprouted.unwrap() as usize], 0.5);
         assert_eq!(synapses.weight[sprouted.unwrap() as usize], 0.05);
     }

@@ -18,9 +18,9 @@ export interface CategoryEncoderConfig<L extends string = string> {
 export class UnknownCategoryError extends Error {}
 
 /**
- * Encodes `label` into an `Sdr` (Requirement 3.4). `label` must be one of
+ * Encodes `label` into an `Sdr` (P5-3.4). `label` must be one of
  * `config.categories`; anything else raises `UnknownCategoryError`
- * (Requirement 3.5) rather than silently producing an arbitrary SDR.
+ * (P5-3.5) rather than silently producing an arbitrary SDR.
  */
 export function encodeCategory<L extends string>(
   config: CategoryEncoderConfig<L>,

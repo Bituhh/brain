@@ -220,7 +220,7 @@ fn late_spikes_in(raster: &SpikeRaster, range: &Range<u32>, floor_tick: u32) -> 
     raster.events().iter().filter(|&&(t, n)| t >= floor_tick && range.contains(&n)).count()
 }
 
-/// Requirement 3, Acceptance Criteria 1-2: with adaptation enabled,
+/// P7-3.1, P7-3.2: with adaptation enabled,
 /// population 0 holds initially, self-terminates, and population 1 -- cued
 /// only afterward -- wins the later round, demonstrating fatigue (not just
 /// cross-population suppression) determines who wins next.
@@ -241,7 +241,7 @@ fn adaptation_driven_fatigue_lets_a_different_population_win_a_later_round() {
     }
 }
 
-/// Requirement 3, Acceptance Criterion 3 (ablation): with adaptation
+/// P7-3.3 (ablation): with adaptation
 /// disabled, population 0 never self-terminates and keeps winning
 /// indefinitely -- population 1's later cue must fail to establish a
 /// lasting attractor, since population 0's suppression never lifts.

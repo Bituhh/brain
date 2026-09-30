@@ -12,8 +12,8 @@
 //! (a) whether real activity gets close to that ceiling under enough
 //! drive rather than sitting near zero, (b) whether it stays near the
 //! ceiling rather than climbing further under even more drive
-//! (Requirement 7.3), and (c) whether removing inhibition breaks the
-//! bound entirely (Requirement 7.5's ablation).
+//! (P03-7.3), and (c) whether removing inhibition breaks the
+//! bound entirely (P03-7.5's ablation).
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::inhibition::FixedNeighbourhoods;
@@ -77,7 +77,7 @@ fn run_and_measure_sparsity(with_inhibition: bool, drive_fraction: f32, ticks: u
 
 #[test]
 fn sparsity_holds_near_target_under_moderate_drive() {
-    // VAL-2(a), Requirement 7.2: population sparsity stays near the configured target.
+    // VAL-2(a), P03-7.2: population sparsity stays near the configured target.
     let sparsity = run_and_measure_sparsity(true, 0.3, 2000, 1);
     assert!(
         (sparsity - TARGET_SPARSITY).abs() / TARGET_SPARSITY < 0.3,
@@ -87,7 +87,7 @@ fn sparsity_holds_near_target_under_moderate_drive() {
 
 #[test]
 fn sparsity_does_not_scale_with_drive() {
-    // Requirement 7.3: substantially increased input drive must not
+    // P03-7.3: substantially increased input drive must not
     // increase sparsity beyond tolerance -- the k-per-neighbourhood
     // ceiling is architectural, not a statistical accident of moderate
     // drive happening to land near target.
@@ -105,7 +105,7 @@ fn sparsity_does_not_scale_with_drive() {
 
 #[test]
 fn activity_neither_saturates_nor_dies_out_over_an_extended_run() {
-    // Requirement 7.4. A long run under sustained moderate drive should
+    // P03-7.4. A long run under sustained moderate drive should
     // keep producing activity throughout (not die out) while never
     // exceeding the architectural ceiling (not saturate).
     let mut neurons = build_population();
@@ -139,7 +139,7 @@ fn activity_neither_saturates_nor_dies_out_over_an_extended_run() {
 
 #[test]
 fn disabling_inhibition_breaks_the_sparsity_bound() {
-    // Requirement 7.5's ablation (also Requirement 15.8: a load-bearing
+    // P03-7.5's ablation (also P03-15.8: a load-bearing
     // mechanism disabled must observably break the property it supports):
     // this is not a smoke test that everything still runs -- it is a
     // positive assertion that sparsity

@@ -264,7 +264,7 @@ fn the_ablated_raw_reward_path_cannot_tell_them_apart() {
     );
 }
 
-/// RUN-3 / Requirement 5.2's compatibility half, asserted rather than assumed:
+/// RUN-3 / the bit-identical-when-unset rule's compatibility half, asserted rather than assumed:
 /// a scheduler with no baseline configured injects exactly the amount it was
 /// handed, so every pre-C3 run is bit-identical.
 #[test]

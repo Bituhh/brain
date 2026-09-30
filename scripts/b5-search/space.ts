@@ -1,5 +1,5 @@
 // The parameter space PLAN.md B5's value search explores (docs/decisions.md
-// decision 13, requirements.md Requirement 9.2): reference weight (with
+// decision 13, WADV-9.2): reference weight (with
 // count mode as one of its levels), coincidence threshold, the STDP
 // settings, the predictive-learning target, homeostatic scaling on/off, and
 // B4's own four fix flags with their values -- every one of them changes
@@ -32,7 +32,7 @@ export type B5ParamName = (typeof B5_PARAM_NAMES)[number];
 
 /**
  * `0` is the sentinel for count mode (`DendriticVote::Count`) -- not a
- * valid weight (Requirement 1.6 requires `(0, 1]`), so it cannot collide
+ * valid weight (WADV-1.6 requires `(0, 1]`), so it cannot collide
  * with a real level, and it sorts below every real weight, keeping the
  * level list ascending. `toConfig` (`conditions.ts`) reads it back as
  * "omit `voteReferenceWeight` entirely", not as a weight of zero. No

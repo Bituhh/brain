@@ -20,19 +20,19 @@ function config(
   };
 }
 
-test('encodeScalar produces exactly activeBits active bits (Requirement 3.1)', () => {
+test('encodeScalar produces exactly activeBits active bits (P5-3.1)', () => {
   const sdr = encodeScalar(config(), 50);
   assert.equal(sdr.activeBits.length, 20);
   assert.equal(sdr.width, 200);
 });
 
-test('encodeScalar is deterministic (Requirement 2.3)', () => {
+test('encodeScalar is deterministic (P5-2.3)', () => {
   const a = encodeScalar(config(), 42);
   const b = encodeScalar(config(), 42);
   assert.deepEqual(a.activeBits, b.activeBits);
 });
 
-test('encodeScalar: close values overlap substantially, far values overlap little or not at all (Requirement 3.2, IO-1)', () => {
+test('encodeScalar: close values overlap substantially, far values overlap little or not at all (P5-3.2, IO-1)', () => {
   const cfg = config();
   const base = encodeScalar(cfg, 50);
   const close = encodeScalar(cfg, 51);
@@ -68,12 +68,12 @@ test('encodeScalar: identical values produce identical (full-overlap) SDRs', () 
   assert.equal(overlap(a, b), cfg.activeBits);
 });
 
-test('encodeScalar rejects an out-of-range value by default (Requirement 3.3)', () => {
+test('encodeScalar rejects an out-of-range value by default (P5-3.3)', () => {
   assert.throws(() => encodeScalar(config(), 150), ScalarRangeError);
   assert.throws(() => encodeScalar(config(), -1), ScalarRangeError);
 });
 
-test('encodeScalar clamps an out-of-range value when configured to (Requirement 3.3)', () => {
+test('encodeScalar clamps an out-of-range value when configured to (P5-3.3)', () => {
   const cfg = config({ outOfRange: 'clamp' });
   const clampedHigh = encodeScalar(cfg, 1000);
   const atMax = encodeScalar(cfg, 100);

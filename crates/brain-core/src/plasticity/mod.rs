@@ -1,5 +1,5 @@
 //! Local plasticity: the type-enforced no-backpropagation boundary
-//! (LRN-1, Requirement 8.1, 8.2; README invariant 1).
+//! (LRN-1, P03-8.1, P03-8.2; README invariant 1).
 //!
 //! A `PlasticityRule` receives `LocalContext` **by value** (`Copy`) and a
 //! `SynapseMut` addressing exactly one synapse's mutable fields. There is
@@ -44,7 +44,7 @@ impl NeuronLocal {
 
 /// The only global signal a plasticity rule ever sees (LRN-5): a small,
 /// named set of scalar neuromodulator levels, broadcast by region and
-/// carrying no per-synapse routing information (Requirement 8.9).
+/// carrying no per-synapse routing information (P03-8.9).
 pub const NUM_MODULATORS: usize = 4;
 pub const DOPAMINE: usize = 0;
 pub const ACETYLCHOLINE: usize = 1;
@@ -52,7 +52,7 @@ pub const NORADRENALINE: usize = 2;
 pub const SEROTONIN: usize = 3;
 pub type Modulators = [f32; NUM_MODULATORS];
 
-/// Everything a plasticity rule is permitted to see (Requirement 8.1).
+/// Everything a plasticity rule is permitted to see (P03-8.1).
 /// `Copy`, no references out.
 #[derive(Clone, Copy, Debug)]
 pub struct LocalContext {
@@ -63,7 +63,7 @@ pub struct LocalContext {
 }
 
 /// A single synapse's mutable plasticity fields. Cannot address any other
-/// synapse (Requirement 8.2) -- there is no synapse id, no arena, nothing
+/// synapse (P03-8.2) -- there is no synapse id, no arena, nothing
 /// here but three borrowed scalars.
 pub struct SynapseMut<'a> {
     pub permanence: &'a mut f32,
@@ -120,7 +120,7 @@ pub trait PlasticityRule: Send + Sync {
 
 /// Bounds a permanence value to `[0, 1]` (SYN-3) after any rule chain has
 /// run, so no individual rule can push a synapse out of range regardless
-/// of its own internal arithmetic (Requirement 6.7, SYN-4).
+/// of its own internal arithmetic (P03-6.7, SYN-4).
 pub fn clamp_permanence(value: f32) -> f32 {
     value.clamp(0.0, 1.0)
 }
@@ -132,12 +132,12 @@ pub fn clamp_weight(value: f32) -> f32 {
     value.clamp(0.0, 1.0)
 }
 
-/// An ordered list of plasticity rules, applied in sequence (Requirement
-/// 8.10). Composing via a `Vec<Box<dyn PlasticityRule>>` here -- rather
+/// An ordered list of plasticity rules, applied in sequence
+/// (P03-8.10). Composing via a `Vec<Box<dyn PlasticityRule>>` here -- rather
 /// than requiring one monomorphic rule type -- is deliberate: plasticity
 /// runs once per delivery/post-spike event, not once per tick per
 /// silent neuron, so the dynamic dispatch cost is bounded by activity
-/// (Requirement 5.1's shape), unlike `NeuronDynamics` which is monomorphic
+/// (P03-5.1's shape), unlike `NeuronDynamics` which is monomorphic
 /// because it runs in the tighter per-neuron-per-tick loop.
 pub struct RuleChain {
     rules: Vec<Box<dyn PlasticityRule>>,
@@ -223,7 +223,7 @@ mod tests {
         }
     }
 
-    /// Requirement 8.10, LRN-9.
+    /// P03-8.10, LRN-9.
     #[test]
     fn rule_chain_applies_rules_in_order_and_clamps_afterward() {
         let a = Box::new(RecordingRule { delivery_calls: 0.into(), post_spike_calls: 0.into() });

@@ -1,5 +1,5 @@
-//! Requirement 1 AC5: `PredictiveLearning`'s modulator scaling (Requirement
-//! 1 AC1-AC3) produces a real *behavioral* difference when driven through
+//! PLN-1.5: `PredictiveLearning`'s modulator scaling
+//! (PLN-1.1, PLN-1.2, PLN-1.3) produces a real *behavioral* difference when driven through
 //! the whole scheduler pipeline -- `stimulate`/`step`/the burst-reinforce
 //! path's own tracker and segment state -- not merely a different
 //! single-delta arithmetic result checked in isolation the way
@@ -89,7 +89,7 @@ impl Trial {
     }
 }
 
-/// Requirement 1 AC5, first half: driven end-to-end through the real
+/// PLN-1.5, first half: driven end-to-end through the real
 /// scheduler (stimulate/step/tracker/burst-reinforce), not an isolated
 /// `resolve()` call, a higher modulator level produces a proportionally
 /// larger permanence *delta* after the same fixed number of exposures.
@@ -105,7 +105,7 @@ impl Trial {
 /// 12/NET-10 describe) with a separate near-zero `burst_sprout_weight`,
 /// but that initial-value split doesn't change what reinforcement itself
 /// targets. Exactly two exposures is deliberate: the first always sprouts
-/// (unscaled, Requirement 1 AC2 -- `burst_sprout_permanence` at every
+/// (unscaled, PLN-1.2 -- `burst_sprout_permanence` at every
 /// level, the baseline this test measures *from*); the second finds that
 /// existing synapse (still significantly below `significance_threshold`,
 /// hence "unpredicted") and adds `reinforce_amount * level` to its
@@ -152,7 +152,7 @@ fn two_exposures_produce_proportionally_different_permanence_across_modulator_le
     );
 }
 
-/// Requirement 1 AC5, second half: "ideally, different learning speed" --
+/// PLN-1.5, second half: "ideally, different learning speed" --
 /// a higher modulator level reaches a meaningfully-learned permanence in
 /// no more exposures than a lower level, and strictly fewer at these two
 /// levels specifically.

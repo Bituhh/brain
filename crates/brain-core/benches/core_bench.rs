@@ -1,4 +1,4 @@
-//! Criterion benchmarks (Req 15.2, ENG-11). `bench_version` is Step 1's
+//! Criterion benchmarks (P03-15.2, ENG-11). `bench_version` is Step 1's
 //! original wiring stub; `rayon_vs_pinned_pool` is Phase 4 Step 18's
 //! resolution of docs/open-questions.md's open question 2 (rayon's work-stealing
 //! scheduler vs. a hand-rolled `std::thread::scope`-based pool) --
@@ -88,7 +88,7 @@ fn stimulate_tick(total_neurons: u32, tick: u32) -> (u32, f32) {
     (neuron, current)
 }
 
-/// Requirement 10, Acceptance Criterion 5 / docs/open-questions.md open question 2: rayon
+/// P4-10.5 / docs/open-questions.md open question 2: rayon
 /// (`PartitionRuntime::with_thread_count`) vs. the hand-rolled
 /// `std::thread::scope`-based pool (`with_pinned_thread_count`), at
 /// matched partition/thread counts, on the identical network and
@@ -132,7 +132,7 @@ fn rayon_vs_pinned_pool(c: &mut Criterion) {
     group.finish();
 }
 
-/// Thread counts to sweep for Requirement 10 AC3's "at least 1, and the
+/// Thread counts to sweep for P4-10.3's "at least 1, and the
 /// number of physical cores available" -- `available_parallelism` is a
 /// logical-core count (hyperthreads included), not strictly "physical",
 /// but it needs no dependency (ENG-6) and is the only portable number
@@ -149,7 +149,7 @@ fn thread_counts_to_bench() -> Vec<usize> {
 /// A flat, column-free population the same size as [`build_benchmark_network`]'s
 /// (`COLUMN_COUNT * COLUMN_SIZE` neurons), wired with the same
 /// [`DistancePolicy`] over the whole population at once rather than
-/// column-by-column -- Requirement 10 AC1's "a Phase 3-style network
+/// column-by-column -- P4-10.1's "a Phase 3-style network
 /// without columns" baseline, directly comparable to the column-built one
 /// because it shares neuron count, connection policy, and stimulation
 /// pattern. No inhibition/segments/plasticity attached (`Scheduler::new`'s
@@ -217,7 +217,7 @@ fn build_network_for(topology: &str) -> (NeuronArena, SynapseArena, Option<Colum
 /// comparing executors on a fixed workload, but it under-reports actual
 /// synaptic delivery throughput by orders of magnitude, since almost no
 /// spikes are travelling for `occupied_in_block` to actually be walked.
-/// Requirement 10 AC1 wants events processed per second *under load*, so
+/// P4-10.1 wants events processed per second *under load*, so
 /// this saturates the network instead (every neuron fires roughly every
 /// other tick, refractory-period permitting).
 fn stimulate_all(runtime: &mut PartitionRuntime, neurons: &NeuronArena, total_neurons: u32) {
@@ -229,7 +229,7 @@ fn stimulate_all(runtime: &mut PartitionRuntime, neurons: &NeuronArena, total_ne
 /// Runs `TICKS_PER_ITERATION` ticks against a fresh, saturated network and
 /// tallies the total number of synaptic events delivered (one event per
 /// occupied outgoing synapse of a spiking neuron, matching what
-/// `Scheduler::deliver` actually processes) -- Requirement 10 AC1's
+/// `Scheduler::deliver` actually processes) -- P4-10.1's
 /// "synaptic events processed per second" throughput unit. Run once per
 /// topology at `thread_count: 1` and reused as every other thread count's
 /// declared `Throughput`, because Requirement 8's determinism guarantee
@@ -253,13 +253,13 @@ fn count_synaptic_events(topology: &str, total_neurons: u32) -> u64 {
     total_events
 }
 
-/// Requirement 10 AC1/AC3: synaptic events processed per second, on both
+/// P4-10.1/P4-10.3: synaptic events processed per second, on both
 /// a column-free flat network and a column-built one, at thread counts
 /// 1/2/4/8 and this machine's available parallelism -- checking ENG-11's
 /// events-per-second-per-core target (at least one million) against a real,
 /// reported number (docs/open-questions.md open question 1) rather than an assumption.
 /// `sample_size(10)` (the minimum criterion allows) bounds total runtime:
-/// Requirement 10 AC6 only needs this to *run correctly* in CI, not to
+/// P4-10.6 only needs this to *run correctly* in CI, not to
 /// produce production-scale numbers there -- the numbers this reports when
 /// run locally with a real time budget are what get recorded in README
 /// docs/open-questions.md.
@@ -297,7 +297,7 @@ fn bench_synaptic_events_per_second(c: &mut Criterion) {
     group.finish();
 }
 
-/// Requirement 10 AC4/Requirement 6 AC2: throughput as cross-partition edge
+/// P4-10.4/P4-6.2: throughput as cross-partition edge
 /// fraction increases -- same column network, same total thread count (4),
 /// but the *number of partitions* varies (2, 4, 8, 16 -- always a divisor
 /// of `COLUMN_COUNT` so `PartitionPlan::contiguous` never splits a column),

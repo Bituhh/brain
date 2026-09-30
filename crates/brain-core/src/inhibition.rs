@@ -4,7 +4,7 @@
 //! Sparsity is *produced* by this mechanism, not assumed or imposed as a
 //! regulariser (README invariant 4): within each neighbourhood, only the
 //! `k` candidates with the largest above-threshold margin this tick win
-//! and are allowed to spike (Requirement 7.1); the rest are vetoed
+//! and are allowed to spike (P03-7.1); the rest are vetoed
 //! (`neuron.rs`'s `veto_spike` -- suppressed, not erased) and remain
 //! candidates for a later tick.
 //!
@@ -124,13 +124,13 @@ impl FixedNeighbourhoods {
     }
 
     /// Resolves which candidates win their local competition this tick
-    /// (Requirement 7.1), appending winners to `winners` (not cleared
+    /// (P03-7.1), appending winners to `winners` (not cleared
     /// first, so a caller may accumulate across multiple calls if useful).
     /// `candidates` need not be sorted or pre-grouped by neighbourhood.
     ///
     /// Ties (equal margin) break by neuron index, ascending -- an
     /// arbitrary but *fixed* rule, which is what determinism
-    /// (Requirement 3.1) actually requires; it need not be biologically
+    /// (P03-3.1) actually requires; it need not be biologically
     /// meaningful, only reproducible.
     pub fn resolve_into(&mut self, candidates: &[(u32, f32)], winners: &mut Vec<u32>) {
         let base = self.base;

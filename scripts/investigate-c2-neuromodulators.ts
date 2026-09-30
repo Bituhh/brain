@@ -48,7 +48,7 @@
 // HONEST FRAMING, WRITTEN BEFORE THE RESULT. On a homogeneous English corpus
 // there is no contingency switch to detect, so the surprise term may well sit
 // near zero for most of a run and the coupling may do nothing. That is a real
-// possible outcome and it is reportable either way (Requirement 13.6) -- it
+// possible outcome and it is reportable either way (P5-13.6) -- it
 // would say the mechanism is correct and this task does not exercise it,
 // which is different from the mechanism being wrong.
 //
@@ -212,7 +212,7 @@ const ROWS: readonly Row[] = [
  * battery: `seed_baselines` changed every coupled row's behaviour without
  * changing one byte of its config. The stale file is kept beside this one as
  * `.checkpoint.stale-v1.jsonl` rather than deleted, so the discarded figures
- * remain inspectable (Requirement 13.6).
+ * remain inspectable (P5-13.6).
  *
  * v2: `PredictionErrorCoupling::seed_baselines` -- driven channels start at
  * their baseline instead of ramping up from zero.

@@ -143,7 +143,7 @@ interface Stdp {
 }
 
 /**
- * Plain STDP: ACh held at 1.0 (Requirement 8.8's reference point) via
+ * Plain STDP: ACh held at 1.0 (P03-8.8's reference point) via
  * `tonicModulator`. a+/a- symmetric at 0.01 and eligibility tau 500 match
  * `canonicalBrain.ts`'s existing values; learning rate and the STDP time
  * constant are the two swept here. `windowTicks` is 5x tau, the kernel's

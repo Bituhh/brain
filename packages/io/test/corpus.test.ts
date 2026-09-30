@@ -1,5 +1,5 @@
-// Sanity checks for the checked-in VAL-4 corpus fixture itself (Requirement
-// 13.1) -- separate from TrigramModel's own unit tests in trigram.test.ts,
+// Sanity checks for the checked-in VAL-4 corpus fixture itself
+// (P5-13.1) -- separate from TrigramModel's own unit tests in trigram.test.ts,
 // which use small inline strings. These confirm the fixture is real English
 // text, sized "a few hundred KB", entirely within the character encoder's
 // SUPPORTED_ALPHABET (Requirement 5's text encoder has no fallback for a
@@ -20,7 +20,7 @@ const corpusPath = fileURLToPath(
 );
 const corpus = readFileSync(corpusPath, 'utf8');
 
-test('corpus fixture is sized in the few-hundred-KB range (Requirement 13.1)', () => {
+test('corpus fixture is sized in the few-hundred-KB range (P5-13.1)', () => {
   const bytes = Buffer.byteLength(corpus, 'utf8');
   assert.ok(bytes > 100_000, `expected at least 100KB, got ${bytes} bytes`);
   assert.ok(bytes < 1_000_000, `expected under 1MB, got ${bytes} bytes`);
@@ -37,7 +37,7 @@ test("corpus fixture uses only characters in the text encoder's SUPPORTED_ALPHAB
   }
 });
 
-test('trigram baseline achieves plausible, non-degenerate accuracy on the corpus (informational floor for Requirement 13.3/13.4)', () => {
+test('trigram baseline achieves plausible, non-degenerate accuracy on the corpus (informational floor for P5-13.3/P5-13.4)', () => {
   const model = new TrigramModel();
   const acc = new SlidingWindowAccuracy(2000);
 

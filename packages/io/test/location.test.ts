@@ -11,7 +11,7 @@ function oneModuleConfig(period = 20): LocationEncoderConfig {
   return { modules: [{ period, width: 40, activeBits: 8 }] };
 }
 
-test('encodeLocation is deterministic (Requirement 2.3)', () => {
+test('encodeLocation is deterministic (P5-2.3)', () => {
   const config = oneModuleConfig();
   const a = encodeLocation(config, { x: 3, y: 5 });
   const b = encodeLocation(config, { x: 3, y: 5 });
@@ -49,7 +49,7 @@ test("far-apart positions (within one module's period) overlap little", () => {
   );
 });
 
-test('a module wraps at its own period: two positions exactly one period apart produce identical sub-SDRs for that module (grid-cell-like periodicity, Requirement 6 AC3)', () => {
+test('a module wraps at its own period: two positions exactly one period apart produce identical sub-SDRs for that module (grid-cell-like periodicity, P55-6.3)', () => {
   const config = oneModuleConfig(20);
   const here = encodeLocation(config, { x: 3, y: 7 });
   const onePeriodAway = encodeLocation(config, { x: 23, y: 27 }); // +20 in both x and y
@@ -62,7 +62,7 @@ test('a module wraps at its own period: two positions exactly one period apart p
 
 test("two different physical positions can share one module's phase without being the same position", () => {
   // With a single 20-unit-period module, x=3 and x=23 alias to the same
-  // phase -- this is expected and is exactly why Requirement 6 AC3 calls
+  // phase -- this is expected and is exactly why P55-6.3 calls
   // for *multiple* modules at different periods to disambiguate genuinely
   // different locations, the same way grid cells use several spatial
   // scales together.

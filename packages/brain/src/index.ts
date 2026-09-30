@@ -129,7 +129,7 @@ export type SegmentThresholdStats = SegmentThresholdStatsFfi;
 export type ConsolidationReport = ConsolidationReportFfi;
 
 /**
- * A built column's identity and neuron-index range (Requirement 8.3) --
+ * A built column's identity and neuron-index range (P5-8.3) --
  * plain data, the "explicit, documented mapping" a caller uses to resolve
  * an SDR's active bits onto global neuron indices. `packages/io`'s own
  * `ColumnHandle` (Requirement 8's TS-side consumer) wraps one of these plus
@@ -144,7 +144,7 @@ export interface SimulationOptions {
   maxDelay: number;
   connectionThreshold: number;
   synapseCapPerNeuron: number;
-  /** Local inhibition (Requirement 7). Omit to disable it (Requirement 7.5's ablation path). */
+  /** Local inhibition (Requirement 7). Omit to disable it (P03-7.5's ablation path). */
   inhibition?: InhibitionConfig;
   /** Dendritic segments (Requirement 10). Omit to leave every synapse feedforward. */
   segments?: SegmentsConfig;
@@ -163,7 +163,7 @@ export interface SimulationOptions {
    * Homeostatic synaptic scaling (LRN-6). Omit to leave `step()`'s
    * homeostatic sweep disabled -- STDP alone is unstable over long runs
    * (docs/prior-art.md §2.5), so a caller relying on "learning is always on"
-   * (Requirement 9.2) for anything beyond a short experiment should
+   * (P5-9.2) for anything beyond a short experiment should
    * configure this.
    */
   homeostaticScaling?: HomeostaticScalingConfig;
@@ -309,8 +309,8 @@ export interface SimulationOptions {
    */
   readout?: ReadoutConfig;
   /**
-   * Number of native threads `PartitionRuntime` should use (Requirement 7
-   * AC1, Phase 4 RUN-4). Omit or pass 1 for today's exact single-threaded
+   * Number of native threads `PartitionRuntime` should use
+   * (P4-7.1, RUN-4). Omit or pass 1 for today's exact single-threaded
    * behaviour -- the default, and the only mode `snapshot()`/`restore()`
    * support so far (`NativeSimulation.snapshotBytes`'s doc comment).
    */
@@ -331,7 +331,7 @@ export interface SimulationOptions {
 /**
  * A stable (not cryptographic) hash of the configuration a simulation was
  * built with, used only to catch a `restore()` called with different
- * config than the snapshot was taken under (Requirement 16.1's
+ * config than the snapshot was taken under (P03-16.1's
  * "configuration" -- validated, not round-tripped; see snapshot.rs's
  * module docs for why). FNV-1a over the JSON form: small, deterministic,
  * and needs no dependency (ENG-6), which is all this needs to be.
@@ -423,7 +423,7 @@ export class StaleViewError extends Error {
 }
 
 /**
- * A zero-copy snapshot of arena state, epoch-guarded per Requirement 2.2.
+ * A zero-copy snapshot of arena state, epoch-guarded per P03-2.2.
  *
  * Each field getter validates freshness against the live native epoch
  * before returning the underlying typed array; once validated, indexing
@@ -458,7 +458,7 @@ export class ArenaViews {
     }
   }
 
-  /** Zero-copy view over neuron membrane potentials (Requirement 2.1). */
+  /** Zero-copy view over neuron membrane potentials (P03-2.1). */
   get membrane(): Float32Array {
     this.#assertFresh();
     return this.#brain.membraneArray();
@@ -486,7 +486,7 @@ export class Brain {
     return new Brain(new NativeArena());
   }
 
-  /** The arena's current epoch (Requirement 2.2). */
+  /** The arena's current epoch (P03-2.2). */
   currentEpoch(): number {
     return this.#native.epoch();
   }
@@ -508,7 +508,7 @@ export class Brain {
   /**
    * Mutates a membrane value directly. Stand-in for real neuron dynamics
    * (Step 4), used only to prove that Rust-side mutation is visible
-   * through an already-obtained view with no copy (Requirement 2.1).
+   * through an already-obtained view with no copy (P03-2.1).
    */
   pokeMembrane(index: number, value: number): void {
     this.#native.pokeMembrane(index, value);
@@ -602,7 +602,7 @@ export class Simulation {
 
   /**
    * Serialises the complete simulation state and writes it atomically to
-   * `path` (Requirement 16.1, 16.11). On demand only -- there is no
+   * `path` (P03-16.1, P03-16.11). On demand only -- there is no
    * autosave and no shutdown hook; the caller decides when to persist
    * (design.md's Durability policy).
    */
@@ -658,7 +658,7 @@ export class Simulation {
 
   /**
    * Returns the synapse id, or `undefined` if the source's budget
-   * (Requirement 11.3) is exhausted. `segment` addresses a dendritic
+   * (P03-11.3) is exhausted. `segment` addresses a dendritic
    * segment (Requirement 10) when `options.segments` is configured;
    * otherwise it is ignored and the synapse is feedforward regardless of
    * its value.
@@ -705,7 +705,7 @@ export class Simulation {
   }
 
   /**
-   * Named reward entry point (LRN-11, Requirement 15.1): drives the
+   * Named reward entry point (LRN-11, P5-15.1): drives the
    * dopamine channel specifically, so "reward" has one spelling rather
    * than every caller independently knowing to pick the dopamine channel
    * and a magnitude.
@@ -722,13 +722,13 @@ export class Simulation {
     this.#native.reward(amount);
   }
 
-  /** The general form of `reward` -- targets a chosen neuromodulator channel with a chosen amount (Requirement 15.2). */
+  /** The general form of `reward` -- targets a chosen neuromodulator channel with a chosen amount (P5-15.2). */
   injectModulator(channel: number, amount: number): void {
     this.#native.injectModulator(channel, amount);
   }
 
   /**
-   * Readback (Requirement 15.5): the neuromodulator field's levels as last
+   * Readback (P5-15.5): the neuromodulator field's levels as last
    * computed, with no tick-advancing catch-up -- lets a caller verify what
    * the network actually saw rather than inferring it from what was
    * injected. One entry per channel (dopamine, acetylcholine,
@@ -772,8 +772,8 @@ export class Simulation {
   }
 
   /**
-   * Zero-copy view over every neuron's membrane potential (Requirement
-   * 8.4), the bulk counterpart to `membraneAt` -- reading a whole column's
+   * Zero-copy view over every neuron's membrane potential
+   * (P5-8.4), the bulk counterpart to `membraneAt` -- reading a whole column's
    * (or the whole network's) state this way costs one FFI call total,
    * rather than one per neuron per tick. Minted at most once per epoch,
    * mirroring `Brain.membraneArray()`'s caching. Valid only until the next
@@ -792,7 +792,7 @@ export class Simulation {
 
   /**
    * Zero-copy view over every neuron's dendritic predictive state
-   * (Requirement 8.4), the bulk counterpart to `predictiveAt`. Same
+   * (P5-8.4), the bulk counterpart to `predictiveAt`. Same
    * caching and validity contract as `membraneView()`.
    */
   predictiveView(): Float32Array {
@@ -851,7 +851,7 @@ export class Simulation {
     return this.#cachedView('adaptation', () => this.#native.adaptationView());
   }
 
-  /** `SynapseArena`'s fixed per-source-block capacity (Phase 6 Requirement 2.1) -- a synapse id `i`'s source neuron is `Math.floor(i / synapseCapPerNeuron())`. */
+  /** `SynapseArena`'s fixed per-source-block capacity (P6-2.1) -- a synapse id `i`'s source neuron is `Math.floor(i / synapseCapPerNeuron())`. */
   synapseCapPerNeuron(): number {
     return this.#native.synapseCapPerNeuron();
   }
@@ -897,7 +897,7 @@ export class Simulation {
   }
 
   /**
-   * Whether each synapse slot is occupied (Phase 6 Requirement 2.1) --
+   * Whether each synapse slot is occupied (P6-2.1) --
    * **not zero-copy** (see `NativeSimulation.synapse_occupied_view`'s Rust
    * doc comment) **and deliberately not cached**, unlike every other view
    * on this class: structural plasticity (LRN-7) can prune or sprout a
@@ -922,21 +922,21 @@ export class Simulation {
    * one-symbol-per-tick presentations (rather than continuous drive) uses
    * this to force a losing k-WTA candidate back to rest immediately,
    * since a vetoed candidate otherwise correctly remains a live,
-   * above-threshold competitor for several subsequent ticks (Requirement
-   * 7.1's intended behaviour for *sustained* competing input).
+   * above-threshold competitor for several subsequent ticks
+   * (P03-7.1's intended behaviour for *sustained* competing input).
    */
   pokeMembrane(index: number, value: number): void {
     this.#native.pokeMembrane(index, value);
   }
 
-  /** Dendritic predictive state (Requirement 10.3) -- a prediction *is* this depolarised state, not only a later confirming spike. */
+  /** Dendritic predictive state (P03-10.3) -- a prediction *is* this depolarised state, not only a later confirming spike. */
   predictiveAt(index: number): number {
     return this.#native.predictiveAt(index);
   }
 
   /**
    * Zeroes every neuron's predictive state directly. `predictive` only
-   * decays while a neuron is actively integrated (Requirement 5.1's "a
+   * decays while a neuron is actively integrated (P03-5.1's "a
    * silent neuron costs nothing"), so it does not fade away on its own
    * during a quiet period -- call this first if measuring predictive
    * state after one.
@@ -955,7 +955,7 @@ export class Simulation {
    * then force-applies downscaling and an aggressive pruning pass. Never
    * runs as a side effect of `step()` -- an explicit call only, and it
    * still advances `currentTick()` for every tick of replay it performs
-   * (Requirement 12.2), exactly like `step()` does. Single-threaded
+   * (P5-12.2), exactly like `step()` does. Single-threaded
    * (`threadCount` omitted or 1) only, matching `snapshot()`/`restore()`'s
    * existing restriction.
    */
@@ -969,7 +969,7 @@ export class Simulation {
   /**
    * The connection threshold this simulation was constructed with (SYN-3),
    * Phase 6: a caller filtering synapse bulk views for the functionally-
-   * connected subset (design.md's Requirement 2.2 decision) needs this
+   * connected subset (design.md's P6-2.2 decision) needs this
    * value and has no other way to recover it, since `#options` is
    * otherwise private to this instance.
    */
@@ -978,7 +978,7 @@ export class Simulation {
   }
 
   /**
-   * The arena's current epoch (Requirement 2.2), Phase 6: lets a caller
+   * The arena's current epoch (P03-2.2), Phase 6: lets a caller
    * like `packages/viz`'s server detect structural growth (NET-7/NET-10)
    * between ticks and re-push topology, without needing to mint or
    * compare an actual view.
@@ -1018,22 +1018,22 @@ export class Simulation {
     this.#native.attachProbe(neuron, options);
   }
 
-  /** Detaches `neuron`'s probe, if any (Requirement 4.4) -- a no-op if none was attached. */
+  /** Detaches `neuron`'s probe, if any (P6-4.4) -- a no-op if none was attached. */
   detachProbe(neuron: number): void {
     this.#native.detachProbe(neuron);
   }
 
-  /** Reads back `neuron`'s probe data (Requirement 4.3), or `undefined` if no probe is attached to it. */
+  /** Reads back `neuron`'s probe data (P6-4.3), or `undefined` if no probe is attached to it. */
   readProbe(neuron: number): ProbeData | undefined {
     return this.#native.readProbe(neuron) ?? undefined;
   }
 
-  /** Population firing rate over the always-on window (OBS-2, Requirement 5.1) -- cheap enough to call every tick. */
+  /** Population firing rate over the always-on window (OBS-2, P6-5.1) -- cheap enough to call every tick. */
   firingRate(): number {
     return this.#native.firingRate();
   }
 
-  /** Prediction accuracy over the always-on window (OBS-2, Requirement 5.1). */
+  /** Prediction accuracy over the always-on window (OBS-2, P6-5.1). */
   predictionAccuracy(): number {
     return this.#native.predictionAccuracy();
   }
@@ -1045,7 +1045,7 @@ export class Simulation {
    * the *instantaneous* depolarisation of each neuron.
    *
    * `classifiedAsPredicted` (`correct + falsePositive`) is the field worth
-   * knowing about: it is the only way to ask "did Requirement 12.2/12.3 --
+   * knowing about: it is the only way to ask "did P03-12.2/P03-12.3 --
    * the reinforce/punish path a neuromodulator gates -- ever fire over this
    * run at all". Reading `predictiveView()` at the end of a run cannot
    * answer that, and inferring it from one instant is the specific mistake
@@ -1110,9 +1110,9 @@ export class Simulation {
   }
 
   /**
-   * The on-demand, O(neurons+synapses) metrics scan (OBS-2, Requirement
-   * 5.2) -- never run automatically inside `step()`; call at whatever
-   * cadence the caller decides (design.md's Requirement 5.3 decision).
+   * The on-demand, O(neurons+synapses) metrics scan (OBS-2,
+   * P6-5.2) -- never run automatically inside `step()`; call at whatever
+   * cadence the caller decides (design.md's P6-5.3 decision).
    */
   metricsSnapshot(): MetricsSnapshot {
     return this.#native.metricsSnapshot();
@@ -1156,7 +1156,7 @@ export class Simulation {
   }
 
   /**
-   * Current live neuron count (NET-10, Requirement 2.2) -- the only place
+   * Current live neuron count (NET-10, SDG-2.2) -- the only place
    * to observe saturation-driven growth's effect on population size;
    * `metricsSnapshot()` does not carry a neuron count.
    */
@@ -1165,7 +1165,7 @@ export class Simulation {
   }
 
   /**
-   * Count of growth triggers observed so far (NET-10, Requirement 2.2).
+   * Count of growth triggers observed so far (NET-10, SDG-2.2).
    * Zero for a simulation with no `growth` configured, or one that has not
    * triggered yet.
    */

@@ -1,7 +1,7 @@
 //! Observability: bounded recorders and spike-raster export (OBS-1, OBS-3,
 //! Requirement 13).
 //!
-//! A `Probe` never grows without limit (Requirement 13.2): every recorded
+//! A `Probe` never grows without limit (P03-13.2): every recorded
 //! stream is a fixed-capacity ring buffer, so attaching a probe to a
 //! long-running simulation has a memory cost fixed at attach time, not one
 //! that grows with wall-clock run length. This is deliberately a plain
@@ -16,7 +16,7 @@
 use std::collections::VecDeque;
 
 /// A fixed-capacity ring buffer: pushing past capacity evicts the oldest
-/// entry rather than growing (Requirement 13.2). The same shape as
+/// entry rather than growing (P03-13.2). The same shape as
 /// `metrics.rs`'s `FiringRateMeter` window, generalised to hold any `T`
 /// instead of being specialised to spike counts.
 pub struct BoundedRecorder<T> {
@@ -56,7 +56,7 @@ impl<T> BoundedRecorder<T> {
 }
 
 /// What a [`Probe`] records, beyond spike times which it always records
-/// (Requirement 13.1). `weight_synapses` names which synapse ids to sample
+/// (P03-13.1). `weight_synapses` names which synapse ids to sample
 /// on every `observe` call -- a probe has no way to discover synapses on
 /// its own, since (per this module's docs) it never holds a reference to
 /// the arenas between calls.
@@ -120,10 +120,10 @@ pub struct SegmentSample {
     pub threshold: f32,
 }
 
-/// A probe attached to one neuron (Requirement 13.1): records its spike
+/// A probe attached to one neuron (P03-13.1): records its spike
 /// times unconditionally, and optionally its membrane trace and the
 /// permanence history of a caller-chosen set of synapses. Every stream is
-/// independently bounded (Requirement 13.2).
+/// independently bounded (P03-13.2).
 pub struct Probe {
     neuron: u32,
     spikes: BoundedRecorder<u32>,
@@ -210,7 +210,7 @@ impl Probe {
     }
 }
 
-// -- Spike raster export (Requirement 13.5): a compact, versioned binary
+// -- Spike raster export (P03-13.5): a compact, versioned binary
 // format for offline replay -- deliberately its own tiny format rather than
 // reusing `snapshot.rs`'s (a raster is an export artifact with no
 // config-hash or restore semantics, not simulation state to be restored
@@ -228,7 +228,7 @@ pub enum RasterError {
 }
 
 /// An unbounded, ordered record of every spike in a run -- the recorder a
-/// caller uses when it wants the *whole* raster (Requirement 13.5's offline
+/// caller uses when it wants the *whole* raster (P03-13.5's offline
 /// replay, and Step 12's golden-raster regression tests need a complete,
 /// not sampled, record to compare bit-for-bit) rather than a bounded
 /// per-neuron probe's rolling window. "Unbounded" here is a caller choice,
@@ -271,7 +271,7 @@ impl SpikeRaster {
 
     /// Exports to a compact binary format: a 6-byte magic, a version tag,
     /// an event count, then `(tick: u32, neuron: u32)` pairs -- 8 bytes per
-    /// spike, no padding, and no per-event framing (Requirement 13.5).
+    /// spike, no padding, and no per-event framing (P03-13.5).
     pub fn export(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(6 + 4 + 4 + self.events.len() * 8);
         buf.extend_from_slice(&RASTER_MAGIC);
@@ -337,7 +337,7 @@ mod tests {
         for i in 0..10_000 {
             r.push(i);
         }
-        assert_eq!(r.len(), 5, "Requirement 13.2: memory must stay bounded regardless of run length");
+        assert_eq!(r.len(), 5, "P03-13.2: memory must stay bounded regardless of run length");
         assert_eq!(r.iter().copied().collect::<Vec<_>>(), vec![9995, 9996, 9997, 9998, 9999]);
     }
 
@@ -386,14 +386,14 @@ mod tests {
 
     #[test]
     fn probe_without_segments_option_records_nothing_for_it() {
-        // Requirement 6.1
+        // P6-6.1
         let probe = Probe::new(0, ProbeOptions::spikes_only(10));
         assert!(probe.segment_history().is_none());
     }
 
     #[test]
     fn probe_records_segment_activity_when_enabled() {
-        // Requirement 6.1, 6.4
+        // P6-6.1, P6-6.4
         let options = ProbeOptions { capacity: 5, record_membrane: false, weight_synapses: Vec::new(), record_segments: true };
         let mut probe = Probe::new(0, options);
         probe.observe_segment(3, 1, 7.0, 0.0, 10.0);
@@ -410,13 +410,13 @@ mod tests {
 
     #[test]
     fn probe_segment_history_bounds_memory_regardless_of_run_length() {
-        // Requirement 6.1's bounded-memory discipline extended to segment recording
+        // P6-6.1's bounded-memory discipline extended to segment recording
         let options = ProbeOptions { capacity: 4, record_membrane: false, weight_synapses: Vec::new(), record_segments: true };
         let mut probe = Probe::new(0, options);
         for tick in 0..1000u32 {
             probe.observe_segment(tick, 0, 20.0, 1.0, 10.0);
         }
-        assert_eq!(probe.segment_history().unwrap().len(), 4, "Requirement 13.2/6.1: memory must stay bounded");
+        assert_eq!(probe.segment_history().unwrap().len(), 4, "P03-13.2/P6-6.1: memory must stay bounded");
     }
 
     #[test]
@@ -425,7 +425,7 @@ mod tests {
         for tick in 0..1000u32 {
             probe.observe(tick, true, 0.0, |_| (0.0, 0.0));
         }
-        assert_eq!(probe.spike_times().count(), 4, "Requirement 13.2");
+        assert_eq!(probe.spike_times().count(), 4, "P03-13.2");
     }
 
     #[test]

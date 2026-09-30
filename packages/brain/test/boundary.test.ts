@@ -24,8 +24,8 @@ import {
   type ConsolidationConfig,
 } from '../src/index.ts';
 
-test('a view reflects Rust-side mutation with no copy (Requirement 2.1, 2.3)', () => {
-  // Requirement 2.3: `pokeMembrane` below is a scalar control call, and
+test('a view reflects Rust-side mutation with no copy (P03-2.1, P03-2.3)', () => {
+  // P03-2.3: `pokeMembrane` below is a scalar control call, and
   // `views()` returns a bulk typed-array view -- there is no per-tick or
   // per-synapse structured value crossing the boundary anywhere in this
   // test, which is the whole reason the mutation below is observable with
@@ -49,7 +49,7 @@ test('a view reflects Rust-side mutation with no copy (Requirement 2.1, 2.3)', (
   );
 });
 
-test('growth bumps the epoch and a prior view throws (Requirement 2.2)', () => {
+test('growth bumps the epoch and a prior view throws (P03-2.2)', () => {
   const brain = Brain.create();
   brain.allocateNeuron(1.0, 1);
 
@@ -137,7 +137,7 @@ test("an empty arena's view does not throw and has length zero", () => {
   assert.equal(view.membrane.length, 0);
 });
 
-test('Simulation: a spike is delivered at exactly tick + delay (Requirement 5.4)', () => {
+test('Simulation: a spike is delivered at exactly tick + delay (P03-5.4)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     { maxDelay: 10, connectionThreshold: 0.5, synapseCapPerNeuron: 4 },
@@ -162,7 +162,7 @@ test('Simulation: a spike is delivered at exactly tick + delay (Requirement 5.4)
   assert.ok(sim.membraneAt(b) > 0, 'b must receive input at exactly tick 5');
 });
 
-test('Simulation: sub-threshold current never spikes (Requirement 4.5)', () => {
+test('Simulation: sub-threshold current never spikes (P03-4.5)', () => {
   const sim = Simulation.create(
     { tauMTicks: 10, vRest: 0, vReset: 0, refractoryTicks: 5 },
     { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
@@ -175,7 +175,7 @@ test('Simulation: sub-threshold current never spikes (Requirement 4.5)', () => {
   }
 });
 
-test('Simulation.connect reports budget exhaustion instead of throwing (Requirement 11.3)', () => {
+test('Simulation.connect reports budget exhaustion instead of throwing (P03-11.3)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
@@ -191,7 +191,7 @@ test('Simulation.connect reports budget exhaustion instead of throwing (Requirem
   );
 });
 
-test('Simulation: snapshot and restore round-trip a running simulation (Requirement 16.11)', () => {
+test('Simulation: snapshot and restore round-trip a running simulation (P03-16.11)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'brain-snapshot-test-'));
   const path = join(dir, 'snapshot.bin');
   try {
@@ -234,7 +234,7 @@ test('Simulation: snapshot and restore round-trip a running simulation (Requirem
 
     // Continue both in lockstep and confirm they stay identical -- the
     // TypeScript-level analogue of snapshot.rs's bit-identical round-trip
-    // test (Requirement 16.3), exercised through the real file + FFI path.
+    // test (P03-16.3), exercised through the real file + FFI path.
     for (let tick = 0; tick < 30; tick++) {
       original.stimulate(a, 10.0);
       restored.stimulate(a, 10.0);
@@ -277,7 +277,7 @@ test("Simulation: restoring with a different config is rejected (Requirement 16'
   }
 });
 
-test('Simulation: inhibition limits spikes to k winners per neighbourhood (Requirement 7.1)', () => {
+test('Simulation: inhibition limits spikes to k winners per neighbourhood (P03-7.1)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 2 },
     {
@@ -432,7 +432,7 @@ function columnConfig(overrides: Partial<ColumnConfig> = {}): ColumnConfig {
   };
 }
 
-test('Simulation.buildColumns produces correct, non-overlapping neuron-index ranges (Requirement 8.1)', () => {
+test('Simulation.buildColumns produces correct, non-overlapping neuron-index ranges (P5-8.1)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     { maxDelay: 2, connectionThreshold: 0.5, synapseCapPerNeuron: 4 },
@@ -453,7 +453,7 @@ test('Simulation.buildColumns produces correct, non-overlapping neuron-index ran
   );
 });
 
-test('Simulation.buildColumns wires lateral voting only between named columns (Requirement 8.1, NET-5)', () => {
+test('Simulation.buildColumns wires lateral voting only between named columns (P5-8.1, NET-5)', () => {
   // p0 = 1.0 at distance 0 makes the wiring decision deterministic
   // (probability 1), so this is a wiring-shape check, not a statistical one.
   const sim = Simulation.create(
@@ -484,7 +484,7 @@ test('Simulation.buildColumns wires lateral voting only between named columns (R
   // reverse-engineer segment dynamics here, assert the structural fact the
   // FFI boundary is responsible for: build_columns must not error and must
   // report exactly the columns requested, whether or not a voting group
-  // was supplied (Requirement 2, Acceptance Criterion 4's "additive, not a
+  // was supplied (P4-2.4's "additive, not a
   // mode switch").
   assert.equal(handles.length, 2);
 });
@@ -556,7 +556,7 @@ test('Simulation.buildColumns wires gating suppression only between named column
   );
 });
 
-test('Simulation.buildColumns is additive: a flat (no build_columns) network is unaffected (Requirement 8.2)', () => {
+test('Simulation.buildColumns is additive: a flat (no build_columns) network is unaffected (P5-8.2)', () => {
   // Same determinism check as the existing threadCount test above, just
   // confirming a network that never calls buildColumns takes the exact
   // pre-Phase-5 even_split path under partitioning, unchanged.
@@ -645,7 +645,7 @@ test("Simulation.buildColumns: threadCount > 1 reproduces threadCount 1's spike 
   );
 });
 
-test('Simulation.buildColumns: column membership round-trips through snapshot/restore exactly (Requirement 8.5)', () => {
+test('Simulation.buildColumns: column membership round-trips through snapshot/restore exactly (P5-8.5)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'brain-column-snapshot-test-'));
   const path = join(dir, 'snapshot.bin');
   try {
@@ -692,9 +692,9 @@ test('Simulation.buildColumns: column membership round-trips through snapshot/re
   }
 });
 
-// -- Phase 5 Requirement 8.4: bulk zero-copy reads on `Simulation` itself.
+// -- P5-8.4: bulk zero-copy reads on `Simulation` itself.
 
-test('Simulation.membraneView reflects Rust-side mutation with no copy, mirroring Brain.views() (Requirement 8.4)', () => {
+test('Simulation.membraneView reflects Rust-side mutation with no copy, mirroring Brain.views() (P5-8.4)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
@@ -713,7 +713,7 @@ test('Simulation.membraneView reflects Rust-side mutation with no copy, mirrorin
   );
 });
 
-test('Simulation.predictiveView is a bulk zero-copy view, independent of membraneView (Requirement 8.4)', () => {
+test('Simulation.predictiveView is a bulk zero-copy view, independent of membraneView (P5-8.4)', () => {
   const sim = Simulation.create(
     {
       tauMTicks: 5,
@@ -808,7 +808,7 @@ test("SegmentsConfig.voteReferenceWeight: weighted mode changes whether a weak s
   );
 });
 
-test('SegmentsConfig.voteReferenceWeight: Simulation.create rejects an out-of-range value (Requirement 1.6)', () => {
+test('SegmentsConfig.voteReferenceWeight: Simulation.create rejects an out-of-range value (WADV-1.6)', () => {
   const lif: LifConfig = {
     tauMTicks: 5,
     vRest: 0,
@@ -837,7 +837,7 @@ test('SegmentsConfig.voteReferenceWeight: Simulation.create rejects an out-of-ra
   }
 });
 
-test('PredictiveLearningConfig.learningTarget: Simulation.create rejects an unrecognised value (Requirement 5.1)', () => {
+test('PredictiveLearningConfig.learningTarget: Simulation.create rejects an unrecognised value (WADV-5.1)', () => {
   const lif: LifConfig = {
     tauMTicks: 5,
     vRest: 0,
@@ -868,7 +868,7 @@ test('PredictiveLearningConfig.learningTarget: Simulation.create rejects an unre
   );
 });
 
-test('Simulation.buildColumns refuses a column whose voteReferenceWeight disagrees with the scheduler-wide one (Requirement 8.1)', () => {
+test('Simulation.buildColumns refuses a column whose voteReferenceWeight disagrees with the scheduler-wide one (WADV-8.1)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     {
@@ -935,7 +935,7 @@ test('Simulation.buildColumns refuses a column claiming k-WTA competition when t
   );
 });
 
-test('Simulation.membraneView is cached per epoch, not re-minted on every access (Requirement 8.4)', () => {
+test('Simulation.membraneView is cached per epoch, not re-minted on every access (P5-8.4)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
@@ -958,13 +958,13 @@ test('Simulation.membraneView is cached per epoch, not re-minted on every access
   );
 });
 
-// -- Phase 5 Requirement 9.2/9.6: always-on homeostasis/structural
+// -- P5-9.2/P5-9.6: always-on homeostasis/structural
 // plasticity, exposed through the FFI (a gap found while building the
 // streaming harness -- Steps 26/27 wired `Scheduler`/`PartitionRuntime` to
 // drive these automatically inside `step()`, but nothing exposed the
 // configuration itself past `crates/brain-napi` until now).
 
-test('Simulation homeostaticScaling measurably rescales weight through the real compiled addon, with no caller-driven sweep call (Requirement 9.2, 9.6)', () => {
+test('Simulation homeostaticScaling measurably rescales weight through the real compiled addon, with no caller-driven sweep call (P5-9.2, P5-9.6)', () => {
   const lif: LifConfig = {
     tauMTicks: 5,
     vRest: 0,
@@ -1013,7 +1013,7 @@ test('Simulation homeostaticScaling measurably rescales weight through the real 
   );
 });
 
-test('Simulation structuralPlasticity prunes a weak synapse through the real compiled addon, with no caller-driven sweep call (Requirement 9.2, 9.6)', () => {
+test('Simulation structuralPlasticity prunes a weak synapse through the real compiled addon, with no caller-driven sweep call (P5-9.2, P5-9.6)', () => {
   const lif: LifConfig = {
     tauMTicks: 5,
     vRest: 0,
@@ -1060,7 +1060,7 @@ test('Simulation structuralPlasticity prunes a weak synapse through the real com
 
 // -- NET-10: saturation-driven growth, wired live.
 
-test('Simulation.growth allocates neurons automatically through the real compiled addon, with no caller-driven apply_growth call (Requirement 1 AC1, Requirement 2)', () => {
+test('Simulation.growth allocates neurons automatically through the real compiled addon, with no caller-driven apply_growth call (SDG-1.1, SDG Requirement 2)', () => {
   const lif: LifConfig = {
     tauMTicks: 5,
     vRest: 0,
@@ -1264,8 +1264,8 @@ test('with densityTarget, a partially-filled trailing group of grown neurons res
 
 // -- Phase 5 Requirement 15: reward API and neuromodulator control surface.
 
-test('Simulation.reward measurably changes a plasticity outcome through the real compiled addon (Requirement 15.1, 15.2)', () => {
-  // Requirement 15.1/15.2: before this phase, no modulator call crossed
+test('Simulation.reward measurably changes a plasticity outcome through the real compiled addon (P5-15.1, P5-15.2)', () => {
+  // P5-15.1/P5-15.2: before this phase, no modulator call crossed
   // the FFI at all -- a TypeScript-driven reinforcement experiment was
   // impossible, not merely awkward. This also exercises a second gap found
   // while writing this test: `plasticity` never crossed the FFI either
@@ -1352,7 +1352,7 @@ test('Simulation.reward measurably changes a plasticity outcome through the real
   );
 });
 
-test('Simulation.injectModulator/modulatorLevels round-trip a value through the real compiled addon (Requirement 15.2, 15.5)', () => {
+test('Simulation.injectModulator/modulatorLevels round-trip a value through the real compiled addon (P5-15.2, P5-15.5)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     { maxDelay: 2, connectionThreshold: 0.4, synapseCapPerNeuron: 1 },
@@ -1379,7 +1379,7 @@ test('Simulation.injectModulator/modulatorLevels round-trip a value through the 
   );
 });
 
-test('Simulation.reward writes only the dopamine channel (Requirement 15.1)', () => {
+test('Simulation.reward writes only the dopamine channel (P5-15.1)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     { maxDelay: 2, connectionThreshold: 0.4, synapseCapPerNeuron: 1 },
@@ -1393,7 +1393,7 @@ test('Simulation.reward writes only the dopamine channel (Requirement 15.1)', ()
   }
 });
 
-test('Simulation.injectModulator broadcasts identically across partitions (Requirement 15.3, 15.4)', () => {
+test('Simulation.injectModulator broadcasts identically across partitions (P5-15.3, P5-15.4)', () => {
   const lif: LifConfig = {
     tauMTicks: 5,
     vRest: 0,
@@ -1436,7 +1436,7 @@ test('Simulation.injectModulator broadcasts identically across partitions (Requi
   );
 });
 
-test('Simulation: reward/modulator field round-trips through snapshot/restore exactly (Requirement 15.6)', () => {
+test('Simulation: reward/modulator field round-trips through snapshot/restore exactly (P5-15.6)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'brain-modulator-snapshot-test-'));
   const path = join(dir, 'snapshot.bin');
   try {
@@ -1506,7 +1506,7 @@ function consolidationConfig(
   };
 }
 
-test('Simulation.runConsolidation advances currentTick and replays recorded activity (Requirement 12.1, 12.2)', () => {
+test('Simulation.runConsolidation advances currentTick and replays recorded activity (P5-12.1, P5-12.2)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     {
@@ -1539,7 +1539,7 @@ test('Simulation.runConsolidation advances currentTick and replays recorded acti
   );
 });
 
-test('Simulation.runConsolidation completes as a no-op on a network with no recorded activity (Requirement 12.4)', () => {
+test('Simulation.runConsolidation completes as a no-op on a network with no recorded activity (P5-12.4)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     { maxDelay: 2, connectionThreshold: 0.1, synapseCapPerNeuron: 1 },
@@ -1549,7 +1549,7 @@ test('Simulation.runConsolidation completes as a no-op on a network with no reco
   assert.equal(report.replayedSpikes, 0);
 });
 
-test('Simulation.runConsolidation rejects an out-of-range pruneFloor (Requirement 12.3)', () => {
+test('Simulation.runConsolidation rejects an out-of-range pruneFloor (P5-12.3)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     { maxDelay: 2, connectionThreshold: 0.1, synapseCapPerNeuron: 1 },
@@ -1673,7 +1673,7 @@ test('Simulation.thresholdView, refractoryView and lastSpikeView reflect real ne
   );
 });
 
-test('Simulation.adaptationView defaults to zero with no adaptation configured (NEU-8, Requirement 1.4 backward compatibility)', () => {
+test('Simulation.adaptationView defaults to zero with no adaptation configured (NEU-8, P6-1.4 backward compatibility)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
     { maxDelay: 1, connectionThreshold: 0.5, synapseCapPerNeuron: 1 },
@@ -2084,7 +2084,7 @@ test("Simulation.predictionAccuracy reproduces threadCount 1's value exactly und
   );
 });
 
-test('TypeScript strict mode is enabled and the FFI surface names no `any` (Requirement 1.5)', () => {
+test('TypeScript strict mode is enabled and the FFI surface names no `any` (P03-1.5)', () => {
   const tsconfigPath = new URL('../../../tsconfig.base.json', import.meta.url);
   const tsconfig = JSON.parse(readFileSync(tsconfigPath, 'utf8'));
   assert.equal(

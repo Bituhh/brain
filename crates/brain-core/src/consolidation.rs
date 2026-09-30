@@ -20,7 +20,7 @@ use crate::probe::SpikeRaster;
 use crate::scheduler::Scheduler;
 use crate::synapse::SynapseArena;
 
-/// What consolidation replays *from* (Requirement 10.6). Deliberately an
+/// What consolidation replays *from* (P5-10.6). Deliberately an
 /// abstraction rather than a concrete `&SpikeRaster`: a spike raster is a
 /// tape recorder, not the fast store docs/prior-art.md §2.9 and LRN-10 both assume
 /// exists -- it has no pattern separation and no one-shot binding, and
@@ -29,7 +29,7 @@ use crate::synapse::SynapseArena;
 /// into `run_consolidation`'s signature would make LRN-12 a breaking change
 /// to a shipped core API instead of an added `impl`.
 ///
-/// The surface is only what replay actually consumes (Requirement 10.7): an
+/// The surface is only what replay actually consumes (P5-10.7): an
 /// ordered, bounded sequence of `(relative tick, neuron index)` events.
 /// Nothing about storage, export format, or capacity appears here, so a
 /// future fast store can implement it without pretending to be a recording.
@@ -39,14 +39,14 @@ pub trait ReplaySource {
     /// the earliest returned event is offset 0, letting a caller replay
     /// starting at any tick without knowing the source's absolute
     /// recording history. Returning fewer than `window` events is normal,
-    /// not an error (Requirement 10.4's bounded window may simply not be
+    /// not an error (P5-10.4's bounded window may simply not be
     /// full yet).
     fn recent_events(&self, window: usize) -> Vec<(u32, u32)>;
 }
 
-/// The only implementation this phase ships (Requirement 10.1): reuses the
+/// The only implementation this phase ships (P5-10.1): reuses the
 /// existing spike-raster recording capability rather than introducing a
-/// second, parallel recording mechanism -- Phase 0-3 Requirement 13.5
+/// second, parallel recording mechanism -- P03-13.5
 /// already required spike rasters to be "exportable to a compact format
 /// suitable for offline replay"; this is that promise fulfilled.
 impl ReplaySource for SpikeRaster {
@@ -64,14 +64,14 @@ impl ReplaySource for SpikeRaster {
 /// Configuration for one consolidation pass (Requirements 10-11). Every
 /// field is a Phase-5-only knob distinct from the online (per-tick)
 /// `HomeostaticScaling`/`StructuralPlasticity` a `Scheduler` may separately
-/// carry (Phase 5 Requirement 9.2) -- a consolidation pass constructs its
+/// carry (P5-9.2) -- a consolidation pass constructs its
 /// own short-lived instances from these fields and never touches the
 /// online ones.
 pub struct ConsolidationParams {
-    /// Bounded replay window (Requirement 10.4) -- passed straight to
+    /// Bounded replay window (P5-10.4) -- passed straight to
     /// [`ReplaySource::recent_events`].
     pub replay_window: usize,
-    /// Downscaling target (Requirement 11.1): `HomeostaticScaling::force_apply`
+    /// Downscaling target (P5-11.1): `HomeostaticScaling::force_apply`
     /// run once, unconditionally, at this target. docs/decisions.md's weight/
     /// permanence split (2026-09-13): this now retargets `weight`, not
     /// `permanence` -- same fix as the online sweep (`homeostatic.rs`), for
@@ -79,7 +79,7 @@ pub struct ConsolidationParams {
     /// operation at a stricter target, so it must not double as structural
     /// plasticity either.
     pub downscale_target_total_weight: f32,
-    /// Pruning floor (Requirement 11.2) -- typically stricter (higher) than
+    /// Pruning floor (P5-11.2) -- typically stricter (higher) than
     /// whatever floor any online `StructuralPlasticity` uses, since this
     /// runs far less often and is meant to be aggressive.
     pub prune_floor: f32,
@@ -99,9 +99,9 @@ pub struct ConsolidationReport {
 impl Scheduler {
     /// LRN-10: replays up to `params.replay_window` of `source`'s most
     /// recent events via [`Self::commit_and_schedule`], then force-applies
-    /// downscaling and an aggressive pruning pass (Requirement 11.1/11.2).
-    /// Advances `self.tick` by the replayed span (Requirement 12.2's
-    /// round-trip property) -- a no-op replay (Requirement 12.4, `source`
+    /// downscaling and an aggressive pruning pass (P5-11.1/P5-11.2).
+    /// Advances `self.tick` by the replayed span (P5-12.2's
+    /// round-trip property) -- a no-op replay (P5-12.4, `source`
     /// has nothing to offer) still runs downscaling/pruning against
     /// whatever topology exists.
     ///
@@ -286,13 +286,13 @@ mod run_consolidation_tests {
         }
     }
 
-    /// Requirement 10.1-10.3: a raster recording a causal pre-then-post
+    /// P5-10.1, P5-10.2, P5-10.3: a raster recording a causal pre-then-post
     /// pair, replayed with no live encoder/input present, must credit STDP
     /// exactly as the live pair would (mirrors scheduler.rs's
     /// `causal_pre_then_post_potentiates_through_the_real_scheduler_path`).
     ///
     /// Proven via a *relative*, not absolute, comparison: `run_consolidation`
-    /// unconditionally downscales too (Requirement 11.1), and a single
+    /// unconditionally downscales too (P5-11.1), and a single
     /// synapse's multiplicatively-rescaled *absolute* value after that step
     /// says nothing about whether STDP fired -- downscaling toward a fixed
     /// target can inflate or erase whatever STDP contributed on its own,
@@ -346,7 +346,7 @@ mod run_consolidation_tests {
         assert_eq!(synapses.permanence[syn_a2 as usize], 0.5, "STDP and downscaling must not touch permanence");
     }
 
-    /// Requirement 12.4: nothing recorded yet must not error, and
+    /// P5-12.4: nothing recorded yet must not error, and
     /// downscaling/pruning still run against whatever topology exists.
     #[test]
     fn run_consolidation_on_an_empty_source_is_a_no_op_for_replay_only() {
@@ -357,7 +357,7 @@ mod run_consolidation_tests {
 
         let lif_params = LifParams::new(5.0, 0.0, 0.0, 0);
         // Only checking occupancy below, not the exact permanence value --
-        // downscaling still runs unconditionally (Requirement 11.1) even
+        // downscaling still runs unconditionally (P5-11.1) even
         // when replay itself is a no-op, so the synapse's *value* is
         // expected to move (toward whatever target is configured); what
         // must not happen is the synapse disappearing or the pass erroring.
@@ -368,7 +368,7 @@ mod run_consolidation_tests {
         let _ = before;
     }
 
-    /// Requirement 11.5: given the same seed, topology, and recorded
+    /// P5-11.5: given the same seed, topology, and recorded
     /// activity, two independent consolidation passes must produce
     /// bit-identical results.
     #[test]
@@ -387,7 +387,7 @@ mod run_consolidation_tests {
         assert_eq!(run(), run());
     }
 
-    /// Requirement 11.2/11.3: pruning removes a weak synapse and the
+    /// P5-11.2/P5-11.3: pruning removes a weak synapse and the
     /// network remains fully participating afterward -- no rebuild needed.
     #[test]
     fn aggressive_pruning_removes_a_weak_synapse_and_the_network_keeps_working() {

@@ -1,5 +1,5 @@
 //! The neuromodulator field: the *only* global signal in the system
-//! (LRN-5, Requirement 8.9; README invariant 2).
+//! (LRN-5, P03-8.9; README invariant 2).
 //!
 //! A small, named set of scalar levels (dopamine, acetylcholine,
 //! noradrenaline, serotonin -- `plasticity::{DOPAMINE, ...}`), each
@@ -7,10 +7,10 @@
 //! plasticity rule reads the *current level*, never *who sent it* or
 //! *why* -- there is no per-synapse or per-neuron addressing anywhere in
 //! this module, which is what "carries no per-synapse routing
-//! information" (Requirement 8.9) means concretely.
+//! information" (P03-8.9) means concretely.
 //!
 //! v1 is a single global region: every synapse in the network sees the
-//! same four levels. "Broadcast by region" (Requirement 8.9) does not
+//! same four levels. "Broadcast by region" (P03-8.9) does not
 //! require *multiple* regions to exist yet -- one region is a valid,
 //! degenerate case of the same contract, and the API is shaped
 //! (`region_id` reserved, currently always 0) so per-region broadcast can
@@ -107,14 +107,14 @@ impl NeuromodulatorField {
     /// The current levels, decayed up to `tick` -- what a plasticity rule
     /// reads via `LocalContext::modulators`. Read-only: there is no
     /// "modulators for synapse X" -- every caller at the same tick sees
-    /// the same broadcast values (Requirement 8.9).
+    /// the same broadcast values (P03-8.9).
     pub fn levels_at(&mut self, tick: u32) -> Modulators {
         self.catch_up(tick);
         self.levels
     }
 
-    /// The levels as last computed, with **no** catch-up (Phase 5
-    /// Requirement 15.5): a diagnostic readback -- "what did the network
+    /// The levels as last computed, with **no** catch-up
+    /// (P5-15.5): a diagnostic readback -- "what did the network
     /// actually see" -- must not itself perturb the lazy decay clock
     /// `levels_at` depends on. `partition.rs`'s module docs already record
     /// how easily an out-of-order query corrupts that clock (`levels_at`
@@ -127,7 +127,7 @@ impl NeuromodulatorField {
 
     /// The field's raw, genuinely evolving state -- current levels plus the
     /// tick they were last touched at -- for `snapshot.rs` to serialise
-    /// (Phase 5 Requirement 15.6). Deliberately excludes `decay_per_tick`:
+    /// (P5-15.6). Deliberately excludes `decay_per_tick`:
     /// that is derived once from caller-supplied `tau_ticks` config, not
     /// state, matching this module's own "configuration is supplied fresh
     /// by the caller, not reconstructed from the snapshot" convention
@@ -684,7 +684,7 @@ mod tests {
         assert_eq!(a, b, "reading at the same tick twice must not double-decay");
     }
 
-    /// Phase 5 Requirement 15.5.
+    /// P5-15.5.
     #[test]
     fn levels_unchecked_reports_injected_level_without_needing_a_tick() {
         let mut field = NeuromodulatorField::new([50.0; NUM_MODULATORS]);
@@ -867,7 +867,7 @@ mod tests {
     fn broadcast_carries_no_per_synapse_information() {
         // Structural check, not a runtime one: `levels_at` takes only a
         // tick, nothing identifying a synapse, neuron, or region -- there
-        // is no argument it *could* route on (Requirement 8.9).
+        // is no argument it *could* route on (P03-8.9).
         let mut field = NeuromodulatorField::new([50.0; NUM_MODULATORS]);
         field.inject(0, DOPAMINE, 1.0);
         let seen_by_a = field.levels_at(10);

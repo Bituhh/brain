@@ -1,7 +1,7 @@
 // The VAL-4 milestone harness (Requirement 13): the full encoder -> column
 // network -> SDR-overlap decoder path, streamed over real English text via
 // the streaming harness (Requirement 9), compared against the trigram
-// baseline (Requirement 13.3) on the identical corpus slice. Factored out
+// baseline (P5-13.3) on the identical corpus slice. Factored out
 // of `examples/char-prediction.ts` so the same trial logic backs both the
 // human-runnable example and the CI-enforced slow test, with only the
 // corpus size/seed count differing between them.
@@ -9,7 +9,7 @@
 // Design note (see design.md's Architecture section): the network presents
 // one character at a time -- the *same* per-character SDR is both the
 // input stimulation pattern and, for every character in the alphabet, a
-// decode candidate (Requirement 13.1's "one candidate SDR per character in
+// decode candidate (P5-13.1's "one candidate SDR per character in
 // the encoder's alphabet" is literally the text encoder's own output,
 // reused). There is no separate "context" encoding space: temporal
 // structure (predicting the *next* character from the current one) is
@@ -22,7 +22,7 @@
 // densely (but not fully, Requirement 11's budget) randomly wired, so
 // predictive learning has a substrate of candidate synapses to select from.
 //
-// Honest status (Requirement 13.6): this configuration was tuned across
+// Honest status (P5-13.6): this configuration was tuned across
 // several rounds -- fixing a bootstrapping deadlock (initial permanence
 // below `connectionThreshold` meant tick 2 never had a single spike to
 // learn from), a missing scheduler-level k-WTA (without it, tick 2
@@ -32,8 +32,8 @@
 // slices, its sliding-window accuracy stays at chance level (~1/97) with
 // no clear upward trend over tens of thousands of characters of exposure,
 // while the trigram baseline reaches roughly 30% on the same text. The
-// milestone (Requirement 13.4's "network exceeds trigram") is **not**
-// met by this configuration. Per 13.6, that is recorded here and in
+// milestone (P5-13.4's "network exceeds trigram") is **not**
+// met by this configuration. Per P5-13.6, that is recorded here and in
 // README §11 rather than loosened by, e.g., silently shrinking the
 // candidate set or redefining "accuracy" -- see `runCharPredictionTrial`
 // below, which reports the real, comparable numbers either way.
@@ -210,7 +210,7 @@ export interface CharPredictionConfig {
    * `rewardPredictionError`'s decision, not this field's** (PLAN.md C3) --
    * with no baseline configured this is the raw reward the audit flagged,
    * which is kept because it is the VAL-9 ablation control. Chosen (per
-   * Requirement 2 AC1's documented-decision discipline) as the most
+   * PLN-2.1's documented-decision discipline) as the most
    * direct, least speculative mapping of LRN-11's reward API to this task
    * -- it reuses the exact boolean this harness already computes, needs no
    * new comparison logic, and scores the *network's own* prediction
@@ -341,8 +341,7 @@ export interface CharPredictionConfig {
    */
   readonly newbornMaturation?: NewbornMaturationConfig;
   /**
-   * The growth-policy collision signal (Requirement 1 AC2 of the
-   * saturation-driven-growth spec): after each character, the top two
+   * The growth-policy collision signal (SDG-1.2): after each character, the top two
    * candidates' overlap-fraction margin (`rankByOverlapFraction`) is
    * compared against this threshold -- a margin *below* it means the
    * network's tick-2 representation does not clearly separate its best
@@ -416,7 +415,7 @@ export interface CharPredictionConfig {
   /**
    * Holds one neuromodulator channel at a constant level for the whole run,
    * so `plasticity`'s three-factor rule behaves as plain STDP scaled by that
-   * level (Requirement 8.8's reference point is a level of 1.0). Brain
+   * level (P03-8.8's reference point is a level of 1.0). Brain
    * basis: cortical plasticity runs under a standing (tonic) level of
    * neuromodulators such as acetylcholine, not only under phasic bursts.
    * Needs `plasticity` (the level decays with its `modulatorTauTicks`); has
@@ -988,7 +987,7 @@ export function buildNetwork(
     // self-tuning per-segment threshold instead -- the caller-supplied
     // value (default: `DEFAULT_CONFIG`'s current best-known one). See
     // docs/findings.md finding 7's tuning table for every trial's measured VAL-4
-    // result (Requirement 13.6: honestly, not just the best one kept), and
+    // result (P5-13.6: honestly, not just the best one kept), and
     // `scripts/tune-segment-threshold-homeostasis.ts` for the search that
     // produced it.
     // Spread rather than assigned directly: `exactOptionalPropertyTypes`
@@ -1202,7 +1201,7 @@ export interface TrialResult {
 export interface TrialProgressSample {
   /** `SlidingWindowAccuracy.accuracy` over the last `config.slidingWindow` characters, as of this character. */
   readonly networkAccuracy: number;
-  /** The trigram baseline's own sliding-window accuracy over the identical character sequence (Requirement 13.3). */
+  /** The trigram baseline's own sliding-window accuracy over the identical character sequence (P5-13.3). */
   readonly trigramAccuracy: number;
   /** How many characters have been scored into `networkAccuracy` so far -- below `slidingWindow` the figure is over a partial window and should be read as such. */
   readonly sampleCount: number;
@@ -1245,11 +1244,11 @@ export interface CharStepObservation {
 }
 
 /**
- * Streams `corpus` once through a freshly-built network (Requirement 9.1's
+ * Streams `corpus` once through a freshly-built network (P5-9.1's
  * "learning continuously on") and, in lockstep on the same character
  * sequence, through a freshly-trained trigram baseline -- both scored by
  * `SlidingWindowAccuracy` over the same window so the comparison is
- * apples-to-apples (Requirement 13.3).
+ * apples-to-apples (P5-13.3).
  */
 export function runCharPredictionTrial(
   corpus: string,
@@ -1456,7 +1455,7 @@ export function runCharPredictionTrial(
     for (const held of extraTonics) {
       if (held.topUp > 0) sim.injectModulator(held.channel, held.topUp);
     }
-    // Requirement 2 AC2: closes the "never called at all" gap found during
+    // PLN-2.2: closes the "never called at all" gap found during
     // this spec's own research -- `undefined` (default) skips this
     // entirely, matching today's behaviour exactly.
     if (config.rewardSignal === 'correctness') {
@@ -1553,7 +1552,7 @@ export function runCharPredictionTrial(
   };
 }
 
-/** decode() only ever reports a `DecodeResult` when confident (Requirement 7.2); non-decoded steps count as misses here, matching README's stated metric of a caller choosing to score "no guess" as wrong (`step.predicted?.label === step.actual` is `false` for both a wrong guess and no guess). */
+/** decode() only ever reports a `DecodeResult` when confident (P5-7.2); non-decoded steps count as misses here, matching README's stated metric of a caller choosing to score "no guess" as wrong (`step.predicted?.label === step.actual` is `false` for both a wrong guess and no guess). */
 export function runCharPredictionTrials(
   corpus: string,
   seeds: readonly bigint[],
@@ -1570,7 +1569,7 @@ export interface MilestoneAssessment {
   readonly meanReadoutAccuracy?: number;
   readonly meanTrigramAccuracy: number;
   /**
-   * Requirement 13.5: the aggregate across seeds, not a single favorable run.
+   * P5-13.5: the aggregate across seeds, not a single favorable run.
    * Judged on `meanReadoutAccuracy` when it is present (decision 36), else on
    * `meanNetworkAccuracy`.
    */
@@ -1583,7 +1582,7 @@ function mean(values: readonly number[]): number {
 
 /**
  * Aggregates a multi-seed battery into the single "beats trigram" verdict
- * (Requirement 13.4/13.5): the mean network accuracy must exceed the mean
+ * (P5-13.4/P5-13.5): the mean network accuracy must exceed the mean
  * trigram accuracy by more than `toleranceBand`, assessed on the aggregate
  * rather than any individual seed.
  */

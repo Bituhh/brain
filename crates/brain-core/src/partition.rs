@@ -37,7 +37,7 @@
 //! 2. **Merge** (sequential, cheap -- O(deliveries this tick), the one
 //!    synchronisation point per tick): every partition's effects are
 //!    combined into one list and sorted into a single canonical order
-//!    (Requirement 8, Acceptance Criterion 3 -- floating-point addition is
+//!    (P4-8.3 -- floating-point addition is
 //!    commutative but not associative, so *which order* several
 //!    contributions to the same target's `input_accum` are summed in is a
 //!    real determinism hazard, and a partitioned runtime cannot reproduce a
@@ -81,7 +81,7 @@
 //! cross-partition value. As built, that is aspirational relative to this
 //! file: stage 2 below is a hard *sequential* barrier, every tick, and it
 //! exists because deterministic floating-point summation order across
-//! partitions (Requirement 8, Acceptance Criterion 3) is a stricter
+//! partitions (P4-8.3) is a stricter
 //! requirement than RUN-5's prose states. A side effect of that barrier,
 //! not an independent design choice, is that relative spike *phase*
 //! between populations in different partitions is preserved exactly at
@@ -216,7 +216,7 @@ impl PartitionPlan {
     }
 
     /// Widens the last partition's range by `additional` neurons (NET-7/10,
-    /// LRN-7's developmental growth, Requirement 3 Acceptance Criterion 5)
+    /// LRN-7's developmental growth, P4-3.5)
     /// -- the caller's job after [`crate::growth::apply_growth`] appends
     /// that many fresh neurons to the arena. Only the *last* partition can
     /// grow this way: partitions are contiguous ranges over one shared
@@ -224,7 +224,7 @@ impl PartitionPlan {
     /// `NeuronArena::allocate` always appends at the arena's own end, so
     /// inserting new capacity into an *earlier* partition's range would
     /// require shifting every later partition's neurons -- which would
-    /// invalidate their `NeuronId`s (Requirement 2.2, 11.5) and is not
+    /// invalidate their `NeuronId`s (P03-2.2, P03-11.5) and is not
     /// attempted here. A caller wanting a specific *other* column/partition
     /// to grow must instead give it a whole new column (`column.rs`'s
     /// `ColumnRegistry::register`) appended after the existing ones.
@@ -260,8 +260,8 @@ impl PartitionPlan {
 
     /// The fraction of occupied synapses (over `0..neuron_count`'s source
     /// blocks) whose source and target belong to different partitions --
-    /// Requirement 6's Acceptance Criterion 2 and the benchmarks that will
-    /// report it against Requirement 10.
+    /// P4-6.2 and the benchmarks that will
+    /// report it against Phase 4's Requirement 10.
     pub fn cross_partition_edge_fraction(&self, synapses: &SynapseArena, neuron_count: u32) -> f32 {
         let mut total: u64 = 0;
         let mut cross: u64 = 0;
@@ -394,8 +394,8 @@ pub struct PartitionRuntime {
     /// of this tick, before stage 1.
     pending_post_spike: Vec<Vec<CrossPartitionPostSpike>>,
     executor: Executor,
-    /// `None` means homeostatic synaptic scaling (LRN-6) never runs (Phase 5
-    /// Requirement 9.2/9.6) -- pre-Phase-5 behaviour, still the default.
+    /// `None` means homeostatic synaptic scaling (LRN-6) never runs
+    /// (P5-9.2/P5-9.6) -- pre-Phase-5 behaviour, still the default.
     /// Deliberately **one** instance shared across every partition, not one
     /// per `Scheduler`: unlike stage 1/3's per-tick pipeline, this mechanism
     /// needs the *whole* arena (`HomeostaticScaling::maybe_apply` iterates
@@ -410,7 +410,7 @@ pub struct PartitionRuntime {
     /// rationale, same one-shared-instance shape, as `homeostatic_scaling`
     /// above. Uses `maybe_sweep_partitioned(..., |n| plan.partition_of(n))`
     /// so cross-partition sprouts still get the correct minimum delay
-    /// (Requirement 4, Acceptance Criterion 2), exactly as the pre-existing
+    /// (P4-4.2), exactly as the pre-existing
     /// `maybe_sweep_partitioned` was built for in Phase 4 Step 19.
     structural_plasticity: Option<StructuralPlasticity>,
     /// `None` means PLAN.md C2's prediction-error coupling never runs --
@@ -475,7 +475,7 @@ impl PartitionRuntime {
             "a Scheduler's own reward prediction error is wrong inside a PartitionRuntime (one broadcast reward would advance every partition's expectation separately) --              configure it with PartitionRuntime::with_reward_prediction_error, which advances one baseline for the whole network (PLAN.md C3, RUN-6)"
         );
         // PLAN.md C4, and a third distinct reason again: a *spatial* sprout
-        // reach on Requirement 12.1's burst path (`reach::SproutReach::Spatial`)
+        // reach on P03-12.1's burst path (`reach::SproutReach::Spatial`)
         // is the first thing that makes `predictive.rs`'s own
         // `owns_source`/`owns` skip reachable in practice, and that skip is
         // a function of the partition layout -- candidates outside a
@@ -495,7 +495,7 @@ impl PartitionRuntime {
         // is bit-identical to a plain `Scheduler`.
         assert!(
             plan.partition_count() <= 1 || !schedulers.iter().any(Scheduler::has_spatial_burst_sprout_reach),
-            "a spatial burst-sprout reach (predictive learning, Requirement 12.1) is refused above one partition: the candidate set would be clipped to each partition's own range, so results would depend on the partition count (PLAN.md C4, RUN-3). Use it single-partition, or give only StructuralPlasticity::with_sprout_reach a spatial reach -- that sweep runs once globally and is partition-safe"
+            "a spatial burst-sprout reach (predictive learning, P03-12.1) is refused above one partition: the candidate set would be clipped to each partition's own range, so results would depend on the partition count (PLAN.md C4, RUN-3). Use it single-partition, or give only StructuralPlasticity::with_sprout_reach a spatial reach -- that sweep runs once globally and is partition-safe"
         );
         // PLAN.md C17: a scheduler's own readout is fed by `Scheduler::step`,
         // which this runtime never calls. Refused, not silently inert.
@@ -540,7 +540,7 @@ impl PartitionRuntime {
     }
 
     /// Enables homeostatic synaptic scaling (LRN-6) as an always-on, opt-in
-    /// part of `step()` (Phase 5 Requirement 9.2/9.6) -- see the field's own
+    /// part of `step()` (P5-9.2/P5-9.6) -- see the field's own
     /// doc comment for why this is one shared instance, not one per
     /// partition. Without this call, `step()` never touches homeostasis at
     /// all, unchanged from every pre-Phase-5 behaviour.
@@ -550,7 +550,7 @@ impl PartitionRuntime {
     }
 
     /// Enables structural plasticity (LRN-7) as an always-on, opt-in part of
-    /// `step()` (Phase 5 Requirement 9.2/9.6), the structural-plasticity
+    /// `step()` (P5-9.2/P5-9.6), the structural-plasticity
     /// counterpart to [`Self::with_homeostatic_scaling`] above.
     pub fn with_structural_plasticity(mut self, plasticity: StructuralPlasticity) -> Self {
         self.structural_plasticity = Some(plasticity);
@@ -718,14 +718,14 @@ impl PartitionRuntime {
     /// every partition to see the same signal should use
     /// [`Self::inject_modulator`] below instead of hand-rolling the
     /// per-partition loop this method used to force on every caller (both
-    /// of this crate's own test suites did, before Phase 5 Requirement
-    /// 15.3 fixed it).
+    /// of this crate's own test suites did, before
+    /// P5-15.3 fixed it).
     pub fn inject_modulator_into_partition(&mut self, partition_id: usize, index: usize, amount: f32) {
         self.schedulers[partition_id].inject_modulator(index, amount);
     }
 
     /// Broadcasts a neuromodulator signal to *every* partition's field
-    /// (Phase 5 Requirement 15.2/15.3): the short, obvious name is
+    /// (P5-15.2/P5-15.3): the short, obvious name is
     /// deliberately reserved for the behaviour most callers actually want
     /// -- a gating circuit or a reward signal spanning several partitions
     /// must see the same level everywhere, and silently reaching only one
@@ -740,7 +740,7 @@ impl PartitionRuntime {
         }
     }
 
-    /// Named reward entry point (LRN-11, Phase 5 Requirement 15.1), the
+    /// Named reward entry point (LRN-11, P5-15.1), the
     /// `PartitionRuntime` counterpart to [`Scheduler::reward`]: broadcasts
     /// to the dopamine channel of every partition via [`Self::inject_modulator`].
     ///
@@ -765,7 +765,7 @@ impl PartitionRuntime {
     }
 
     /// The neuromodulator field's levels as last computed on partition 0,
-    /// with no tick-advancing catch-up (Phase 5 Requirement 15.5). Reading
+    /// with no tick-advancing catch-up (P5-15.5). Reading
     /// just one partition's field is correct, not an approximation: every
     /// caller that reaches this type's fields at all does so only through
     /// [`Self::inject_modulator`]'s broadcast (never
@@ -815,7 +815,7 @@ impl PartitionRuntime {
         }
 
         // Stage 1: deliver. Every partition's `deliver` call returns *all*
-        // of its own effects (Requirement 8 AC3 -- see scheduler.rs's
+        // of its own effects (P4-8.3 -- see scheduler.rs's
         // `deliver` doc comment for why none of them are applied here yet,
         // local-looking ones included): applying any of them before the
         // global sort below would make the result depend on partition
@@ -908,7 +908,7 @@ impl PartitionRuntime {
         };
 
         // Stage 2 (the merge): one global canonical order across every
-        // partition's effects (Requirement 8, Acceptance Criterion 3), then
+        // partition's effects (P4-8.3), then
         // route each to whichever partition owns its target and apply.
         all_effects.sort_by_key(|e| (e.source_index, e.synapse_id));
         let total_neuron_count = neuron_views[0].capacity_len();
@@ -1019,7 +1019,7 @@ impl PartitionRuntime {
             self.schedulers[p].record_tick_observables(&reports[p], &neuron_views[p], &synapse_views[p]);
         }
 
-        // Phase 5 Requirement 9.2/9.6: always-on homeostasis/structural
+        // P5-9.2/P5-9.6: always-on homeostasis/structural
         // plasticity, opt-in via with_homeostatic_scaling/
         // with_structural_plasticity above. `neuron_views`/`synapse_views`
         // are not referenced again after the boundary-table publish loop
@@ -1108,7 +1108,7 @@ mod tests {
         assert_eq!(plan.range_of(1), 25..40);
     }
 
-    /// NET-7/10, Requirement 3 Acceptance Criterion 5.
+    /// NET-7/10, P4-3.5.
     #[test]
     fn extend_last_widens_only_the_last_partition() {
         let columns = registry(&[0..10, 10..25, 25..30, 30..40]);

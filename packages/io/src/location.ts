@@ -2,8 +2,8 @@
 // location signal, path-integrated from a stream of actions rather than
 // read off an external map -- the same way biological grid cells integrate
 // self-motion. Entirely TypeScript, over the existing SDR/encoder
-// machinery: no core change, per invariant 8 and Requirement 6's own
-// Acceptance Criterion 5, matching how IO-5's sensorimotor loop was built
+// machinery: no core change, per invariant 8 and
+// P55-6.5, matching how IO-5's sensorimotor loop was built
 // in Phase 5.
 
 import { makeSdr, type Sdr } from './sdr.ts';
@@ -58,7 +58,7 @@ export class PathIntegrator<Act> {
  * without actually being the same position modulo each period, the same
  * way two clock times sharing "same minute-of-hour" doesn't imply the same
  * moment but sharing every configured cyclic component together narrows it
- * arbitrarily far (Requirement 6, Acceptance Criterion 3's "full" branch).
+ * arbitrarily far (P55-6.3's "full" branch).
  */
 export interface GridModule {
   readonly period: number;
@@ -90,7 +90,7 @@ function validateModule(module: GridModule): void {
  * module *is* a cyclic component whose period is a spatial wavelength
  * rather than a clock period, so this is the same construction applied
  * twice per module (once for `x`, once for `y`), not a new algorithm.
- * Deterministic (Requirement 2.3): the same `position` under the same
+ * Deterministic (P5-2.3): the same `position` under the same
  * `config` always produces the bit-identical `Sdr`.
  */
 export function encodeLocation(

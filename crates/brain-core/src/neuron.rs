@@ -2,7 +2,7 @@
 //!
 //! `NeuronDynamics` is generic (not a trait object), so the hot loop in
 //! `scheduler.rs` monomorphises to a concrete type with no vtable dispatch
-//! (NEU-3, Requirement 4.6) -- swapping `Lif` for a different model needs
+//! (NEU-3, P03-4.6) -- swapping `Lif` for a different model needs
 //! no change to the graph or scheduler.
 //!
 //! `Params` deliberately does not match design.md's illustrative
@@ -14,7 +14,7 @@
 //!
 //! Integration is split from spike commitment (`integrate` versus
 //! `commit_spike`/`veto_spike`) rather than one atomic `step`, so that
-//! local inhibition (`inhibition.rs`, Requirement 7.1) can intervene
+//! local inhibition (`inhibition.rs`, P03-7.1) can intervene
 //! between "this neuron crossed threshold" and "this neuron's spike is
 //! official" -- matching how real feedforward inhibition works: it acts on
 //! a candidate spike, not before integration has even happened.
@@ -22,13 +22,13 @@
 /// Mutable access to one neuron's dynamics-relevant state, borrowed from
 /// disjoint fields of a `NeuronArena`. A dynamics implementation sees only
 /// this -- there is no way to reach any other neuron or the arena itself
-/// (Requirement 4.8), the same locality principle plasticity rules follow
+/// (P03-4.8), the same locality principle plasticity rules follow
 /// (LRN-1).
 pub struct NeuronStateMut<'a> {
     pub membrane: &'a mut f32,
     pub refractory_until: &'a mut u32,
     pub last_spike: &'a mut u32,
-    /// Decaying dendritic depolarisation (NEU-6, Requirement 10.3):
+    /// Decaying dendritic depolarisation (NEU-6, P03-10.3):
     /// written by a fired segment (`segment.rs`, via the scheduler), read
     /// and decayed here to lower -- never bypass -- the effective
     /// threshold. `0.0` when no segment has recently fired; segments are
@@ -51,7 +51,7 @@ pub struct NeuronStateMut<'a> {
 }
 
 /// What integrating one tick of input produced, before any inhibition has
-/// had a chance to veto a candidate spike (Requirement 7.1).
+/// had a chance to veto a candidate spike (P03-7.1).
 ///
 /// `still_active` is deliberately decided by the dynamics model itself
 /// (not by the generic scheduler comparing membrane to some assumed rest
@@ -72,7 +72,7 @@ pub struct IntegrationOutcome {
     /// continuous time this discrete tick approximates.
     pub margin: f32,
     /// If true, the scheduler keeps this neuron dirty for next tick even
-    /// though no new input has arrived (Requirement 5.1's "silent neuron
+    /// though no new input has arrived (P03-5.1's "silent neuron
     /// costs nothing" applies once this goes false).
     ///
     /// Meaningful only when `crossed_threshold` is false. When true, this
@@ -101,7 +101,7 @@ pub trait NeuronDynamics {
     fn commit_spike(state: NeuronStateMut<'_>, params: &Self::Params, tick: u32);
 
     /// Finalises a threshold crossing that lost its local competition to a
-    /// faster-margin neighbour (Requirement 7.1's "suppress the
+    /// faster-margin neighbour (P03-7.1's "suppress the
     /// remainder"). This suppresses, it does not erase: membrane is left
     /// at its post-integration (above-threshold) value, so this neuron
     /// remains a strong candidate and will very likely win on a
@@ -112,7 +112,7 @@ pub trait NeuronDynamics {
 
 /// How far a neuron's membrane may sit from `v_rest` before [`Lif`]
 /// considers it settled and safe to drop from the scheduler's dirty set.
-/// A neuron that just received input is not "silent" (Requirement 5.1)
+/// A neuron that just received input is not "silent" (P03-5.1)
 /// during this brief settling tail; once within this tolerance (and not
 /// refractory), it costs nothing further until touched again.
 ///
@@ -136,7 +136,7 @@ pub struct LifParams {
     pub decay_per_tick: f32,
     pub v_rest: f32,
     pub v_reset: f32,
-    /// Ticks of absolute refractoriness after a spike (NEU-1, Req 4.2/4.3).
+    /// Ticks of absolute refractoriness after a spike (NEU-1, P03-4.2/P03-4.3).
     pub refractory_ticks: u32,
     /// `exp(-1 / tau_predictive_ticks)` -- the dendritic depolarisation's
     /// own decay, independent of and typically faster than membrane decay
@@ -145,7 +145,7 @@ pub struct LifParams {
     /// existing callers that never touch segments are unaffected.
     pub predictive_decay_per_tick: f32,
     /// How much a *fully* depolarised segment (`Depolarisation(1.0)`)
-    /// lowers the effective threshold (Requirement 10.3: it lowers
+    /// lowers the effective threshold (P03-10.3: it lowers
     /// threshold, it never fires the cell by itself -- so this must stay
     /// small enough that `threshold - predictive_threshold_reduction`
     /// remains a real, crossable, positive value on its own). Defaults to
@@ -223,7 +223,7 @@ impl NeuronDynamics for Lif {
         // check, which defeats the point of it firing on this tick at all.
         let predictive_now = state.predictive.clamp(0.0, 1.0);
 
-        // Requirement 4.3: refractory neurons do not integrate input at all.
+        // P03-4.3: refractory neurons do not integrate input at all.
         if tick < *state.refractory_until {
             *state.membrane = p.v_reset;
             *state.predictive *= p.predictive_decay_per_tick;
@@ -243,7 +243,7 @@ impl NeuronDynamics for Lif {
         let target = p.v_rest + input - state.adaptation.clamp(0.0, f32::MAX);
         *state.membrane = target + (*state.membrane - target) * p.decay_per_tick;
 
-        // Requirement 10.3: predictive state *lowers* the effective
+        // P03-10.3: predictive state *lowers* the effective
         // threshold, it never bypasses it -- crossing is still decided
         // against a real threshold, just a smaller one.
         let effective_threshold = state.threshold - p.predictive_threshold_reduction * predictive_now;
@@ -298,7 +298,7 @@ mod tests {
     /// Replicates the old, pre-inhibition `step()`: integrate, and if it
     /// crossed threshold, commit immediately (there is no competition).
     /// This is exactly what the scheduler does when inhibition is not
-    /// configured (Requirement 7.5's ablation path), so it is a faithful
+    /// configured (P03-7.5's ablation path), so it is a faithful
     /// stand-in for that scenario in these unit tests.
     ///
     /// Takes the underlying fields rather than a pre-built
@@ -340,7 +340,7 @@ mod tests {
         (true, still_active)
     }
 
-    /// Requirement 4.1.
+    /// P03-4.1.
     #[test]
     fn decays_toward_rest_with_no_input() {
         let params = LifParams::new(10.0, 0.0, 0.0, 0);
@@ -441,7 +441,7 @@ mod tests {
                 1000.0,
                 tick,
             );
-            assert!(!spiked, "refractory neuron must not spike regardless of input (Req 4.3)");
+            assert!(!spiked, "refractory neuron must not spike regardless of input (P03-4.3)");
             assert_eq!(membrane, 0.0, "refractory neuron stays clamped at v_reset");
         }
 
@@ -476,7 +476,7 @@ mod tests {
 
     #[test]
     fn vetoed_spike_remains_a_candidate_next_tick() {
-        // The mechanism Requirement 7.1 relies on: a vetoed neuron is not
+        // The mechanism P03-7.1 relies on: a vetoed neuron is not
         // reset -- it stays at its above-threshold value and is still
         // reported as active, so the scheduler keeps offering it as a
         // candidate until it eventually wins.
@@ -506,9 +506,9 @@ mod tests {
         assert_eq!(refractory_until, 0, "a vetoed spike must not enter refractory");
     }
 
-    /// Requirement 4.4: firing rate under constant supra-threshold current
+    /// P03-4.4: firing rate under constant supra-threshold current
     /// must match the closed-form LIF solution within tolerance.
-    /// Requirement 14.1's LIF half. NEU-2, VAL-1.
+    /// P03-14.1's LIF half. NEU-2, VAL-1.
     #[test]
     fn firing_rate_matches_closed_form_solution() {
         let tau_m = 50.0f32;
@@ -559,7 +559,7 @@ mod tests {
         );
     }
 
-    // -- Predictive state (Requirement 10.3, 10.4): a dendritic segment's
+    // -- Predictive state (P03-10.3, P03-10.4): a dendritic segment's
     // depolarisation lowers the effective threshold without ever letting
     // the neuron spike from it alone. `segment.rs` decides *whether* a
     // segment fires; these tests only check what `predictive` then does
@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn predictive_state_alone_never_causes_a_spike() {
-        // Requirement 10.3's "shall not spike from the segment alone":
+        // P03-10.3's "shall not spike from the segment alone":
         // even at maximum predictive depolarisation and zero feedforward
         // input, a neuron must not cross threshold on that basis alone.
         let params = LifParams::new(20.0, 0.0, 0.0, 0).with_predictive(50.0, 0.9);
@@ -584,7 +584,7 @@ mod tests {
 
     #[test]
     fn predictive_state_lowers_the_effective_threshold() {
-        // Requirement 10.4: a predicted neuron reaches threshold sooner
+        // P03-10.4: a predicted neuron reaches threshold sooner
         // than an equivalent non-predicted one under the same feedforward
         // input.
         //
@@ -705,7 +705,7 @@ mod tests {
 
     #[test]
     fn adaptation_raises_the_effective_drive_requirement_making_refiring_harder() {
-        // Requirement 2 AC3: a neuron with accumulated adaptation is
+        // P55-2.3: a neuron with accumulated adaptation is
         // measurably harder to re-fire than an otherwise-identical neuron
         // with none, under the same input -- the sign-flipped counterpart
         // of `predictive_state_lowers_the_effective_threshold`.
@@ -785,7 +785,7 @@ mod tests {
 
     #[test]
     fn adaptation_stays_non_negative_and_bounded_over_a_long_run() {
-        // Property-style invariant check (Requirement 2.6, VAL-8's
+        // Property-style invariant check (P55-2.6, VAL-8's
         // discipline): repeated spiking under a large increment must not
         // drive adaptation negative or into non-finite territory.
         let params = LifParams::new(5.0, 0.0, 0.0, 0).with_adaptation(20.0, 10.0);

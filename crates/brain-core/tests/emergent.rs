@@ -1,6 +1,6 @@
 //! Emergent-behaviour acceptance suite (Requirement 14) -- the slow tier,
 //! judged on capability rather than unit coverage. `sequences_abcd_and_xbcy_...`
-//! below is Requirement 14.4, this project's actual exit criterion: after
+//! below is P03-14.4, this project's actual exit criterion: after
 //! training on both `ABCD` and `XBCY`, presenting the prefix `ABC` must
 //! make the network predict `D` (not `Y`), and `XBC` must predict `Y`
 //! (not `D`) -- with `B` and `C`'s own representation genuinely differing
@@ -64,7 +64,7 @@
 //! must build from nothing.
 //!
 //! **Predictive learning's burst path is disabled, deliberately.**
-//! Requirement 12.1's unpredicted-spike mechanism searches for "recently
+//! P03-12.1's unpredicted-spike mechanism searches for "recently
 //! active" reinforcement candidates within a neuron's own k-WTA
 //! neighbourhood -- and an unpredicted winner is routine here (one of a
 //! symbol's two winners is often genuinely predicted while the other is
@@ -85,8 +85,8 @@
 //! ticks and then receives no further input drops out of the dirty set
 //! immediately, freezing its `predictive` value at whatever it was the
 //! instant it last won. A long quiet gap alone does not clear it (a
-//! deliberate consequence of "a silent neuron costs nothing", Requirement
-//! 5.1 -- not a core-engine bug); `reset_predictive_state` clears it
+//! deliberate consequence of "a silent neuron costs nothing",
+//! P03-5.1 -- not a core-engine bug); `reset_predictive_state` clears it
 //! explicitly before each measurement instead.
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
@@ -194,7 +194,7 @@ fn build_network(seed: u64) -> Network {
         gain_modulator_index: None,
         learning_target: SegmentLearningTarget::Permanence,
     };
-    // Requirement 12.1's unpredicted-spike burst path is neighbourhood-scoped
+    // P03-12.1's unpredicted-spike burst path is neighbourhood-scoped
     // (`reinforce_or_sprout_burst` searches within the *whole* symbol block,
     // same as the scheduler's own k-WTA neighbourhood) -- and an
     // unpredicted winner is routine here (one of a symbol's k=2 winners is
@@ -235,8 +235,8 @@ fn lif_params() -> LifParams {
 /// After each presentation, every candidate in that symbol's block that
 /// did *not* win this tick has its membrane forced back to rest. Without
 /// this, a vetoed (not committed) candidate correctly remains a live,
-/// above-threshold competitor for several subsequent ticks (Requirement
-/// 7.1's intended behaviour for a *sustained* competing input) -- but this
+/// above-threshold competitor for several subsequent ticks
+/// (P03-7.1's intended behaviour for a *sustained* competing input) -- but this
 /// harness models one discrete symbol pulse per tick, not continuous
 /// drive, so an un-reset loser would otherwise "leak" through as a
 /// spurious extra winner two ticks later, corrupting the next symbol's
@@ -279,7 +279,7 @@ fn quiet_ticks(net: &mut Network, count: u32) {
 /// neuron's predictive value can sit frozen at whatever it was the instant
 /// it last won, for an arbitrary number of subsequent ticks, rather than
 /// decaying away in the background (a deliberate consequence of "a silent
-/// neuron costs nothing", Requirement 5.1 -- not a bug in the core engine,
+/// neuron costs nothing", P03-5.1 -- not a bug in the core engine,
 /// just a property this harness's measurements must account for
 /// explicitly rather than assume away).
 fn reset_predictive_state(net: &mut Network) {
@@ -311,9 +311,9 @@ fn train(net: &mut Network, trials: u32) {
 #[test]
 #[ignore = "slow tier: multi-seed emergent battery"]
 fn sequences_abcd_and_xbcy_disambiguate_by_context() {
-    // Requirement 14.4, this project's exit criterion, assessed across
-    // multiple seeds per Requirement 14.8/15.3 -- the aggregate is what is
-    // asserted on, not any single seed (Requirement 15.4).
+    // P03-14.4, this project's exit criterion, assessed across
+    // multiple seeds per P03-14.8/P03-15.3 -- the aggregate is what is
+    // asserted on, not any single seed (P03-15.4).
     let seeds = [1u64, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
     let mut successes = 0;
     for &seed in &seeds {
@@ -354,11 +354,11 @@ fn sequences_abcd_and_xbcy_disambiguate_by_context() {
             successes += 1;
         }
     }
-    // An explicit tolerance band (Requirement 15.3), not a demand for
+    // An explicit tolerance band (P03-15.3), not a demand for
     // literal 100%: the substrate is randomly generated per seed (see
     // module docs), so a pathologically unlucky seed producing zero
     // candidate connections for one context is a real possibility this
-    // bound accepts, not a defect to retry away (Requirement 15.4) --
+    // bound accepts, not a defect to retry away (P03-15.4) --
     // empirically this design clears 20/20 across the seeds above.
     let required = (seeds.len() * 9).div_ceil(10); // 90%
     assert!(successes >= required, "must disambiguate correctly on at least 90% of seeds, got {successes}/{}", seeds.len());
@@ -367,7 +367,7 @@ fn sequences_abcd_and_xbcy_disambiguate_by_context() {
 #[test]
 #[ignore = "slow tier: diagnostic for context-dependent representation"]
 fn b_and_c_representations_differ_by_context() {
-    // Requirement 14.4's other half: representation, not just prediction.
+    // P03-14.4's other half: representation, not just prediction.
     let mut net = build_network(1);
     train(&mut net, 800);
     quiet_ticks(&mut net, 300);
@@ -390,7 +390,7 @@ fn b_and_c_representations_differ_by_context() {
 #[test]
 #[ignore = "slow tier: multi-seed emergent battery"]
 fn sparsity_holds_near_target_under_varied_drive_across_seeds() {
-    // Requirement 14.2/VAL-2(a), assessed across seeds per 14.8/15.3: a
+    // P03-14.2/VAL-2(a), assessed across seeds per P03-14.8/P03-15.3: a
     // large, undifferentiated population under k-WTA inhibition should
     // land near its architectural sparsity ceiling (k/size) regardless of
     // drive strength or which seed selects which neurons to drive.
@@ -446,7 +446,7 @@ fn sparsity_holds_near_target_under_varied_drive_across_seeds() {
 #[test]
 #[ignore = "slow tier: multi-seed emergent battery"]
 fn prediction_accuracy_rises_across_exposures_across_seeds() {
-    // Requirement 14.3/VAL-2(b), assessed across seeds: prediction error
+    // P03-14.3/VAL-2(b), assessed across seeds: prediction error
     // (here, the inverse of correct-prediction proportion) must fall
     // measurably as a repeating two-step sequence is presented more.
     fn early_vs_late_accuracy(seed: u64) -> (f64, f64) {
@@ -472,7 +472,7 @@ fn prediction_accuracy_rises_across_exposures_across_seeds() {
             .with_segments(SegmentConfig::new(1, BinaryCoincidenceParams { threshold: 1 }))
             .with_predictive_learning(predictive_params, FixedNeighbourhoods::new(10, 5));
         let params = LifParams::new(5.0, 0.0, 0.0, 0).with_predictive(50.0, 0.5);
-        let _ = seed; // deterministic scenario; seed varies only to prove no single-seed luck is load-bearing (Requirement 15.4)
+        let _ = seed; // deterministic scenario; seed varies only to prove no single-seed luck is load-bearing (P03-15.4)
 
         let mut predicted = Vec::new();
         for _ in 0..20 {
@@ -508,7 +508,7 @@ fn prediction_accuracy_rises_across_exposures_across_seeds() {
 #[test]
 #[ignore = "slow tier: multi-seed emergent battery"]
 fn recall_survives_bit_flip_corruption() {
-    // Requirement 14.5/VAL-2(d): a learned prediction must still fire
+    // P03-14.5/VAL-2(d): a learned prediction must still fire
     // correctly when the triggering pattern is corrupted by ~30% bit
     // flips -- here, presenting A with 30% of its normal driving neurons
     // swapped out for uninvolved ones from elsewhere in A's own block.
@@ -553,7 +553,7 @@ fn recall_survives_bit_flip_corruption() {
 #[test]
 #[ignore = "slow tier: multi-seed emergent battery"]
 fn learning_the_second_sequence_does_not_collapse_the_first() {
-    // Requirement 14.6/VAL-2(e): unlike the exit-criterion test (which
+    // P03-14.6/VAL-2(e): unlike the exit-criterion test (which
     // interleaves both sequences from the start), this trains ABCD to
     // convergence *first*, confirms it, then trains XBCY afterward, and
     // confirms ABCD's prediction is still correct -- proving sequential
@@ -602,7 +602,7 @@ fn learning_the_second_sequence_does_not_collapse_the_first() {
 #[test]
 #[ignore = "slow tier: multi-seed emergent battery"]
 fn activity_remains_stable_over_an_extended_run() {
-    // Requirement 14.7/VAL-2(f): activity must neither blow up (runaway
+    // P03-14.7/VAL-2(f): activity must neither blow up (runaway
     // firing) nor die out (silence) over a long run of continued training.
     let mut net = build_network(1);
     let mut spikes_per_window = Vec::new();

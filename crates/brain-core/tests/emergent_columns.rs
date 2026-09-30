@@ -1,5 +1,5 @@
-//! Requirement 11, Acceptance Criterion 3: the exit criterion
-//! (Requirement 14.4, `tests/emergent.rs`) re-expressed using the real
+//! P4-11.3: the exit criterion
+//! (P03-14.4, `tests/emergent.rs`) re-expressed using the real
 //! column primitive (NET-4, `column.rs`) instead of `tests/emergent.rs`'s
 //! own hand-rolled `block_range`/`half_range` arithmetic, and -- the part
 //! `emergent.rs` itself cannot exercise -- checked under real partitioning
@@ -29,8 +29,8 @@
 //! independent columns would give each half its own *independent* k-WTA
 //! instead -- both would win every trial regardless of context, which
 //! would not merely fail to test partitioning, it would break the exit
-//! criterion's actual mechanism. So the partitioned test below (`Requirement
-//! 11 AC3`'s "survives partitioning, not just column-wrapping") instead
+//! criterion's actual mechanism. So the partitioned test below
+//! (P4-11.3's "survives partitioning, not just column-wrapping") instead
 //! splits the *symbol sequence* itself across a partition boundary
 //! (`{A,B,C}` | `{D,X,Y}`), which still forces every one of `C`'s outgoing
 //! synapses to cross it -- the same cross-partition dendritic delivery and
@@ -223,8 +223,8 @@ fn train(net: &mut Network, trials: u32) {
     }
 }
 
-/// Requirement 11 AC3 (first half): the column primitive generalises
-/// `emergent.rs`'s hand-rolled structure -- Requirement 14.4 must still
+/// P4-11.3 (first half): the column primitive generalises
+/// `emergent.rs`'s hand-rolled structure -- P03-14.4 must still
 /// pass, at the same 20/20-seed strength, built this way instead.
 #[test]
 #[ignore = "slow tier: multi-seed emergent battery, column-built"]
@@ -259,7 +259,7 @@ fn sequences_disambiguate_by_context_when_built_from_columns() {
     assert!(successes >= required, "must disambiguate correctly on at least 90% of seeds, got {successes}/{}", seeds.len());
 }
 
-/// Requirement 11 AC3 (second half): the same disambiguation, now under
+/// P4-11.3 (second half): the same disambiguation, now under
 /// *real* partitioning -- `{A,B,C}` in partition 0, `{D,X,Y}` in partition
 /// 1, so every one of C's outgoing synapses (C->D, C->Y) crosses the
 /// boundary, exercising cross-partition dendritic delivery and both
@@ -313,7 +313,7 @@ fn run_partitioned_trial(seed: u64, prefix: &[usize], thread_count: usize) -> (f
         .collect();
     let total_neurons = columns.range_of(Y).unwrap().end;
     let mut runtime = PartitionRuntime::new(plan, schedulers, &synapses, total_neurons).with_thread_count(thread_count);
-    // Phase 5 Requirement 15.3: the broadcasting form replaces this file's
+    // P5-15.3: the broadcasting form replaces this file's
     // own hand-rolled per-partition loop.
     runtime.inject_modulator(DOPAMINE, 1.0);
 

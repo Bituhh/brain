@@ -1,4 +1,4 @@
-// Wire-format round-trip tests (Phase 6 Requirement 7.5, 14.3): protocol
+// Wire-format round-trip tests (P6-7.5, P6-14.3): protocol
 // correctness is proven here, by encoding then decoding every message
 // variant, not by manual browser inspection. No socket, no browser.
 
@@ -80,7 +80,7 @@ test('topologySynapses round-trips every column exactly, including occupied as 0
   assertTypedArrayEqual(decoded.occupied, message.occupied);
 });
 
-test('tick round-trips without state (Requirement 7.4: state is only present on stride-matching ticks)', () => {
+test('tick round-trips without state (P6-7.4: state is only present on stride-matching ticks)', () => {
   const message: ServerMessage = {
     type: 'tick',
     tick: 42,

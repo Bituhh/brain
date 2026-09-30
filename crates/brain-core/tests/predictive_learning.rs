@@ -1,7 +1,7 @@
-//! Whole-network integration test for predictive learning (Requirement
-//! 12.4): repeated exposure to a two-step sequence (A then B) must raise
+//! Whole-network integration test for predictive learning
+//! (P03-12.4): repeated exposure to a two-step sequence (A then B) must raise
 //! the proportion of B's firings that are correctly *predicted*, with no
-//! label, target, or external error signal (Requirement 12.5) -- the only
+//! label, target, or external error signal (P03-12.5) -- the only
 //! feedback loop is the network's own prediction against its own outcome.
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
@@ -20,7 +20,7 @@ fn correct_prediction_proportion_rises_across_exposures_to_a_repeating_sequence(
     let mut synapses = SynapseArena::new(4);
     synapses.reserve_for_neurons(neurons.capacity_len());
     // No pre-existing connection from a to b: the network must learn the
-    // sequence purely through Requirement 12.1's unpredicted-spike
+    // sequence purely through P03-12.1's unpredicted-spike
     // reinforcement/sprouting -- nothing is wired in by hand.
 
     let predictive_params = PredictiveLearningParams {
@@ -68,7 +68,7 @@ fn correct_prediction_proportion_rises_across_exposures_to_a_repeating_sequence(
     let last_half = predicted[trials / 2..].iter().filter(|&&p| p).count();
     assert!(
         last_half > first_half,
-        "the proportion of correctly predicted spikes must rise across exposures (Requirement 12.4): first half {first_half}/{}, second half {last_half}/{}. Full trace: {predicted:?}",
+        "the proportion of correctly predicted spikes must rise across exposures (P03-12.4): first half {first_half}/{}, second half {last_half}/{}. Full trace: {predicted:?}",
         trials / 2,
         trials / 2
     );
@@ -81,13 +81,13 @@ fn correct_prediction_proportion_rises_across_exposures_to_a_repeating_sequence(
 
 #[test]
 fn no_label_or_external_error_signal_is_needed_anywhere_in_this_path() {
-    // Requirement 12.5, made structural rather than asserted: this test
+    // P03-12.5, made structural rather than asserted: this test
     // constructs and drives the exact same learning path as above using
     // only local network state (stimulation currents standing in for raw
     // sensory drive) -- there is no target output, no loss, and no
     // corrective signal supplied anywhere in the call sequence below, yet
     // the segment's synapse still potentiates purely from repeated
-    // unpredicted co-occurrence (Requirement 12.1).
+    // unpredicted co-occurrence (P03-12.1).
     let mut neurons = NeuronArena::new();
     let a = neurons.allocate(NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] }).index;
     let b = neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] }).index;

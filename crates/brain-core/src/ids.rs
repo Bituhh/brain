@@ -2,7 +2,7 @@
 //!
 //! `NeuronId` pairs a raw arena index with a generation counter, so a
 //! reference to a reclaimed and reused slot is detectable rather than
-//! silently addressing whatever now lives there (Requirement 2.2, 3.3).
+//! silently addressing whatever now lives there (P03-2.2, P03-3.3).
 //!
 //! Segment and synapse ids are deliberately *not* modelled as stored types
 //! here: design.md derives them arithmetically from their owning neuron's
@@ -14,7 +14,7 @@
 /// Identifies a neuron slot in a `NeuronArena`.
 ///
 /// `index` addresses the slot directly; `generation` must match the arena's
-/// current generation for that slot, or the id is stale (Requirement 2.2).
+/// current generation for that slot, or the id is stale (P03-2.2).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct NeuronId {
     pub index: u32,
