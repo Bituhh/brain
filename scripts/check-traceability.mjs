@@ -122,6 +122,42 @@ const DEFERRED = new Set([
   '8.3',
 ]);
 
+// Deferred ids that this checker reports as "now covered" when they are not -- the id-collision
+// limitation documented at REQUIREMENTS_PATHS, audited id by id in PLAN.md C10 (2026-09-30;
+// docs/findings.md finding 35 and docs/appendix/find-35.md have the per-citation evidence). Each
+// deferral above was written for ONE phase's criterion; every citation the checker finds belongs to
+// a DIFFERENT phase's identically-numbered one. None of the nine is satisfied by those citations,
+// so none is removed -- they are listed here only so the checker stops telling the next session to
+// remove them. Must be a subset of DEFERRED (checked below).
+//
+// - 5.2: deferred for Phase 0-3's "tick defaults to 0.1 ms" (RUN-1a, still unmet). Cited by
+//   Phase 5's tokenizeWords test (text.test.ts), by a brain-napi doc comment for Phase 6's metrics
+//   accessor, and by a "bit-identical when unset" convention borrowed from
+//   weight-aware-dendritic-votes' Requirement 5.2, a spec this checker does not even parse.
+// - 7.1-7.5: deferred for Phase 5.5's LRN-12 build/no-build decision (docs/decisions.md decision
+//   9, a written decision by design). Cited by Phase 0-3's inhibition/sparsity tests
+//   (sparsity.rs, invariants.rs, emergent.rs), Phase 5's decoder tests (decoder.test.ts,
+//   columns.test.ts) and Phase 6's server/protocol tests.
+// - 8.1-8.3: deferred for Phase 5.5's honest-reporting process requirement (discharged in
+//   docs/history.md's Phase 5.5 status). Cited by Phase 0-3's plasticity-locality test, Phase 5's
+//   buildColumns tests (boundary.test.ts) and Phase 6's control-channel tests (server.slow.test.ts).
+//
+// The cost runs the other way too: while '7.1'..'8.3' are deferred, *no* phase's 7.1-8.3 can ever
+// be reported missing, since a deferral hides the id for every phase at once. The C10 audit found
+// two such criteria with no citing test at all -- Phase 6's 7.1 and 7.3. The real fix is a
+// phase-qualified citation form, scoped (not built) in finding 35.
+const KNOWN_COLLISIONS = new Set([
+  '5.2',
+  '7.1',
+  '7.2',
+  '7.3',
+  '7.4',
+  '7.5',
+  '8.1',
+  '8.2',
+  '8.3',
+]);
+
 const TEST_DIRS = [
   path.join(repoRoot, 'crates', 'brain-core', 'src'), // #[cfg(test)] mod tests blocks live alongside the code
   path.join(repoRoot, 'crates', 'brain-core', 'tests'),
@@ -219,7 +255,10 @@ function main() {
 
   const missing = allIds.filter((id) => !cited.has(id) && !DEFERRED.has(id));
   const staleDeferrals = [...DEFERRED].filter((id) => !allIds.includes(id));
-  const nowCovered = [...DEFERRED].filter((id) => cited.has(id));
+  const nowCovered = [...DEFERRED].filter(
+    (id) => cited.has(id) && !KNOWN_COLLISIONS.has(id),
+  );
+  const collisionsCited = [...KNOWN_COLLISIONS].filter((id) => cited.has(id));
 
   console.log(
     `Traceability: ${totalCriteriaAcrossDocs} acceptance criteria found across ${REQUIREMENTS_PATHS.length} requirements docs (${allIds.length} distinct ids -- see the id-collision note above).`,
@@ -233,10 +272,26 @@ function main() {
 
   let ok = true;
 
+  const strayCollisions = [...KNOWN_COLLISIONS].filter(
+    (id) => !DEFERRED.has(id),
+  );
+  if (strayCollisions.length > 0) {
+    ok = false;
+    console.error(
+      `\nFAIL: KNOWN_COLLISIONS names ids that are not deferred: ${strayCollisions.join(', ')}`,
+    );
+  }
+
   if (staleDeferrals.length > 0) {
     ok = false;
     console.error(
       `\nFAIL: deferral list names criteria that no longer exist in requirements.md: ${staleDeferrals.join(', ')}`,
+    );
+  }
+
+  if (collisionsCited.length > 0) {
+    console.log(
+      `${collisionsCited.length} deferred ids are cited only by *another* phase's identically-numbered criterion (KNOWN_COLLISIONS) -- kept deferred: ${collisionsCited.join(', ')}`,
     );
   }
 
