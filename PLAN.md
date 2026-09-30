@@ -149,7 +149,7 @@ graph TD
 
 **C13 was appended 2026-09-27, and it is the first item in this file that owns corpus length.** `.claude/HANDOFF.md` fact 20 recorded, in September 2026, that _nothing in PLAN.md owns corpus length_ — every VAL-4 figure in the repository is one number at 15,000 characters, a horizon that was inherited rather than argued for. Two measurements since then make that gap load-bearing rather than tidy. Finding 23 showed the protocol stops **before** the peak (accuracy is still climbing at 15,000; it peaks in the low tens of thousands). Findings 25 and 26 showed what is past it: the catastrophic collapse finding 23 measured was a `target_index` correctness bug and is gone, but a **gentle ~8.7-point decline from peak to 200,000 characters remains, and it is not caused by structural plasticity** — a one-variable ablation puts the drop at 8.67 points with sprouting and 8.80 without. So there is a real, unexplained stability limit, and no item owns either it or the horizon question it sits behind. **Appended as C13 rather than inserted**, deliberately: C4's insertion renumbered `C4…C11` to `C5…C12` and had to chase citations through three other files, and nothing about this item's content requires it to sit earlier in Phase C. It is ordered **before D4** because D4 is a 1-3 week re-tune and should not be run against a horizon nobody has justified — the same reasoning that put C3 and C4 before D4.
 
-**C16 and C17 were appended [2026-09-29 17:53 +0100], at the user's request, and they are ordered before D4 for the same reason as C13.** C15's follow-ups (docs/findings.md findings 31-33) found that the post-peak decline is a READOUT mismatch: the network's activity keeps its information, but it drifts away from the fixed input-character templates that VAL-4 decodes against. A local least-mean-squares readout (Rule, Loback et al. 2020) removes the decline, at a measured 1.56-point cost at the pinned horizon. No tested speaker-side change (homeostasis, k-WTA, capacity, punishment, feedforward-only confirmation) holds the peak under the fixed readout. **VAL-4 is read through the readout, so D4's 1-3 week re-tune must not be run against a readout that is about to change.** C16 is the design call (docs/open-questions.md item 10, plus the IO-3 spec change, since the decoder is defined as "not a trained output layer"); C17 builds and measures what C16 decides. Neither depends on C10-C12, which can go in any order. A faithful readout is a small output population, which F16/F18 (laminar columns, output layers) build properly much later, so C17 should be designed for F16 to absorb it.
+**C16 and C17 were appended [2026-09-29 17:53 +0100], at the user's request, and they are ordered before D4 for the same reason as C13.** C15's follow-ups (docs/findings.md findings 31-33) found that the post-peak decline is a READOUT mismatch: the network's activity keeps its information, but it drifts away from the fixed input-character templates that VAL-4 decodes against. A local least-mean-squares readout (Rule, Loback et al. 2020) removes the decline, at a measured 1.56-point cost at the pinned horizon. No tested speaker-side change (homeostasis, k-WTA, capacity, punishment, feedforward-only confirmation) holds the peak under the fixed readout. **VAL-4 is read through the readout, so D4's 1-3 week re-tune must not be run against a readout that is about to change.** C16 is the design call (docs/open-questions.md item 10, plus the IO-3 spec change, since the decoder is defined as "not a trained output layer"); C17 builds and measures what C16 decides. Neither depends on C10-C12, which can go in any order. A faithful readout is a small output population, which F16/F18 (laminar columns, output layers) build properly much later, so C17 should be designed for F16 to absorb it. **Both are done [2026-09-30 07:23 +0100]:** C16 chose REPLACE (docs/decisions.md decision 36), and C17 built and measured it (docs/findings.md finding 34): the learning readout holds on the probe and costs 3.28 points at 15,000, so VAL-4's headline is now 16.59% / 16.57%. D4's C17 gate is met.
 
 **C5 is a shared hook, not a mechanism.** Before C5, exactly two functions in the whole core read the neuromodulator field, and both multiply a delta by a level. Nothing lets a modulator reach an STDP _window_, an LTP/LTD _ratio_, a threshold, or a routing decision. C6, C7 and F19 all need the same plumbing into `StdpParams`; building it once is the difference between Phase C being three items and three copies of one change. **It also carried the staircase check** (added 2026-09-21, task step 5): C6 and C7 are searches over the knob C5 builds, and if a modulator gain turned out to be a step function rather than a continuous one — which C3's own results hinted at — then those searches would report noise as structure. **Settled by C5 (2026-09-21): not a staircase.** On the permanence path (C3's) a gain is _inert_ — permanence moves continuously but neither reader of its magnitude is reachable, so a search would report a flat line; on the weight path, which is what C6 and C7 act on, it is _continuous_ and searchable — **but its response reversed between 6,000 and 15,000 characters**, so both prompts now carry a correction block. See C5's Status row, docs/decisions.md decision 16 and docs/findings.md finding 18. **Qualified by a post-close review (2026-09-21):** "inert" and "continuous" were both 6,000-character results. At 15,000 the permanence path is _nearly_ inert and the weight path is _sensitive_: a 1e-4 nudge moves topology on one seed, and nearby settings differ by ~0.4 points of noise. C6's own knob also reversed with horizon. docs/findings.md finding 18's addendum.
 
@@ -174,22 +174,22 @@ graph TD
 | — | **A1-A4** | _Phase A — closed_ | — | — | — |
 | — | **B1-B5** | _Phase B — closed_ | — | — | — |
 | 1 | **C1** | Wire `runConsolidation` into the streaming loop — _done 2026-09-19_ | B1 | 1 session | — |
-| 2 | **C2** | Prediction-error producer: noradrenaline (unexpected) + acetylcholine (expected) | A1 | 1 session | hours of runs |
-| 3 | **C3** | Dopamine: a real reward _prediction error_, routed onto permanence | — | 1 session | — |
-| 4 | **C4** | Growth cannot reach the readout: spatial sprout reach, separated from the inhibition neighbourhood | B3, B5 | 1 session | hours of runs |
-| 5 | **C5** | Modulators reach `StdpParams` — the shared hook for C6/C7/F19 | — | 1 session | — |
-| 6 | **C6** | Noradrenaline widens the STDP timing window | C2, C5 | 1 session | hours of runs |
-| 7 | **C7** | Acetylcholine sets the LTP/LTD ratio | C2, C5 | 1 session | hours of runs |
-| 8 | **C8** | Feedforward/recurrent discriminant reaching the plasticity path | — | 1 session | **1 design call** |
-| 9 | **C9** | Acetylcholine encoding mode: recurrent transmission down, recurrent plasticity up | C2, C8 | 1 session | hours of runs |
+| 2 | **C2** | Prediction-error producer: noradrenaline (unexpected) + acetylcholine (expected) — _done 2026-09-20_ | A1 | 1 session | hours of runs |
+| 3 | **C3** | Dopamine: a real reward _prediction error_, routed onto permanence — _done 2026-09-20_ | — | 1 session | — |
+| 4 | **C4** | Growth cannot reach the readout: spatial sprout reach, separated from the inhibition neighbourhood — _done 2026-09-21_ | B3, B5 | 1 session | hours of runs |
+| 5 | **C5** | Modulators reach `StdpParams` — the shared hook for C6/C7/F19 — _done 2026-09-21_ | — | 1 session | — |
+| 6 | **C6** | Noradrenaline widens the STDP timing window — _done 2026-09-21_ | C2, C5 | 1 session | hours of runs |
+| 7 | **C7** | Acetylcholine sets the LTP/LTD ratio — _done 2026-09-22_ | C2, C5 | 1 session | hours of runs |
+| 8 | **C8** | Feedforward/recurrent discriminant reaching the plasticity path — _done 2026-09-24_ | — | 1 session | **1 design call** |
+| 9 | **C9** | Acetylcholine encoding mode: recurrent transmission down, recurrent plasticity up — _done 2026-09-24_ | C2, C8 | 1 session | hours of runs |
 | 10 | **C10** | Small correctness issues from the A1-A3 verification | A3 | 1 session | — |
 | 11 | **C11** | Periodic sweeps silently inert in multi-threaded mode | A4, B1 | 1 session | — |
 | 12 | **C12** | Selective (replay-gated) downscaling, not uniform | C1 | 1 session | hours of runs |
-| 13 | **C13** | Corpus horizon: who owns length, and what causes the post-peak decline | — | 1 session | hours of runs |
-| 14 | **C14** | Contributor-gated reinforcement + soft-bound `apply_delta` | C13 | 1 session | hours of runs |
-| 15 | **C15** | Is the post-peak decline the network, or the corpus? A fixed held-out probe | C14 | 1 session | hours of runs |
-| 16 | **C16** | The readout: fixed templates, learned, or both? Design call + evidence + the IO-3 spec change | C15 | 1 session | **1 design call** |
-| 17 | **C17** | Build the biologically faithful learning readout and measure it against the fixed one | C16 | 1 session | hours of runs |
+| 13 | **C13** | Corpus horizon: who owns length, and what causes the post-peak decline — _done 2026-09-28_ | — | 1 session | hours of runs |
+| 14 | **C14** | Contributor-gated reinforcement + soft-bound `apply_delta` — _done 2026-09-28_ | C13 | 1 session | hours of runs |
+| 15 | **C15** | Is the post-peak decline the network, or the corpus? A fixed held-out probe — _done 2026-09-28_ | C14 | 1 session | hours of runs |
+| 16 | **C16** | The readout: fixed templates, learned, or both? Design call + evidence + the IO-3 spec change — _done 2026-09-29_ | C15 | 1 session | **1 design call** |
+| 17 | **C17** | Build the biologically faithful learning readout and measure it against the fixed one — _done 2026-09-30_ | C16 | 1 session | hours of runs |
 | 18 | **D1** | `polarity` in `NeuronLocal` + E/I-aware `rescale_one` | B1 | 1 session | — |
 | 19 | **D2** | Inhibitory STDP rule (Vogels-style) + kernel tests | D1 | 1 session | — |
 | 20 | **D3** | Polarity dispatch + E/I-balance ablation test | D2 | 1 session | — |
@@ -2661,6 +2661,9 @@ doc comment, and docs/prior-art.md §13.13(a) plus LRN-2's status record the res
 ```
 Read README.md docs/prior-art.md §2.4, NEU-4, NET-2, docs/findings.md findings 1, 2 and 11, docs/prior-art.md §13.13(a), and docs/history.md Phase 7/8 status.
 Then PLAN.md §4. Assumes A2, B1, B2, B4, B5, C1, C2, C17, D1 and D2 have all landed (C17: VAL-4's readout is settled — do not tune against a readout that is about to change).
+[2026-09-30 07:23 +0100] C17 has landed: tune against `readoutAccuracy` (the learning readout, `VAL4_CONFIG`), not
+`networkAccuracy`, which is now the fixed-readout diagnostic. Baseline: docs/findings.md finding 34
+(16.59% / 16.57% at 15,000; the readout holds at 200,000).
 
 WHAT THIS IS. Every parameter in this repository was found with `excitatoryFraction: 1.0` — no run
 has ever used the 80:20 ratio NEU-4 specifies (docs/findings.md finding 11d). This item turns it on. The
