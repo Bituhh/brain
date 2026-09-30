@@ -1,5 +1,7 @@
 # Requirements: Brain Engine Phase 8 — Self-Tuning Parameters and Neuromodulator-Driven Plasticity
 
+**Citation prefix:** `P8` — cite this spec's acceptance criteria as `P8-N.M` (e.g. `P8-1.2`), never as a bare `Requirement N.M` (docs/decisions.md decision 38).
+
 ## Introduction
 
 Phase 7 closed with an honest negative result: a systematic joint search over `charPrediction.ts`'s `width`/`targetRate` converged right back to the values already in use (17.37% mean accuracy, still short of trigram's ~29%). Reviewing _why_ those and other values are hand-picked constants at all surfaced a real tension with this project's own stated philosophy — invariant 10 ("capacity is grown, not configured") and README §12 decision 10 ("prefer a self-tuning target _rate_ over a hardcoded, scale-dependent value... when a new mechanism needs a threshold, cap, or quorum whose right absolute value would depend on network scale") both already say several of these knobs should not be constants a human sets once.

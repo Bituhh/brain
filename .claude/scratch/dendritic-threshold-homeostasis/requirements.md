@@ -1,5 +1,7 @@
 # Requirements: Dendritic Segment Threshold Homeostasis
 
+**Citation prefix:** `DTH` — cite this spec's acceptance criteria as `DTH-N.M` (e.g. `DTH-1.2`), never as a bare `Requirement N.M` (docs/decisions.md decision 38).
+
 ## Introduction
 
 Every dendritic segment in this engine currently fires at a fixed, hand-picked coincidence threshold (`BinaryCoincidenceParams.threshold: u16` — "at least N synapses must deliver together"). That number is chosen once, by a human, for one specific network shape. This project's own invariant 10 ("capacity is grown, not configured — a fixed neuron count set at construction is a starting condition, not a ceiling") and NET-7 (neurons and synapses are created and destroyed mid-simulation) mean a running network's neuron count, `segments_per_neuron`, and synapse density are not fixed at design time — they are a continuously moving target. A hand-picked absolute threshold is therefore not a one-time tuning cost; it is a recurring one that has to be rediscovered every time the network's shape changes.

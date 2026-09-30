@@ -1,5 +1,7 @@
 # Requirements: Brain Engine Phase 5.5 — Working Memory, Action Selection and Reference Frames
 
+**Citation prefix:** `P55` — cite this spec's acceptance criteria as `P55-N.M` (e.g. `P55-1.2`), never as a bare `Requirement N.M` (docs/decisions.md decision 38).
+
 ## Introduction
 
 Phases 0–5 built a partitioned, event-driven, locally-learning spiking core with columns, lateral voting, a full I/O layer (encoders, decoders, streaming harness), a reward/neuromodulator FFI surface, consolidation, and a closed (if synthetic) sensorimotor loop. Phase 5's milestone was reported honestly as a split result: the sensorimotor-loop ablation closed, VAL-4 (character prediction beating a trigram baseline) did not.

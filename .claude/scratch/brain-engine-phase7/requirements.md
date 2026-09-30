@@ -1,5 +1,7 @@
 # Requirements: Brain Engine Phase 7 — Scale Validation, Drift and Visual Inspection
 
+**Citation prefix:** `P7` — cite this spec's acceptance criteria as `P7-N.M` (e.g. `P7-1.2`), never as a bare `Requirement N.M` (docs/decisions.md decision 38).
+
 ## Introduction
 
 Phases 0–6 are shipped. Phase 5.5 proved NET-12 (sustained attractor) and NET-13 (action-selection/gating) work, but only at toy scale — a hand-isolated, all-to-all 5-neuron clique with **no** automatic internal wiring (`working_memory.rs` builds its column with `p0 = 0.0` specifically so k-WTA/locality never has to do any work; the column's other 15 neurons are never connected to anything or stimulated), and a 2-population race (`action_selection.rs`). Phase 4 separately deferred a real throughput benchmark: `tests/scale.rs`'s 100k-neuron/50M-synapse test is memory-only and uses deterministic ring wiring, explicitly flagged in its own doc comment as having no locality and therefore producing a misleading per-core-throughput number if ever ticked. Phase 6 shipped the browser visualiser specifically so results like these could be watched live rather than only read off spike rasters.

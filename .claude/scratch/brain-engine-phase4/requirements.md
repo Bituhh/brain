@@ -1,5 +1,7 @@
 # Requirements: Brain Engine Phase 4 — Columns and Scale
 
+**Citation prefix:** `P4` — cite this spec's acceptance criteria as `P4-N.M` (e.g. `P4-1.2`), never as a bare `Requirement N.M` (docs/decisions.md decision 38).
+
 ## Introduction
 
 Phases 0–3 built a single-threaded, event-driven spiking core that satisfies the project's exit criterion (Requirement 14.4): it learns `ABCD` and `XBCY` and disambiguates the shared `B`/`C` subsequence by context, via dendritic segments, predictive learning, STDP, homeostasis, and structural plasticity — all local, all on one thread, all snapshot-able.

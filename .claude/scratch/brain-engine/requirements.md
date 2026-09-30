@@ -1,5 +1,7 @@
 # Requirements: Brain Engine — Phases 0–3
 
+**Citation prefix:** `P03` — cite this spec's acceptance criteria as `P03-N.M` (e.g. `P03-1.2`), never as a bare `Requirement N.M` (docs/decisions.md decision 38).
+
 ## Introduction
 
 This spec covers the first implementable slice of the Brain project: a Rust simulation core with a TypeScript shell, built up to the point where the network demonstrates **high-order sequence memory** — disambiguating `ABCD` from `XBCY` by context, and recalling reliably under noise. That capability is the exit criterion, and it is the first thing the system does that a layered network cannot do the same way.

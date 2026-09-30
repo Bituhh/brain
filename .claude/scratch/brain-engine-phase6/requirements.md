@@ -1,5 +1,7 @@
 # Requirements: Brain Engine Phase 6 — Browser Visualiser
 
+**Citation prefix:** `P6` — cite this spec's acceptance criteria as `P6-N.M` (e.g. `P6-1.2`), never as a bare `Requirement N.M` (docs/decisions.md decision 38).
+
 ## Introduction
 
 Phases 0–5.5 built a partitioned, event-driven, locally-learning spiking core with columns, lateral voting, working memory, action selection, reference frames, a full I/O layer, and a reward/neuromodulator FFI surface. All of it has been inspected so far through Rust/TypeScript test assertions and printed numbers — nothing has ever been _looked at_. README §11 schedules Phase 6 to close that gap: a browser visualiser driven by the native (`napi-rs`) build over a local socket, covering VIZ-1/2/3 (§9) and giving OBS-1/2/3's existing observability primitives (§9, `crates/brain-core/src/probe.rs`, `metrics.rs`) their first real consumer. Phase 7 (scale validation) is sequenced immediately after this one specifically so its results can be watched live through this visualiser rather than read off spike rasters — this phase's design choices should not foreclose that, but making large networks render or stream _fast_ is explicitly Phase 7's problem, not this one's.

@@ -1,5 +1,7 @@
 # Requirements: Self-Tuning k-WTA Sparsity (Inhibition Homeostasis)
 
+**Citation prefix:** `INH` — cite this spec's acceptance criteria as `INH-N.M` (e.g. `INH-1.2`), never as a bare `Requirement N.M` (docs/decisions.md decision 38).
+
 ## Introduction
 
 This is a spiking, locally-learning neural substrate (Rust core in `crates/brain-core`, TypeScript shell in `packages/`, see `README.md` at the repo root for the full specification). Sparsity — roughly 2% of neurons active at any moment — is enforced by local k-winners-take-all competition (NET-2, invariant 4), implemented by `crates/brain-core/src/inhibition.rs`'s `FixedNeighbourhoods`: neurons are grouped into fixed-size, contiguous, non-overlapping neighbourhoods (`neuron_index / size`), and within each neighbourhood only the `k` candidates with the largest above-threshold margin this tick are allowed to spike.

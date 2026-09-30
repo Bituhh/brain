@@ -1,5 +1,7 @@
 # Requirements: Weight-Aware Dendritic Votes (PLAN.md B5)
 
+**Citation prefix:** `WADV` — cite this spec's acceptance criteria as `WADV-N.M` (e.g. `WADV-1.2`), never as a bare `Requirement N.M` (docs/decisions.md decision 38).
+
 ## Introduction
 
 A dendritic segment decides whether to depolarise its neuron by counting how many of its synapses delivered within the coincidence window. Each delivery adds exactly ±1 to that count (`Scheduler::apply_local_effect`, `self.segment_counts[composite] += signed_current.signum()`), and `BinaryCoincidence::evaluate` fires the segment at full strength once the count reaches its threshold. A synapse's weight — the efficacy STDP learns — never reaches this tally. A synapse sprouted one sweep ago and one that STDP has spent 10,000 characters strengthening each cast one full vote.

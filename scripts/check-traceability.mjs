@@ -19,6 +19,35 @@
 // tier (`npm run test:slow`) -- the fast tier (`npm run test:fast`) never
 // runs it, since a full-repo scan on every change is exactly the kind of
 // cost the split exists to keep out of the inner loop.
+//
+// CITATION FORM (docs/decisions.md decision 38, decided by the user 2026-09-30; PLAN.md C18).
+// Every slice spec numbers its requirements from 1, so a bare "Requirement 7.1" cannot say which
+// of twelve specs it means (docs/findings.md finding 35). A criterion is therefore cited as ONE
+// token, <PREFIX>-N.M -- e.g. P6-7.3 is Phase 6's Requirement 7, acceptance criterion 3. It is the
+// same shape as README's own ids (ENG-5), a single token that rustfmt cannot split across lines,
+// and it greps. A citation may name several ids: "(P03-7.1, P03-7.2)".
+//
+// Each spec declares its prefix ONCE, as a line near the top of its requirements.md:
+//   **Citation prefix:** `P6`
+// The checker reads the prefix from there, so no criterion carries a per-line tag, and a spec with
+// no declared prefix FAILS the check -- a new spec cannot join silently. The prefixes:
+//
+//   spec (.claude/scratch/<dir>/requirements.md)   prefix
+//   brain-engine (Phases 0-3)                      P03
+//   brain-engine-phase4                            P4
+//   brain-engine-phase5                            P5
+//   brain-engine-phase5-5                          P55
+//   brain-engine-phase6                            P6
+//   brain-engine-phase7                            P7
+//   brain-engine-phase8                            P8
+//   dendritic-threshold-homeostasis                DTH
+//   inhibition-homeostasis                         INH
+//   predictive-learning-neuromodulation            PLN
+//   saturation-driven-growth                       SDG
+//   weight-aware-dendritic-votes                   WADV
+//
+// None collides with README's NEU/SYN/LRN/NET/RUN/IO/ENG/OBS/VAL/VIZ. The old "Requirement N.M" /
+// "Req N.M" form is RETIRED: it credits nothing, and is counted only as "ambiguous".
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';

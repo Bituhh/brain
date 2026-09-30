@@ -1,5 +1,7 @@
 # Requirements: Brain Engine Phase 5 — I/O, Grounding and Consolidation
 
+**Citation prefix:** `P5` — cite this spec's acceptance criteria as `P5-N.M` (e.g. `P5-1.2`), never as a bare `Requirement N.M` (docs/decisions.md decision 38).
+
 > **Revised 2026-09-10** following the §12a items 3–7 analysis recorded in README §12a. Four changes to this document's scope, each traceable to a specific finding: **IO-5's sensorimotor loop moves _into_ this phase** (item 7); **LRN-11's reward API is raised from _could_ to _should_ and is now in scope** (item 4); **LRN-10's replay source becomes an abstraction rather than a concrete `SpikeRaster`** (item 5); and **a new design-only requirement settles LRN-12's two blocking design constraints without building it** (item 5). **NET-12 (working memory) is out of scope and is not a prerequisite** — a same-day sequencing correction: an earlier draft of this note gated this phase behind a "Phase 4.5" for NET-12 and the §12a item 6 phase-preservation check, which overstated the dependency (VAL-4 is driven by continuous input and never needs the network to hold state with no input). That phase was dropped; item 6's check was done immediately as housekeeping (`tests/partitioning_reference.rs`'s `cross_column_spike_phase_is_identical_across_partitioning_and_threading`, and a note in `partition.rs`'s own module docs), and NET-12 moved to **Phase 5.5**, where NET-13 actually needs it. This phase has no dependency on either.
 
 ## Introduction

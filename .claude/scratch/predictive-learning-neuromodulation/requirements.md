@@ -1,5 +1,7 @@
 # Requirements: Neuromodulator-Routed Predictive Learning
 
+**Citation prefix:** `PLN` — cite this spec's acceptance criteria as `PLN-N.M` (e.g. `PLN-1.2`), never as a bare `Requirement N.M` (docs/decisions.md decision 38).
+
 ## Introduction
 
 This is a spiking, locally-learning neural substrate (Rust core in `crates/brain-core`, TypeScript shell in `packages/`, see `README.md` at the repo root for the full specification). No layers, no backpropagation, no global loss — every learning rule is local, and the only legitimate global signal is a small set of scalar neuromodulator fields (dopamine, acetylcholine, noradrenaline, serotonin — README invariant 2, LRN-4/5).

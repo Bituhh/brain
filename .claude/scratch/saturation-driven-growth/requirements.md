@@ -1,5 +1,7 @@
 # Requirements: NET-10 Saturation-Driven Growth, Wired Live
 
+**Citation prefix:** `SDG` — cite this spec's acceptance criteria as `SDG-N.M` (e.g. `SDG-1.2`), never as a bare `Requirement N.M` (docs/decisions.md decision 38).
+
 ## Introduction
 
 This is a spiking, locally-learning neural substrate (Rust core in `crates/brain-core`, TypeScript shell in `packages/`, see `README.md` at the repo root for the full specification). Invariant 10 states it plainly: _"Capacity is grown, not configured. The network adds and removes units in response to demand. A fixed neuron count set at construction is a starting condition, not a ceiling."_ NET-10 names the mechanism: capacity is added when a population is "saturated — unable to represent new input without unacceptable interference with what it already holds."
