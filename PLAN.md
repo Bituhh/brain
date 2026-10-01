@@ -2610,6 +2610,14 @@ dated follow-up with before/after counts (raw per-spec numbers go in docs/append
 ### D1 — `polarity` in `NeuronLocal` + E/I-aware `rescale_one`
 
 ```
+READ FIRST, ADDED [2026-10-01 01:10 +0100]: C12 REFACTORED THE FUNCTION THIS ITEM FIXES. `rescale_one`
+is now a thin wrapper over `HomeostaticScaling::rescale_one_with` (plasticity/homeostatic.rs), which
+also serves consolidation's selective downscale (`force_apply_selective`, docs/decisions.md decision
+41). The E/I total is computed once in `rescale_one_with`, so fix it there, and both paths get it.
+Keep the existing summation order (HANDOFF fact 21), and keep `force_apply_selective` with all-zero
+protection bit-identical to `force_apply`: `a_selective_rescale_with_no_protection_is_bit_identical_to_force_apply`
+pins that.
+
 Read README.md NEU-4, LRN-2, LRN-6, §10 invariant 3, docs/findings.md finding 11(c), docs/prior-art.md §13.13(a), and PLAN.md §4.
 
 THE FINDING (docs/findings.md finding 11c). No plasticity rule reads `polarity`. Two consequences:
