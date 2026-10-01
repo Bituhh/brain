@@ -21,6 +21,8 @@ export interface TrialOutput {
   readonly structuralStats?: StructuralStats;
   /** PLAN.md C1: what the consolidation cadence did, when one was configured. Additive -- every pre-C1 caller leaves it absent. */
   readonly consolidationStats?: ConsolidationStats;
+  /** PLAN.md C12: the learning readout's accuracy (VAL-4's metric since C17), when the trial has one. `accuracy` stays the fixed-readout figure every earlier caller reads. Additive. */
+  readonly readoutAccuracy?: number;
 }
 
 export interface RunningTrial {

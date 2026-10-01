@@ -590,6 +590,16 @@ export interface ConsolidationCadence {
   readonly pruneFloor: number;
   /** Purely descriptive: measured spike events per character for *this* network, used only to turn `replayedSpikes` into `ConsolidationStats.charactersReplayed`. It changes no behaviour, and setting it to a worst-case rate makes that figure a lower bound rather than wrong. */
   readonly eventsPerCharacter: number;
+  /**
+   * PLAN.md C12, `ConsolidationConfig.downscaleMode`. Omit for `"uniform"`,
+   * the downscale C1 measured and every caller before C12.
+   * `"replayContributors"` is Tononi & Cirelli's down-selection with
+   * González-Rueda et al. (2018)'s rule for what survives: each synapse is
+   * spared by the fraction of its replayed deliveries whose target then
+   * fired, within the engine's existing 4-tick contributor window
+   * (docs/decisions.md decision 41).
+   */
+  readonly downscaleMode?: 'uniform' | 'replayContributors';
 }
 
 /**
@@ -636,6 +646,17 @@ export interface ConsolidationStats {
   readonly charactersReplayed: number;
   /** Summed `ConsolidationReport.pruned`. */
   readonly pruned: number;
+  /**
+   * PLAN.md C12's delivery counters, summed over every pass. Counted in
+   * both downscale modes, so a uniform row also reports what a selective one
+   * would have spared -- which is how a reader tells "selective and still
+   * inert" from "selective but marking everything".
+   */
+  readonly replayDeliveries: number;
+  readonly contributingDeliveries: number;
+  readonly deliveredSynapses: number;
+  readonly protectedSynapses: number;
+  readonly fullyProtectedSynapses: number;
 }
 
 const DEFAULT_COLLISION_MARGIN = 0.1;
@@ -1343,6 +1364,11 @@ export function runCharPredictionTrial(
   let sleeps = 0;
   let replayedSpikes = 0;
   let prunedBySleep = 0;
+  let replayDeliveries = 0;
+  let contributingDeliveries = 0;
+  let deliveredSynapses = 0;
+  let protectedSynapses = 0;
+  let fullyProtectedSynapses = 0;
 
   // `tonicModulator`: inject the full level once, then after each input top
   // it up by exactly what `ticksPerInput` ticks of decay removed, so the
@@ -1505,10 +1531,18 @@ export function runCharPredictionTrial(
         replayWindow: cadence.replayWindow,
         downscaleTargetTotalWeight: cadence.downscaleTargetTotalWeight,
         pruneFloor: cadence.pruneFloor,
+        ...(cadence.downscaleMode !== undefined && {
+          downscaleMode: cadence.downscaleMode,
+        }),
         ...CONSOLIDATION_FIXED,
       });
       replayedSpikes += report.replayedSpikes;
       prunedBySleep += report.pruned;
+      replayDeliveries += report.replayDeliveries;
+      contributingDeliveries += report.contributingDeliveries;
+      deliveredSynapses += report.deliveredSynapses;
+      protectedSynapses += report.protectedSynapses;
+      fullyProtectedSynapses += report.fullyProtectedSynapses;
     }
     onCharacter?.(sim);
     if (
@@ -1547,6 +1581,11 @@ export function runCharPredictionTrial(
         replayedSpikes,
         charactersReplayed: replayedSpikes / cadence.eventsPerCharacter,
         pruned: prunedBySleep,
+        replayDeliveries,
+        contributingDeliveries,
+        deliveredSynapses,
+        protectedSynapses,
+        fullyProtectedSynapses,
       } satisfies ConsolidationStats,
     }),
   };

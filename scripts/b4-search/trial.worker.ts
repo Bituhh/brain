@@ -22,6 +22,8 @@ export type WorkerMessage =
       readonly accuracy: number;
       readonly structuralStats: unknown;
       readonly consolidationStats: unknown;
+      /** PLAN.md C12. Absent unless the config has a `learningReadout`. */
+      readonly readoutAccuracy?: number;
     };
 
 const { corpus, seed, config } = workerData as TrialData;
@@ -34,4 +36,7 @@ port.postMessage({
   accuracy: result.networkAccuracy,
   structuralStats: result.structuralStats,
   consolidationStats: result.consolidationStats,
+  ...(result.readoutAccuracy !== undefined && {
+    readoutAccuracy: result.readoutAccuracy,
+  }),
 } satisfies WorkerMessage);

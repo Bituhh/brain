@@ -90,7 +90,40 @@ impl HomeostaticScaling {
         self.last_applied_at = last_applied_at;
     }
 
+    /// PLAN.md C12: consolidation's *selective* downscale. Each neuron's
+    /// factor is computed exactly as [`Self::force_apply`] computes it
+    /// (`target / total`, the total summed by [`Self::rescale_one`]'s own
+    /// code over `incoming()` in list order -- HANDOFF fact 21: that order is
+    /// load-bearing), and then synapse `id` receives `factor ^ (1 -
+    /// protection[id])` instead of `factor`. Protection 0 is the uniform
+    /// downscale and 1 leaves the synapse untouched; `protection` is indexed
+    /// by synapse id and a missing entry reads as 0.
+    ///
+    /// So a `protection` of all zeros is **bit-identical** to `force_apply`
+    /// -- the two ends are special-cased rather than routed through `powf`,
+    /// which is what makes the uniform downscale this mechanism's exact VAL-9
+    /// ablation rather than a numerically close one.
+    ///
+    /// Like `force_apply`, the factor exceeds 1 for a neuron whose total is
+    /// already below the target, and then this scales its unprotected inputs
+    /// *up*. Kept deliberately, so the ablation stays exact; consolidation
+    /// targets below the online sweep's own (VAL-4: 3.0 against 6.0), where
+    /// that case does not arise for a neuron the online sweep has reached.
+    pub fn force_apply_selective(&mut self, neurons: &NeuronArena, synapses: &mut SynapseArena, protection: &[f32]) {
+        for idx in 0..neurons.capacity_len() as u32 {
+            self.rescale_one_with(synapses, idx, |factor, id| match protection.get(id as usize).copied().unwrap_or(0.0) {
+                p if p <= 0.0 => factor,
+                p if p >= 1.0 => 1.0,
+                p => factor.powf(1.0 - p),
+            });
+        }
+    }
+
     fn rescale_one(&mut self, synapses: &mut SynapseArena, target: u32) {
+        self.rescale_one_with(synapses, target, |factor, _| factor);
+    }
+
+    fn rescale_one_with(&mut self, synapses: &mut SynapseArena, target: u32, per_synapse: impl Fn(f32, u32) -> f32) {
         self.incoming_scratch.clear();
         self.incoming_scratch.extend(synapses.incoming(target));
         if self.incoming_scratch.is_empty() {
@@ -102,7 +135,7 @@ impl HomeostaticScaling {
         }
         let factor = self.target_total_weight / total;
         for &id in &self.incoming_scratch {
-            synapses.weight[id as usize] = (synapses.weight[id as usize] * factor).clamp(0.0, 1.0);
+            synapses.weight[id as usize] = (synapses.weight[id as usize] * per_synapse(factor, id)).clamp(0.0, 1.0);
         }
     }
 }
@@ -410,6 +443,50 @@ mod tests {
         synapses.insert(source_b, target, 0, 1, 0.9, 0.9).unwrap();
         synapses.insert(source_c, target, 0, 1, 0.9, 0.9).unwrap();
         (neurons, synapses, target)
+    }
+
+    /// PLAN.md C12's VAL-9 ablation, at the operation itself: zero
+    /// protection everywhere -- and an empty table, which reads as zero --
+    /// is the uniform downscale bit for bit.
+    #[test]
+    fn a_selective_rescale_with_no_protection_is_bit_identical_to_force_apply() {
+        let arena = || {
+            let (neurons, mut synapses, target) = two_neurons_three_synapses();
+            let ids: Vec<u32> = synapses.incoming(target).collect();
+            synapses.weight[ids[0] as usize] = 0.37;
+            synapses.weight[ids[1] as usize] = 0.81;
+            (neurons, synapses, ids)
+        };
+        let (neurons, mut uniform, ids) = arena();
+        let (_, mut zeros, _) = arena();
+        let (_, mut empty, _) = arena();
+        HomeostaticScaling::new(1.3, 1).force_apply(&neurons, &mut uniform);
+        HomeostaticScaling::new(1.3, 1).force_apply_selective(&neurons, &mut zeros, &vec![0.0; uniform.weight.len()]);
+        HomeostaticScaling::new(1.3, 1).force_apply_selective(&neurons, &mut empty, &[]);
+        for &id in &ids {
+            let id = id as usize;
+            assert_ne!(uniform.weight[id], 0.0, "precondition: the rescale reached this synapse");
+            assert_eq!(uniform.weight[id].to_bits(), zeros.weight[id].to_bits());
+            assert_eq!(uniform.weight[id].to_bits(), empty.weight[id].to_bits());
+        }
+    }
+
+    /// Protection 1 spares a synapse exactly, 0 gives it the uniform
+    /// factor, and a fraction gives it that factor raised to the
+    /// unprotected fraction -- all computed from the same neuron total.
+    #[test]
+    fn a_selective_rescale_spares_in_proportion_to_protection() {
+        let (neurons, mut synapses, target) = two_neurons_three_synapses();
+        let ids: Vec<usize> = synapses.incoming(target).map(|id| id as usize).collect();
+        let mut protection = vec![0.0; synapses.weight.len()];
+        protection[ids[0]] = 1.0;
+        protection[ids[2]] = 0.5;
+        // Total 2.7 against a target of 0.9: factor 1/3.
+        HomeostaticScaling::new(0.9, 1).force_apply_selective(&neurons, &mut synapses, &protection);
+        let factor = 0.9f32 / (0.9f32 + 0.9 + 0.9); // summed as the rescale sums it
+        assert_eq!(synapses.weight[ids[0]], 0.9, "fully protected: untouched");
+        assert_eq!(synapses.weight[ids[1]], 0.9 * factor, "unprotected: the uniform factor");
+        assert_eq!(synapses.weight[ids[2]], 0.9 * factor.powf(0.5), "half protected: the factor to the half");
     }
 
     #[test]

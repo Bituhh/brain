@@ -71,6 +71,9 @@ export function workerRunner(workerPath: string, corpus: string): TrialRunner {
             ...(consolidation !== undefined && {
               consolidationStats: consolidation,
             }),
+            ...(message.readoutAccuracy !== undefined && {
+              readoutAccuracy: message.readoutAccuracy,
+            }),
           });
           void worker.terminate();
         }

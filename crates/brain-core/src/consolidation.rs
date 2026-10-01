@@ -87,13 +87,64 @@ pub struct ConsolidationParams {
     pub sprout_weight: f32,
     pub min_activity_streak: u32,
     pub unused_ticks_before_reclaim: u32,
+    /// PLAN.md C12: whether the downscale spares what replay used.
+    /// [`DownscaleMode::Uniform`] is every caller before C12.
+    pub downscale_mode: DownscaleMode,
+}
+
+/// How consolidation's downscale treats a neuron's inputs (PLAN.md C12,
+/// docs/decisions.md decision 41, docs/prior-art.md §13.13(h)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DownscaleMode {
+    /// Every incoming synapse of a neuron is multiplied by the same factor
+    /// (`HomeostaticScaling::force_apply`). What C1 measured, and what the
+    /// online LRN-6 sweep erases exactly (docs/findings.md finding 13(1)).
+    #[default]
+    Uniform,
+    /// Tononi & Cirelli's down-*selection*, with González-Rueda et al.
+    /// (2018)'s per-event rule for what survives: during slow-wave Up states
+    /// a presynaptic spike alone depresses its synapse, and one followed by a
+    /// postsynaptic spike within ~10 ms is protected in full. Over one
+    /// replay a synapse delivers many times, so its protection is the
+    /// **fraction** of its replayed deliveries whose target then fired
+    /// within `window_ticks` (inclusive of the delivery tick itself, where a
+    /// live delivery is integrated), and it receives `factor ^ (1 -
+    /// protection)` (`HomeostaticScaling::force_apply_selective`). A synapse
+    /// that did not deliver during the replay gets protection 0, the full
+    /// downscale: Tononi & Cirelli's global renormalisation, which diverges
+    /// from González-Rueda's finding that an unstimulated input is unchanged.
+    /// Protected synapses are **spared, not strengthened** (their result;
+    /// Li et al. 2017's REM strengthening is the recorded dissent).
+    ReplayContributors {
+        /// How long after a delivery its target's replayed spike still
+        /// counts as caused by it. VAL-4 passes the engine's existing
+        /// contributor window (`predictive::DEFAULT_CONTRIBUTOR_GATE`, 4
+        /// ticks), so no new constant is introduced for it.
+        window_ticks: u32,
+    },
 }
 
 /// What one consolidation pass did (Requirement 12).
+///
+/// The four delivery counters (PLAN.md C12) are observational and are
+/// counted in both [`DownscaleMode`]s, so a uniform pass also reports what a
+/// selective one would have spared. In `Uniform` mode they are measured at
+/// [`crate::plasticity::predictive::DEFAULT_CONTRIBUTOR_GATE`]'s window.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConsolidationReport {
     pub replayed_spikes: u32,
     pub pruned: u32,
+    /// Deliveries that transmitted during the replayed span.
+    pub replay_deliveries: u32,
+    /// Of those, deliveries whose target had a replayed spike within the
+    /// contributor window at or after the delivery tick.
+    pub contributing_deliveries: u32,
+    /// Distinct synapses that delivered at least once during the replay.
+    pub delivered_synapses: u32,
+    /// Distinct synapses with non-zero protection.
+    pub protected_synapses: u32,
+    /// Distinct synapses every one of whose replayed deliveries contributed.
+    pub fully_protected_synapses: u32,
 }
 
 impl Scheduler {
@@ -148,7 +199,23 @@ impl Scheduler {
         // draw never actually runs during consolidation today.
 
         let events = source.recent_events(params.replay_window);
+        // PLAN.md C12: per-pass scratch, never persistent -- it is rebuilt
+        // from the replayed events on every pass and dropped at its end, so
+        // it is not snapshot state (RUN-9a). Indexed by synapse id.
+        let window_ticks = match params.downscale_mode {
+            DownscaleMode::ReplayContributors { window_ticks } => window_ticks,
+            DownscaleMode::Uniform => crate::plasticity::predictive::DEFAULT_CONTRIBUTOR_GATE.window_ticks,
+        };
+        let mut delivered = vec![0u32; synapses.weight.len()];
+        let mut contributed = vec![0u32; synapses.weight.len()];
         if let Some(&(last_offset, _)) = events.last() {
+            // Each neuron's replayed spike offsets, ascending (events are
+            // oldest-first), so "did the target fire within the window" is a
+            // binary search rather than a scan.
+            let mut spike_offsets: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
+            for &(offset, neuron) in &events {
+                spike_offsets.entry(neuron).or_default().push(offset);
+            }
             // Grouped by tick offset (not walked event-by-event) so that
             // *every* intermediate tick in the span is visited, not just
             // ticks with a recorded spike: a replayed neuron's outgoing
@@ -181,6 +248,20 @@ impl Scheduler {
                     let mut effects = self.deliver(&neuron_view, &mut synapse_view, |_| None);
                     effects.sort_by_key(|e| (e.source_index, e.synapse_id));
                     self.apply_delivery_effects(neuron_view.capacity_len(), &effects);
+                    // PLAN.md C12's mark. `effects` holds exactly the
+                    // deliveries that transmitted this tick; a still-silent
+                    // synapse that passed no current cannot have helped fire
+                    // its target, so it is not counted.
+                    for e in &effects {
+                        let id = e.synapse_id as usize;
+                        delivered[id] += 1;
+                        if let Some(offsets) = spike_offsets.get(&e.target_index) {
+                            let first_at_or_after = offsets.partition_point(|&o| o < offset);
+                            if offsets.get(first_at_or_after).is_some_and(|&o| o - offset <= window_ticks) {
+                                contributed[id] += 1;
+                            }
+                        }
+                    }
                 }
                 if let Some(spiking) = by_tick.get(&offset) {
                     for &neuron in spiking {
@@ -191,8 +272,21 @@ impl Scheduler {
             self.set_tick(replay_start.wrapping_add(last_offset) + 1);
         }
 
+        let protection: Vec<f32> =
+            delivered.iter().zip(&contributed).map(|(&d, &c)| if d == 0 { 0.0 } else { c as f32 / d as f32 }).collect();
         let mut scaling = HomeostaticScaling::new(params.downscale_target_total_weight, 1);
-        scaling.force_apply(neurons, synapses);
+        match params.downscale_mode {
+            DownscaleMode::Uniform => scaling.force_apply(neurons, synapses),
+            DownscaleMode::ReplayContributors { .. } => scaling.force_apply_selective(neurons, synapses, &protection),
+        }
+        let mut marks = ConsolidationReport::default();
+        for (&d, &c) in delivered.iter().zip(&contributed) {
+            marks.replay_deliveries += d;
+            marks.contributing_deliveries += c;
+            marks.delivered_synapses += u32::from(d > 0);
+            marks.protected_synapses += u32::from(c > 0);
+            marks.fully_protected_synapses += u32::from(d > 0 && c == d);
+        }
 
         let sp_params = StructuralPlasticityParams {
             prune_floor: params.prune_floor,
@@ -241,7 +335,7 @@ impl Scheduler {
         let mut sp = StructuralPlasticity::new(sp_params, FixedNeighbourhoods::new(1, 1));
         let report = sp.force_sweep(neurons, synapses, self.tick(), |_| 0);
 
-        ConsolidationReport { replayed_spikes: events.len() as u32, pruned: report.pruned }
+        ConsolidationReport { replayed_spikes: events.len() as u32, pruned: report.pruned, ..marks }
     }
 }
 
@@ -283,6 +377,7 @@ mod run_consolidation_tests {
             sprout_weight: 0.05,
             min_activity_streak: 1,
             unused_ticks_before_reclaim: 1_000_000,
+            downscale_mode: DownscaleMode::Uniform,
         }
     }
 
@@ -385,6 +480,118 @@ mod run_consolidation_tests {
             (synapses.permanence[syn as usize], synapses.weight[syn as usize], report.replayed_spikes, report.pruned)
         }
         assert_eq!(run(), run());
+    }
+
+    /// PLAN.md C12's fixture: `a1 -> b` and `a2 -> b`, both delay 1, no
+    /// plasticity (so only the downscale can move a weight). The raster has
+    /// a1 and a2 both spike, but only a1's delivery is followed by b firing:
+    /// a1 at tick 0 delivers at 1 and b fires at 1; a2 at tick 10 delivers at
+    /// 11, and b next fires at 20.
+    fn contributor_fixture() -> (NeuronArena, SynapseArena, SpikeRaster, u32, u32) {
+        let mut neurons = NeuronArena::new();
+        let spec = NeuronSpec { threshold: 0.5, polarity: 1, coords: [0.0; 3] };
+        let a1 = neurons.allocate(spec).index;
+        let a2 = neurons.allocate(spec).index;
+        let b = neurons.allocate(spec).index;
+        let mut synapses = SynapseArena::new(1);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        let s1 = synapses.insert(a1, b, 0, 1, 0.5, 0.6).unwrap();
+        let s2 = synapses.insert(a2, b, 0, 1, 0.5, 0.6).unwrap();
+        let mut raster = SpikeRaster::new();
+        raster.record(0, a1);
+        raster.record(1, b);
+        raster.record(10, a2);
+        // A trailing b spike nine ticks after a2's delivery -- outside any
+        // window used here -- so the replayed span reaches tick 11. Replay
+        // drains deliveries only up to its last recorded event, so without
+        // this a2's delivery would never happen during the pass at all.
+        raster.record(20, b);
+        (neurons, synapses, raster, s1, s2)
+    }
+
+    fn run_fixture(mode: DownscaleMode) -> (SynapseArena, ConsolidationReport, u32, u32) {
+        let (mut neurons, mut synapses, raster, s1, s2) = contributor_fixture();
+        let mut sched = Scheduler::new(4, 0.4);
+        let lif_params = LifParams::new(5.0, 0.0, 0.0, 0);
+        // Total 1.2 against 0.6: a uniform factor of one half.
+        let params = ConsolidationParams { downscale_target_total_weight: 0.6, downscale_mode: mode, ..default_params() };
+        let report = sched.run_consolidation::<Lif, _>(&mut neurons, &mut synapses, &lif_params, &raster, &params, 1);
+        (synapses, report, s1, s2)
+    }
+
+    /// PLAN.md C12: a synapse whose replayed delivery was followed by its
+    /// target's spike is spared; one whose delivery was not takes the full
+    /// uniform factor. The counters say what the mark saw.
+    #[test]
+    fn a_replayed_contributor_is_spared_and_a_non_contributor_is_downscaled() {
+        let (synapses, report, s1, s2) = run_fixture(DownscaleMode::ReplayContributors { window_ticks: 4 });
+        assert_eq!(synapses.weight[s1 as usize], 0.6, "a1 -> b contributed on every delivery: spared exactly");
+        assert_eq!(synapses.weight[s2 as usize], 0.3, "a2 -> b never contributed: the uniform factor of one half");
+        assert_eq!(report.replay_deliveries, 2);
+        assert_eq!(report.contributing_deliveries, 1);
+        assert_eq!(report.delivered_synapses, 2);
+        assert_eq!(report.protected_synapses, 1);
+        assert_eq!(report.fully_protected_synapses, 1);
+    }
+
+    /// The VAL-9 ablation: the same replay under `Uniform` scales both
+    /// synapses alike, and still reports what a selective pass would have
+    /// spared (the counters are observational).
+    #[test]
+    fn the_uniform_mode_scales_both_alike_and_still_reports_the_mark() {
+        let (synapses, report, s1, s2) = run_fixture(DownscaleMode::Uniform);
+        assert_eq!(synapses.weight[s1 as usize], 0.3);
+        assert_eq!(synapses.weight[s2 as usize], 0.3);
+        assert_eq!((report.contributing_deliveries, report.protected_synapses), (1, 1));
+    }
+
+    /// The window is a window: a target spike later than `window_ticks`
+    /// after the delivery does not count, and one exactly at it does.
+    #[test]
+    fn a_target_spike_outside_the_window_does_not_protect() {
+        let lif_params = LifParams::new(5.0, 0.0, 0.0, 0);
+        for (window, spared) in [(2, false), (3, true)] {
+            let (mut neurons, mut synapses, _, s1, _) = contributor_fixture();
+            let mut raster = SpikeRaster::new();
+            raster.record(0, 0); // a1: delivers at tick 1
+            raster.record(4, 2); // b: three ticks after that delivery
+            let params = ConsolidationParams {
+                downscale_target_total_weight: 0.6,
+                downscale_mode: DownscaleMode::ReplayContributors { window_ticks: window },
+                ..default_params()
+            };
+            let report = Scheduler::new(4, 0.4).run_consolidation::<Lif, _>(&mut neurons, &mut synapses, &lif_params, &raster, &params, 1);
+            assert_eq!(report.contributing_deliveries, u32::from(spared), "window {window}");
+            assert_eq!(synapses.weight[s1 as usize] == 0.6, spared, "window {window}");
+        }
+    }
+
+    /// The reason C12 exists (docs/findings.md finding 13(1)): a later
+    /// total-renormalising sweep erases a uniform downscale -- afterwards the
+    /// two synapses are equal again, as they started -- but it cannot erase a
+    /// selective one, because it multiplies both by one factor and so keeps
+    /// the ratio the selective pass created. Reasoned in the prompt; this is
+    /// the check at the smallest scale.
+    #[test]
+    fn a_later_renormalising_sweep_erases_a_uniform_downscale_but_keeps_a_selective_one() {
+        for (mode, ratio_after) in [(DownscaleMode::Uniform, 1.0f32), (DownscaleMode::ReplayContributors { window_ticks: 4 }, 2.0)] {
+            let (mut synapses, _, s1, s2) = run_fixture(mode);
+            let neurons = contributor_fixture().0;
+            HomeostaticScaling::new(1.2, 1).force_apply(&neurons, &mut synapses);
+            let ratio = synapses.weight[s1 as usize] / synapses.weight[s2 as usize];
+            assert!((ratio - ratio_after).abs() < 1e-6, "{mode:?}: ratio {ratio}, expected {ratio_after}");
+        }
+    }
+
+    /// The mark is per-pass scratch: two passes from identical state are
+    /// bit-identical in weights and in every counter (RUN-3, P5-11.5).
+    #[test]
+    fn a_selective_pass_is_deterministic() {
+        let mode = DownscaleMode::ReplayContributors { window_ticks: 4 };
+        let (a, ra, ..) = run_fixture(mode);
+        let (b, rb, ..) = run_fixture(mode);
+        assert_eq!(ra, rb);
+        assert_eq!(a.weight.iter().map(|w| w.to_bits()).collect::<Vec<_>>(), b.weight.iter().map(|w| w.to_bits()).collect::<Vec<_>>());
     }
 
     /// P5-11.2/P5-11.3: pruning removes a weak synapse and the

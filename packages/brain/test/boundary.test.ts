@@ -1546,6 +1546,93 @@ test('Simulation.runConsolidation advances currentTick and replays recorded acti
   );
 });
 
+/**
+ * PLAN.md C12 through the FFI: two sources onto `b`. `a1`'s delivery lands on
+ * the tick `b` fires; `a2`'s lands five ticks before `b`'s next spike, outside
+ * the default 4-tick window. The selective pass spares `a1 -> b` and halves
+ * `a2 -> b`; the uniform pass halves both and still reports the same mark.
+ */
+function contributorNetwork(): {
+  sim: Simulation;
+  s1: number;
+  s2: number;
+  before: Float32Array;
+} {
+  const sim = Simulation.create(
+    { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },
+    { maxDelay: 2, connectionThreshold: 0.1, synapseCapPerNeuron: 2 },
+  );
+  const a1 = sim.allocateNeuron(0.5, 1);
+  const a2 = sim.allocateNeuron(0.5, 1);
+  const b = sim.allocateNeuron(0.5, 1);
+  const s1 = sim.connect(a1, b, 0, 1, 0.3)!;
+  const s2 = sim.connect(a2, b, 0, 1, 0.3)!;
+  const drive = (neuron: number | undefined) => {
+    if (neuron !== undefined) sim.stimulate(neuron, 10.0);
+    sim.step();
+  };
+  // a1 fires, then b fires on the tick a1's delivery lands; a2 fires, its
+  // delivery lands on the next tick and cannot fire b alone; b fires again
+  // five ticks after that delivery.
+  [a1, b, a2, undefined, undefined, undefined, undefined, undefined, b].forEach(
+    drive,
+  );
+  return { sim, s1, s2, before: sim.synapseWeightView().slice() };
+}
+
+test('Simulation.runConsolidation downscaleMode "replayContributors" spares a contributor and not a non-contributor (PLAN.md C12)', () => {
+  for (const mode of ['uniform', 'replayContributors'] as const) {
+    const { sim, s1, s2, before } = contributorNetwork();
+    assert.ok(
+      before[s1]! < 0.5 && before[s1] === before[s2],
+      'precondition: equal weights, each too small to fire b alone',
+    );
+    const report = sim.runConsolidation(
+      1n,
+      consolidationConfig({
+        downscaleTargetTotalWeight: before[s1]!,
+        downscaleMode: mode,
+      }),
+    );
+    assert.equal(
+      report.contributingDeliveries,
+      1,
+      `${mode}: one contributing delivery`,
+    );
+    assert.equal(report.protectedSynapses, 1, `${mode}: one protected synapse`);
+    assert.equal(report.fullyProtectedSynapses, 1);
+    assert.equal(report.deliveredSynapses, 2);
+    const after = sim.synapseWeightView();
+    const half = Math.fround(before[s1]! * 0.5);
+    assert.equal(after[s2], half, `${mode}: a2 -> b takes the uniform factor`);
+    assert.equal(
+      after[s1],
+      mode === 'uniform' ? half : before[s1],
+      `${mode}: a1 -> b is ${mode === 'uniform' ? 'halved' : 'spared'}`,
+    );
+  }
+});
+
+test('Simulation.runConsolidation refuses an unknown downscaleMode, and a contributor window without the mode that reads it (PLAN.md C12)', () => {
+  const { sim } = contributorNetwork();
+  assert.throws(
+    () =>
+      sim.runConsolidation(
+        1n,
+        consolidationConfig({ downscaleMode: 'sometimes' }),
+      ),
+    /downscaleMode/,
+  );
+  assert.throws(
+    () =>
+      sim.runConsolidation(
+        1n,
+        consolidationConfig({ contributorWindowTicks: 4 }),
+      ),
+    /contributorWindowTicks/,
+  );
+});
+
 test('Simulation.runConsolidation completes as a no-op on a network with no recorded activity (P5-12.4)', () => {
   const sim = Simulation.create(
     { tauMTicks: 5, vRest: 0, vReset: 0, refractoryTicks: 0 },

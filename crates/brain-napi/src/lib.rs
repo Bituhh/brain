@@ -9,7 +9,7 @@
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
 use brain_core::column::ColumnRegistry;
-use brain_core::consolidation::ConsolidationParams;
+use brain_core::consolidation::{ConsolidationParams, DownscaleMode};
 use brain_core::graph::{DistancePolicy, GraphBuilder};
 use brain_core::growth::OverlapSaturation;
 use brain_core::neuromodulator::{ChannelDrive, PredictionErrorCoupling, RewardPredictionError};
@@ -1353,13 +1353,28 @@ pub struct ConsolidationConfig {
     pub sprout_weight: f64,
     pub min_activity_streak: u32,
     pub unused_ticks_before_reclaim: u32,
+    /// PLAN.md C12 (`consolidation::DownscaleMode`): `"uniform"` (omit for
+    /// this -- every caller before C12) or `"replayContributors"`, which
+    /// spares each synapse by the fraction of its replayed deliveries whose
+    /// target then fired.
+    pub downscale_mode: Option<String>,
+    /// `"replayContributors"`' window, in ticks. Omit for the engine's
+    /// existing contributor window (`DEFAULT_CONTRIBUTOR_GATE`, 4 ticks).
+    /// Refused with `"uniform"`, where it would be silently inert.
+    pub contributor_window_ticks: Option<u32>,
 }
 
-/// What one consolidation pass did (Requirement 12).
+/// What one consolidation pass did (Requirement 12). The delivery counters
+/// are PLAN.md C12's, described on `consolidation::ConsolidationReport`.
 #[napi(object)]
 pub struct ConsolidationReportFfi {
     pub replayed_spikes: u32,
     pub pruned: u32,
+    pub replay_deliveries: u32,
+    pub contributing_deliveries: u32,
+    pub delivered_synapses: u32,
+    pub protected_synapses: u32,
+    pub fully_protected_synapses: u32,
 }
 
 /// A probe's configuration (OBS-1, Phase 6 Requirement 4) -- mirrors
@@ -1567,7 +1582,20 @@ impl ConsolidationConfig {
         if !(0.0..=1.0).contains(&self.sprout_permanence) {
             return Err(Error::from_reason("sproutPermanence must be within [0, 1]"));
         }
+        let downscale_mode = match (self.downscale_mode.as_deref(), self.contributor_window_ticks) {
+            (None | Some("uniform"), None) => DownscaleMode::Uniform,
+            (None | Some("uniform"), Some(_)) => {
+                return Err(Error::from_reason("contributorWindowTicks is only meaningful with downscaleMode \"replayContributors\""));
+            }
+            (Some("replayContributors"), window) => {
+                DownscaleMode::ReplayContributors { window_ticks: window.unwrap_or(DEFAULT_CONTRIBUTOR_GATE.window_ticks) }
+            }
+            (Some(other), _) => {
+                return Err(Error::from_reason(format!("downscaleMode must be \"uniform\" or \"replayContributors\", got {other:?}")));
+            }
+        };
         Ok(ConsolidationParams {
+            downscale_mode,
             replay_window: self.replay_window as usize,
             downscale_target_total_weight: self.downscale_target_total_weight as f32,
             prune_floor: self.prune_floor as f32,
@@ -3682,6 +3710,14 @@ impl NativeSimulation {
         let params = config.resolve()?;
         let seed = seed.get_u64().1;
         let report = scheduler.run_consolidation::<Lif, _>(&mut self.neurons, &mut self.synapses, &self.lif_params, &self.raster, &params, seed);
-        Ok(ConsolidationReportFfi { replayed_spikes: report.replayed_spikes, pruned: report.pruned })
+        Ok(ConsolidationReportFfi {
+            replayed_spikes: report.replayed_spikes,
+            pruned: report.pruned,
+            replay_deliveries: report.replay_deliveries,
+            contributing_deliveries: report.contributing_deliveries,
+            delivered_synapses: report.delivered_synapses,
+            protected_synapses: report.protected_synapses,
+            fully_protected_synapses: report.fully_protected_synapses,
+        })
     }
 }

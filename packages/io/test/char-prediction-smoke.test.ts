@@ -450,6 +450,70 @@ test('a consolidation cadence sleeps on schedule, replays real events, prunes re
   );
 });
 
+// PLAN.md C12: the selective downscale reaches the network through the
+// harness, its mark is graded rather than degenerate, and it is not the
+// uniform downscale under another name. Weighted votes, as the scaling test
+// above needs: in Count mode weight never reaches a prediction, so the two
+// modes could look identical for the wrong reason.
+test('a selective ("replayContributors") sleep marks a graded fraction of replayed deliveries and changes the run relative to a uniform one (PLAN.md C12)', () => {
+  const config = {
+    ...DEFAULT_CONFIG,
+    slidingWindow: 100,
+    voteReferenceWeight: 1.0,
+  };
+  const cadence = {
+    everyCharacters: 100,
+    replayWindow: 100 * 92,
+    downscaleTargetTotalWeight: 3.0,
+    pruneFloor: 0.0,
+    eventsPerCharacter: 92,
+  };
+  const uniform = runCharPredictionTrial(corpus, 1n, {
+    ...config,
+    consolidation: cadence,
+  });
+  const selective = runCharPredictionTrial(corpus, 1n, {
+    ...config,
+    consolidation: { ...cadence, downscaleMode: 'replayContributors' },
+  });
+  for (const [name, stats] of [
+    ['uniform', uniform.consolidationStats!],
+    ['selective', selective.consolidationStats!],
+  ] as const) {
+    assert.ok(
+      stats.contributingDeliveries > 0 &&
+        stats.contributingDeliveries < stats.replayDeliveries,
+      `${name}: some, not all, replayed deliveries were followed by their target firing (${stats.contributingDeliveries} of ${stats.replayDeliveries})`,
+    );
+    assert.ok(
+      stats.protectedSynapses > 0 &&
+        stats.protectedSynapses <= stats.deliveredSynapses,
+      `${name}: protection reached some delivered synapses`,
+    );
+  }
+  assert.notDeepEqual(
+    selective,
+    uniform,
+    'a selective downscale must change the run relative to the uniform one',
+  );
+  assert.deepEqual(
+    runCharPredictionTrial(corpus, 1n, {
+      ...config,
+      consolidation: { ...cadence, downscaleMode: 'replayContributors' },
+    }),
+    selective,
+    'RUN-3: the per-pass mark leaves a selective run bit-identical across repeats',
+  );
+  assert.deepEqual(
+    runCharPredictionTrial(corpus, 1n, {
+      ...config,
+      consolidation: { ...cadence, downscaleMode: 'uniform' },
+    }),
+    uniform,
+    'an explicit "uniform" is the omitted default, exactly',
+  );
+});
+
 // docs/decisions.md decision 34 (HANDOFF fact 23, docs/findings.md finding
 // 31(g)): `buildNetwork` used to default `segmentThresholdHomeostasis` to
 // `DEFAULT_CONFIG`'s value, and a JavaScript default parameter also fires on

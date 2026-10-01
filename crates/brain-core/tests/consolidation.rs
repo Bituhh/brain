@@ -25,7 +25,7 @@
 //! pair would use, counteracting some of that squeeze.
 
 use brain_core::arena::{NeuronArena, NeuronSpec};
-use brain_core::consolidation::ConsolidationParams;
+use brain_core::consolidation::{ConsolidationParams, DownscaleMode};
 use brain_core::neuron::{Lif, LifParams};
 use brain_core::plasticity::homeostatic::HomeostaticScaling;
 use brain_core::plasticity::stdp::StdpParams;
@@ -89,6 +89,7 @@ fn consolidation_params() -> ConsolidationParams {
         sprout_weight: 0.05,
         min_activity_streak: u32::MAX, // never sprout
         unused_ticks_before_reclaim: u32::MAX,
+        downscale_mode: DownscaleMode::Uniform,
     }
 }
 
