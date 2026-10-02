@@ -7,8 +7,9 @@
 //! `PlasticityRule` and is driven by its own interval rather than by
 //! scheduler events.
 //!
-//! It multiplicatively renormalises each neuron's *incoming* weight total
-//! toward a configured target (P03-9.1), on a timescale
+//! It multiplicatively renormalises each neuron's *excitatory* incoming
+//! weight total toward a configured target (P03-9.1; excitatory only since
+//! PLAN.md D1 -- see `rescale_one_with`), on a timescale
 //! substantially slower than STDP (P03-9.2, enforced by
 //! `interval_ticks` being large relative to `three_factor`'s
 //! `tau_plus`/`tau_minus`) so it stabilises runs without erasing what was
@@ -71,7 +72,7 @@ impl HomeostaticScaling {
     /// input to the math, so a forced call has nothing to record here.
     pub fn force_apply(&mut self, neurons: &NeuronArena, synapses: &mut SynapseArena) {
         for idx in 0..neurons.capacity_len() as u32 {
-            self.rescale_one(synapses, idx);
+            self.rescale_one(neurons, synapses, idx);
         }
     }
 
@@ -111,7 +112,7 @@ impl HomeostaticScaling {
     /// that case does not arise for a neuron the online sweep has reached.
     pub fn force_apply_selective(&mut self, neurons: &NeuronArena, synapses: &mut SynapseArena, protection: &[f32]) {
         for idx in 0..neurons.capacity_len() as u32 {
-            self.rescale_one_with(synapses, idx, |factor, id| match protection.get(id as usize).copied().unwrap_or(0.0) {
+            self.rescale_one_with(neurons, synapses, idx, |factor, id| match protection.get(id as usize).copied().unwrap_or(0.0) {
                 p if p <= 0.0 => factor,
                 p if p >= 1.0 => 1.0,
                 p => factor.powf(1.0 - p),
@@ -119,13 +120,33 @@ impl HomeostaticScaling {
         }
     }
 
-    fn rescale_one(&mut self, synapses: &mut SynapseArena, target: u32) {
-        self.rescale_one_with(synapses, target, |factor, _| factor);
+    fn rescale_one(&mut self, neurons: &NeuronArena, synapses: &mut SynapseArena, target: u32) {
+        self.rescale_one_with(neurons, synapses, target, |factor, _| factor);
     }
 
-    fn rescale_one_with(&mut self, synapses: &mut SynapseArena, target: u32, per_synapse: impl Fn(f32, u32) -> f32) {
+    /// Renormalises `target`'s **excitatory** incoming weight. PLAN.md D1,
+    /// decided with the user on the primary evidence (docs/decisions.md
+    /// decision 42, docs/prior-art.md §13.13(a)): before D1 every incoming
+    /// synapse was summed into one total, so an inhibitory input spent the
+    /// same budget as the excitatory ones -- adding one scaled the cell's
+    /// excitation *down* and shrank itself with it (docs/findings.md finding
+    /// 11(c)). Now a synapse whose source is inhibitory is neither counted
+    /// nor scaled. Excitatory scaling is driven by the cell's own firing
+    /// (Ibata, Sun & Turrigiano 2008); inhibitory inputs are not changed by
+    /// silencing one cell and follow network activity instead (Hartman et
+    /// al. 2006), so a per-neuron sweep is the wrong shape for them and
+    /// their weight is left to an inhibitory rule (PLAN.md D2).
+    ///
+    /// Consequence for B5's weighted votes: an inhibitory synapse's dendritic
+    /// veto (`min(weight / reference_weight, 1)`) is not moved by this sweep,
+    /// online or in consolidation's downscale, which shares this function.
+    ///
+    /// The filter keeps `incoming()`'s list order, so the total is summed in
+    /// the same order as before (HANDOFF fact 21), and an all-excitatory
+    /// network is bit-identical to pre-D1.
+    fn rescale_one_with(&mut self, neurons: &NeuronArena, synapses: &mut SynapseArena, target: u32, per_synapse: impl Fn(f32, u32) -> f32) {
         self.incoming_scratch.clear();
-        self.incoming_scratch.extend(synapses.incoming(target));
+        self.incoming_scratch.extend(synapses.incoming(target).filter(|&id| neurons.polarity[synapses.source_of(id) as usize] > 0));
         if self.incoming_scratch.is_empty() {
             return;
         }
@@ -487,6 +508,69 @@ mod tests {
         assert_eq!(synapses.weight[ids[0]], 0.9, "fully protected: untouched");
         assert_eq!(synapses.weight[ids[1]], 0.9 * factor, "unprotected: the uniform factor");
         assert_eq!(synapses.weight[ids[2]], 0.9 * factor.powf(0.5), "half protected: the factor to the half");
+    }
+
+    /// Two excitatory inputs at 0.4 against a target total of 0.8 (already
+    /// at target), plus a third input at 0.4 from a neuron of `third_polarity`.
+    fn two_excitatory_and_one_more(third_polarity: i8) -> (NeuronArena, SynapseArena, [usize; 3]) {
+        let mut neurons = NeuronArena::new();
+        let e1 = neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] }).index;
+        let e2 = neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] }).index;
+        let third = neurons.allocate(NeuronSpec { threshold: 1.0, polarity: third_polarity, coords: [0.0; 3] }).index;
+        let target = neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] }).index;
+        let mut synapses = SynapseArena::new(2);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        let ids = [e1, e2, third].map(|source| synapses.insert(source, target, 0, 1, 0.9, 0.4).unwrap() as usize);
+        (neurons, synapses, ids)
+    }
+
+    /// PLAN.md D1 (docs/findings.md finding 11(c)): an inhibitory input does
+    /// not spend the excitatory budget. Before D1 the third input here, at
+    /// either polarity, scaled every input to 0.8 / 1.2 of its weight
+    /// (0.4 -> 0.267, measured). The excitatory third input still does that,
+    /// because it is a third excitatory input; the inhibitory one changes
+    /// nothing, and is itself left untouched.
+    #[test]
+    fn an_inhibitory_input_neither_spends_the_excitatory_budget_nor_is_scaled() {
+        let (neurons, mut synapses, [a, b, i]) = two_excitatory_and_one_more(-1);
+        HomeostaticScaling::new(0.8, 1).force_apply(&neurons, &mut synapses);
+        assert_eq!(synapses.weight[a], 0.4, "the excitatory inputs were already at target");
+        assert_eq!(synapses.weight[b], 0.4);
+        assert_eq!(synapses.weight[i], 0.4, "this sweep does not scale inhibitory weight");
+
+        // The same fixture with the third source excitatory: now it is part
+        // of the budget, so polarity is what made the difference above.
+        let (neurons, mut synapses, [a, b, c]) = two_excitatory_and_one_more(1);
+        HomeostaticScaling::new(0.8, 1).force_apply(&neurons, &mut synapses);
+        for id in [a, b, c] {
+            assert!((synapses.weight[id] - 0.8 / 1.2 * 0.4).abs() < 1e-6, "three excitatory inputs share the 0.8 budget, got {}", synapses.weight[id]);
+        }
+    }
+
+    /// PLAN.md D1: consolidation's selective downscale goes through the
+    /// same function, so it ignores inhibitory inputs too -- at any
+    /// protection, including none.
+    #[test]
+    fn the_selective_downscale_leaves_inhibitory_inputs_alone_too() {
+        let (neurons, mut synapses, [a, b, i]) = two_excitatory_and_one_more(-1);
+        let none = vec![0.0; synapses.weight.len()];
+        HomeostaticScaling::new(0.4, 1).force_apply_selective(&neurons, &mut synapses, &none);
+        assert!((synapses.weight[a] - 0.2).abs() < 1e-6 && (synapses.weight[b] - 0.2).abs() < 1e-6, "excitatory inputs halve toward 0.4");
+        assert_eq!(synapses.weight[i], 0.4, "the inhibitory input is outside the downscale");
+    }
+
+    /// PLAN.md D1: a neuron whose only inputs are inhibitory has no
+    /// excitatory total to renormalise, and is left exactly as it was.
+    #[test]
+    fn a_neuron_with_only_inhibitory_inputs_is_left_untouched() {
+        let mut neurons = NeuronArena::new();
+        let i = neurons.allocate(NeuronSpec { threshold: 1.0, polarity: -1, coords: [0.0; 3] }).index;
+        let target = neurons.allocate(NeuronSpec { threshold: 1.0, polarity: 1, coords: [0.0; 3] }).index;
+        let mut synapses = SynapseArena::new(1);
+        synapses.reserve_for_neurons(neurons.capacity_len());
+        let id = synapses.insert(i, target, 0, 1, 0.9, 0.7).unwrap() as usize;
+        HomeostaticScaling::new(2.0, 1).force_apply(&neurons, &mut synapses);
+        assert_eq!(synapses.weight[id], 0.7);
     }
 
     #[test]

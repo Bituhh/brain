@@ -611,8 +611,8 @@ fn stdp_rule_per_event(c: &mut Criterion) {
                     for i in 0..KERNEL_EVENTS {
                         let tick = st.last_active[i] + dts[i];
                         let ctx = LocalContext {
-                            pre: NeuronLocal::never_spiked(),
-                            post: NeuronLocal { last_spike: tick, trace: 0.0, rate_estimate: 0.0 },
+                            pre: NeuronLocal::never_spiked(1),
+                            post: NeuronLocal { last_spike: tick, trace: 0.0, rate_estimate: 0.0, polarity: 1 },
                             modulators: std::hint::black_box(BENCH_LEVELS),
                             tick,
                         };

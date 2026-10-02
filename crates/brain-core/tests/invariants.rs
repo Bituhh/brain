@@ -55,8 +55,8 @@ proptest! {
         let mut eligibility = 0.0f32;
         let mut last_active = u32::MAX;
         let mut eligibility_updated_at = u32::MAX;
-        let mut pre = NeuronLocal { last_spike: u32::MAX, trace: 0.0, rate_estimate: 0.0 };
-        let mut post = NeuronLocal { last_spike: u32::MAX, trace: 0.0, rate_estimate: 0.0 };
+        let mut pre = NeuronLocal { last_spike: u32::MAX, trace: 0.0, rate_estimate: 0.0, polarity: 1 };
+        let mut post = NeuronLocal { last_spike: u32::MAX, trace: 0.0, rate_estimate: 0.0, polarity: 1 };
 
         for (is_delivery, tick) in events {
             let ctx = LocalContext { pre, post, modulators: [modulator_level; NUM_MODULATORS], tick };

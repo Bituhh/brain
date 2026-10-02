@@ -340,11 +340,11 @@ mod tests {
     }
 
     fn never_spiked() -> NeuronLocal {
-        NeuronLocal { last_spike: u32::MAX, trace: 0.0, rate_estimate: 0.0 }
+        NeuronLocal { last_spike: u32::MAX, trace: 0.0, rate_estimate: 0.0, polarity: 1 }
     }
 
     fn spiked_at(tick: u32) -> NeuronLocal {
-        NeuronLocal { last_spike: tick, trace: 0.0, rate_estimate: 0.0 }
+        NeuronLocal { last_spike: tick, trace: 0.0, rate_estimate: 0.0, polarity: 1 }
     }
 
     struct Fixture {

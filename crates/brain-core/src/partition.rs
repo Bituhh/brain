@@ -400,6 +400,9 @@ pub struct PartitionRuntime {
     schedulers: Vec<Scheduler>,
     boundary_table: BoundaryNeuronLocalTable,
     boundary_neurons: Vec<u32>,
+    /// Whether `boundary_table` holds an entry for every boundary neuron yet
+    /// -- see [`Self::seed_boundary_table`].
+    boundary_seeded: bool,
     executor: Executor,
     /// The whole-network periodic sweeps -- homeostatic scaling (LRN-6),
     /// structural plasticity (LRN-7), intrinsic homeostasis (NEU-7) and
@@ -526,6 +529,7 @@ impl PartitionRuntime {
             schedulers,
             boundary_table: BoundaryNeuronLocalTable::default(),
             boundary_neurons,
+            boundary_seeded: false,
             executor: Executor::Sequential,
             sweeps: WholeNetworkSweeps::default(),
             prediction_error_coupling: None,
@@ -848,10 +852,32 @@ impl PartitionRuntime {
     /// rayon-managed concurrent tasks when [`Self::with_thread_count`] is
     /// configured (`partition.rs`'s module docs) with the compiler itself
     /// proving they cannot alias -- no `unsafe` anywhere in this method.
+    /// PLAN.md D1: gives every boundary neuron a table entry before the first
+    /// tick's stage 1 reads one. Until D1 a missing entry fell back to
+    /// `NeuronLocal::never_spiked()`, which was exact because every field
+    /// was dynamic and a fresh neuron's values are those. `polarity` is not
+    /// dynamic, so the seed carries the neuron's real sign and the dynamic
+    /// fields keep their never-spiked values -- exactly what the old
+    /// fallback supplied, so nothing else about the first tick changes. A
+    /// boundary neuron added later (a cross-partition sprout) is published
+    /// by the end-of-step loop before any delivery can read it, so this
+    /// runs once.
+    fn seed_boundary_table(&mut self, neurons: &NeuronArena) {
+        for &idx in &self.boundary_neurons {
+            if self.boundary_table.get(idx).is_none() {
+                self.boundary_table.set(idx, NeuronLocal::never_spiked(neurons.polarity[idx as usize]));
+            }
+        }
+        self.boundary_seeded = true;
+    }
+
     pub fn step<D: NeuronDynamics>(&mut self, neurons: &mut NeuronArena, synapses: &mut SynapseArena, params: &D::Params) -> Vec<StepReport>
     where
         D::Params: Sync,
     {
+        if !self.boundary_seeded {
+            self.seed_boundary_table(neurons);
+        }
         let ranges: Vec<std::ops::Range<u32>> = (0..self.plan.partition_count()).map(|p| self.plan.range_of(p)).collect();
         let mut neuron_views = neurons.split_views_mut(&ranges);
         let mut synapse_views = synapses.split_views_mut(&ranges);
@@ -887,7 +913,7 @@ impl PartitionRuntime {
                         if my_range.contains(&target) {
                             None
                         } else {
-                            Some(boundary_table.get(target).unwrap_or_else(NeuronLocal::never_spiked))
+                            Some(boundary_table.get(target).expect("every cross-partition target is a boundary neuron, seeded before the first step"))
                         }
                     })
                 })
@@ -910,7 +936,7 @@ impl PartitionRuntime {
                                 if my_range.contains(&target) {
                                     None
                                 } else {
-                                    Some(boundary_table.get(target).unwrap_or_else(NeuronLocal::never_spiked))
+                                    Some(boundary_table.get(target).expect("every cross-partition target is a boundary neuron, seeded before the first step"))
                                 }
                             })
                         })
@@ -937,7 +963,7 @@ impl PartitionRuntime {
                                         if my_range.contains(&target) {
                                             None
                                         } else {
-                                            Some(boundary_table.get(target).unwrap_or_else(NeuronLocal::never_spiked))
+                                            Some(boundary_table.get(target).expect("every cross-partition target is a boundary neuron, seeded before the first step"))
                                         }
                                     }));
                                 }
@@ -1143,7 +1169,7 @@ impl PartitionRuntime {
         // the post-sweep value live.
         for &idx in &self.boundary_neurons {
             let i = idx as usize;
-            self.boundary_table.set(idx, NeuronLocal { last_spike: neurons.last_spike[i], trace: neurons.trace[i], rate_estimate: neurons.rate_estimate[i] });
+            self.boundary_table.set(idx, NeuronLocal { last_spike: neurons.last_spike[i], trace: neurons.trace[i], rate_estimate: neurons.rate_estimate[i], polarity: neurons.polarity[i] });
         }
         // PLAN.md C17: last, as in `Scheduler::step`.
         if !self.readouts.is_empty() {
@@ -1279,7 +1305,7 @@ mod tests {
     #[test]
     fn boundary_table_round_trips_a_value() {
         let mut table = BoundaryNeuronLocalTable::default();
-        let value = NeuronLocal { last_spike: 42, trace: 0.5, rate_estimate: 0.1 };
+        let value = NeuronLocal { last_spike: 42, trace: 0.5, rate_estimate: 0.1, polarity: -1 };
         table.set(5, value);
         assert_eq!(table.get(5), Some(value));
         assert_eq!(table.get(6), None, "unrelated indices must be unaffected");

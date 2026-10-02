@@ -51,31 +51,37 @@ use std::sync::Arc;
 /// reaching every plasticity rule in the crate, and README §10 invariant
 /// 1's status plus LRN-1's text have to be updated to say so. C8's own
 /// answer was chosen *not* to need this (the role lives in the scheduler,
-/// not here), so at the time of writing this list is unchanged from before
-/// C8.
+/// not here). PLAN.md D1 did need it, for `NeuronLocal::polarity` -- see the
+/// comment at its destructuring below.
 /// P03-8.1: a rule receives exactly the synapse's own state, its pre/post neurons' local state and the modulator levels.
 #[test]
 fn a_rule_is_handed_exactly_these_inputs_and_nothing_else() {
     let ctx = LocalContext {
-        pre: NeuronLocal::never_spiked(),
-        post: NeuronLocal::never_spiked(),
+        pre: NeuronLocal::never_spiked(1),
+        post: NeuronLocal::never_spiked(-1),
         modulators: [1.0; NUM_MODULATORS],
         tick: 7,
     };
 
     // No `..`: the whole context, by name.
     let LocalContext { pre, post, modulators, tick } = ctx;
-    assert_eq!(pre, NeuronLocal::never_spiked());
-    assert_eq!(post, NeuronLocal::never_spiked());
+    assert_eq!(pre, NeuronLocal::never_spiked(1));
+    assert_eq!(post, NeuronLocal::never_spiked(-1));
     assert_eq!(modulators, [1.0; NUM_MODULATORS]);
     assert_eq!(tick, 7);
 
-    // Likewise for the "other side of the synapse" snapshot: three
-    // scalars of the neuron's *own* state, no id and no handle.
-    let NeuronLocal { last_spike, trace, rate_estimate } = pre;
+    // Likewise for the "other side of the synapse" snapshot: four
+    // scalars of the neuron's *own* state, no id and no handle. PLAN.md D1
+    // added `polarity`, the neuron's fixed Dale sign: it is the neuron's own
+    // state (LRN-1's "pre/post neuron's local state"), it carries no handle,
+    // and it is the sign *of the neuron*, so invariant 3 is untouched. README
+    // §10 invariant 1's status lists it.
+    let NeuronLocal { last_spike, trace, rate_estimate, polarity } = pre;
     assert_eq!(last_spike, u32::MAX);
     assert_eq!(trace, 0.0);
     assert_eq!(rate_estimate, 0.0);
+    assert_eq!(polarity, 1);
+    assert_eq!(post.polarity, -1);
 
     let (mut permanence, mut weight, mut eligibility, mut last_active, mut eligibility_updated_at) = (0.4f32, 0.5f32, 0.0f32, 0u32, 0u32);
     let syn = SynapseMut {

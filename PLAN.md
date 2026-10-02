@@ -2669,6 +2669,14 @@ rasters unchanged, and docs/findings.md finding 11 updated.
 ### D2 — Inhibitory STDP rule (Vogels-style) + kernel tests
 
 ```
+READ FIRST, ADDED [2026-10-02 01:30 +0100]: D1 LANDED. `NeuronLocal::polarity` (`i8`, +1/-1) is
+reachable in every `LocalContext`, cross-partition included (`tests/polarity_reach.rs`), and
+`NeuronLocal::never_spiked` now takes a polarity. D1 also took inhibitory inputs OUT of
+`HomeostaticScaling` (docs/decisions.md decision 42), so inhibitory weight currently has NO
+homeostatic control at all: whatever this rule does to it is the only thing that moves it, and
+docs/open-questions.md item 12 may close here (Vogels' rule is itself rate-homeostatic). Finding
+11(c)'s original "scales UP excitation" was the wrong direction; it scaled it down (corrected there).
+
 Read README.md docs/prior-art.md §2.4, docs/prior-art.md §2.5, NEU-4, LRN-2, LRN-9, §10 invariants 3 and 4, docs/findings.md finding 11,
 and docs/prior-art.md §13.13(a). Then PLAN.md §4. Assumes D1 has landed.
 
@@ -2699,6 +2707,16 @@ THE TASK.
    establish. A mechanism that cannot be shown to matter by removing it is not yet load-bearing.
 6. Unit-test the kernel shape directly against the published curve, in the style of
    crates/brain-core/src/plasticity/stdp.rs's existing tests (VAL-1).
+7. ADDED [2026-10-02 09:02 +0100] (D1's follow-up, docs/open-questions.md item 12). Since D1,
+   NOTHING keeps inhibitory weight in check: homeostatic scaling counts and scales excitatory
+   inputs only (docs/decisions.md decision 42), and so does consolidation's downscale. This rule
+   is the only thing that moves inhibitory weight. Show whether it bounds that weight on its own:
+   a test where inhibitory weight would drift without the rule and settles with it (Vogels'
+   depression term, proportional to the target postsynaptic rate, is the candidate mechanism).
+   Then close open question 12 or narrow it, in writing: if the rule does the job, say so and
+   move the item to docs/decisions.md; if it does not, say what is still missing (Hartman et al.
+   2006's network-level control, or an activity-driven LRN-6) so D4 does not switch 80:20 on with
+   brakes that nothing regulates.
 
 WHAT CHANGED SINCE THIS PROMPT WAS WRITTEN (added 2026-09-19). An inhibitory rule that moves
 `weight` now tunes dendritic **veto strength**, not only somatic current. A2 made an inhibitory
@@ -2713,7 +2731,7 @@ DO NOT turn on 80:20 in any existing experiment in this item — that is D4, and
 tuning-bound piece of work. Test the rule on its own dedicated fixtures so this session stays
 bounded.
 
-SCOPE (split 2026-09-20 to fit one session). This item is steps 1, 2, 3 and 6: the rule itself,
+SCOPE (split 2026-09-20 to fit one session). This item is steps 1, 2, 3, 6 and 7: the rule itself,
 its symmetric kernel, invariant 1 compliance, and unit tests against the published curve. Steps 4
 and 5 — dispatching on D1's polarity, and the E/I-balance ablation — are **D3**, because the
 ablation needs a network that actually has inhibitory neurons and is a different kind of test to
@@ -2721,7 +2739,8 @@ write.
 
 DONE WHEN. The rule exists, composes through `RuleChain`, its kernel is unit-tested against the
 published curve, existing all-excitatory runs are bit-identical (golden rasters unchanged), and
-docs/findings.md finding 11 plus LRN-2's status record the new rule.
+docs/findings.md finding 11 plus LRN-2's status record the new rule, and docs/open-questions.md
+item 12 (what regulates inhibitory weight) is closed or narrowed with the measurement behind it.
 ```
 
 ---
@@ -3810,7 +3829,7 @@ demonstrated and ablated, and docs/prior-art.md §13.13 records a new subsection
 | C16 | done | 2026-09-29 22:33 +0100 | ~2 h 17 min wall clock (20:16 -> 22:33 +0100, both from `date`). Pieces: context reading and the evidence review by ~20:20 (8 primary abstracts re-read by DOI through Europe PMC); the first round of calls put to the user at ~20:25; the user's answer arrived by 22:31, so most of the span is waiting on the decision, not work; the write-up 22:31-22:33. | **The user chose REPLACE, on fidelity, whatever C17 measures (docs/decisions.md decision 36, closing docs/open-questions.md item 10).** Options put with their measured costs: (a) fixed only, 200k probe 15.04%, below the bar; (b) replace, −1.56 at 15k / +3.51 at 200k on the signed LMS instrument; (c) both. The user leaned towards (b) if a learned readout is the more faithful one, and it is: the fixed readout is an experimenter's instrument, and every characterised downstream reader learns. Offered "replace only if C17 clears a bar", the user refused, so the metric cannot become "make the number go up". **The form, fixed:** a spiking sink population in the core (user call); teacher = the next input's own spikes; a delta rule computed in the scheduler with w ≥ 0 (user call; Dale); an intrinsic excitability term; η = 1/64, untuned; R's own k-WTA (k = 64), then `decode` names the symbol; built as an output population for F16 to absorb. **The fixed readout stays as a diagnostic.** README IO-3 rewritten and VAL-4's metric defined, both with a status note that the change takes effect at C17. Evidence: docs/prior-art.md §13.13(o) (Ito & Kano 1982, Raymond & Medina 2018, Urbanczik & Senn 2014, Brunel et al. 2004, Isope & Barbour 2002, Clopath & Brunel 2013, Lin et al. 2014; dissent from Schonewille et al. 2011) and 8 new bib keys. **Caveat carried to C17:** the 1.56-point cost is the signed LMS's, and a sign-constrained readout may cost more. No code written. |
 | C17 | done | 2026-09-30 02:31 +0100 | Start not captured by `date`; the first logged timestamp is 2026-09-29 23:04 +0100, and the core build preceded it. From there ~3 h 27 min: build + reuse audit to ~23:10; smoke 23:11-23:20; battery 23:20-01:45 (144.7 min, 30 trials on 12 workers, ~2x the estimate: R's per-step cost at 12 concurrent was underestimated); write-up 01:45-01:55; `test:slow` ~01:58-02:31, green, both pins exact. | **Built as decision 36 fixed, audited for reuse (decision 36's amendment), measured: VAL-4's headline moves DOWN.** `readout.rs` sink population (sign from source polarity, grows with the arena, several per scheduler, snapshot v15, error signal exposed); FFI `readout`; harness `learningReadout`/`VAL4_CONFIG`/`readoutAccuracy`. Pre-registered battery: **holds** on the probe 10/10 (15.36% → 15.95%); **costs −3.28 at 15,000 on 10/10** (16.59% / 16.57% against the fixed readout's 20.05% / 19.67%), level with the 16.56% bar; ~2 pts **below** the signed LMS at both horizons; far below the n-grams. R on/off bit-identical on all 30 trials (X2/X3 vs finding 32). Pin re-derived in `char-prediction.slow.test.ts`. docs/findings.md finding 34, docs/appendix/find-34.md, docs/prior-art.md §13.13(p). Deferred: the FFI array form (F16). |
 | C18 | done | 2026-09-30 10:31 +0100 | ~9 h 15 (10:31 -> 19:45 +0100, from `date`); the fast tier ran at 11:00 and 19:22, the slow tier 19:24 -> 19:41 | Four commits, one per step. **(1)** Every spec declares its `**Citation prefix:**`. **(2)** The checker parses all 12 specs, keyed `<PREFIX>-N.M`: test regions only (the shared `scripts/source-regions.mjs`), per-spec `DEFERRED`, retired forms fail, `KNOWN_COLLISIONS` gone. On unchanged code it reported **472 of 488 uncited**, where the old checker had said OK. **(3)** Retrofit by hand: 741 `Requirement N.M` sites plus **131 in a second form (`Requirement N AC M`) the old checker never saw**. 10 borrowed-convention sites became prose. One site stays bare, listed with its reason. **(4)** All 246 remaining gaps decided: 95 citations fixed at real tests; **10 new tests** (P6-7.3 and P03-1.6 both checked by ablation); 111 deferred with reasons, **13 of them unmet as specified**. Result: **361 cited by a test, 127 deferred, 0 uncited.** Decision 39, finding 35 follow-up, docs/appendix/find-35-c18.md, and a new §4 house rule. **Tests:** fast tier green (272 TS); slow tier green; golden rasters matched, none regenerated; `the_traceability_checker_itself_runs...` passes. | Appended [2026-09-30 08:59 +0100] at the user's request, from C10 issue 2 (docs/findings.md finding 35). Gates nothing. Citation form decided before start [2026-09-30 10:16 +0100]: per-spec ID tags `<PREFIX>-N.M` (docs/decisions.md decision 38). |
-| D1 | not started |  |  |  |
+| D1 | done | 2026-10-02 02:09 +0100 | ~1 h 23 min (00:46 -> 02:09 +0100, from `date`). Pieces: context reading and step 1's plumbing plus `tests/polarity_reach.rs`, mutation-checked, by 00:51; the defect's direction measured and the E/I design call put to the user at 00:51, answered (A) shortly after; rescale fix and three mutation-checked tests, fast tier green, by ~01:30; slow tier 01:30-02:08 (38 min) with the write-up alongside | **`polarity` reaches every plasticity call site, and homeostatic scaling counts and scales excitatory inputs only.** `NeuronLocal::polarity` is built in `scheduler.rs`'s `neuron_local` and `partition.rs`'s boundary publish. The boundary table is seeded with real polarities before the first step, and a missing entry panics instead of silently reading as excitatory. `tests/polarity_reach.rs` covers all four routes, both cross-partition ones included, at 1 and 2 threads. `HomeostaticScaling::rescale_one_with` filters to excitatory sources, so the online sweep and consolidation's downscale both get it (user's call on Ibata 2008 / Hartman 2006; decision 42, prior-art §13.13(a), open question 12). **Finding 11(c)'s direction was wrong:** inhibition scaled excitation DOWN (0.4 -> 0.267, measured), not up; corrected in place. STDP unchanged (D2/D3). All-excitatory behaviour bit-identical: fast tier (279 TS) and slow tier green, all four golden rasters unchanged. No VAL-4 number moves. `history.md` untouched (no phase status changed). D2's prompt gained a READ FIRST note. |
 | D2 | not started |  |  |  |
 | D3 | not started |  |  | Split out of D2 on 2026-09-20 so every item fits one session; D2's prompt carries the shared context and this row's prompt states the sub-scope. The ablation needs a network that actually contains inhibitory neurons, plus a chosen measurable for "balance" (Vogels' asynchronous irregular state, or Beggs & Plenz avalanche exponents — docs/prior-art.md §13.13(a) names both) and multi-seed evidence per VAL-6. |
 | D4 | not started |  |  | tuning-bound |

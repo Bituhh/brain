@@ -51,7 +51,7 @@ const DEFAULT_METRICS_WINDOW_TICKS: usize = 100;
 
 fn neuron_local(neurons: &NeuronArenaViewMut, idx: u32) -> NeuronLocal {
     let i = idx as usize;
-    NeuronLocal { last_spike: neurons.last_spike[i], trace: neurons.trace[i], rate_estimate: neurons.rate_estimate[i] }
+    NeuronLocal { last_spike: neurons.last_spike[i], trace: neurons.trace[i], rate_estimate: neurons.rate_estimate[i], polarity: neurons.polarity[i] }
 }
 
 fn synapse_mut<'a>(synapses: &'a mut SynapseArenaViewMut<'_>, id: u32) -> SynapseMut<'a> {

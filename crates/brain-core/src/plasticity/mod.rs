@@ -29,16 +29,28 @@ pub struct NeuronLocal {
     pub last_spike: u32,
     pub trace: f32,
     pub rate_estimate: f32,
+    /// The neuron's fixed sign (NEU-4, Dale's principle; README invariant
+    /// 3): `+1` excitatory, `-1` inhibitory, copied from
+    /// `NeuronArena::polarity`. PLAN.md D1: before this field no rule could
+    /// tell an inhibitory synapse from an excitatory one (docs/findings.md
+    /// finding 11(c)). It is the neuron's own state, so it stays inside
+    /// LRN-1's "pre/post neuron's local state"; it is not a sign *on the
+    /// synapse*, which invariant 3 forbids. No rule reads it yet -- D2/D3
+    /// are where one does.
+    pub polarity: i8,
 }
 
 impl NeuronLocal {
-    /// A neuron that has never spiked -- exactly the values
-    /// `NeuronArena::allocate` initialises a fresh neuron to, and therefore
-    /// the correct fallback (not merely a safe default) for a
+    /// A neuron of the given polarity that has never spiked -- exactly the
+    /// values `NeuronArena::allocate` initialises a fresh neuron to, and
+    /// therefore the correct seed (not merely a safe default) for a
     /// partitioned runtime's boundary-neuron table (`partition.rs`) before
     /// its first publish, or for any neuron that has genuinely never fired.
-    pub const fn never_spiked() -> Self {
-        Self { last_spike: u32::MAX, trace: 0.0, rate_estimate: 0.0 }
+    /// Polarity is a parameter rather than a default because there is no
+    /// neutral sign: a fallback that assumed `+1` would silently make every
+    /// not-yet-published inhibitory neuron excitatory.
+    pub const fn never_spiked(polarity: i8) -> Self {
+        Self { last_spike: u32::MAX, trace: 0.0, rate_estimate: 0.0, polarity }
     }
 }
 
@@ -216,8 +228,8 @@ mod tests {
 
     fn ctx() -> LocalContext {
         LocalContext {
-            pre: NeuronLocal { last_spike: 0, trace: 0.0, rate_estimate: 0.0 },
-            post: NeuronLocal { last_spike: 0, trace: 0.0, rate_estimate: 0.0 },
+            pre: NeuronLocal { last_spike: 0, trace: 0.0, rate_estimate: 0.0, polarity: 1 },
+            post: NeuronLocal { last_spike: 0, trace: 0.0, rate_estimate: 0.0, polarity: 1 },
             modulators: [1.0; NUM_MODULATORS],
             tick: 0,
         }
