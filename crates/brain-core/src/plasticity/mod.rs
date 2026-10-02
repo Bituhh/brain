@@ -14,6 +14,7 @@
 pub mod homeostatic;
 pub mod inhibitory;
 pub mod newborn;
+pub mod polarity;
 pub mod predictive;
 pub mod stdp;
 pub mod structural;
@@ -36,9 +37,9 @@ pub struct NeuronLocal {
     /// tell an inhibitory synapse from an excitatory one (docs/findings.md
     /// finding 11(c)). It is the neuron's own state, so it stays inside
     /// LRN-1's "pre/post neuron's local state"; it is not a sign *on the
-    /// synapse*, which invariant 3 forbids. No rule reads it yet: D2's
-    /// `inhibitory::InhibitoryStdp` is polarity-agnostic, and D3 is where a
-    /// chain dispatches on it.
+    /// synapse*, which invariant 3 forbids. `polarity::PolarityDispatch`
+    /// (PLAN.md D3) reads it on both sides to route each synapse class to
+    /// its own rules; the rules themselves stay polarity-agnostic.
     pub polarity: i8,
 }
 

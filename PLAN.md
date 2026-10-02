@@ -2794,15 +2794,36 @@ doc comment, and docs/prior-art.md §13.13(a) plus LRN-2's status record the res
 ### D4 — Turn on 80:20 and re-tune ⚠️ tuning-bound
 
 ```
+READ FIRST, ADDED [2026-10-02 14:16 +0100]: D3 LANDED. Inhibitory plasticity can now be routed by
+synapse class: `plasticity/polarity.rs`'s `PolarityDispatch` (a `PlasticityRule`) reads both neurons'
+polarity and runs a separate rule list for each of E->E, E->I, I->E and I->I; an unrouted class is not
+plastic (docs/decisions.md decision 44, docs/findings.md finding 40). Five things this item needs:
+(1) WHAT EACH CLASS GETS IN THE SHIPPED NETWORK IS A BIOLOGY CALL FOR THE USER, and D3 did not make
+it. Vogels' paper makes only I->E plastic; E->I has its own (anti-Hebbian, Lamsa 2007) plasticity
+that nothing here implements; I->I was fixed in the paper; and whether E->E keeps `ThreeFactorStdp`
+unchanged once it no longer shares inhibitory synapses is a separate question. Present the evidence
+(docs/prior-art.md §13.13(a)) and ask before tuning. (2) Do NOT put `ThreeFactorStdp` in a bare chain
+on a mixed network: inhibitory synapses then get the excitatory kernel, which finding 40 measured
+regulating nothing. Equally, a bare `InhibitoryStdp` drives every E->E synapse to the clamp. Route
+both through a dispatch. (3) There is NO FFI / TypeScript surface for the inhibitory rule or the
+dispatch yet; `PlasticityConfig` builds a bare chain. Adding it (unset = bit-identical) is this item's
+first code step. (4) Finding 40's fixture needed I->E connectivity 0.4 because SYN-4 clamps weights
+to [0, 1]: one inhibitory synapse cannot outweigh 1/w_excitatory excitatory ones. Expect the same
+pressure in VAL-4's network, and check what `GraphBuilder` gives I->E before blaming the rule.
+(5) Balance establishes in tens of thousands of ticks from zero inhibition but takes over 30,000 from
+inhibition at the clamp (finding 40, result 1), so a start far above the settled weight needs time
+before any measurement window. docs/open-questions.md item 12 is closed (decision 44).
+
 Read README.md docs/prior-art.md §2.4, NEU-4, NET-2, docs/findings.md findings 1, 2 and 11, docs/prior-art.md §13.13(a), and docs/history.md Phase 7/8 status.
-Then PLAN.md §4. Assumes A2, B1, B2, B4, B5, C1, C2, C17, D1 and D2 have all landed (C17: VAL-4's readout is settled — do not tune against a readout that is about to change).
+Then PLAN.md §4. Assumes A2, B1, B2, B4, B5, C1, C2, C17, D1, D2 and D3 have all landed (C17: VAL-4's readout is settled — do not tune against a readout that is about to change).
 [2026-09-30 07:23 +0100] C17 has landed: tune against `readoutAccuracy` (the learning readout, `VAL4_CONFIG`), not
 `networkAccuracy`, which is now the fixed-readout diagnostic. Baseline: docs/findings.md finding 34
 (16.59% / 16.57% at 15,000; the readout holds at 200,000).
 
 WHAT THIS IS. Every parameter in this repository was found with `excitatoryFraction: 1.0` — no run
 has ever used the 80:20 ratio NEU-4 specifies (docs/findings.md finding 11d). This item turns it on. The
-code change is trivial. The work is re-tuning, and docs/findings.md finding 2 predicts exactly this: "the
+population switch itself is trivial; since D3 two pieces of plumbing and one biology call come before
+it (steps 1-3 below, added [2026-10-02 19:01 +0100]). The bulk of the work is re-tuning, and docs/findings.md finding 2 predicts exactly this: "the
 interaction of §4's rules is the hard part, not any individual rule... where simulator projects
 historically lose months to instability."
 
@@ -2810,14 +2831,30 @@ Budget accordingly: ~1 session of code, then 1–3 weeks of tuning. Do not expec
 sitting, and do not let the session's length pressure you into declaring a number before the seeds
 support it.
 
-THE TASK.
-1. Set a genuinely mixed population in the canonical constructor (A1) and in charPrediction.ts.
-2. Expect everything to break. Sparsity, prediction accuracy, segment thresholds and the k-WTA's
+THE TASK. Steps 1-3 were added [2026-10-02 19:01 +0100] after D3; they come before any tuning, and step 5
+(the search) cannot start until they are done, because step 2's answer changes what is being tuned.
+1. THE BRIDGE. Add an optional inhibitory-plasticity field to the TypeScript `PlasticityConfig` and
+   carry it through `crates/brain-napi/src/lib.rs`. Both places that build a chain (network build and
+   snapshot restore; today each builds a bare `ThreeFactorStdp` chain, plus the recurrent-role chain
+   where one is configured) must wrap the rules in a `PolarityDispatch` when the field is set, routed
+   per class as step 2 decides. Unset must be bit-identical: fast tier green, golden rasters
+   unchanged. Add a restore test (a dispatched run snapshotted mid-run resumes bit-identically).
+2. THE BIOLOGY CALL. Which rule each synapse class gets: I->E (Vogels, as tested in finding 40),
+   I->I (fixed in Vogels' paper, or Vogels), E->I (fixed, the excitatory kernel, or Lamsa 2007's
+   anti-Hebbian form, which is not built), E->E (keep `ThreeFactorStdp`). Present the primary
+   evidence with its dissent (docs/prior-art.md §13.13(a)) and ASK THE USER; record the answer as a
+   decision in docs/decisions.md.
+3. AN UNTUNED BASELINE. Set a genuinely mixed population (80:20) in the canonical constructor (A1)
+   and in charPrediction.ts, with step 2's rules, and measure VAL-4 untuned on a few seeds at both
+   horizons before searching. Check what `GraphBuilder` gives I->E against finding 40's experience
+   (the [0, 1] weight clamp needed I->E connectivity 0.4 there), and check balance with D3's measure
+   (step 7) so a broken network is told apart from a balanced one that predicts badly.
+4. Expect everything to break. Sparsity, prediction accuracy, segment thresholds and the k-WTA's
    `k` were all fitted against an all-excitatory network. docs/history.md's Phase 7 status records two
    prior instances of exactly this failure mode — a value tuned at one scale silently wrong at
    another — and both were only found because someone re-derived the parameter rather than reusing
    it. Assume every constant is now wrong until re-measured.
-3. Re-tune systematically, not by hand. **Use `scripts/b4-search/` + `scripts/b5-search/`, not
+5. Re-tune systematically, not by hand. **Use `scripts/b4-search/` + `scripts/b5-search/`, not
    `scripts/tune-segments-and-threshold.ts`** — this prompt named the latter until 2026-09-19, when
    it was the only harness there was. B4 and B5 replaced it with a resumable, checkpointed,
    worker-pooled search (space-filling screen → multi-start hill climbing → hill-valley checks →
@@ -2828,22 +2865,27 @@ THE TASK.
    both found quality flat across a ~4.6× range of budget, which is worth knowing before spending
    weeks. PARALLELISE TRIALS ACROSS CORES — seeds are independent and this is the only real speedup
    available here.
-4. Use the official protocol throughout: selection seeds 1–5, held-out 6–10 for choosing among
+6. Use the official protocol throughout: selection seeds 1–5, held-out 6–10 for choosing among
    finalists only, confirmation seeds 11–15 for every reported figure, 15,000-character corpus
    slice, compared against the trigram baseline (docs/findings.md findings 7–10 all use it, so results
    stay comparable).
-4a. **Know which numbers you are defending** (added 2026-09-19). The space is bigger than this
+6a. **Know which numbers you are defending** (added 2026-09-19). The space is bigger than this
    prompt assumed: B5's own 15 parameters (reference weight, coincidence threshold,
    predictive-learning target, homeostatic scaling, STDP, and B4's four structural fixes) were all
-   fitted at `excitatoryFraction: 1.0` and are all suspect once inhibition is real. The current bar
+   fitted at `excitatoryFraction: 1.0` and are all suspect once inhibition is real. **CORRECTED
+   [2026-10-02 19:01 +0100]: the figures that follow (19.05% / 20.36%, and "first to clear the bar") are FIXED-
+   readout numbers from before C17 and are no longer the metric. The bar to defend is the learning
+   readout's 16.59% (selection) / 16.57% (confirmation) at 15,000 (finding 34), which is LEVEL with
+   the space bar, not above it: there is no lead to protect, only a tie. Report the fixed readout
+   beside it, labelled as the diagnostic.** Original text: The current bar
    is **19.05%** on confirmation seeds (20.36% on selection seeds), and — more importantly — the
    **16.56% "always guess space"** mode baseline (docs/findings.md finding 7), which B5's winner is the
    first configuration in the project's history to clear. A mixed population that improves on some
    internal delta but falls back below 16.56% has lost the only real ground gained; report against
    that bar explicitly, not just against the previous configuration.
-4b. **CORRECTION BLOCK, added 2026-09-27 after the `target_index` fix (docs/findings.md finding 25,
+6b. **CORRECTION BLOCK, added 2026-09-27 after the `target_index` fix (docs/findings.md finding 25,
    docs/decisions.md decision 27). Two of this prompt's premises moved, in opposite directions.**
-   - **The horizon in step 4 is no longer the only affordable option, and that is new.** A
+   - **The horizon in step 6 is no longer the only affordable option, and that is new.** A
      200,000-character trial on a sprouting configuration used to cost 50-85 minutes and scale
      8.6-11.6x superlinearly, which is why every prompt in this file assumes 15,000. The
      superlinearity was the `target_index` bug: cost is now **linear** (0.95-0.98x first-vs-last
@@ -2853,7 +2895,7 @@ THE TASK.
    - **But 15,000 is measurably the wrong horizon, and that cuts against re-tuning there.**
      Accuracy is still climbing at 15,000 and peaks around 20,000-35,000 characters (finding 23),
      so a constant fitted at 15,000 is fitted to a transient — which is exactly what every value
-     step 4a tells you to defend already is. Past the peak there is an unexplained gentle decline
+     step 6a tells you to defend already is. Past the peak there is an unexplained gentle decline
      (finding 25(d): 17.00/14.90/14.05% at 200,000, mean 15.32%, which is 0.93 points UNDER the
      16.25% "always guess space" bar at that length).
    - **What that means for this item concretely.** Re-tuning a mixed population at 15,000 and
@@ -2862,25 +2904,30 @@ THE TASK.
      200,000 characters on three seeds and report both horizons, so the item cannot ship a value
      that wins at 15,000 and loses past the peak. Costing that is a handful of ~42-minute trials,
      not weeks.
-   - **The bar in step 4a is length-dependent** and step 4a does not say so: "always guess space"
+   - **The bar in step 6a is length-dependent** and step 6a does not say so: "always guess space"
      is 16.56% at 15,000 and **16.25%** at 200,000, and the trigram baseline moves the other way
      (28.40% -> 29.20%). Quote the horizon next to whichever bar you use.
    - **Do not reuse any figure measured with `rewardSignal: "correctness"` as a reference here**
      without re-deriving it: reward-on configurations DO prune inside 15,000 characters, so unlike
      B5's winner they were measured on the corrupt index (finding 25(g)).
 
-5. Watch for a genuinely NEW result, not just a worse number: does E/I balance now produce sparsity
-   without the k-WTA doing the work? docs/prior-art.md §13.13(a) notes that avalanche-size distributions are
-   the measurable signature of the critical regime docs/prior-art.md §2.4 invokes — that is a candidate new VAL test
-   and a much more interesting outcome than an accuracy delta.
+7. Watch for a genuinely NEW result, not just a worse number: does E/I balance now produce sparsity
+   without the k-WTA doing the work? Measure it, do not assume it: once the network is balanced, run
+   with and without the k-WTA (NET-2) and report sparsity and VAL-4 both ways. CHANGED [2026-10-02 19:01 +0100]:
+   use D3's balance measure (`crates/brain-core/tests/ei_balance.rs`: mean ISI CV > 0.5 and Golomb &
+   Hansel's chi < 0.3, AND the excitatory rate at the rule's predicted fixed point; decision 44,
+   call 4). AI alone is not enough: inhibition frozen at the clamp was AI at a seventh of the target
+   (finding 40). Avalanche-size distributions (docs/prior-art.md §13.13(a)) need far more cells than
+   D3's 500 or VAL-4's 800 to fit a power law, so they are an option only at a larger scale.
 
 HONEST REPORTING IS THE DELIVERABLE. docs/findings.md findings 8, 9 and 10 are all recorded negative
 results, in detail, with the conditions that produced them. If 80:20 makes VAL-4 worse, that is the
 finding — record it in that style, including per-seed ranges, and do not quietly revert to 1.0
 without writing down what happened.
 
-DONE WHEN. A mixed population runs stably, VAL-4 is re-measured on the 5-seed protocol with the full
-search recorded, docs/history.md's phase status and docs/findings.md carry the result whatever it is, and NEU-4
+DONE WHEN. The bridge exists and is bit-identical when unset (step 1), the per-class rule choice is
+the user's and is recorded in docs/decisions.md (step 2), a mixed population runs stably, VAL-4 is
+re-measured on the 5-seed protocol with the full search recorded, docs/history.md's phase status and docs/findings.md carry the result whatever it is, and NEU-4
 finally has an experiment behind it.
 ```
 
@@ -3845,7 +3892,7 @@ demonstrated and ablated, and docs/prior-art.md §13.13 records a new subsection
 | C18 | done | 2026-09-30 10:31 +0100 | ~9 h 15 (10:31 -> 19:45 +0100, from `date`); the fast tier ran at 11:00 and 19:22, the slow tier 19:24 -> 19:41 | Four commits, one per step. **(1)** Every spec declares its `**Citation prefix:**`. **(2)** The checker parses all 12 specs, keyed `<PREFIX>-N.M`: test regions only (the shared `scripts/source-regions.mjs`), per-spec `DEFERRED`, retired forms fail, `KNOWN_COLLISIONS` gone. On unchanged code it reported **472 of 488 uncited**, where the old checker had said OK. **(3)** Retrofit by hand: 741 `Requirement N.M` sites plus **131 in a second form (`Requirement N AC M`) the old checker never saw**. 10 borrowed-convention sites became prose. One site stays bare, listed with its reason. **(4)** All 246 remaining gaps decided: 95 citations fixed at real tests; **10 new tests** (P6-7.3 and P03-1.6 both checked by ablation); 111 deferred with reasons, **13 of them unmet as specified**. Result: **361 cited by a test, 127 deferred, 0 uncited.** Decision 39, finding 35 follow-up, docs/appendix/find-35-c18.md, and a new §4 house rule. **Tests:** fast tier green (272 TS); slow tier green; golden rasters matched, none regenerated; `the_traceability_checker_itself_runs...` passes. | Appended [2026-09-30 08:59 +0100] at the user's request, from C10 issue 2 (docs/findings.md finding 35). Gates nothing. Citation form decided before start [2026-09-30 10:16 +0100]: per-spec ID tags `<PREFIX>-N.M` (docs/decisions.md decision 38). |
 | D1 | done | 2026-10-02 02:09 +0100 | ~1 h 23 min (00:46 -> 02:09 +0100, from `date`). Pieces: context reading and step 1's plumbing plus `tests/polarity_reach.rs`, mutation-checked, by 00:51; the defect's direction measured and the E/I design call put to the user at 00:51, answered (A) shortly after; rescale fix and three mutation-checked tests, fast tier green, by ~01:30; slow tier 01:30-02:08 (38 min) with the write-up alongside | **`polarity` reaches every plasticity call site, and homeostatic scaling counts and scales excitatory inputs only.** `NeuronLocal::polarity` is built in `scheduler.rs`'s `neuron_local` and `partition.rs`'s boundary publish. The boundary table is seeded with real polarities before the first step, and a missing entry panics instead of silently reading as excitatory. `tests/polarity_reach.rs` covers all four routes, both cross-partition ones included, at 1 and 2 threads. `HomeostaticScaling::rescale_one_with` filters to excitatory sources, so the online sweep and consolidation's downscale both get it (user's call on Ibata 2008 / Hartman 2006; decision 42, prior-art §13.13(a), open question 12). **Finding 11(c)'s direction was wrong:** inhibition scaled excitation DOWN (0.4 -> 0.267, measured), not up; corrected in place. STDP unchanged (D2/D3). All-excitatory behaviour bit-identical: fast tier (279 TS) and slow tier green, all four golden rasters unchanged. No VAL-4 number moves. `history.md` untouched (no phase status changed). D2's prompt gained a READ FIRST note. |
 | D2 | done | 2026-10-02 13:03 +0100 | ~35 min (12:28 -> 13:03 +0100, from `date`). Pieces: context and primary-source checks (Vogels 2011, D'Amour & Froemke 2015, Haas 2006, Woodin 2003, by DOI through Europe PMC) by ~12:33; rule and kernel unit tests by ~12:35; closed-loop fixture, parameter exploration, a 600,000-tick check that corrected one overclaim, and three mutation checks by ~12:41; fast tier (one clippy fix, re-run) and slow tier (12:46-13:02, 16 min) with the write-up alongside | **`InhibitoryStdp` exists and bounds inhibitory weight on its own on a single-cell fixture; nothing dispatches it onto inhibitory synapses yet (D3).** `plasticity/inhibitory.rs`: Vogels et al. (2011)'s symmetric rule (both spike orders potentiate, `exp(- | dt | /tau)`; constant `eta*alpha`depression per presynaptic spike,`alpha = 2*rho0*tau`), its own `PlasticityRule`composing through`RuleChain`, nearest-neighbour paired (the documented divergence from Vogels' all-to-all traces, with its closed form), two-factor, `weight`only, polarity-agnostic. Unit tests against the published curve (symmetric exponential exactly, equal potentiation for both orders,`eta*alpha`per pre spike, open-loop drift changing sign at the target on three seeds within 15% of the exact expectation).`tests/inhibitory_balance.rs`(finding 39,`docs/appendix/find-39.md`): from weak and strong starts the weight settles at 0.690 and the cell at 0.0121/tick (predicted 0.0117, target 0.010) on 10/10 seeds; alpha = 0 runs to the clamp (VAL-9); the excitatory kernel on the same synapses settles where its own a-/a+ ratio puts it, 3.6-5.4x the target rate. The first draft of that last test claimed the excitatory kernel strips inhibition from either start; a 10x longer run showed the strong start was still falling, so the test now asserts only what holds at its own length. Every test mutation-checked (alpha dropped, pre side depressing, post side removed). Decision 43 (four calls, the kernel's dissent), prior-art §13.13(a), four new bib entries, LRN-2 status, finding 11(c) STDP half, open question 12 **narrowed** (not closed: no dispatch, one cell, Hartman's network-level control unaddressed). Fast tier (279 TS) and slow tier green, all four golden rasters unchanged. No VAL-4 number moves. `history.md` untouched (no phase status changed). D3's prompt gained a READ FIRST note. Also added the at-a-glance rows decisions 41-42 and open question 12 that earlier items had missed. |
-| D3 | not started |  |  | Split out of D2 on 2026-09-20 so every item fits one session; D2's prompt carries the shared context and this row's prompt states the sub-scope. The ablation needs a network that actually contains inhibitory neurons, plus a chosen measurable for "balance" (Vogels' asynchronous irregular state, or Beggs & Plenz avalanche exponents — docs/prior-art.md §13.13(a) names both) and multi-seed evidence per VAL-6. |
+| D3 | done | 2026-10-02 14:42 +0100 | ~40 min (14:02 -> 14:42 +0100, from `date`). Pieces: context reading and a check of Vogels' network (only I->E plastic, via the Brian 2 reference implementation) by ~14:05; `PolarityDispatch` and its unit tests by ~14:07; network fixture explored in release (three wirings, ~1 s per 30,000-tick run) and the ten-seed report plus the 150,000-tick slow assertion by ~14:16; three mutation checks, write-up, fast tier (279 TS) and slow tier (14:22-14:42, ~20 min) alongside | **Plasticity is dispatched by synapse class, and Vogels' rule on I->E alone establishes E/I balance in a recurrent 80:20 network.** `plasticity/polarity.rs`'s `PolarityDispatch` is a `PlasticityRule` keyed by `SynapseClass` (E->E, E->I, I->E, I->I, read from both neurons' polarity); an unrouted class is not plastic, and routing a class twice is refused. It is keyed on the class rather than the presynaptic sign because Vogels' network makes only I->E plastic and E->I has its own plasticity (Lamsa 2007). `tests/ei_balance.rs` (finding 40, `docs/appendix/find-40.md`): 400 E / 100 I LIF cells, recurrent, no k-WTA. Dispatched, the rule settles I->E at the same weight from zero and from the clamp (0.524 / 0.531 at 150,000 ticks) with the network asynchronous, irregular and at 0.0053/tick (predicted 0.0060), 10/10 seeds. Frozen I->E is never balanced: synchronous and regular at 6.3x target from zero, asynchronous but at a seventh of target from the clamp, so **AI alone does not discriminate**, and balance is defined as AI plus the predicted rate (decision 44, call 4). The excitatory kernel on I->E regulates nothing; undispatched, the rule drives E->E to the clamp. SYN-4's weight clamp forced I->E connectivity up to 0.4. Every test mutation-checked. Decision 44, prior-art §13.13(a) (four new bib entries), LRN-2 status, finding 11(c)/(d) amended, open question 12 **closed**. Fast and slow tiers green, all four golden rasters unchanged. No VAL-4 number moves. `history.md` untouched (no phase status changed). D4's prompt gained a READ FIRST note: the per-class rule choice is a biology call for the user, and there is no FFI surface yet. |
 | D4 | not started |  |  | tuning-bound |
 | E1 | not started |  |  |  |
 | E2 | not started |  |  | Split out of E1 on 2026-09-20 so every item fits one session; E1's prompt carries the shared context and this row's prompt states the sub-scope. A test that re-opens the store in the _same_ process proves the file format, not invariant 9 — this row exists because that distinction is easy to lose. Must also assert growth after restore (invariant 10), which is exactly the class of bug A4 found hiding behind a passing round-trip. |

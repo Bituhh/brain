@@ -36,9 +36,10 @@
 //!
 //! What this rule does **not** do, and why:
 //!
-//! - It does not read `polarity`. Applying it only to inhibitory synapses is
-//!   PLAN.md D3's dispatch; until then a chain that holds it applies it to
-//!   every synapse it is handed, exactly like `ThreeFactorStdp`.
+//! - It does not read `polarity`. A chain that holds it bare applies it to
+//!   every synapse it is handed, exactly like `ThreeFactorStdp`; applying it
+//!   only to inhibitory synapses is `super::polarity::PolarityDispatch`'s
+//!   job (PLAN.md D3), which routes by synapse class.
 //! - It does not touch `eligibility`, `eligibility_updated_at` or `permanence`,
 //!   and reads no modulator. Vogels' rule is two-factor; a third factor on
 //!   inhibitory plasticity has evidence of its own (e.g. D'Amour & Froemke

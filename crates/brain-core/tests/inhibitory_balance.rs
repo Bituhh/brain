@@ -23,7 +23,8 @@
 //!   the term the homeostasis rests on;
 //! - **the excitatory kernel**: `ThreeFactorStdp` with the modulator held at
 //!   1.0, which is what an inhibitory synapse in a chain holding only that rule
-//!   gets, because nothing dispatches on polarity until PLAN.md D3.
+//!   gets unless a `PolarityDispatch` routes inhibitory synapses elsewhere
+//!   (PLAN.md D3; `ei_balance.rs` measures the same contrast in a network).
 //!
 //! What "settles" means here: from both starts the weight ends in the same
 //! place, and the cell's rate ends near a value the rule's own parameters
@@ -190,7 +191,7 @@ fn without_the_depression_term_inhibitory_weight_runs_to_the_clamp() {
 }
 
 /// What an inhibitory synapse gets from a chain holding only the excitatory
-/// kernel, until D3 dispatches on polarity. It regulates toward no rate:
+/// kernel (no `PolarityDispatch`, PLAN.md D3). It regulates toward no rate:
 /// depression-dominated (a-/a+ = 1.2, LRN-2's usual shape), it pushes even a
 /// weak inhibitory start weaker and leaves the cell at over four times the
 /// target, while from a strong start it is still falling at the end of the
