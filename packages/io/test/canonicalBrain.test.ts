@@ -6,7 +6,7 @@
 // assert anything the known, open defects (docs/findings.md findings 11-14)
 // would fail -- e.g. no claim about E/I balance or about growth/structural
 // plasticity *improving* anything, since neither is measured here. The
-// point is a fixture later items (A2, B1, C1, C2, D1-D4, ...) tighten as
+// point is a fixture later items (A2, B1, C1, C2, D1-D7, ...) tighten as
 // each fix lands, per this constructor's own module doc.
 
 import { test } from 'node:test';

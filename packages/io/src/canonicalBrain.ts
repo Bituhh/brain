@@ -20,7 +20,7 @@
 //    currently counts as evidence *for* a dendritic prediction) and a
 //    homeostatic-scaling bug (mixing excitatory and inhibitory weight
 //    into one renormalised total). PLAN.md's dependency chart gates a
-//    genuine 80:20 population behind A2 (the segment-sign fix) and D1-D4
+//    genuine 80:20 population behind A2 (the segment-sign fix) and D1-D7
 //    (E/I-aware rescaling, inhibitory STDP, then a dedicated tuning pass)
 //    in that order -- turning it on here first would just rediscover item
 //    11 by accident instead of by A2's own dedicated design, and would
